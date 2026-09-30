@@ -4,10 +4,23 @@ open Xunit
 open FSharp.Azure.Quantum.Quantum.QuantumBinPackingSolver
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 /// Helper to create local backend for tests
 let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
     LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+/// Solves with the default config and the given final shot count through the async API
+/// (what the deprecated synchronous solve wrapper does).
+let private solveDefaultAsync backend problem shots =
+    solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with
+            FinalShots = shots
+        }
+        CancellationToken.None
 
 // ============================================================================
 // QUBO ENCODING TESTS
@@ -151,13 +164,15 @@ module ValidationTests =
         | _ -> Assert.Fail("Should reject oversized items")
 
     [<Fact>]
-    let ``solveWithConfig rejects empty items`` () =
-        let backend = createLocalBackend ()
-        let problem: Problem = { Items = []; BinCapacity = 5.0 }
+    let ``solveWithConfig rejects empty items`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let problem: Problem = { Items = []; BinCapacity = 5.0 }
 
-        match solveWithConfig backend problem defaultConfig with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("items", field)
-        | _ -> Assert.Fail("Should reject empty items")
+            match! solveWithConfigAsync backend problem defaultConfig CancellationToken.None with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("items", field)
+            | _ -> Assert.Fail("Should reject empty items")
+        }
 
 // ============================================================================
 // QUBIT ESTIMATION TESTS
@@ -321,101 +336,115 @@ module DecomposeRecombineTests =
 module QuantumSolverTests =
 
     [<Fact>]
-    let ``solve returns Ok for single item`` () =
-        let backend = createLocalBackend ()
+    let ``solve returns Ok for single item`` () : Task =
+        task {
+            let backend = createLocalBackend ()
 
-        let problem: Problem =
-            {
-                Items = [ { Id = "A"; Size = 3.0 } ]
-                BinCapacity = 5.0
-            }
+            let problem: Problem =
+                {
+                    Items = [ { Id = "A"; Size = 3.0 } ]
+                    BinCapacity = 5.0
+                }
 
-        (solve backend problem 100)
-        |> Result.map (fun solution -> Assert.Equal("Local Simulator", solution.BackendName))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+            let! result = solveDefaultAsync backend problem 100
 
-    [<Fact>]
-    let ``solve with constraint repair produces valid packing`` () =
-        let backend = createLocalBackend ()
-
-        let problem: Problem =
-            {
-                Items = [ { Id = "A"; Size = 3.0 }; { Id = "B"; Size = 3.0 } ]
-                BinCapacity = 5.0
-            }
-
-        let config =
-            { defaultConfig with
-                EnableConstraintRepair = true
-            }
-
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve with repair failed: {err}")
-        | Ok solution ->
-            // After repair, solution should be valid
-            Assert.True(solution.IsValid, "Repaired solution should be valid")
-
-            Assert.True(
-                solution.Assignments.Length = 2,
-                $"All items should be assigned, got {solution.Assignments.Length}"
-            )
+            result
+            |> Result.map (fun solution -> Assert.Equal("Local Simulator", solution.BackendName))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+        }
 
     [<Fact>]
-    let ``solveWithConfig uses config shots`` () =
-        let backend = createLocalBackend ()
+    let ``solve with constraint repair produces valid packing`` () : Task =
+        task {
+            let backend = createLocalBackend ()
 
-        let problem: Problem =
-            {
-                Items = [ { Id = "A"; Size = 1.0 } ]
-                BinCapacity = 5.0
-            }
+            let problem: Problem =
+                {
+                    Items = [ { Id = "A"; Size = 3.0 }; { Id = "B"; Size = 3.0 } ]
+                    BinCapacity = 5.0
+                }
 
-        let config = { defaultConfig with FinalShots = 42 }
+            let config =
+                { defaultConfig with
+                    EnableConstraintRepair = true
+                }
 
-        (solveWithConfig backend problem config)
-        |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve with repair failed: {err}")
+            | Ok solution ->
+                // After repair, solution should be valid
+                Assert.True(solution.IsValid, "Repaired solution should be valid")
 
-    [<Fact>]
-    let ``solve with items fitting in one bin`` () =
-        let backend = createLocalBackend ()
-
-        let problem: Problem =
-            {
-                Items = [ { Id = "A"; Size = 1.0 }; { Id = "B"; Size = 2.0 } ]
-                BinCapacity = 10.0
-            }
-
-        let config =
-            { defaultConfig with
-                EnableConstraintRepair = true
-            }
-
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Solution should be valid")
-            // Both items fit in one bin
-            Assert.True(solution.BinsUsed <= 1, $"Items should fit in 1 bin, got {solution.BinsUsed}")
+                Assert.True(
+                    solution.Assignments.Length = 2,
+                    $"All items should be assigned, got {solution.Assignments.Length}"
+                )
+        }
 
     [<Fact>]
-    let ``solve with items requiring separate bins`` () =
-        let backend = createLocalBackend ()
+    let ``solveWithConfig uses config shots`` () : Task =
+        task {
+            let backend = createLocalBackend ()
 
-        let problem: Problem =
-            {
-                Items = [ { Id = "A"; Size = 5.0 }; { Id = "B"; Size = 5.0 } ]
-                BinCapacity = 5.0
-            }
+            let problem: Problem =
+                {
+                    Items = [ { Id = "A"; Size = 1.0 } ]
+                    BinCapacity = 5.0
+                }
 
-        let config =
-            { defaultConfig with
-                EnableConstraintRepair = true
-            }
+            let config = { defaultConfig with FinalShots = 42 }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            // After repair, each item needs its own bin
-            if solution.IsValid then
-                Assert.True(solution.BinsUsed >= 2, $"Each item needs its own bin, got {solution.BinsUsed}")
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
+        }
+
+    [<Fact>]
+    let ``solve with items fitting in one bin`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+
+            let problem: Problem =
+                {
+                    Items = [ { Id = "A"; Size = 1.0 }; { Id = "B"; Size = 2.0 } ]
+                    BinCapacity = 10.0
+                }
+
+            let config =
+                { defaultConfig with
+                    EnableConstraintRepair = true
+                }
+
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.IsValid, "Solution should be valid")
+                // Both items fit in one bin
+                Assert.True(solution.BinsUsed <= 1, $"Items should fit in 1 bin, got {solution.BinsUsed}")
+        }
+
+    [<Fact>]
+    let ``solve with items requiring separate bins`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+
+            let problem: Problem =
+                {
+                    Items = [ { Id = "A"; Size = 5.0 }; { Id = "B"; Size = 5.0 } ]
+                    BinCapacity = 5.0
+                }
+
+            let config =
+                { defaultConfig with
+                    EnableConstraintRepair = true
+                }
+
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                // After repair, each item needs its own bin
+                if solution.IsValid then
+                    Assert.True(solution.BinsUsed >= 2, $"Each item needs its own bin, got {solution.BinsUsed}")
+        }

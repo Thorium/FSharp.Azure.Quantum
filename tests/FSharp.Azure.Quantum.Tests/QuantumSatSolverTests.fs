@@ -4,10 +4,23 @@ open Xunit
 open FSharp.Azure.Quantum.Quantum.QuantumSatSolver
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 /// Helper to create local backend for tests
 let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
     LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+/// Solves with the default config and the given final shot count through the async API
+/// (what the deprecated synchronous solve wrapper does).
+let private solveDefaultAsync backend problem shots =
+    solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with
+            FinalShots = shots
+        }
+        CancellationToken.None
 
 /// Helper to create a positive literal
 let private pos (v: int) : Literal = { Variable = v; IsNegated = false }
@@ -279,49 +292,55 @@ module QubitEstimationTests =
 module ConstraintRepairTests =
 
     [<Fact>]
-    let ``solve with repair satisfies all clauses on simple instance`` () =
-        // (x0 OR x1) AND (NOT x0 OR x1) AND (x0 OR NOT x1)
-        // Satisfying: x0=1, x1=1
-        let problem: Problem =
-            {
-                NumVariables = 2
-                Clauses = [ clause [ pos 0; pos 1 ]; clause [ neg 0; pos 1 ]; clause [ pos 0; neg 1 ] ]
-            }
+    let ``solve with repair satisfies all clauses on simple instance`` () : Task =
+        task {
+            // (x0 OR x1) AND (NOT x0 OR x1) AND (x0 OR NOT x1)
+            // Satisfying: x0=1, x1=1
+            let problem: Problem =
+                {
+                    NumVariables = 2
+                    Clauses = [ clause [ pos 0; pos 1 ]; clause [ neg 0; pos 1 ]; clause [ pos 0; neg 1 ] ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            // After repair, should satisfy at least 2 of 3 clauses
-            Assert.True(
-                solution.SatisfiedClauses >= 2,
-                $"Should satisfy at least 2 clauses, got {solution.SatisfiedClauses}"
-            )
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                // After repair, should satisfy at least 2 of 3 clauses
+                Assert.True(
+                    solution.SatisfiedClauses >= 2,
+                    $"Should satisfy at least 2 clauses, got {solution.SatisfiedClauses}"
+                )
+        }
 
     [<Fact>]
-    let ``solve without repair returns raw QAOA result`` () =
-        let problem: Problem =
-            {
-                NumVariables = 2
-                Clauses = [ clause [ pos 0; pos 1 ]; clause [ neg 0; neg 1 ] ]
-            }
+    let ``solve without repair returns raw QAOA result`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    NumVariables = 2
+                    Clauses = [ clause [ pos 0; pos 1 ]; clause [ neg 0; neg 1 ] ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = false
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = false
+                }
 
-        (solveWithConfig backend problem config)
-        |> Result.map (fun solution -> Assert.False(solution.WasRepaired))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.False(solution.WasRepaired))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+        }
 
 // ============================================================================
 // BACKEND INTEGRATION TESTS
@@ -330,114 +349,128 @@ module ConstraintRepairTests =
 module BackendIntegrationTests =
 
     [<Fact>]
-    let ``solve returns solution with backend info`` () =
-        let problem: Problem =
-            {
-                NumVariables = 2
-                Clauses = [ clause [ pos 0; pos 1 ]; clause [ neg 0; pos 1 ] ]
-            }
+    let ``solve returns solution with backend info`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    NumVariables = 2
+                    Clauses = [ clause [ pos 0; pos 1 ]; clause [ neg 0; pos 1 ] ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        match solve backend problem 100 with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.False(System.String.IsNullOrEmpty(solution.BackendName))
-            Assert.Equal(100, solution.NumShots)
-
-    [<Fact>]
-    let ``solveWithConfig returns optimized parameters`` () =
-        let problem: Problem =
-            {
-                NumVariables = 2
-                Clauses = [ clause [ pos 0; pos 1 ] ]
-            }
-
-        let backend = createLocalBackend ()
-
-        let config =
-            { fastConfig with
-                EnableOptimization = true
-            }
-
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.OptimizedParameters.IsSome)
-            Assert.True(solution.OptimizationConverged.IsSome)
+            match! solveDefaultAsync backend problem 100 with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.False(System.String.IsNullOrEmpty(solution.BackendName))
+                Assert.Equal(100, solution.NumShots)
+        }
 
     [<Fact>]
-    let ``solve validates empty clauses`` () =
-        let problem: Problem = { NumVariables = 2; Clauses = [] }
-        let backend = createLocalBackend ()
+    let ``solveWithConfig returns optimized parameters`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    NumVariables = 2
+                    Clauses = [ clause [ pos 0; pos 1 ] ]
+                }
 
-        match solve backend problem 100 with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("clauses", field)
-        | _ -> Assert.Fail("Expected validation error")
+            let backend = createLocalBackend ()
 
-    [<Fact>]
-    let ``solve validates zero variables`` () =
-        let problem: Problem =
-            {
-                NumVariables = 0
-                Clauses = [ clause [ pos 0 ] ]
-            }
+            let config =
+                { fastConfig with
+                    EnableOptimization = true
+                }
 
-        let backend = createLocalBackend ()
-
-        match solve backend problem 100 with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("numVariables", field)
-        | _ -> Assert.Fail("Expected validation error")
-
-    [<Fact>]
-    let ``solve validates variable index out of range`` () =
-        let problem: Problem =
-            {
-                NumVariables = 2
-                Clauses = [ clause [ pos 0; pos 3 ] ]
-            }
-
-        let backend = createLocalBackend ()
-
-        match solve backend problem 100 with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("variable", field)
-        | _ -> Assert.Fail("Expected validation error")
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.OptimizedParameters.IsSome)
+                Assert.True(solution.OptimizationConverged.IsSome)
+        }
 
     [<Fact>]
-    let ``solve validates empty clause in list`` () =
-        let problem: Problem =
-            {
-                NumVariables = 2
-                Clauses = [ clause [ pos 0 ]; clause [] ]
-            }
+    let ``solve validates empty clauses`` () : Task =
+        task {
+            let problem: Problem = { NumVariables = 2; Clauses = [] }
+            let backend = createLocalBackend ()
 
-        let backend = createLocalBackend ()
-
-        match solve backend problem 100 with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("clause", field)
-        | _ -> Assert.Fail("Expected validation error")
+            match! solveDefaultAsync backend problem 100 with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("clauses", field)
+            | _ -> Assert.Fail("Expected validation error")
+        }
 
     [<Fact>]
-    let ``solve produces valid result on small satisfiable instance`` () =
-        // (x0) AND (x1): satisfiable by x0=1, x1=1
-        let problem: Problem =
-            {
-                NumVariables = 2
-                Clauses = [ clause [ pos 0 ]; clause [ pos 1 ] ]
-            }
+    let ``solve validates zero variables`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    NumVariables = 0
+                    Clauses = [ clause [ pos 0 ] ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-            }
+            match! solveDefaultAsync backend problem 100 with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("numVariables", field)
+            | _ -> Assert.Fail("Expected validation error")
+        }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.Equal(2, solution.TotalClauses)
-            Assert.True(solution.Assignment.Length = 2)
+    [<Fact>]
+    let ``solve validates variable index out of range`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    NumVariables = 2
+                    Clauses = [ clause [ pos 0; pos 3 ] ]
+                }
+
+            let backend = createLocalBackend ()
+
+            match! solveDefaultAsync backend problem 100 with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("variable", field)
+            | _ -> Assert.Fail("Expected validation error")
+        }
+
+    [<Fact>]
+    let ``solve validates empty clause in list`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    NumVariables = 2
+                    Clauses = [ clause [ pos 0 ]; clause [] ]
+                }
+
+            let backend = createLocalBackend ()
+
+            match! solveDefaultAsync backend problem 100 with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("clause", field)
+            | _ -> Assert.Fail("Expected validation error")
+        }
+
+    [<Fact>]
+    let ``solve produces valid result on small satisfiable instance`` () : Task =
+        task {
+            // (x0) AND (x1): satisfiable by x0=1, x1=1
+            let problem: Problem =
+                {
+                    NumVariables = 2
+                    Clauses = [ clause [ pos 0 ]; clause [ pos 1 ] ]
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                }
+
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.Equal(2, solution.TotalClauses)
+                Assert.True(solution.Assignment.Length = 2)
+        }
 
 // ============================================================================
 // DECOMPOSE / RECOMBINE TESTS
@@ -517,50 +550,54 @@ module DecomposeRecombineTests =
 module ClauseEvaluationTests =
 
     [<Fact>]
-    let ``solve correctly counts satisfied clauses`` () =
-        // Create a problem where we know the answer
-        // (x0) AND (NOT x0) - impossible to satisfy both
-        let problem: Problem =
-            {
-                NumVariables = 1
-                Clauses = [ clause [ pos 0 ]; clause [ neg 0 ] ]
-            }
+    let ``solve correctly counts satisfied clauses`` () : Task =
+        task {
+            // Create a problem where we know the answer
+            // (x0) AND (NOT x0) - impossible to satisfy both
+            let problem: Problem =
+                {
+                    NumVariables = 1
+                    Clauses = [ clause [ pos 0 ]; clause [ neg 0 ] ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = false
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = false
+                }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            // Exactly one clause can be satisfied (contradictory)
-            Assert.Equal(1, solution.SatisfiedClauses)
-            Assert.False(solution.AllSatisfied)
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                // Exactly one clause can be satisfied (contradictory)
+                Assert.Equal(1, solution.SatisfiedClauses)
+                Assert.False(solution.AllSatisfied)
+        }
 
     [<Fact>]
-    let ``solve on tautology finds all-satisfying assignment`` () =
-        // (x0 OR NOT x0): always true regardless of assignment
-        let problem: Problem =
-            {
-                NumVariables = 1
-                Clauses = [ clause [ pos 0; neg 0 ] ]
-            }
+    let ``solve on tautology finds all-satisfying assignment`` () : Task =
+        task {
+            // (x0 OR NOT x0): always true regardless of assignment
+            let problem: Problem =
+                {
+                    NumVariables = 1
+                    Clauses = [ clause [ pos 0; neg 0 ] ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.Equal(1, solution.SatisfiedClauses)
-            Assert.True(solution.AllSatisfied)
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.Equal(1, solution.SatisfiedClauses)
+                Assert.True(solution.AllSatisfied)
+        }
 
 // ============================================================================
 // NEGATION HANDLING TESTS

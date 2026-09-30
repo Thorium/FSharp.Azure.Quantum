@@ -4,10 +4,23 @@ open Xunit
 open FSharp.Azure.Quantum.Quantum.QuantumCliqueSolver
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 /// Helper to create local backend for tests
 let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
     LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+/// Solves with the default config and the given final shot count through the async API
+/// (what the deprecated synchronous solve wrapper does).
+let private solveDefaultAsync backend problem shots =
+    solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with
+            FinalShots = shots
+        }
+        CancellationToken.None
 
 // ============================================================================
 // QUBO ENCODING TESTS
@@ -276,96 +289,102 @@ module RoundTripTests =
 module ConstraintRepairTests =
 
     [<Fact>]
-    let ``repair produces valid clique on path graph`` () =
-        // Arrange: path A-B-C. Max clique = any edge pair {A,B} or {B,C}
-        let problem: Problem =
-            {
-                Vertices =
-                    [
-                        { Id = "A"; Weight = 1.0 }
-                        { Id = "B"; Weight = 1.0 }
-                        { Id = "C"; Weight = 1.0 }
-                    ]
-                Edges = [ (0, 1); (1, 2) ]
-            }
+    let ``repair produces valid clique on path graph`` () : Task =
+        task {
+            // Arrange: path A-B-C. Max clique = any edge pair {A,B} or {B,C}
+            let problem: Problem =
+                {
+                    Vertices =
+                        [
+                            { Id = "A"; Weight = 1.0 }
+                            { Id = "B"; Weight = 1.0 }
+                            { Id = "C"; Weight = 1.0 }
+                        ]
+                    Edges = [ (0, 1); (1, 2) ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 50
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 50
+                }
 
-        let result = solveWithConfig backend problem config
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
 
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(
-                solution.IsValid,
-                $"Solution should be valid clique. Size={solution.CliqueSize}, Repaired={solution.WasRepaired}"
-            )
-
-    [<Fact>]
-    let ``repair preserves valid clique`` () =
-        // Arrange: K3 (triangle), QAOA might already find valid clique
-        let problem: Problem =
-            {
-                Vertices =
-                    [
-                        { Id = "A"; Weight = 1.0 }
-                        { Id = "B"; Weight = 1.0 }
-                        { Id = "C"; Weight = 1.0 }
-                    ]
-                Edges = [ (0, 1); (1, 2); (0, 2) ]
-            }
-
-        let backend = createLocalBackend ()
-
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 50
-            }
-
-        let result = solveWithConfig backend problem config
-
-        result
-        |> Result.map (fun solution -> Assert.True(solution.IsValid))
-        |> Result.defaultWith (fun err -> Assert.Fail($"Solve failed: {err}"))
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(
+                    solution.IsValid,
+                    $"Solution should be valid clique. Size={solution.CliqueSize}, Repaired={solution.WasRepaired}"
+                )
+        }
 
     [<Fact>]
-    let ``repair on disconnected graph produces valid clique`` () =
-        // Arrange: 4 isolated vertices (no edges). Max clique = 1
-        let problem: Problem =
-            {
-                Vertices =
-                    [
-                        { Id = "A"; Weight = 1.0 }
-                        { Id = "B"; Weight = 1.0 }
-                        { Id = "C"; Weight = 1.0 }
-                        { Id = "D"; Weight = 1.0 }
-                    ]
-                Edges = []
-            }
+    let ``repair preserves valid clique`` () : Task =
+        task {
+            // Arrange: K3 (triangle), QAOA might already find valid clique
+            let problem: Problem =
+                {
+                    Vertices =
+                        [
+                            { Id = "A"; Weight = 1.0 }
+                            { Id = "B"; Weight = 1.0 }
+                            { Id = "C"; Weight = 1.0 }
+                        ]
+                    Edges = [ (0, 1); (1, 2); (0, 2) ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 50
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 50
+                }
 
-        let result = solveWithConfig backend problem config
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
 
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid)
-            // No edges means max clique is 1
-            Assert.True(solution.CliqueSize <= 1, $"Disconnected graph max clique is 1, got {solution.CliqueSize}")
+            result
+            |> Result.map (fun solution -> Assert.True(solution.IsValid))
+            |> Result.defaultWith (fun err -> Assert.Fail($"Solve failed: {err}"))
+        }
+
+    [<Fact>]
+    let ``repair on disconnected graph produces valid clique`` () : Task =
+        task {
+            // Arrange: 4 isolated vertices (no edges). Max clique = 1
+            let problem: Problem =
+                {
+                    Vertices =
+                        [
+                            { Id = "A"; Weight = 1.0 }
+                            { Id = "B"; Weight = 1.0 }
+                            { Id = "C"; Weight = 1.0 }
+                            { Id = "D"; Weight = 1.0 }
+                        ]
+                    Edges = []
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 50
+                }
+
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.IsValid)
+                // No edges means max clique is 1
+                Assert.True(solution.CliqueSize <= 1, $"Disconnected graph max clique is 1, got {solution.CliqueSize}")
+        }
 
 // ============================================================================
 // VALIDITY TESTS
@@ -444,165 +463,179 @@ module ValidityTests =
 module BackendIntegrationTests =
 
     [<Fact>]
-    let ``solve returns solution with backend info`` () =
-        let problem: Problem =
-            {
-                Vertices = [ { Id = "A"; Weight = 1.0 }; { Id = "B"; Weight = 1.0 } ]
-                Edges = [ (0, 1) ]
-            }
+    let ``solve returns solution with backend info`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    Vertices = [ { Id = "A"; Weight = 1.0 }; { Id = "B"; Weight = 1.0 } ]
+                    Edges = [ (0, 1) ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let result = solve backend problem 100
+            let! result = solveDefaultAsync backend problem 100
 
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.NotEmpty(solution.BackendName)
-            Assert.Equal(100, solution.NumShots)
-
-    [<Fact>]
-    let ``solveWithConfig returns optimized parameters`` () =
-        let problem: Problem =
-            {
-                Vertices =
-                    [
-                        { Id = "A"; Weight = 1.0 }
-                        { Id = "B"; Weight = 1.0 }
-                        { Id = "C"; Weight = 1.0 }
-                    ]
-                Edges = [ (0, 1); (1, 2); (0, 2) ]
-            }
-
-        let backend = createLocalBackend ()
-
-        let config =
-            { defaultConfig with
-                EnableOptimization = true
-                NumLayers = 2
-                OptimizationShots = 50
-                FinalShots = 100
-            }
-
-        let result = solveWithConfig backend problem config
-
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.OptimizedParameters.IsSome)
-
-            match solution.OptimizedParameters with
-            | Some parameters ->
-                Assert.Equal(2, parameters.Length)
-
-                for (gamma, beta) in parameters do
-                    Assert.True(gamma >= 0.0 && gamma <= System.Math.PI)
-                    Assert.True(beta >= 0.0 && beta <= System.Math.PI / 2.0)
-            | None -> Assert.Fail("OptimizedParameters should not be None")
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.NotEmpty(solution.BackendName)
+                Assert.Equal(100, solution.NumShots)
+        }
 
     [<Fact>]
-    let ``solve validates empty vertex list`` () =
-        let problem: Problem = { Vertices = []; Edges = [] }
-        let backend = createLocalBackend ()
+    let ``solveWithConfig returns optimized parameters`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    Vertices =
+                        [
+                            { Id = "A"; Weight = 1.0 }
+                            { Id = "B"; Weight = 1.0 }
+                            { Id = "C"; Weight = 1.0 }
+                        ]
+                    Edges = [ (0, 1); (1, 2); (0, 2) ]
+                }
 
-        let result = solve backend problem 100
+            let backend = createLocalBackend ()
 
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with empty vertices"))
-        |> Result.defaultWith (fun err -> Assert.Contains("no vertices", err.ToString().ToLower()))
+            let config =
+                { defaultConfig with
+                    EnableOptimization = true
+                    NumLayers = 2
+                    OptimizationShots = 50
+                    FinalShots = 100
+                }
 
-    [<Fact>]
-    let ``solve validates edge indices out of range`` () =
-        let problem: Problem =
-            {
-                Vertices = [ { Id = "A"; Weight = 1.0 } ]
-                Edges = [ (0, 3) ]
-            }
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
 
-        let backend = createLocalBackend ()
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.OptimizedParameters.IsSome)
 
-        let result = solve backend problem 100
+                match solution.OptimizedParameters with
+                | Some parameters ->
+                    Assert.Equal(2, parameters.Length)
 
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with invalid edge index"))
-        |> Result.defaultWith (fun err -> Assert.Contains("edge", err.ToString().ToLower()))
-
-    [<Fact>]
-    let ``solve rejects self-loop edges`` () =
-        let problem: Problem =
-            {
-                Vertices = [ { Id = "A"; Weight = 1.0 }; { Id = "B"; Weight = 1.0 } ]
-                Edges = [ (1, 1) ] // Self-loop
-            }
-
-        let backend = createLocalBackend ()
-
-        let result = solve backend problem 100
-
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with self-loop edge"))
-        |> Result.defaultWith (fun err -> Assert.Contains("self-loop", err.ToString().ToLower()))
+                    for (gamma, beta) in parameters do
+                        Assert.True(gamma >= 0.0 && gamma <= System.Math.PI)
+                        Assert.True(beta >= 0.0 && beta <= System.Math.PI / 2.0)
+                | None -> Assert.Fail("OptimizedParameters should not be None")
+        }
 
     [<Fact>]
-    let ``solve finds clique on small complete graph`` () =
-        // K3 + isolated vertex. Max clique = 3
-        let problem: Problem =
-            {
-                Vertices =
-                    [
-                        { Id = "A"; Weight = 1.0 }
-                        { Id = "B"; Weight = 1.0 }
-                        { Id = "C"; Weight = 1.0 }
-                        { Id = "D"; Weight = 1.0 }
-                    ]
-                Edges = [ (0, 1); (1, 2); (0, 2) ]
-            }
+    let ``solve validates empty vertex list`` () : Task =
+        task {
+            let problem: Problem = { Vertices = []; Edges = [] }
+            let backend = createLocalBackend ()
 
-        let backend = createLocalBackend ()
+            let! result = solveDefaultAsync backend problem 100
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 100
-            }
-
-        let result = solveWithConfig backend problem config
-
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(
-                solution.IsValid,
-                $"Clique must be valid. Vertices={solution.CliqueVertices |> List.map (fun v -> v.Id)}"
-            )
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with empty vertices"))
+            |> Result.defaultWith (fun err -> Assert.Contains("no vertices", err.ToString().ToLower()))
+        }
 
     [<Fact>]
-    let ``solve handles duplicate edges gracefully`` () =
-        // Duplicate and bidirectional edges should not cause errors
-        let problem: Problem =
-            {
-                Vertices =
-                    [
-                        { Id = "A"; Weight = 1.0 }
-                        { Id = "B"; Weight = 1.0 }
-                        { Id = "C"; Weight = 1.0 }
-                    ]
-                Edges = [ (0, 1); (0, 1); (1, 0); (1, 2); (0, 2) ]
-            }
+    let ``solve validates edge indices out of range`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    Vertices = [ { Id = "A"; Weight = 1.0 } ]
+                    Edges = [ (0, 3) ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 50
-            }
+            let! result = solveDefaultAsync backend problem 100
 
-        let result = solveWithConfig backend problem config
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with invalid edge index"))
+            |> Result.defaultWith (fun err -> Assert.Contains("edge", err.ToString().ToLower()))
+        }
 
-        result
-        |> Result.map (fun solution -> Assert.True(solution.IsValid))
-        |> Result.defaultWith (fun err -> Assert.Fail($"Solve failed: {err}"))
+    [<Fact>]
+    let ``solve rejects self-loop edges`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    Vertices = [ { Id = "A"; Weight = 1.0 }; { Id = "B"; Weight = 1.0 } ]
+                    Edges = [ (1, 1) ] // Self-loop
+                }
+
+            let backend = createLocalBackend ()
+
+            let! result = solveDefaultAsync backend problem 100
+
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with self-loop edge"))
+            |> Result.defaultWith (fun err -> Assert.Contains("self-loop", err.ToString().ToLower()))
+        }
+
+    [<Fact>]
+    let ``solve finds clique on small complete graph`` () : Task =
+        task {
+            // K3 + isolated vertex. Max clique = 3
+            let problem: Problem =
+                {
+                    Vertices =
+                        [
+                            { Id = "A"; Weight = 1.0 }
+                            { Id = "B"; Weight = 1.0 }
+                            { Id = "C"; Weight = 1.0 }
+                            { Id = "D"; Weight = 1.0 }
+                        ]
+                    Edges = [ (0, 1); (1, 2); (0, 2) ]
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 100
+                }
+
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(
+                    solution.IsValid,
+                    $"Clique must be valid. Vertices={solution.CliqueVertices |> List.map (fun v -> v.Id)}"
+                )
+        }
+
+    [<Fact>]
+    let ``solve handles duplicate edges gracefully`` () : Task =
+        task {
+            // Duplicate and bidirectional edges should not cause errors
+            let problem: Problem =
+                {
+                    Vertices =
+                        [
+                            { Id = "A"; Weight = 1.0 }
+                            { Id = "B"; Weight = 1.0 }
+                            { Id = "C"; Weight = 1.0 }
+                        ]
+                    Edges = [ (0, 1); (0, 1); (1, 0); (1, 2); (0, 2) ]
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 50
+                }
+
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.True(solution.IsValid))
+            |> Result.defaultWith (fun err -> Assert.Fail($"Solve failed: {err}"))
+        }
 
 // ============================================================================
 // QUBIT ESTIMATION TESTS

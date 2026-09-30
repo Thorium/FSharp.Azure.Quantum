@@ -1057,10 +1057,11 @@ module HamiltonianSimulationTests =
 module MolecularInputTests =
 
     open System.IO
+    open System.Threading
 
     [<Fact>]
-    let ``Parse simple XYZ file - H2 molecule`` () =
-        async {
+    let ``Parse simple XYZ file - H2 molecule`` () : Task =
+        task {
             // Arrange - create temporary XYZ file
             let xyzContent =
                 """2
@@ -1069,13 +1070,13 @@ module MolecularInputTests =
  H  0.0  0.0  0.74"""
 
             let tempFile = Path.GetTempFileName()
-            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
+            do! File.WriteAllTextAsync(tempFile, xyzContent)
 
             try
                 // Act
 
                 // Assert
-                match! Molecule.fromXyzFileAsync tempFile with
+                match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal("H2 molecule", molecule.Name)
@@ -1098,11 +1099,10 @@ module MolecularInputTests =
             finally
                 File.Delete(tempFile)
         }
-        |> Async.StartAsTask
 
     [<Fact>]
-    let ``Parse XYZ file - H2O molecule`` () =
-        async {
+    let ``Parse XYZ file - H2O molecule`` () : Task =
+        task {
             // Arrange
             let xyzContent =
                 """3
@@ -1112,13 +1112,13 @@ module MolecularInputTests =
  H  0.000 -0.757  0.587"""
 
             let tempFile = Path.GetTempFileName()
-            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
+            do! File.WriteAllTextAsync(tempFile, xyzContent)
 
             try
                 // Act
 
                 // Assert
-                match! Molecule.fromXyzFileAsync tempFile with
+                match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal("Water molecule", molecule.Name)
@@ -1132,11 +1132,10 @@ module MolecularInputTests =
             finally
                 File.Delete(tempFile)
         }
-        |> Async.StartAsTask
 
     [<Fact>]
-    let ``XYZ parser should handle tabs and multiple spaces`` () =
-        async {
+    let ``XYZ parser should handle tabs and multiple spaces`` () : Task =
+        task {
             // Arrange - XYZ with irregular whitespace
             let xyzContent =
                 """2
@@ -1145,23 +1144,22 @@ module MolecularInputTests =
  H		0.0		0.0		0.74"""
 
             let tempFile = Path.GetTempFileName()
-            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
+            do! File.WriteAllTextAsync(tempFile, xyzContent)
 
             try
                 // Act
 
                 // Assert
-                match! Molecule.fromXyzFileAsync tempFile with
+                match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
                 | Error err -> Assert.True(false, $"Should handle whitespace: {err.Message}")
                 | Ok molecule -> Assert.Equal(2, molecule.Atoms.Length)
             finally
                 File.Delete(tempFile)
         }
-        |> Async.StartAsTask
 
     [<Fact>]
-    let ``XYZ parser should reject malformed file`` () =
-        async {
+    let ``XYZ parser should reject malformed file`` () : Task =
+        task {
             // Arrange - invalid XYZ (wrong atom count)
             let xyzContent =
                 """5
@@ -1170,19 +1168,18 @@ module MolecularInputTests =
  H  0.0  0.0  0.74"""
 
             let tempFile = Path.GetTempFileName()
-            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
+            do! File.WriteAllTextAsync(tempFile, xyzContent)
 
             try
                 // Act
 
                 // Assert
-                match! Molecule.fromXyzFileAsync tempFile with
+                match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
                 | Ok _ -> Assert.True(false, "Should reject file with wrong atom count")
                 | Error err -> Assert.Contains("Expected", err.Message) // Error message from MoleculeFormats
             finally
                 File.Delete(tempFile)
         }
-        |> Async.StartAsTask
 
     [<Fact>]
     let ``Parse FCIDump header - extract NORB and NELEC`` () =
@@ -1271,8 +1268,8 @@ module MolecularInputTests =
         Assert.Contains("H", lines[3]) // Second H atom
 
     [<Fact>]
-    let ``Save and reload XYZ file`` () =
-        async {
+    let ``Save and reload XYZ file`` () : Task =
+        task {
             // Arrange
             let original = Molecule.createH2O ()
             let tempFile = Path.GetTempFileName()
@@ -1280,13 +1277,13 @@ module MolecularInputTests =
             try
                 // Act - save to file
 
-                match! Molecule.saveToXyzFileAsync tempFile original with
+                match! Molecule.saveToXyzFileTask tempFile original CancellationToken.None with
                 | Error err -> Assert.True(false, $"Save failed: {err.Message}")
                 | Ok() ->
 
                     // Act - reload from file
 
-                    match! Molecule.fromXyzFileAsync tempFile with
+                    match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
                     | Error err -> Assert.True(false, $"Load failed: {err.Message}")
                     | Ok reloaded ->
                         // Assert - should match original
@@ -1303,7 +1300,6 @@ module MolecularInputTests =
                 if File.Exists tempFile then
                     File.Delete(tempFile)
         }
-        |> Async.StartAsTask
 
 // ============================================================================
 // TKT-79: QUANTUM CHEMISTRY DOMAIN BUILDER TESTS
