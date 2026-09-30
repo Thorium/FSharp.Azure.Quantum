@@ -497,6 +497,73 @@ module WholeCircuitRouteTests =
         | Error e, _
         | _, Error e -> Assert.Fail(e.Message)
 
+    /// a and b equal up to one global phase: |⟨a|b⟩| = ‖a‖·‖b‖.
+    let private assertSameUpToGlobalPhase (tolerance: float) (a: Complex[]) (b: Complex[]) =
+        let overlap = Array.fold2 (fun acc (x: Complex) y -> acc + Complex.Conjugate x * y) Complex.Zero a b
+        let phase = Complex.FromPolarCoordinates(1.0, overlap.Phase)
+
+        for i in 0 .. a.Length - 1 do
+            Assert.True(
+                (a.[i] * phase - b.[i]).Magnitude < tolerance,
+                $"component {i}: {a.[i] * phase} vs {b.[i]}"
+            )
+
+    [<Fact>]
+    let ``HHL Route - executeWithRelativePhases measures the signs on a sampling cloud backend`` () =
+        let backend = sampling 20000 5
+
+        let config =
+            diagonalConfig [| 2.0; 4.0 |] [| Complex(0.6, 0.0); Complex(-0.8, 0.0) |]
+
+        match HHL.executeWithRelativePhases config (backend :> IQuantumBackend), HHL.execute config (local ()) with
+        | Ok phased, Ok exact ->
+            Assert.Equal(HHLTypes.HhlReadout.MeasuredRelativePhases, phased.Result.Readout)
+            // Magnitude circuit + one Hadamard circuit (one solution qubit, real system).
+            Assert.Equal(2, phased.Circuits)
+            Assert.Equal(2, backend.Submitted)
+            // x ∝ (0.3, -0.2): opposite signs, measured.
+            Assert.True(phased.Result.Solution.[0].Real * phased.Result.Solution.[1].Real < 0.0)
+            assertSameUpToGlobalPhase 0.02 exact.Solution phased.Result.Solution
+        | Error e, _
+        | _, Error e -> Assert.Fail(e.Message)
+
+    [<Fact>]
+    let ``HHL Route - executeWithRelativePhases recovers complex relative phases (exact whole circuit)`` () =
+        // A complex Hermitian system needs the Y-basis circuits too: 1 + 2·2 = 5 jobs.
+        let config =
+            diagonalConfig
+                [| 1.0; 2.0; 4.0; 8.0 |]
+                [|
+                    Complex(0.5, 0.0)
+                    Complex(0.0, -0.5)
+                    Complex(-0.5, 0.0)
+                    Complex(0.3, 0.4)
+                |]
+
+        let backend = exact ()
+
+        match HHL.executeWithRelativePhases config (backend :> IQuantumBackend), HHL.execute config (local ()) with
+        | Ok phased, Ok exactResult ->
+            Assert.Equal(HHLTypes.HhlReadout.MeasuredRelativePhases, phased.Result.Readout)
+            Assert.Equal(5, phased.Circuits)
+            Assert.Equal(5, backend.Submitted)
+            assertSameUpToGlobalPhase 1e-6 exactResult.Solution phased.Result.Solution
+        | Error e, _
+        | _, Error e -> Assert.Fail(e.Message)
+
+    [<Fact>]
+    let ``HHL Route - executeWithRelativePhases on a simulator is execute and submits nothing`` () =
+        let config =
+            diagonalConfig [| 2.0; 4.0 |] [| Complex(0.6, 0.0); Complex(-0.8, 0.0) |]
+
+        match HHL.executeWithRelativePhases config (local ()), HHL.execute config (local ()) with
+        | Ok phased, Ok plain ->
+            Assert.Equal(HHLTypes.HhlReadout.Amplitudes, phased.Result.Readout)
+            Assert.Equal(0, phased.Circuits)
+            Assert.Equal<Complex[]>(plain.Solution, phased.Result.Solution)
+        | Error e, _
+        | _, Error e -> Assert.Fail(e.Message)
+
     [<Fact>]
     let ``HHL Route - real cloud backend classes submit the circuit as a job`` () =
         for name, backend in realCloudBackends () do
@@ -545,23 +612,38 @@ module WholeCircuitRouteTests =
         | Error e -> Assert.Fail(e.Message)
 
     [<Fact>]
-    let ``HHL Route - regression refuses magnitude-only readout rather than guess signs`` () =
+    let ``HHL Route - regression measures the signs by interference circuits rather than guess them`` () =
+        // y = 2·x1 − x2: a negative weight, which magnitudes alone cannot give.
+        let x =
+            [|
+                [| 1.0; 0.2 |]
+                [| 0.1; 1.0 |]
+                [| 0.9; -0.1 |]
+                [| -0.2; 0.8 |]
+                [| 0.5; 0.4 |]
+                [| 0.3; -0.6 |]
+            |]
+
         let config: FSharp.Azure.Quantum.MachineLearning.QuantumRegressionHHL.RegressionConfig =
             {
-                TrainX = [| [| 1.0 |]; [| 2.0 |]; [| 3.0 |]; [| 4.0 |] |]
-                TrainY = [| 2.0; 4.0; 6.0; 8.0 |]
-                EigenvalueQubits = 2
+                TrainX = x
+                TrainY = x |> Array.map (fun row -> 2.0 * row.[0] - row.[1])
+                EigenvalueQubits = 6
                 MinEigenvalue = 1e-6
-                Backend = sampling 1000 1 :> IQuantumBackend
+                Backend = sampling 20000 1 :> IQuantumBackend
                 Shots = 1000
-                FitIntercept = true
+                FitIntercept = false
                 Verbose = false
                 Logger = None
             }
 
         match FSharp.Azure.Quantum.MachineLearning.QuantumRegressionHHL.train config with
-        | Ok _ -> Assert.Fail("Signed weights cannot come from magnitude-only readout")
-        | Error e -> Assert.Contains("signs", e.Message)
+        | Ok result ->
+            // Magnitude circuit + one Hadamard circuit for the single solution qubit.
+            Assert.Equal(2, result.Circuits)
+            Assert.InRange(result.Weights.[0], 1.9, 2.1)
+            Assert.InRange(result.Weights.[1], -1.1, -0.9)
+        | Error e -> Assert.Fail(e.Message)
 
     // ========================================================================
     // QUANTUM ARITHMETIC

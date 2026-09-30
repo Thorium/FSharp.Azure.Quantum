@@ -154,3 +154,109 @@ module AdaptVqeTests =
         match AdaptVqe.parameterShift c theta energy with
         | Ok(derivative, _) -> Assert.Equal(-2.0 * c * sin (2.0 * c * theta), derivative, 12)
         | Error e -> failwith e.Message
+
+    // ========================================================================
+    // Cloud job cap and the sampled energy's standard error
+    // ========================================================================
+
+    [<Fact>]
+    let ``ADAPT-VQE reports the sampled energy's standard error and its job count on a shot-sampling backend`` () =
+        let cloud = CloudStyleBackends.ShotSamplingCloud(4000, 11)
+
+        match AdaptVqe.run cloud h2 h2Pool 2 AdaptVqe.defaultConfig with
+        | Error e -> failwith $"ADAPT-VQE failed: {e.Message}"
+        | Ok result ->
+            // H2's ground state is an eigenstate of both measured groups, so its shot noise is ~0.
+            match result.EnergyStandardError with
+            | Some sigma -> Assert.True(sigma >= 0.0 && sigma < 0.02, $"standard error {sigma}")
+            | None -> failwith "a sampled energy must report its standard error"
+
+            Assert.Equal(cloud.Jobs, result.CloudJobs)
+            Assert.True(result.CloudJobs <= AdaptVqe.DefaultMaxCloudJobs)
+            Assert.False(result.JobCapReached)
+
+    [<Fact>]
+    let ``ADAPT-VQE on an exact backend reports no standard error and no cloud jobs`` () =
+        match AdaptVqe.run (backend ()) h2 h2Pool 2 AdaptVqe.defaultConfig with
+        | Error e -> failwith $"ADAPT-VQE failed: {e.Message}"
+        | Ok result ->
+            Assert.Equal(None, result.EnergyStandardError)
+            Assert.Equal(0, result.CloudJobs)
+            Assert.False(result.JobCapReached)
+
+    [<Fact>]
+    let ``ADAPT-VQE refuses up front, before any job, when the first operator cannot fit under MaxCloudJobs`` () =
+        let cloud = CloudStyleBackends.ShotSamplingCloud(4000, 11)
+        // H2: 2 measurement groups, 4 pool operators → 2 + 2·(8 + 80 + 1) = 180 jobs for the first operator.
+        Assert.Equal(180, AdaptVqe.estimateCloudJobs h2 h2Pool.Length 1)
+
+        let config =
+            { AdaptVqe.defaultConfig with
+                MaxCloudJobs = Some 179
+            }
+
+        match AdaptVqe.run cloud h2 h2Pool 2 config with
+        | Error(QuantumError.ValidationError("MaxCloudJobs", message)) ->
+            Assert.Contains("180", message)
+            Assert.Equal(0, cloud.Jobs)
+        | other -> failwith $"expected a MaxCloudJobs refusal, got {other}"
+
+    [<Fact>]
+    let ``ADAPT-VQE stops with the best ansatz so far before an iteration that could cross MaxCloudJobs`` () =
+        let cloud = CloudStyleBackends.ShotSamplingCloud(4000, 11)
+        // The first operator needs 180 jobs; a second would need 2·(8 + 160 + 1) = 338 more.
+        let config =
+            { AdaptVqe.defaultConfig with
+                MaxCloudJobs = Some 300
+            }
+
+        match AdaptVqe.run cloud h2 h2Pool 2 config with
+        | Error e -> failwith $"ADAPT-VQE failed: {e.Message}"
+        | Ok result ->
+            Assert.True(result.JobCapReached)
+            Assert.False(result.Converged)
+            Assert.Equal(1, result.Iterations)
+            Assert.Equal(180, result.CloudJobs)
+            Assert.Equal(180, cloud.Jobs)
+            Assert.True(abs (result.Energy - -1.2445) < 0.03, $"sampled energy {result.Energy}")
+
+    [<Fact>]
+    let ``ADAPT-VQE with MaxCloudJobs = None keeps the uncapped behaviour`` () =
+        let cloud = CloudStyleBackends.ShotSamplingCloud(4000, 3)
+
+        let h: TrotterSuzuki.PauliHamiltonian =
+            {
+                Terms = [ ps [| 'X' |] ]
+                NumQubits = 1
+            }
+
+        let config =
+            { AdaptVqe.defaultConfig with
+                MaxCloudJobs = None
+            }
+
+        match AdaptVqe.run cloud h [ ps [| 'Y' |] ] 1 config with
+        | Error e -> failwith $"ADAPT-VQE failed: {e.Message}"
+        | Ok result ->
+            Assert.False(result.JobCapReached)
+            Assert.Equal(cloud.Jobs, result.CloudJobs)
+
+    [<Fact>]
+    let ``ADAPT-VQE standard error is the sampled energy's shot noise`` () =
+        // MaxIterations = 0 returns the reference |00⟩: its Z terms are deterministic and XX is
+        // ±1 with equal odds, so σ = 0.1809·1/√4000 ≈ 0.00286.
+        let cloud = CloudStyleBackends.ShotSamplingCloud(4000, 11)
+
+        let config =
+            { AdaptVqe.defaultConfig with
+                MaxIterations = 0
+            }
+
+        match AdaptVqe.run cloud h2 h2Pool 2 config with
+        | Error e -> failwith $"ADAPT-VQE failed: {e.Message}"
+        | Ok result ->
+            Assert.Equal(2, result.CloudJobs)
+
+            match result.EnergyStandardError with
+            | Some sigma -> Assert.InRange(sigma, 0.0027, 0.0029)
+            | None -> failwith "a sampled energy must report its standard error"

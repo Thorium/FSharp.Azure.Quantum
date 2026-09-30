@@ -1153,7 +1153,7 @@ type LinearSystemSolution = {
     GateCount: int
     PostSelectionSuccess: bool
     SolutionAmplitudes: Map<int, Complex> option
-    Readout: HhlReadout        // Amplitudes | MeasuredMagnitudes
+    Readout: HhlReadout        // Amplitudes | MeasuredMagnitudes | MeasuredRelativePhases
     BackendName: string
     IsQuantum: bool
     Success: bool
@@ -1269,8 +1269,9 @@ match QuantumRegressionHHL.train regressionConfig with
 **Solution Format:**
 - Output is a **quantum state |x⟩** (normalized), not a classical vector
 - Local simulation: `SolutionAmplitudes` holds the amplitudes, signs and phases included (`Readout = Amplitudes`)
-- Cloud backends: the state preparation of |b⟩ and the HHL circuit run as one whole-circuit job, and `SolutionAmplitudes` holds the magnitudes |xᵢ| from the measured counts, post-selected on ancilla = 1 with the eigenvalue register at 0 (`Readout = MeasuredMagnitudes`). Counts carry no signs or phases; recovering them would take further interference circuits, which are not run. Every amplitude from counts needs a number of shots that grows with the dimension
-- `QuantumRegressionHHL` needs the signed solution, so it returns an `Error` on a cloud backend rather than fit weights from magnitudes
+- Cloud backends: the state preparation of |b⟩ and the HHL circuit run as one whole-circuit job, and `SolutionAmplitudes` holds the magnitudes |xᵢ| from the measured counts, post-selected on ancilla = 1 with the eigenvalue register at 0 (`Readout = MeasuredMagnitudes`). Counts carry no signs or phases. Every amplitude from counts needs a number of shots that grows with the dimension
+- `HHL.executeWithRelativePhases config backend` also measures the signs and relative phases on a cloud backend (`Readout = MeasuredRelativePhases`): besides the magnitude circuit it runs, per solution qubit q, the same HHL circuit with a Hadamard on q before measurement. The post-selected outcomes i and i + 2^q then differ by 2·Re(x̄ᵢ·xᵢ₊₂^q), so every pair of components differing in one bit gets its relative sign, and the signs are chained from the largest component along the best-conditioned pairs. A real system (real A and b, as in least squares) needs 1 + log₂N jobs; a complex one adds an RX(π/2) circuit per qubit for the imaginary parts (1 + 2·log₂N). On a simulator it is `HHL.execute` and submits nothing (`Circuits = 0`)
+- `QuantumRegressionHHL` uses `executeWithRelativePhases`, so it fits signed weights on a cloud backend too: 1 + log₂(padded dimension) jobs per fit (`RegressionResult.Circuits`; 3 for 4 weights), with the overall scale set by the same least-squares fit as on the simulator
 
 **Performance Considerations:**
 - **Condition number κ**: Lower is better (κ < 100 recommended)

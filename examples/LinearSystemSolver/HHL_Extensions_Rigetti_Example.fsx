@@ -432,9 +432,10 @@ if feature = "all" then
     pr ""
     pr "5. Analyze results and error margins"
     pr "   On hardware result.Readout = MeasuredMagnitudes: result.Solution holds |x_i| from"
-    pr "   post-selected counts. Signs and phases are not in the counts; recovering them needs"
-    pr "   further interference circuits, which HHL does not run. On LocalBackend the readout is"
-    pr "   the full amplitudes (Readout = Amplitudes)."
+    pr "   post-selected counts. Signs and phases are not in the counts: HHL.executeWithRelativePhases"
+    pr "   runs one more circuit per solution qubit (a Hadamard before measurement; two for a complex"
+    pr "   system) and returns them too (Readout = MeasuredRelativePhases). On LocalBackend the readout"
+    pr "   is the full amplitudes (Readout = Amplitudes)."
     pr ""
 
 pr "--------------------------------------------------------------------"

@@ -239,6 +239,12 @@ match QuantumKernelSVM.train backend featureMap trainData trainLabels config 100
 | Error err -> eprintfn "Training error: %s" err.Message
 ```
 
+On a simulator each kernel entry is estimated from `shots` samples of the exact state. On a cloud
+backend (`IShotSamplingBackend`) each entry is one job, read off that job's own measured
+counts, so `shots` must equal the backend's shots per job (fixed when the backend was created);
+any other value is an `Error` naming both, returned before any job is submitted. The counts are
+never resampled to another shot count.
+
 The SVM is trained with sequential minimal optimisation (SMO) on the quantum kernel matrix. Labels must be 0 or 1; `MultiClassSVM` handles more classes one-vs-rest. `QuantumKernelSVM.predict` returns a `Prediction` with the `Label` and the `DecisionValue` (signed distance from the separating hyperplane).
 
 ### How Quantum Kernels Work

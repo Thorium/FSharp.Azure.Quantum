@@ -7,6 +7,13 @@ namespace FSharp.Azure.Quantum.MachineLearning
 ///
 /// Reference: Havlíček et al., "Supervised learning with quantum-enhanced
 /// feature spaces" Nature (2019)
+///
+/// Shots: on an exact simulator every kernel entry is estimated from `shots` samples of the
+/// exact state. On a shot-sampling backend (IShotSamplingBackend: cloud hardware and cloud
+/// simulators) each entry is read off one job's measured frequencies, whose shot count the
+/// backend fixed when it was created; `shots` must equal that count, and anything else is an
+/// Error naming both (as Primitives.sample does) before any job is submitted. The results are
+/// never resampled to another count, which would mix classical randomness into the measurement.
 
 open System
 open System.Threading
@@ -133,6 +140,17 @@ module QuantumKernels =
                 return! jobs |> Array.map run |> Task.WhenAll
             }
 
+    /// Ok when `shots` can be honoured on `backend`: positive, and on a shot-sampling backend
+    /// equal to the shots it measures per job (see the module notes).
+    let private validateShots (backend: IQuantumBackend) (shots: int) : QuantumResult<unit> =
+        if shots <= 0 then
+            Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
+        else
+            match FSharp.Azure.Quantum.Primitives.shotsPerCircuit backend with
+            | Some deviceShots when deviceShots <> shots ->
+                Error(FSharp.Azure.Quantum.Primitives.fixedShotsError backend deviceShots shots)
+            | _ -> Ok()
+
     /// Fidelity estimate P(|0…0⟩) of an executed kernel circuit. A sampling backend's state
     /// already holds its job's outcome frequencies, which are read as they are; an exact state
     /// (simulator) is sampled `shots` times.
@@ -183,7 +201,8 @@ module QuantumKernels =
     ///   featureMap - Quantum feature map (e.g., AngleEncoding)
     ///   x - First feature vector
     ///   y - Second feature vector
-    ///   shots - Number of measurement shots
+    ///   shots - Number of measurement shots: samples of the exact state on a simulator; on a
+    ///           shot-sampling backend it must equal the backend's Shots (else an Error)
     ///
     /// Returns:
     ///   Kernel value in [0, 1] or error message
@@ -196,18 +215,18 @@ module QuantumKernels =
         (shots: int)
         : QuantumResult<float> =
 
-        if shots <= 0 then
-            Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
-        elif x.Length = 0 then
-            Error(QuantumError.Other "Feature vectors cannot be empty")
-        else
+        match validateShots backend shots with
+        | Error e -> Error e
+        | Ok() when x.Length = 0 -> Error(QuantumError.Other "Feature vectors cannot be empty")
+        | Ok() ->
             result {
                 let! circuit = buildKernelCircuit featureMap x y
                 return! measureKernelCircuit backend circuit shots
             }
 
     /// Compute quantum kernel value K(x, y) = |⟨φ(x)|φ(y)⟩|² asynchronously.
-    /// Uses backend.ExecuteToStateAsync for non-blocking I/O.
+    /// Uses backend.ExecuteToStateAsync for non-blocking I/O. On a shot-sampling backend
+    /// `shots` must equal the backend's Shots (see the module notes).
     let computeKernelAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -217,11 +236,10 @@ module QuantumKernels =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<float>> =
         task {
-            if shots <= 0 then
-                return Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
-            elif x.Length = 0 then
-                return Error(QuantumError.Other "Feature vectors cannot be empty")
-            else
+            match validateShots backend shots with
+            | Error e -> return Error e
+            | Ok() when x.Length = 0 -> return Error(QuantumError.Other "Feature vectors cannot be empty")
+            | Ok() ->
                 match buildKernelCircuit featureMap x y with
                 | Error e -> return Error e
                 | Ok circuit -> return! measureKernelCircuitAsync backend circuit shots cancellationToken
@@ -254,9 +272,11 @@ module QuantumKernels =
         (shots: int)
         : QuantumResult<float[,]> =
 
-        if data.Length = 0 then
-            Error(QuantumError.Other "Dataset cannot be empty")
-        else
+        // Shots are checked once, before any circuit is submitted.
+        match validateShots backend shots with
+        | Error e -> Error e
+        | Ok() when data.Length = 0 -> Error(QuantumError.Other "Dataset cannot be empty")
+        | Ok() ->
             let n = data.Length
 
             // Compute all unique kernel entries in parallel
@@ -312,9 +332,11 @@ module QuantumKernels =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<float[,]>> =
         task {
-            if data.Length = 0 then
-                return Error(QuantumError.Other "Dataset cannot be empty")
-            else
+            // Shots are checked once, before any circuit is submitted.
+            match validateShots backend shots with
+            | Error e -> return Error e
+            | Ok() when data.Length = 0 -> return Error(QuantumError.Other "Dataset cannot be empty")
+            | Ok() ->
                 let n = data.Length
 
                 let uniquePairs =
@@ -380,11 +402,12 @@ module QuantumKernels =
         (shots: int)
         : QuantumResult<float[,]> =
 
-        if trainData.Length = 0 then
-            Error(QuantumError.Other "Training dataset cannot be empty")
-        elif testData.Length = 0 then
-            Error(QuantumError.Other "Test dataset cannot be empty")
-        else
+        // Shots are checked once, before any circuit is submitted.
+        match validateShots backend shots with
+        | Error e -> Error e
+        | Ok() when trainData.Length = 0 -> Error(QuantumError.Other "Training dataset cannot be empty")
+        | Ok() when testData.Length = 0 -> Error(QuantumError.Other "Test dataset cannot be empty")
+        | Ok() ->
             let nTest = testData.Length
             let nTrain = trainData.Length
 
@@ -435,11 +458,12 @@ module QuantumKernels =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<float[,]>> =
         task {
-            if trainData.Length = 0 then
-                return Error(QuantumError.Other "Training dataset cannot be empty")
-            elif testData.Length = 0 then
-                return Error(QuantumError.Other "Test dataset cannot be empty")
-            else
+            // Shots are checked once, before any circuit is submitted.
+            match validateShots backend shots with
+            | Error e -> return Error e
+            | Ok() when trainData.Length = 0 -> return Error(QuantumError.Other "Training dataset cannot be empty")
+            | Ok() when testData.Length = 0 -> return Error(QuantumError.Other "Test dataset cannot be empty")
+            | Ok() ->
                 let nTest = testData.Length
                 let nTrain = trainData.Length
 

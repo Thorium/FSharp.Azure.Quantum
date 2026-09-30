@@ -471,3 +471,69 @@ module QuantumMonteCarloTests =
             | Error(QuantumError.ValidationError("values", _)) -> ()
             | other -> failwith $"Expected a values validation error, got {other}"
         } :> Task
+
+    // ========================================================================
+    // STANDARD ERROR (the fit's Cramér–Rao error, not the O(1/M) query bound)
+    // ========================================================================
+
+    /// Uniform superposition on 2 qubits with |11⟩ marked: a = 0.25.
+    let private quarterConfig (iterations: int) (shots: int) : QMCConfig =
+        {
+            NumQubits = 2
+            StatePreparation =
+                CircuitBuilder.empty 2
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+                |> CircuitBuilder.addGate (CircuitBuilder.H 1)
+            Oracle = CircuitBuilder.empty 2 |> CircuitBuilder.addGate (CircuitBuilder.CZ(0, 1))
+            GroverIterations = iterations
+            Shots = shots
+        }
+
+    /// Cramér–Rao error of MLAE at a = sin²θ over the powers 0, 1, 2, 4 with N shots each.
+    let private cramerRao (a: float) (shots: int) =
+        let theta = asin (sqrt a)
+        let sigmaTheta = 1.0 / (2.0 * sqrt (float shots * (1.0 + 9.0 + 25.0 + 81.0)))
+        abs (sin (2.0 * theta)) * sigmaTheta + sigmaTheta * sigmaTheta
+
+    [<Fact>]
+    let ``estimateExpectation reports the fit's standard error, not 1 over the iterations`` () =
+        task {
+            match! estimateExpectation (quarterConfig 4 1000) (createBackend ()) |> Async.StartImmediateAsTask with
+            | Ok r ->
+                // Exact probabilities: the maximum-likelihood fit recovers a (to ~1e-8: a power
+                // whose probability is 1 - 1e-16 pins θ only to √1e-16).
+                Assert.Equal(0.25, r.ExpectationValue, 7)
+                // Previously 1/GroverIterations = 0.25; the Cramér–Rao error at 1,000 shots is ≈0.0013.
+                Assert.Equal(cramerRao 0.25 1000, r.StandardError, 9)
+                Assert.True(r.StandardError < 0.002, $"StandardError {r.StandardError}")
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        }
+        :> Task
+
+    [<Fact>]
+    let ``estimateExpectation standard error matches the spread of sampled estimates`` () =
+        task {
+            // 30 independent runs on a 4,000-shot sampling backend: the reported error must
+            // describe the actual scatter of the estimates.
+            let estimates = ResizeArray<float>()
+            let errors = ResizeArray<float>()
+
+            for seed in 1..30 do
+                let backend = SampledWholeCircuit.Backend(4000, seed)
+
+                match! estimateExpectation (quarterConfig 4 1000) backend |> Async.StartImmediateAsTask with
+                | Ok r ->
+                    estimates.Add r.ExpectationValue
+                    errors.Add r.StandardError
+                | Error e -> failwith $"Expected Ok, got Error: {e}"
+
+            let mean = Seq.average estimates
+            let spread = sqrt (estimates |> Seq.averageBy (fun e -> (e - mean) ** 2.0))
+            let reported = Seq.average errors
+
+            // The backend's 4,000 shots, not config.Shots, are behind each probability.
+            Assert.True(abs (reported - cramerRao 0.25 4000) < 2e-4, $"reported {reported}")
+            Assert.True(abs (mean - 0.25) < 4.0 * reported / sqrt 30.0 + 1e-4, $"mean {mean}")
+            Assert.InRange(spread / reported, 0.4, 2.5)
+        }
+        :> Task

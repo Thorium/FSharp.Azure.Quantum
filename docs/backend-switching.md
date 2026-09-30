@@ -486,7 +486,7 @@ printfn "Jobs submitted: %d of %A" budget.Submitted budget.MaxJobs
 - ✅ **Unified API**: The same solver calls work with every backend (sync and async)
 - ✅ **Async support**: Task-based async with CancellationToken on all backends
 - ✅ **Cloud backends**: Rigetti, IonQ, Quantinuum, Atom Computing and IQM via `CloudBackends.CloudBackendFactory`
-- ✅ **Algorithms on cloud**: QAOA solvers, chemistry VQE and QPE, Grover and its builders, amplitude amplification, QFT, QPE, Shor, HHL (magnitudes), arithmetic, ADAPT-VQE/ADAPT-QAOA, QML, quantum Monte Carlo and `Primitives` submit whole circuits; a `JobBudget` caps the billed jobs
+- ✅ **Algorithms on cloud**: QAOA solvers, chemistry VQE and QPE, Grover and its builders, amplitude amplification, QFT, QPE, Shor, HHL (magnitudes; signs and phases with `HHL.executeWithRelativePhases`, which HHL regression uses), arithmetic, ADAPT-VQE/ADAPT-QAOA, QML, quantum Monte Carlo and `Primitives` submit whole circuits; a `JobBudget` caps the billed jobs
 - ⚠️ **Cloud integration**: Requires Azure Quantum workspace configuration and credentials
 
 **Key Achievement:**

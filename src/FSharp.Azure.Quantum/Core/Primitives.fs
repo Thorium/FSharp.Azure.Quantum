@@ -143,7 +143,7 @@ module Primitives =
             |> Array.map (fun (key, p) -> key, int (Math.Round(p * float deviceShots)))
             |> Array.filter (fun (_, count) -> count > 0))
 
-    let private fixedShotsError (backend: IQuantumBackend) (deviceShots: int) (requested: int) : QuantumError =
+    let internal fixedShotsError (backend: IQuantumBackend) (deviceShots: int) (requested: int) : QuantumError =
         QuantumError.ValidationError(
             "shots",
             $"{backend.Name} measures {deviceShots} shots per job, fixed when the backend was created; request {deviceShots}, or create the backend with {requested}. Its results are not resampled to another count, which would mix classical randomness into the measurement."

@@ -22,7 +22,11 @@ open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki // brings PauliString record 
 /// (dE/dγₖ as the sum of one shift per cost term, since γₖ drives every cost block of layer k),
 /// and the angles are re-optimised by `AdaptVqe.SampledOptimizerSteps` Adam steps. Jobs per
 /// layer, with T cost terms, L layers and G measurement groups (1 for a Z/ZZ Ising cost):
-/// G·(2·|pool| + 2·L·(T + 1)·SampledOptimizerSteps + 1) — cap them with the backend's JobBudget.
+/// G·(2·|pool| + 2·L·(T + 1)·SampledOptimizerSteps + 1) (estimateCloudJobs), which grows
+/// quadratically with the layers. A run is capped by AdaptQaoaConfig.MaxCloudJobs (default
+/// AdaptVqe.DefaultMaxCloudJobs = 2,000): refused up front when the reference energy and the
+/// first layer do not fit, and stopped with the best ansatz so far (JobCapReached) before any
+/// layer that would cross the cap. The backend's JobBudget still applies on top.
 ///
 /// The angles are unconstrained and each new β starts at 0, so the sign of a pool generator
 /// does not matter: +X here and the standard QAOA mixer -Σ Xᵢ (Core.QaoaCircuit) reach the
@@ -50,15 +54,23 @@ module AdaptQaoa =
             FiniteDiffEps: float
             /// Initial γ used when a new layer is added (before re-optimisation).
             GammaInit: float
+            /// Most whole-circuit jobs one run may submit on a shot-sampling backend
+            /// (IShotSamplingBackend: each is a separately queued and billed cloud job); None =
+            /// no cap. Ignored on exact backends. A run whose reference energy and first layer
+            /// already exceed it is refused before any job; otherwise the run stops, with the
+            /// best ansatz so far and JobCapReached set, before a layer that could cross it.
+            /// solveQubo keeps one job of it for its final sample.
+            MaxCloudJobs: int option
         }
 
-    /// Sensible defaults (10 layers, 1e-3 gradient cutoff, γ₀ = 0.1).
+    /// Sensible defaults (10 layers, 1e-3 gradient cutoff, γ₀ = 0.1, at most 2,000 cloud jobs).
     let defaultConfig =
         {
             MaxLayers = 10
             GradientThreshold = 1e-3
             FiniteDiffEps = 1e-4
             GammaInit = 0.1
+            MaxCloudJobs = Some AdaptVqe.DefaultMaxCloudJobs
         }
 
     /// Result of an ADAPT-QAOA run.
@@ -76,6 +88,15 @@ module AdaptQaoa =
             Converged: bool
             /// Energy after each layer was added (chronological).
             EnergyHistory: float list
+            /// Shot-noise standard error of Energy on a shot-sampling backend (the
+            /// Primitives.sampledExpectation error of the final energy estimate); None on an
+            /// exact backend, where Energy is exact.
+            EnergyStandardError: float option
+            /// Whole-circuit jobs submitted on a shot-sampling backend; 0 on an exact backend.
+            CloudJobs: int
+            /// True when the run stopped because the next layer could exceed
+            /// AdaptQaoaConfig.MaxCloudJobs: the result is the best ansatz so far, not Converged.
+            JobCapReached: bool
         }
 
     // ========================================================================
@@ -175,6 +196,27 @@ module AdaptQaoa =
     // SHOT-SAMPLING BACKENDS (measured energies, parameter-shift gradients)
     // ========================================================================
 
+    let private isIdentity (term: TrotterSuzuki.PauliString) =
+        term.Operators |> Array.forall (fun p -> p = 'I' || p = 'i')
+
+    /// Whole-circuit jobs of one shot-sampling ADAPT-QAOA layer that ends with `layers` layers,
+    /// for G measurement groups, T non-identity cost terms and a pool of `poolSize`:
+    /// G·(2·poolSize + 2·layers·(T + 1)·S + 1) — the mixer-gradient screen, S Adam steps of the
+    /// full parameter-shift gradient (T shift pairs for each γ, one pair for each β), and the
+    /// fresh energy. An upper bound: a zero-coefficient generator costs nothing.
+    let internal layerJobs (groups: int) (costTerms: int) (poolSize: int) (layers: int) : int =
+        groups
+        * (2 * poolSize + 2 * layers * (costTerms + 1) * AdaptVqe.SampledOptimizerSteps + 1)
+
+    /// Most whole-circuit jobs ADAPT-QAOA can submit on a shot-sampling backend for a run of
+    /// `layers` layers: the reference energy plus every layer's layerJobs, with G =
+    /// Primitives.measurementGroups of the cost Hamiltonian (1 for a Z/ZZ Ising cost). Grows as
+    /// layers²·G·T·S. solveQubo adds one job for its final sample.
+    let estimateCloudJobs (costHamiltonian: TrotterSuzuki.PauliHamiltonian) (poolSize: int) (layers: int) : int =
+        let groups = Primitives.measurementGroups costHamiltonian |> List.length
+        let costTerms = costHamiltonian.Terms |> List.filter (isIdentity >> not) |> List.length
+        groups + ([ 1 .. max 0 layers ] |> List.sumBy (layerJobs groups costTerms poolSize))
+
     /// ADAPT-QAOA on a shot-sampling backend (see the module notes).
     let private runSampled
         (backend: IQuantumBackend)
@@ -184,10 +226,28 @@ module AdaptQaoa =
         (config: AdaptQaoaConfig)
         : QuantumResult<AdaptQaoaResult> =
         let terms = costHamiltonian.Terms |> Array.ofList
+        let groups = Primitives.measurementGroups costHamiltonian |> List.length
+        let costTerms = terms |> Array.filter (isIdentity >> not) |> Array.length
+        let perLayer = layerJobs groups costTerms pool.Length
+        // Jobs submitted so far (each energy estimate reports its circuits).
+        let submitted = ref 0
 
         let energyOf (circuit: CircuitBuilder.Circuit) =
-            Primitives.sampledExpectation backend circuit costHamiltonian
-            |> Result.map (fun e -> e.Value, e.StandardError)
+            match config.MaxCloudJobs with
+            | Some cap when submitted.Value + groups > cap ->
+                // Unreachable while layerJobs bounds every layer; kept so no job is ever
+                // submitted past the cap.
+                Error(
+                    QuantumError.ValidationError(
+                        "MaxCloudJobs",
+                        $"ADAPT-QAOA reached its cap of {cap} cloud jobs ({submitted.Value} submitted)"
+                    )
+                )
+            | _ ->
+                Primitives.sampledExpectation backend circuit costHamiltonian
+                |> Result.map (fun e ->
+                    submitted.Value <- submitted.Value + e.Circuits
+                    e.Value, e.StandardError)
 
         /// Energy with every block at its parameter's time except `overrideTime` (block, time).
         let energyWith (mixers: TrotterSuzuki.PauliString list) (parameters: float[]) overrideTime =
@@ -214,7 +274,7 @@ module AdaptQaoa =
             let rec sum t (total, variance) =
                 if t >= terms.Length then
                     Ok(total, sqrt variance)
-                elif terms.[t].Operators |> Array.forall (fun p -> p = 'I' || p = 'i') then
+                elif isIdentity terms.[t] then
                     sum (t + 1) (total, variance) // a global phase: no dependence on γ
                 else
                     match
@@ -258,7 +318,7 @@ module AdaptQaoa =
                 | Ok estimate -> screen mixers parameters rest ((mixer, estimate) :: acc)
 
         let rec loop layer mixers parameters history ((current, currentError): float * float) =
-            let finish converged =
+            let finish converged capped =
                 Ok
                     {
                         Energy = current
@@ -267,10 +327,20 @@ module AdaptQaoa =
                         Layers = layer
                         Converged = converged
                         EnergyHistory = List.rev history
+                        EnergyStandardError = Some currentError
+                        CloudJobs = submitted.Value
+                        JobCapReached = capped
                     }
 
+            // Would the next layer cross the cap? Then stop before submitting any of it.
+            let overCap =
+                config.MaxCloudJobs
+                |> Option.exists (fun cap -> submitted.Value + perLayer (layer + 1) > cap)
+
             if layer >= config.MaxLayers then
-                finish false
+                finish false false
+            elif overCap then
+                finish false true
             else
                 match screen mixers parameters pool [] with
                 | Error err -> Error err
@@ -282,7 +352,7 @@ module AdaptQaoa =
                         abs bestGrad
                         <= max config.GradientThreshold (AdaptVqe.SampledGradientSigmas * bestError)
                     then
-                        finish true
+                        finish true false
                     else
                         let newMixers = mixers @ [ bestMixer ]
                         let init = Array.append parameters [| config.GammaInit; 0.0 |]
@@ -297,12 +367,30 @@ module AdaptQaoa =
                                 let noise = 2.0 * sqrt (freshError * freshError + currentError * currentError)
 
                                 if fresh > current + max 1e-9 noise then
-                                    finish false
+                                    finish false false
                                 else
                                     loop (layer + 1) newMixers optimised (fresh :: history) (fresh, freshError)
 
-        energy [] [||]
-        |> Result.bind (fun (reference, referenceError) -> loop 0 [] [||] [ reference ] (reference, referenceError))
+        // Refuse up front, before any job, when the reference energy and the first layer
+        // cannot fit under the cap: such a run could only return the reference state.
+        let firstPlan =
+            groups + (if config.MaxLayers >= 1 then perLayer 1 else 0)
+
+        match config.MaxCloudJobs with
+        | Some cap when firstPlan > cap ->
+            Error(
+                QuantumError.ValidationError(
+                    "MaxCloudJobs",
+                    $"ADAPT-QAOA on shot-sampling backend '{backend.Name}' needs {firstPlan} cloud jobs for the reference energy and its first layer "
+                    + $"({groups} per energy: 2·{pool.Length} gradient-screen energies, 2·({costTerms} + 1)·{AdaptVqe.SampledOptimizerSteps} Adam-step energies per layer, 1 fresh energy), "
+                    + $"over MaxCloudJobs = {cap}; {config.MaxLayers} layers could need up to {estimateCloudJobs costHamiltonian pool.Length config.MaxLayers}. "
+                    + "Raise MaxCloudJobs (None = no cap), shrink the mixer pool, or use fewer cost terms."
+                )
+            )
+        | _ ->
+            energy [] [||]
+            |> Result.bind (fun (reference, referenceError) ->
+                loop 0 [] [||] [ reference ] (reference, referenceError))
 
     // ========================================================================
     // RUN
@@ -390,6 +478,9 @@ module AdaptQaoa =
                                     Layers = layer
                                     Converged = converged
                                     EnergyHistory = List.rev history
+                                    EnergyStandardError = None
+                                    CloudJobs = 0
+                                    JobCapReached = false
                                 }
 
                         if layer >= config.MaxLayers then
@@ -505,7 +596,8 @@ module AdaptQaoa =
     ///
     /// Suitable for small problems (a handful of qubits). On a shot-sampling backend `run`
     /// takes the measured route (see the module notes) and the final sample is the backend's
-    /// own shots; every energy there is a paid job, so set a JobBudget.
+    /// own shots; every energy there is a paid job, capped by config.MaxCloudJobs (the final
+    /// sample included).
     let solveQubo
         (backend: IQuantumBackend)
         (numQubits: int)
@@ -530,7 +622,17 @@ module AdaptQaoa =
             let hamiltonian =
                 ofProblemHamiltonian (QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap)
 
-            run backend hamiltonian (defaultMixerPool numQubits) numQubits config
+            // On a shot-sampling backend the final sample below is one more job: keep it under
+            // the cap too.
+            let runConfig =
+                match Primitives.shotsPerCircuit backend with
+                | Some _ ->
+                    { config with
+                        MaxCloudJobs = config.MaxCloudJobs |> Option.map (fun cap -> cap - 1)
+                    }
+                | None -> config
+
+            run backend hamiltonian (defaultMixerPool numQubits) numQubits runConfig
             |> Result.bind (fun adapt ->
                 // Sample the optimised ansatz and keep the lowest-cost bitstring observed.
                 let circuit =

@@ -230,6 +230,7 @@ module HHLModelSerialization =
                 NumSamples = model.NumSamples
                 HasIntercept = model.HasIntercept
                 ConditionNumber = model.ConditionNumber
+                Circuits = 0
             })
 
     /// Load HHL model and reconstruct RegressionResult (async, task-based)
@@ -254,6 +255,7 @@ module HHLModelSerialization =
                         NumSamples = model.NumSamples
                         HasIntercept = model.HasIntercept
                         ConditionNumber = model.ConditionNumber
+                        Circuits = 0
                     }
                     : QuantumRegressionHHL.RegressionResult)
         }
