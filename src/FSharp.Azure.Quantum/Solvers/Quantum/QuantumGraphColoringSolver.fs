@@ -782,8 +782,9 @@ module QuantumGraphColoringSolver =
 
                         // Step 3: Convert QUBO to dense array and execute QAOA pipeline
                         let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                        let (gamma, beta) = config.InitialParameters
-                        let parameters = [| gamma, beta |]
+                        // One (gamma, beta) layer. No tuple pattern here: a `let (a, b) = ...`
+                        // before the `match!` keeps the task from compiling to a static state machine.
+                        let parameters = [| config.InitialParameters |]
 
                         match!
                             QaoaExecutionHelpers.executeFromQuboAsync
