@@ -288,7 +288,7 @@ which starts SITL on that drone's home.
 #### Flown in ArduPilot SITL
 
 The outdoor show was flown on four ArduCopter 4.7.1 vehicles in ArduPilot's own
-software-in-the-loop simulator, with the generated launcher, on 29 September
+software-in-the-loop simulator, with the generated launcher, on 30 September
 2026. [SITL.md](../SITL.md) shows how to repeat it.
 
 ![The show flown in ArduPilot SITL: the plan as a wide pale band and the flight as a thin line, from the south, height over time, and in 3-D](../_images/swarm-choreography-sitl.svg)
@@ -296,9 +296,9 @@ software-in-the-loop simulator, with the generated launcher, on 29 September
 | Measure | Result |
 |---|---|
 | Start | all four together at T0 |
-| Show, from MISSION_START to every drone down and disarmed | 117 s |
-| Closest approach between airborne drones | 6.10 m, limit 5 m; the evidence predicts 6.1 m |
-| Distance from the planned tracks | at most 8.3 m, 95% of fixes within 6.3 m |
+| Show, from MISSION_START to every drone down and disarmed | 116 s |
+| Closest approach between airborne drones | 6.03 m, limit 5 m; the evidence predicts 6.1 m |
+| Distance from the planned tracks | at most 8.5 m, 95% of fixes within 5.7 m |
 
 The picture is animated: the drones move through the show in 20 s, looping.
 The show is flown in a vertical plane, so its first view is from the south.

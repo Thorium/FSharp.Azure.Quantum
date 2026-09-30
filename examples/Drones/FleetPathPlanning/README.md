@@ -153,7 +153,7 @@ dotnet fsi runs/drone/fleet/mavlink/mavlink_show.fsx --dry-run
 ### Flown in ArduPilot SITL
 
 The default plan was flown in ArduPilot's own software-in-the-loop simulator,
-with the generated launcher, on 29 September 2026: the relay carrier on
+with the generated launcher, on 30 September 2026: the relay carrier on
 ArduCopter 4.7.1, the sortie on the fixed-wing as an ArduPlane 4.7.1
 QuadPlane. The carrier set down all six repeaters, then the fixed-wing flew
 all seven waypoints and came home. [SITL.md](../SITL.md) shows how to repeat
@@ -163,12 +163,16 @@ it.
 
 | Measure | Result |
 |---|---|
-| Sortie launch | UAV004 at T0+1481.6 s, planned 1481 s |
+| Sortie launch | UAV004 at T0+1481.7 s, planned 1481 s |
 | Every aircraft down and disarmed | T0+2229 s, planned 2218 s |
 | Closest approach between airborne aircraft | 14.1 m, limit 5 m; the evidence predicts 14.1 m |
-| Carrier from its planned track | at most 10.0 m, 95% of fixes within 9.5 m |
-| Fixed-wing at each waypoint | within 4.1 s of its planned time, passing within 31 m |
-| Fixed-wing from its planned path, whenever it got there | at most 88 m, 95% of fixes within 32 m |
+| Carrier from its planned track | at most 24.7 m, 95% of fixes within 23.8 m |
+| Fixed-wing at each waypoint | within 3.6 s of its planned time, passing within 31 m |
+| Fixed-wing from its planned path, whenever it got there | at most 88 m, 95% of fixes within 34 m |
+
+The carrier's distance is timing, not path: it stayed within 0.9 m of its
+planned path, but by the end of its 25-minute flight it ran up to 3 s behind
+its plan, 0.2% of the time flown, which at 10 m/s is 25 m.
 
 A fixed-wing cannot turn on a point. At 25 m/s it turns on a circle of about
 64 m, and the plan now draws its corners as ArduPlane flies them: a turn of up
@@ -176,8 +180,8 @@ to 90 degrees cuts the corner on an arc and rejoins the next leg, and a
 sharper one swings outside the next leg before rejoining it. Against the
 straight lines the plan drew before, 95% of fixes were within 37 m. The
 largest distance, 88 m, is the transition from hover after take-off. At the
-same moment, the fixed-wing was at most 147 m from its planned position, 95%
-of fixes within 128 m: it ran up to 4 s ahead of or behind the plan along its
+same moment, the fixed-wing was at most 134 m from its planned position, 95%
+of fixes within 115 m: it ran up to 4 s ahead of or behind the plan along its
 track, which at 25 m/s is 100 m.
 
 The picture is animated: the 37-minute plan plays in 20 s, looping. Copters

@@ -22,6 +22,12 @@ for f in copter.parm quadplane.parm; do
 done
 ```
 
+Or build them from the source at the release tag (both vehicles are one
+commit): clone `https://github.com/ArduPilot/ardupilot.git` at `Copter-4.7.1`
+with `--recurse-submodules`, then `./waf configure --board sitl && ./waf copter
+plane`. The binaries land in `build/sitl/bin/`, and the parameter files are in
+`Tools/autotest/default_params/`.
+
 Start one simulator per vehicle at the home the launcher's dry run prints.
 Instance *i* listens on TCP port 5760 + 10 *i*, which is the launcher's default
 connection:
@@ -45,6 +51,13 @@ dotnet fsi mavlink_show.fsx --draw         # the picture only: plan.svg before a
 
 `--speedup` must match the simulators' own `--speedup`. It scales the
 launcher's clock, its heartbeat and its polling.
+
+A simulator does not keep exactly to its `--speedup`. Measured against its
+own `time_boot_ms`, SITL ran 0.1% faster than asked at `--speedup 2` and 0.2%
+faster at `--speedup 3`, and exactly on time at `--speedup 1`. Over a
+two-hour plan that is 15 s between the launcher's clock and the vehicles',
+which shows up as distance from the planned tracks. The pictures were flown
+at `--speedup 1`.
 
 ## The pictures
 

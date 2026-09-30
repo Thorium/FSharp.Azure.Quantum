@@ -307,7 +307,7 @@ What dispatching the fire scenario shows (`--dispatch --policy adaptive-hybrid`)
 ### The can demo flown in ArduPilot SITL
 
 The can demo was flown on four ArduCopter 4.7.1 vehicles in ArduPilot's own
-software-in-the-loop simulator, with the generated launcher, on 29 September
+software-in-the-loop simulator, with the generated launcher, on 30 September
 2026. SITL cannot lose an aircraft or move a can on cue, so the run used an
 empty events file. With no events the dispatcher plans 10 sorties, one per
 can, and the evidence PASSes. [SITL.md](../SITL.md) shows how to repeat it.
@@ -317,9 +317,9 @@ can, and the evidence PASSes. [SITL.md](../SITL.md) shows how to repeat it.
 | Measure | Result |
 |---|---|
 | Sorties started on time | 10 of 10, each within 0.2 s of its planned time |
-| Every aircraft down and disarmed | T0+261 s, planned 259 s |
+| Every aircraft down and disarmed | T0+260 s, planned 259 s |
 | Closest approach between airborne aircraft | 0.59 m, limit 0.5 m; the evidence predicts 0.5 m |
-| Distance from the planned tracks | at most 2.0 m, 95% of fixes within 1.9 m |
+| Distance from the planned tracks | at most 2.0 m, 95% of fixes within 1.7 m |
 
 The closest approach is a landing drone descending past the outbound lane,
 0.6 m to the side of a drone leaving on it. The plan has the same geometry.
