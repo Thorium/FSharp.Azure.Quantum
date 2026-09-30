@@ -375,22 +375,41 @@ module QuantumTeleportation =
     // WHOLE-CIRCUIT TELEPORTATION (backends that run complete circuits only)
     // ========================================================================
 
-    /// ⟨σ⟩ of qubit 2 from a measured state: P(q2 = 0) − P(q2 = 1).
-    let private expectationOnBob (state: QuantumState) : float =
-        [ 0..7 ]
-        |> List.sumBy (fun index ->
-            let bits = Array.init 3 (fun q -> (index >>> q) &&& 1)
-            let p = QuantumState.probability bits state
-            if bits.[2] = 0 then p else -p)
+    /// Outcome distribution of qubits offset .. offset + 2 of a whole-circuit result, indexed
+    /// with bit k = qubit offset + k. A job's result gives its recorded counts over the shots
+    /// it measured; a computed state gives its exact marginal probabilities.
+    let private copyDistribution (offset: int) (state: QuantumState) : float[] =
+        let distribution = Array.zeroCreate 8
 
-    /// Teleportation of the state `prepOps` make on qubit 0, run as whole circuits.
+        match UnifiedBackend.recordedShots state with
+        | Some shots when shots.Length > 0 ->
+            for bits in shots do
+                let index = bits.[offset] + 2 * bits.[offset + 1] + 4 * bits.[offset + 2]
+                distribution.[index] <- distribution.[index] + 1.0 / float shots.Length
+        | _ ->
+            let n = QuantumState.numQubits state
+
+            for index in 0 .. (1 <<< n) - 1 do
+                let bits = Array.init n (fun q -> (index >>> q) &&& 1)
+                let local = bits.[offset] + 2 * bits.[offset + 1] + 4 * bits.[offset + 2]
+                distribution.[local] <- distribution.[local] + QuantumState.probability bits state
+
+        distribution
+
+    /// ⟨σ⟩ of Bob's qubit (bit 2) from a copy's distribution: P(q2 = 0) − P(q2 = 1).
+    let private expectationOnBob (distribution: float[]) : float =
+        [ 0..7 ] |> List.sumBy (fun index -> if index &&& 4 = 0 then distribution.[index] else -distribution.[index])
+
+    /// Teleportation of the state `prepOps` make on qubit 0, run as ONE whole circuit.
     ///
     /// The corrections are already deferred-measurement gates (CNOT, CZ), so the protocol
     /// is one circuit and Alice's bits are the final measurement of q0 and q1 — measuring
     /// them at the end gives the same distribution as measuring them mid-circuit. Counts give
-    /// no state vector, so fidelity is estimated by tomography of Bob's qubit: the circuit
-    /// is run three times, measuring q2 in the Z, X and Y bases, and F = (1 + r_in·r)/2 for
-    /// the measured Bloch vector r and the input's r_in.
+    /// no state vector, so fidelity is estimated by tomography of Bob's qubit in the Z, X and
+    /// Y bases, and F = (1 + r_in·r)/2 for the measured Bloch vector r and the input's r_in.
+    /// The three tomography settings are independent copies of the protocol side by side in
+    /// one 9-qubit circuit (qubits 0–2 measured in Z, 3–5 in X, 6–8 in Y), so every shot
+    /// informs all three expectations and a call costs one job, not three.
     let private teleportWholeCircuit
         (prepOps: QuantumOperation list)
         (backend: IQuantumBackend)
@@ -412,19 +431,19 @@ module QuantumTeleportation =
                     prepOps @ bellOps @ aliceOps @ correctionOps
 
             let bob = intent.BobBellQubit
-            let! zState = UnifiedBackend.submitAsCircuit backend 3 protocolOps
+            let! xCopy = WholeCircuit.shiftOps 3 (protocolOps @ [ QuantumOperation.Gate(H bob) ])
 
-            let! xState =
-                UnifiedBackend.submitAsCircuit backend 3 (protocolOps @ [ QuantumOperation.Gate(H bob) ])
+            let! yCopy =
+                WholeCircuit.shiftOps 6 (protocolOps @ [ QuantumOperation.Gate(SDG bob); QuantumOperation.Gate(H bob) ])
 
-            let! yState =
-                UnifiedBackend.submitAsCircuit
-                    backend
-                    3
-                    (protocolOps @ [ QuantumOperation.Gate(SDG bob); QuantumOperation.Gate(H bob) ])
+            let! joint = UnifiedBackend.submitAsCircuit backend 9 (protocolOps @ xCopy @ yCopy)
+
+            let zDistribution = copyDistribution 0 joint
 
             let measured =
-                (expectationOnBob xState, expectationOnBob yState, expectationOnBob zState)
+                (expectationOnBob (copyDistribution 3 joint),
+                 expectationOnBob (copyDistribution 6 joint),
+                 expectationOnBob zDistribution)
 
             // The input's Bloch vector is the reference the fidelity is measured against: the
             // state the caller asked to teleport, described exactly, not a result.
@@ -446,8 +465,24 @@ module QuantumTeleportation =
             let dot (x1, y1, z1) (x2, y2, z2) = x1 * x2 + y1 * y2 + z1 * z2
             let fidelity = max 0.0 (min 1.0 ((1.0 + dot inputBloch measured) / 2.0))
 
-            // Alice's bits: one shot of the Z-basis run.
-            let bits = QuantumState.measure zState 1 |> Array.head
+            // The Z copy on its own, as the 3-qubit state of the protocol: its recorded shots
+            // when the job recorded them, otherwise its phase-less marginal (all a whole
+            // circuit can report either way).
+            let bobState =
+                match UnifiedBackend.recordedShots joint with
+                | Some shots when shots.Length > 0 ->
+                    shots
+                    |> Array.countBy (fun bits -> String(Array.init 3 (fun q -> if bits.[2 - q] = 1 then '1' else '0')))
+                    |> Map.ofArray
+                    |> fun counts -> FSharp.Azure.Quantum.Backends.CloudBackendHelpers.histogramToQuantumState counts 3
+                | _ ->
+                    zDistribution
+                    |> Array.map (fun p -> Complex(sqrt p, 0.0))
+                    |> StateVector.create
+                    |> QuantumState.StateVector
+
+            // Alice's bits: one shot of the Z-basis copy.
+            let bits = QuantumState.measure bobState 1 |> Array.head
 
             let aliceMeasurement =
                 {
@@ -459,7 +494,7 @@ module QuantumTeleportation =
                 {
                     AliceMeasurement = aliceMeasurement
                     BobCorrection = getCorrection aliceMeasurement
-                    BobState = zState
+                    BobState = bobState
                     NumQubits = 3
                     BackendName = backend.Name
                     Fidelity = fidelity

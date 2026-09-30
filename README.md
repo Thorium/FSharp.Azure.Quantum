@@ -2827,7 +2827,7 @@ match Oracle.forValue 5 3 with              // mark the basis state |101⟩ (val
 - Measurement-based results (histogram of basis states)
 
 **Backend Limitations:**
-- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases); `UnifiedBackend.measureState` on it draws new samples from those counts, while `Primitives.sample` returns the job's own counts
+- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases) that carries the job's recorded counts; `UnifiedBackend.measureState` on it returns the job's own shots, never more than it measured (so the array can be shorter than requested), and `Primitives.sample` returns the job's counts
 - Suitable for algorithms that measure amplification results
 - For amplitude/phase analysis, use local simulation
 
@@ -2892,7 +2892,7 @@ match QFT.execute 5 backend QFT.defaultConfig with
 - Measurement-based results (histogram of basis states)
 
 **Backend Limitations:**
-- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases); `UnifiedBackend.measureState` on it draws new samples from those counts, while `Primitives.sample` returns the job's own counts
+- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases) that carries the job's recorded counts; `UnifiedBackend.measureState` on it returns the job's own shots, never more than it measured (so the array can be shorter than requested), and `Primitives.sample` returns the job's counts
 - Suitable for algorithms that measure QFT output (Shor's, Phase Estimation)
 - For amplitude/phase analysis, use local simulation
 

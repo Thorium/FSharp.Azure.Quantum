@@ -753,7 +753,7 @@ type PeriodFinderResult = {
 
 `FactorSource` (in `Algorithms.ShorsTypes`) keeps a lucky gcd apart from a quantum result: `ClassicalPreprocessing` means N was even or the drawn base shared a factor with N, so no circuit ran and `Period` is 0.
 
-**Backends**: the period finding runs gate by gate on the local simulator and as one native intent on the topological backend. A cloud backend gets the whole modular-exponentiation circuit as one job per base tried; retries of the phase readout take further samples from that job's counts. Even N = 15 is a deep circuit (20 qubits with 8 counting qubits), far beyond what today's hardware runs without errors.
+**Backends**: the period finding runs gate by gate on the local simulator and as one native intent on the topological backend. A cloud backend gets the whole modular-exponentiation circuit as one job per base tried; retries of the phase readout read that job's recorded shots one by one, each at most once, and a further job is submitted only when all of them have been tried (a 100-shot backend covers the 16 retries with one job, a one-shot backend needs a job per retry). Even N = 15 is a deep circuit (20 qubits with 8 counting qubits), far beyond what today's hardware runs without errors.
 
 ### Use Cases
 

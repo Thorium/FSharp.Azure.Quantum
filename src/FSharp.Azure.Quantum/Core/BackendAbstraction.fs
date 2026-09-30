@@ -834,8 +834,21 @@ module BackendAbstraction =
         ///   shots - Number of measurement samples
         ///
         /// Returns:
-        ///   Array of bitstrings (measurement outcomes)
+        ///   Array of bitstrings (measurement outcomes). For a state computed by a simulator
+        ///   these are `shots` fresh samples. For a job's result (a cloud backend's returned
+        ///   state, which carries its recorded counts) they are the job's own shots, drawn
+        ///   without replacement and never more than it recorded: the array can be SHORTER
+        ///   than `shots`, and frequencies must be taken over its length.
         let measureState (state: QuantumState) (shots: int) : int[][] = QuantumState.measure state shots
+
+        /// Every shot a job recorded for this state, once each and in random order; None for a
+        /// state computed by a simulator (see QuantumState.recordedShots). Algorithms that read
+        /// one outcome at a time (retries) walk this array instead of re-measuring, so no
+        /// recorded outcome is read twice and a new job is due only when all have been read.
+        let recordedShots (state: QuantumState) : int[][] option = QuantumState.recordedShots state
+
+        /// Number of shots a job recorded for this state; None for a computed state.
+        let recordedShotCount (state: QuantumState) : int option = QuantumState.recordedShotCount state
 
         /// Execute operation with automatic state conversion if needed (task-based).
         ///

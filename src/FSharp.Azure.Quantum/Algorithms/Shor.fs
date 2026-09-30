@@ -436,17 +436,12 @@ module Shor =
             | other -> return! other
         }
 
-    /// One QPE shot: measure the counting register of the period-finding circuit's final
-    /// state and read the phase. ApplySwaps is false on every route, so the inverse QFT
-    /// leaves the counting register bit-reversed and it is undone here rather than in gates.
-    ///
-    /// Each call is a fresh sample of the same final state, so retries take further shots of
-    /// one run: on a whole-circuit backend that is one job, not one job per attempt.
-    let private readPhase (countingQubits: int) (totalQubits: int) (finalState: QuantumState) : ModExpPhaseResult =
-        let measurements = UnifiedBackend.measureState finalState 1
-
+    /// The phase read from one measured shot of the period-finding circuit. ApplySwaps is
+    /// false on every route, so the inverse QFT leaves the counting register bit-reversed and
+    /// it is undone here rather than in gates.
+    let private phaseOfShot (countingQubits: int) (totalQubits: int) (shot: int[]) : ModExpPhaseResult =
         let measurementOutcome =
-            measurements.[0]
+            shot
             |> Array.take countingQubits
             |> Array.rev
             |> Array.indexed
@@ -459,6 +454,13 @@ module Shor =
             TotalQubits = totalQubits
             ModularMultiplications = countingQubits
         }
+
+    /// One QPE shot of the period-finding circuit's final state: a fresh sample of a computed
+    /// state, or one of the shots a job recorded.
+    let private readPhase (countingQubits: int) (totalQubits: int) (finalState: QuantumState) : ModExpPhaseResult =
+        UnifiedBackend.measureState finalState 1
+        |> Array.head
+        |> phaseOfShot countingQubits totalQubits
 
     /// Estimate the phase of modular exponentiation U_a: |x⟩ → |ax mod N⟩
     /// using full Beauregard (2003) quantum arithmetic circuits.
@@ -660,9 +662,11 @@ module Shor =
     /// r satisfying a^r ≡ 1 (mod N). Counting qubits are clamped so the circuit fits the
     /// simulator's qubit budget.
     ///
-    /// The plan is made and run once, and each attempt is a further shot of that run: which
-    /// backend path runs cannot change between shots, only the measurement outcome does, and
-    /// on a backend that runs complete circuits one run is one job.
+    /// The plan is made once, and each attempt reads a distinct measured shot: which backend
+    /// path runs cannot change between shots, only the measurement outcome does. On a backend
+    /// that runs complete circuits one run is one job, and its recorded shots are tried one by
+    /// one; a further job is submitted only when all of them have been tried, so a 100-shot
+    /// backend needs one job for 16 attempts and a one-shot backend one job per attempt.
     let findPeriodQuantum
         (a: int)
         (n: int)
@@ -692,31 +696,57 @@ module Shor =
                         CountingQubits = countingQubits
                     }
 
-            let rec attempt (run: QuantumState * int * int) tries =
-                let (finalState, countingQubits, totalQubits) = run
-                let phaseResult = readPhase countingQubits totalQubits finalState
+            // Each attempt reads a distinct measured shot. A computed (simulator) state is
+            // sampled afresh per attempt. A job's result holds a fixed set of recorded shots:
+            // attempts take them one by one, and only when every one has been tried is the
+            // plan run again — a new job with new shots. Reading one recorded outcome over and
+            // over is how a one-shot backend used to spend all its attempts on a single job.
+            let runPlan () =
+                periodFindingPlan |> Result.bind (executePeriodFindingPlan backend)
 
-                match continuedFractionConvergent phaseResult.EstimatedPhase n with
-                | Some(_, r) when r > 0 && r < n && modPow a r n = 1 ->
-                    Ok
-                        {
-                            Period = r
-                            Base = a
-                            PhaseEstimate = phaseResult.EstimatedPhase
-                            Attempts = tries
-                        }
-                | _ when tries < maxAttempts -> attempt run (tries + 1)
-                | _ ->
-                    Error(
-                        QuantumError.OperationError(
-                            "Period finding",
-                            $"QPE did not yield a valid period for a={a}, N={n} within {maxAttempts} attempts"
+            let shotsOf (finalState: QuantumState) : int[][] =
+                match UnifiedBackend.recordedShots finalState with
+                | Some recorded when recorded.Length > 0 -> recorded
+                | _ -> UnifiedBackend.measureState finalState 1
+
+            let rec attempt (run: QuantumState * int * int) (shots: int[][]) (next: int) tries =
+                if next >= shots.Length then
+                    let (finalState, _, _) = run
+
+                    match UnifiedBackend.recordedShots finalState with
+                    | Some _ ->
+                        // Every recorded shot is spent: take new ones from a new job.
+                        runPlan ()
+                        |> Result.bind (fun fresh ->
+                            let (state, _, _) = fresh
+                            attempt fresh (shotsOf state) 0 tries)
+                    | None -> attempt run (shotsOf finalState) 0 tries
+                else
+                    let (_, countingQubits, totalQubits) = run
+                    let phaseResult = phaseOfShot countingQubits totalQubits shots.[next]
+
+                    match continuedFractionConvergent phaseResult.EstimatedPhase n with
+                    | Some(_, r) when r > 0 && r < n && modPow a r n = 1 ->
+                        Ok
+                            {
+                                Period = r
+                                Base = a
+                                PhaseEstimate = phaseResult.EstimatedPhase
+                                Attempts = tries
+                            }
+                    | _ when tries < maxAttempts -> attempt run shots (next + 1) (tries + 1)
+                    | _ ->
+                        Error(
+                            QuantumError.OperationError(
+                                "Period finding",
+                                $"QPE did not yield a valid period for a={a}, N={n} within {maxAttempts} attempts"
+                            )
                         )
-                    )
 
-            periodFindingPlan
-            |> Result.bind (executePeriodFindingPlan backend)
-            |> Result.bind (fun run -> attempt run 1)
+            runPlan ()
+            |> Result.bind (fun run ->
+                let (finalState, _, _) = run
+                attempt run (shotsOf finalState) 0 1)
 
     /// Find the period of a^x mod N by QPE on modular exponentiation.
     ///

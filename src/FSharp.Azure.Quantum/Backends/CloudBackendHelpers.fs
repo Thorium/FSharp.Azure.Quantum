@@ -36,7 +36,26 @@ module CloudBackendHelpers =
     /// Parameters:
     ///   histogram - Map<bitstring, count> from cloud execution (e.g., {"00": 480, "11": 520})
     ///   numQubits - Number of qubits in the circuit
-    let histogramToQuantumState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
+    ///
+    /// The returned state carries the recorded counts (QuantumState.withRecordedCounts), so
+    /// measuring it yields the job's own shots — never outcomes resampled from its amplitudes.
+    let rec histogramToQuantumState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
+        buildHistogramState histogram numQubits
+        |> QuantumState.withRecordedCounts (recordedCountsOf histogram numQubits)
+
+    /// Histogram keys (rightmost char = qubit 0) in the QuantumState convention (character
+    /// q = qubit q), with keys that collapse together merged.
+    and private recordedCountsOf (histogram: Map<string, int>) (numQubits: int) : Map<string, int> =
+        histogram
+        |> Map.fold
+            (fun acc (bitstring: string) count ->
+                let padded = bitstring.PadLeft(numQubits, '0')
+                let key = String(Array.rev (padded.ToCharArray()))
+                let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
+                acc |> Map.add key merged)
+            Map.empty
+
+    and private buildHistogramState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
         // Parse bitstring (rightmost char = qubit 0) to basis state index
         // "00" → 0, "01" → 1, "10" → 2, "11" → 3
         let bitstringToIndex (bitstring: string) =

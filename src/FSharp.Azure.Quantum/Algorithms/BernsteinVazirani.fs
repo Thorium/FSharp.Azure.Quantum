@@ -189,12 +189,13 @@ module BernsteinVazirani =
 
                 let secret, count = measurements |> Array.countBy id |> Array.maxBy snd
 
+                // A cloud result yields its recorded shots, which may be fewer than requested.
                 return
                     {
                         RecoveredSecret = secret
-                        Confidence = float count / float shots
+                        Confidence = float count / float measurements.Length
                         NumQubits = numQubits
-                        Shots = shots
+                        Shots = measurements.Length
                         BackendName = backend.Name
                     }
             }

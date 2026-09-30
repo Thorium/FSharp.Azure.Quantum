@@ -545,76 +545,77 @@ module QuantumKeyDistribution =
             SampleIndices = sampleIndices
         }
 
-    /// Widest circuit the whole-circuit BB84 route packs transmissions into.
-    [<Literal>]
-    let private wholeCircuitWidth = 12
-
     /// Bob's results for every transmission, run as whole circuits on a backend that runs
     /// complete circuits only.
     ///
-    /// Each transmission is independent, so several share one circuit on disjoint qubits and
-    /// one shot of that circuit gives each of them one outcome. Eve's intercept-resend is a
-    /// mid-circuit measurement followed by re-preparation; it is deferred: rotate into her
-    /// basis, CNOT the qubit onto an ancilla of her own, rotate back. That decoheres the qubit
-    /// in her basis exactly as measuring it and resending the eigenstate she saw would, so
-    /// Bob's statistics are the protocol's.
+    /// A transmission is fixed by Alice's bit and basis, Eve's action and Bob's basis, so
+    /// there are at most 24 kinds of transmission, and transmissions of one kind are identical
+    /// independent experiments. `WholeCircuit.runTrials` runs each kind in slots side by side
+    /// on disjoint qubits, circuits as wide as the backend allows, and takes an outcome from
+    /// every shot of every job. A 200-bit key on a 100-shot backend takes one or two jobs
+    /// rather than one job per dozen transmissions with 99 of every 100 paid shots discarded.
+    /// Outcomes of a kind go to its transmissions in order.
+    ///
+    /// Eve's intercept-resend is a mid-circuit measurement followed by re-preparation; it is
+    /// deferred: rotate into her basis, CNOT the qubit onto an ancilla of her own, rotate
+    /// back. That decoheres the qubit in her basis exactly as measuring it and resending the
+    /// eigenstate she saw would, so Bob's statistics are the protocol's.
     let private bobResultsWholeCircuit (backend: IQuantumBackend) (intent: Bb84Intent) : Result<Bit[], QuantumError> =
         let rotation basis qubit =
             match basis with
             | Rectilinear -> []
             | Diagonal -> [ QuantumOperation.Gate(H qubit) ]
 
-        // Gates of transmission i on `qubit` (and Eve's ancilla next to it), and its width.
-        let transmission i qubit =
+        let kindOf i =
+            intent.Alice.Bits.[i], intent.Alice.Bases.[i], intent.EveActions.[i], intent.BobBases.[i]
+
+        // Gates of one transmission of a kind on `qubit` (and Eve's ancilla next to it).
+        let transmission (bit, aliceBasis, eveAction, bobBasis) qubit =
             let prepare =
-                (match intent.Alice.Bits.[i] with
+                (match bit with
                  | One -> [ QuantumOperation.Gate(X qubit) ]
                  | Zero -> [])
-                @ rotation intent.Alice.Bases.[i] qubit
+                @ rotation aliceBasis qubit
 
-            let eve, width =
-                match intent.EveActions.[i] with
-                | EveAction.None -> [], 1
+            let eve =
+                match eveAction with
+                | EveAction.None -> []
                 | EveAction.InterceptResend eveBasis ->
                     rotation eveBasis qubit
                     @ [ QuantumOperation.Gate(CNOT(qubit, qubit + 1)) ]
-                    @ rotation eveBasis qubit,
-                    2
+                    @ rotation eveBasis qubit
 
-            prepare @ eve @ rotation intent.BobBases.[i] qubit, width
+            prepare @ eve @ rotation bobBasis qubit
 
-        // Pack consecutive transmissions into circuits no wider than wholeCircuitWidth.
-        let batches =
+        let kinds =
             [ 0 .. intent.InitialQubits - 1 ]
-            |> List.fold
-                (fun (batches: (int * int) list list, used) i ->
-                    let width = snd (transmission i 0)
+            |> List.countBy kindOf
+            |> List.map (fun (((_, _, eveAction, _) as key), count) ->
+                ({
+                    Key = key
+                    Width =
+                        match eveAction with
+                        | EveAction.None -> 1
+                        | EveAction.InterceptResend _ -> 2
+                    Gates = transmission key
+                    Count = count
+                }
+                : WholeCircuit.TrialKind<_>))
 
-                    match batches with
-                    | current :: rest when used + width <= wholeCircuitWidth ->
-                        (((i, used) :: current) :: rest, used + width)
-                    | _ -> ([ (i, 0) ] :: batches, width))
-                ([], 0)
-            |> fst
-            |> List.rev
-            |> List.map List.rev
+        WholeCircuit.runTrials "BB84" backend kinds
+        |> Result.map (fun outcomes ->
+            let next = Collections.Generic.Dictionary<_, int>()
 
-        batches
-        |> List.map (fun batch ->
-            let ops = batch |> List.collect (fun (i, qubit) -> fst (transmission i qubit))
+            Array.init intent.InitialQubits (fun i ->
+                let key = kindOf i
 
-            let width = batch |> List.sumBy (fun (i, _) -> snd (transmission i 0))
+                let taken =
+                    match next.TryGetValue key with
+                    | true, n -> n
+                    | _ -> 0
 
-            UnifiedBackend.submitAsCircuit backend width ops
-            |> Result.map (fun state ->
-                let bits = QuantumState.measure state 1 |> Array.head
-                batch |> List.map (fun (_, qubit) -> if bits.[qubit] = 1 then One else Zero)))
-        |> List.fold
-            (fun acc next ->
-                acc
-                |> Result.bind (fun collected -> next |> Result.map (fun bits -> collected @ bits)))
-            (Ok [])
-        |> Result.map Array.ofList
+                next.[key] <- taken + 1
+                if outcomes.[key].[taken].[0] = 1 then One else Zero))
 
     let private executeBb84Planned
         (backend: IQuantumBackend)

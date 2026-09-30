@@ -256,43 +256,6 @@ module EkertQKD =
         }
 
     // ========================================================================
-    // MEASUREMENT IN ROTATED BASIS
-    // ========================================================================
-
-    /// Measure a qubit in a rotated basis defined by angle theta.
-    ///
-    /// To measure in the basis defined by angle theta from the Z-axis:
-    /// Apply Ry(-theta) to rotate the measurement basis back to Z,
-    /// then measure in the computational (Z) basis.
-    ///
-    /// Angles:
-    ///   0 deg -> Z basis (no rotation needed)
-    ///   45 deg (pi/4) -> diagonal basis
-    ///   90 deg (pi/2) -> X basis
-    ///   135 deg (3*pi/4) -> anti-diagonal basis
-    let private measureInRotatedBasis
-        (backend: IQuantumBackend)
-        (state: QuantumState)
-        (qubit: int)
-        (angle: float)
-        : Result<int, QuantumError> =
-
-        result {
-            // Apply Ry(-angle) to rotate measurement basis to Z-axis
-            let! rotatedState =
-                if abs angle < 1e-10 then
-                    Ok state // 0 degrees = Z basis, no rotation needed
-                else
-                    backend.ApplyOperation (QuantumOperation.Gate(RY(qubit, -angle))) state
-
-            // Measure in computational (Z) basis using single-shot
-            let measurements = QuantumState.measure rotatedState 1
-            let bit = measurements.[0].[qubit]
-
-            return bit
-        }
-
-    // ========================================================================
     // SINGLE PAIR PROTOCOL
     // ========================================================================
 
@@ -385,13 +348,27 @@ module EkertQKD =
 
             let! bellState = UnifiedBackend.applySequence backend bellOps initialState
 
-            // Eve measures both qubits in a random basis (destroying entanglement)
+            // Eve measures both qubits in a random basis (destroying entanglement). It is ONE
+            // joint measurement of the pair: two separate samples of the Bell state would draw
+            // her two outcomes independently, when for |Φ+⟩ measured in a common basis they
+            // always agree. The whole-circuit route keeps that correlation too.
             let eveAngle = float (rng.Next 4) * Math.PI / 4.0
 
-            let! eveResultAlice =
-                measureInRotatedBasis backend bellState intent.AliceQubit eveAngle
+            let! inEveBasis =
+                if abs eveAngle < 1e-10 then
+                    Ok bellState
+                else
+                    UnifiedBackend.applySequence
+                        backend
+                        [
+                            QuantumOperation.Gate(RY(intent.AliceQubit, -eveAngle))
+                            QuantumOperation.Gate(RY(intent.BobQubit, -eveAngle))
+                        ]
+                        bellState
 
-            let! eveResultBob = measureInRotatedBasis backend bellState intent.BobQubit eveAngle
+            let eveBits = QuantumState.measure inEveBasis 1 |> Array.head
+            let eveResultAlice = eveBits.[intent.AliceQubit]
+            let eveResultBob = eveBits.[intent.BobQubit]
 
             // Eve prepares replacement qubits (unentangled) based on her measurements
             let! replacementState = backend.InitializeState 2
@@ -541,18 +518,20 @@ module EkertQKD =
     // FULL PROTOCOL EXECUTION
     // ========================================================================
 
-    /// Widest circuit the whole-circuit E91 route packs pairs into.
-    [<Literal>]
-    let private wholeCircuitWidth = 12
-
     /// Every pair, run as whole circuits on a backend that runs complete circuits only.
     ///
-    /// Pairs are independent, so several share one circuit on disjoint qubits and one shot of
-    /// that circuit gives each of them one joint outcome. Eve's intercept-resend (measure both
-    /// qubits in her basis, send fresh computational-basis states for what she saw) is
-    /// deferred: rotate both into her basis and CNOT each onto an ancilla of her own. That
-    /// leaves Alice's and Bob's qubits dephased in the computational basis with Eve's joint
-    /// outcome, which is the state she resends, so their statistics are the protocol's.
+    /// A pair is fixed by Alice's basis, Bob's basis and Eve's basis (if she intercepts), so
+    /// there are 9 kinds of pair without Eve and 36 with her, and pairs of one kind are
+    /// identical independent experiments. `WholeCircuit.runTrials` runs each kind in slots
+    /// side by side, circuits as wide as the backend allows, and takes a joint outcome from
+    /// every shot of every job: 600 pairs on a 100-shot backend take two jobs, not one job
+    /// per six pairs with 99 of every 100 paid shots discarded.
+    ///
+    /// Eve's intercept-resend (measure both qubits in her basis, send fresh computational-basis
+    /// states for what she saw) is deferred: rotate both into her basis and CNOT each onto an
+    /// ancilla of her own. That leaves Alice's and Bob's qubits dephased in the computational
+    /// basis with Eve's joint outcome, which is the state she resends, so their statistics are
+    /// the protocol's.
     let private pairsWholeCircuit
         (backend: IQuantumBackend)
         (intent: E91Intent)
@@ -565,25 +544,25 @@ module EkertQKD =
             else
                 [ QuantumOperation.Gate(RY(qubit, -angle)) ]
 
-        // Eve's basis per pair, drawn in pair order as the gate-by-gate route draws it.
-        let eveAngles =
-            Array.init intent.NumPairs (fun _ ->
-                if intent.EveIntercepts then
-                    Some(float (rng.Next 4) * Math.PI / 4.0)
-                else
-                    None)
+        // Eve's basis per pair (index of k·π/4), drawn in pair order as the gate-by-gate
+        // route draws it.
+        let eveBases =
+            Array.init intent.NumPairs (fun _ -> if intent.EveIntercepts then Some(rng.Next 4) else None)
 
-        let pairWidth = if intent.EveIntercepts then 4 else 2
-        let pairsPerCircuit = max 1 (wholeCircuitWidth / pairWidth)
+        let kindOf i =
+            intent.AliceBases.[i], intent.BobBases.[i], eveBases.[i]
 
-        // Gates of pair i with Alice on `offset`, Bob on offset + 1, Eve's ancillas above.
-        let pairOps i offset =
+        // Gates of one pair of a kind with Alice on `offset`, Bob on offset + 1, Eve's
+        // ancillas above.
+        let pairOps (aliceBasis, bobBasis, eveBasis) offset =
             let alice, bob = offset, offset + 1
 
             let eve =
-                match eveAngles.[i] with
+                match eveBasis with
                 | None -> []
-                | Some angle ->
+                | Some k ->
+                    let angle = float k * Math.PI / 4.0
+
                     rotate alice angle
                     @ rotate bob angle
                     @ [
@@ -593,33 +572,42 @@ module EkertQKD =
 
             [ QuantumOperation.Gate(H alice); QuantumOperation.Gate(CNOT(alice, bob)) ]
             @ eve
-            @ rotate alice (aliceAngle intent.AliceBases.[i])
-            @ rotate bob (bobAngle intent.BobBases.[i])
+            @ rotate alice (aliceAngle aliceBasis)
+            @ rotate bob (bobAngle bobBasis)
 
-        [ 0 .. intent.NumPairs - 1 ]
-        |> List.chunkBySize pairsPerCircuit
-        |> List.map (fun chunk ->
-            let placed = chunk |> List.mapi (fun slot i -> i, slot * pairWidth)
-            let ops = placed |> List.collect (fun (i, offset) -> pairOps i offset)
+        let kinds =
+            [ 0 .. intent.NumPairs - 1 ]
+            |> List.countBy kindOf
+            |> List.map (fun (((_, _, eveBasis) as key), count) ->
+                ({
+                    Key = key
+                    Width = if Option.isSome eveBasis then 4 else 2
+                    Gates = pairOps key
+                    Count = count
+                }
+                : WholeCircuit.TrialKind<_>))
 
-            UnifiedBackend.submitAsCircuit backend (chunk.Length * pairWidth) ops
-            |> Result.map (fun state ->
-                let bits = QuantumState.measure state 1 |> Array.head
+        WholeCircuit.runTrials "EkertQKD" backend kinds
+        |> Result.map (fun outcomes ->
+            let next = Collections.Generic.Dictionary<_, int>()
 
-                placed
-                |> List.map (fun (i, offset) ->
-                    {
-                        AliceBasis = intent.AliceBases.[i]
-                        BobBasis = intent.BobBases.[i]
-                        AliceResult = bits.[offset]
-                        BobResult = bits.[offset + 1]
-                    })))
-        |> List.fold
-            (fun acc next ->
-                acc
-                |> Result.bind (fun collected -> next |> Result.map (fun pairs -> collected @ pairs)))
-            (Ok [])
-        |> Result.map Array.ofList
+            Array.init intent.NumPairs (fun i ->
+                let key = kindOf i
+
+                let taken =
+                    match next.TryGetValue key with
+                    | true, n -> n
+                    | _ -> 0
+
+                next.[key] <- taken + 1
+                let bits = outcomes.[key].[taken]
+
+                {
+                    AliceBasis = intent.AliceBases.[i]
+                    BobBasis = intent.BobBases.[i]
+                    AliceResult = bits.[0]
+                    BobResult = bits.[1]
+                }))
 
     /// Execute the E91 protocol (deterministic, given intent)
     let private executeE91 (backend: IQuantumBackend) (intent: E91Intent) : Result<E91Result, QuantumError> =

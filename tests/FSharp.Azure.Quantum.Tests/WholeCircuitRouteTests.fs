@@ -199,6 +199,28 @@ module WholeCircuitRouteTests =
         | Error e -> Assert.Fail($"Shor on a whole-circuit backend failed: {e.Message}")
 
     [<Fact>]
+    let ``Shor Route - retries read distinct recorded shots and a spent job is followed by a new one`` () =
+        // a = 7, N = 15, 3 counting qubits: half of all shots give the period 4. One recorded
+        // shot per job means every retry needs a job of its own — re-reading the first job's
+        // single outcome 16 times would fail whenever that outcome is a bad one.
+        for seed in 1..12 do
+            let backend = sampling 1 seed
+
+            match Shor.findPeriodQuantum 7 15 3 (backend :> IQuantumBackend) with
+            | Ok result ->
+                Assert.Equal(4, result.Period)
+                Assert.Equal(result.Attempts, backend.Submitted)
+            | Error e -> Assert.Fail($"seed {seed}: {e.Message}")
+
+        // Four recorded shots per job: attempts walk them before a second job is submitted.
+        for seed in 1..12 do
+            let backend = sampling 4 (100 + seed)
+
+            match Shor.findPeriodQuantum 7 15 3 (backend :> IQuantumBackend) with
+            | Ok result -> Assert.Equal((result.Attempts + 3) / 4, backend.Submitted)
+            | Error e -> Assert.Fail($"seed {seed}: {e.Message}")
+
+    [<Fact>]
     let ``Shor Route - native intent refused as incremental falls back to the whole circuit`` () =
         // A backend that claims the modular-exponentiation QPE intent but cannot apply it
         // incrementally: the intent is tried first and the refusal routes to one job.
@@ -740,8 +762,11 @@ module WholeCircuitRouteTests =
             match teleport (backend :> IQuantumBackend) with
             | Ok result ->
                 Assert.True(result.Fidelity > 0.95, $"{name}: fidelity {result.Fidelity}")
-                // Bob's qubit measured in the Z, X and Y bases.
-                Assert.Equal(3, backend.Submitted)
+                // Bob's qubit measured in the Z, X and Y bases by three copies side by side in
+                // one 9-qubit circuit: one job per call.
+                Assert.Equal(1, backend.Submitted)
+                Assert.Equal<int list>([ 9 ], backend.Widths)
+                Assert.Equal(3, QuantumState.numQubits result.BobState)
             | Error e -> Assert.Fail($"{name}: {e.Message}")
 
         let local = LocalBackend.LocalBackend() :> IQuantumBackend
@@ -780,6 +805,104 @@ module WholeCircuitRouteTests =
         | Ok result ->
             Assert.True(abs result.CHSHTest.S < 2.0, $"S = {result.CHSHTest.S}")
             Assert.False(result.IsSecure)
+        | Error e -> Assert.Fail(e.Message)
+
+    [<Fact>]
+    let ``Protocols Route - BB84 and E91 use every shot of a job`` () =
+        // A 200-bit BB84 key sends 480 transmissions of at most 8 kinds (16 with Eve); at 100
+        // shots a job, one slot per kind covers each kind's demand.
+        let honest = sampling 100 41
+
+        match QuantumKeyDistribution.runBB84 200 (honest :> IQuantumBackend) 0.15 0.11 (Some 5) with
+        | Ok result ->
+            Assert.Equal(0.0, result.EavesdropCheck.ErrorRate)
+            Assert.Equal(1, honest.Submitted)
+        | Error e -> Assert.Fail(e.Message)
+
+        let attacked = sampling 100 42
+
+        match QuantumKeyDistribution.runBB84WithEve 200 (attacked :> IQuantumBackend) 0.15 0.11 (Some 5) with
+        | Ok result ->
+            Assert.True(result.EavesdropCheck.EavesdropDetected, $"QBER {result.EavesdropCheck.ErrorRate}")
+            Assert.True(attacked.Submitted <= 2, $"{attacked.Submitted} jobs")
+            Assert.True(attacked.Widths |> List.forall (fun w -> w <= WholeCircuit.MaxTrialWidth))
+        | Error e -> Assert.Fail(e.Message)
+
+        // 600 E91 pairs: 9 kinds of two qubits (36 of four with Eve).
+        let pairs = sampling 100 43
+
+        match EkertQKD.run (pairs :> IQuantumBackend) 600 (Some 7) with
+        | Ok result ->
+            Assert.True(result.CHSHTest.S > 2.2, $"S = {result.CHSHTest.S}")
+            Assert.Equal(2, pairs.Submitted)
+        | Error e -> Assert.Fail(e.Message)
+
+        let intercepted = sampling 100 44
+
+        match EkertQKD.runWithEve (intercepted :> IQuantumBackend) 600 (Some 7) with
+        | Ok result ->
+            Assert.True(abs result.CHSHTest.S < 2.0, $"S = {result.CHSHTest.S}")
+            Assert.True(intercepted.Submitted <= 9, $"{intercepted.Submitted} jobs")
+        | Error e -> Assert.Fail(e.Message)
+
+    [<Fact>]
+    let ``Protocols Route - BB84 and E91 run on the 8-qubit density-matrix simulator`` () =
+        let noisy () =
+            Backends.DensityMatrixSimulator.NoisyLocalBackend(Backends.DensityMatrixSimulator.noiseless)
+            :> IQuantumBackend
+
+        match QuantumKeyDistribution.runBB84 60 (noisy ()) 0.2 0.11 (Some 3) with
+        | Ok result -> Assert.Equal(0.0, result.EavesdropCheck.ErrorRate)
+        | Error e -> Assert.Fail(e.Message)
+
+        match QuantumKeyDistribution.runBB84WithEve 150 (noisy ()) 0.2 0.11 (Some 3) with
+        | Ok result -> Assert.True(result.EavesdropCheck.EavesdropDetected, $"QBER {result.EavesdropCheck.ErrorRate}")
+        | Error e -> Assert.Fail(e.Message)
+
+        match EkertQKD.run (noisy ()) 400 (Some 9) with
+        | Ok result -> Assert.True(result.CHSHTest.S > 2.2, $"S = {result.CHSHTest.S}")
+        | Error e -> Assert.Fail(e.Message)
+
+        match EkertQKD.runWithEve (noisy ()) 400 (Some 9) with
+        | Ok result -> Assert.True(abs result.CHSHTest.S < 2.0, $"S = {result.CHSHTest.S}")
+        | Error e -> Assert.Fail(e.Message)
+
+    [<Fact>]
+    let ``Protocols Route - Eve's two E91 measurements are one joint measurement on every route`` () =
+        // Eve measures |Φ+⟩ in one basis for both qubits, so her two outcomes agree and she
+        // resends |ee⟩: Alice and Bob measuring both in Z always agree. Drawing her outcomes
+        // as two independent samples made them disagree about half the time.
+        for backend in [ local (); sampling 100 51 :> IQuantumBackend ] do
+            match EkertQKD.runWithEve backend 300 (Some 11) with
+            | Ok result ->
+                let zz =
+                    result.Pairs
+                    |> List.filter (fun p -> p.AliceBasis = EkertQKD.AliceDeg0 && p.BobBasis = EkertQKD.BobDeg0)
+
+                Assert.NotEmpty zz
+                Assert.All(zz, fun p -> Assert.Equal(p.AliceResult, p.BobResult))
+            | Error e -> Assert.Fail($"{backend.Name}: {e.Message}")
+
+    [<Fact>]
+    let ``Protocols Route - a closure that returns an empty probe unchanged is still opaque`` () =
+        // Identity on the state it is probed with, a phase flip on anything else: judged by a
+        // probe it looked like the identity and was submitted as no gates, so a balanced
+        // oracle was reported constant.
+        let local = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let contrived: DeutschJozsa.Oracle =
+            fun state ->
+                match state with
+                | QuantumState.SparseState(amplitudes, _) when Map.isEmpty amplitudes -> Ok state
+                | _ -> local.ApplyOperation (QuantumOperation.Gate(CircuitBuilder.Z 0)) state
+
+        match DeutschJozsa.run contrived 3 (sampling 50 1 :> IQuantumBackend) 50 with
+        | Ok r -> Assert.Fail($"An opaque oracle has no gates to submit; got {r.OracleType}")
+        | Error e -> Assert.Contains("opaque", e.Message)
+
+        // The module's identity oracles are registered, and still run as no gates.
+        match DeutschJozsa.run DeutschJozsa.constantOneOracle 3 (sampling 50 2 :> IQuantumBackend) 50 with
+        | Ok r -> Assert.Equal(DeutschJozsa.Constant, r.OracleType)
         | Error e -> Assert.Fail(e.Message)
 
     [<Fact>]
@@ -862,6 +985,49 @@ module WholeCircuitRouteTests =
                 Assert.NotEmpty result.Solutions
                 Assert.True(result.Solutions |> List.forall predicate)
             | Error e -> Assert.Fail(e.Message)
+
+    [<Fact>]
+    let ``Grover - a cloud job reports the shots it measured, not the shots requested`` () =
+        let oracle =
+            Oracle.forValue 5 3 |> Result.defaultWith (fun e -> failwith e.Message)
+
+        let backend = sampling 500 17
+
+        match Grover.search oracle (backend :> IQuantumBackend) { Grover.defaultConfig with Shots = 1000 } with
+        | Ok result ->
+            Assert.Equal(500, result.Measurements |> Map.toSeq |> Seq.sumBy snd)
+            Assert.Equal<int list>([ 5 ], result.Solutions)
+        | Error e -> Assert.Fail(e.Message)
+
+    [<Fact>]
+    let ``Measurement - a job's state yields its recorded shots, never resampled ones`` () =
+        let state = CloudBackendHelpers.histogramToQuantumState (Map [ "01", 3; "10", 1 ]) 2
+
+        // Recorded counts in the QuantumState convention (character q = qubit q).
+        Assert.Equal(Some(Map [ "10", 3; "01", 1 ]), QuantumState.tryRecordedCounts state)
+        Assert.Equal(Some 4, QuantumState.recordedShotCount state)
+
+        // More shots than recorded: every recorded shot once, and no more.
+        let all = UnifiedBackend.measureState state 1000
+        Assert.Equal(4, all.Length)
+        Assert.Equal(3, all |> Array.filter (fun b -> b = [| 1; 0 |]) |> Array.length)
+        Assert.Equal(1, all |> Array.filter (fun b -> b = [| 0; 1 |]) |> Array.length)
+
+        // Fewer: a subset drawn without replacement, so "01" appears at most once.
+        for _ in 1..50 do
+            let two = UnifiedBackend.measureState state 2
+            Assert.Equal(2, two.Length)
+            Assert.True((two |> Array.filter (fun b -> b = [| 0; 1 |]) |> Array.length) <= 1)
+
+        // A computed state is sampled afresh, as many times as asked.
+        let local = LocalBackend.LocalBackend() :> IQuantumBackend
+        let plus = local.InitializeState 1 |> Result.bind (local.ApplyOperation(QuantumOperation.Gate(CircuitBuilder.H 0)))
+
+        match plus with
+        | Ok s ->
+            Assert.Equal(None, QuantumState.tryRecordedCounts s)
+            Assert.Equal(1000, (UnifiedBackend.measureState s 1000).Length)
+        | Error e -> Assert.Fail(e.Message)
 
     [<Fact>]
     let ``TreeSearch - marks the sampled top percentile, not a lowered bar`` () =
