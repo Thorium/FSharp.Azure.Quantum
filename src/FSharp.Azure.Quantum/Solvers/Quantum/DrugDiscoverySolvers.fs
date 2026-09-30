@@ -46,24 +46,6 @@ module DrugDiscoverySolvers =
     let private evaluateQubo (qubo: float[,]) (bits: int[]) : float =
         QaoaExecutionHelpers.evaluateQubo qubo bits
 
-    /// Execute a single QAOA circuit with given parameters and return measurements
-    let private executeQaoaCircuit
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problemHam: QaoaCircuit.ProblemHamiltonian)
-        (mixerHam: QaoaCircuit.MixerHamiltonian)
-        (parameters: (float * float)[])
-        (shots: int)
-        : Result<int[][], QuantumError> =
-        (QaoaExecutionHelpers.executeQaoaCircuitAsync
-            backend
-            problemHam
-            mixerHam
-            parameters
-            shots
-            CancellationToken.None)
-            .GetAwaiter()
-            .GetResult()
-
     /// Create objective function for Nelder-Mead optimization
     /// Returns expectation value of QUBO Hamiltonian (lower = better)
     let private createObjectiveFunction
@@ -85,15 +67,31 @@ module DrugDiscoverySolvers =
         QaoaExecutionHelpers.executeQaoaWithOptimization backend qubo config
 
     /// Execute QAOA with grid search (fallback when optimization disabled)
-    let private executeQaoaWithGridSearch
+    let private executeQaoaWithGridSearchAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
         (config: QaoaConfig)
-        : Result<int[] * (float * float)[], QuantumError> =
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[] * (float * float)[], QuantumError>> =
         // Sequential (maxConcurrency = 1) grid search, as before
-        (QaoaExecutionHelpers.executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None)
-            .GetAwaiter()
-            .GetResult()
+        QaoaExecutionHelpers.executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
+
+    /// Run QAOA with parameter optimization when enabled, else with grid search.
+    /// Returns: (bestBitstring, optimizedParameters, converged when optimized)
+    let private runQaoaAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (qubo: float[,])
+        (config: QaoaConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[] * (float * float)[] option * bool option, QuantumError>> =
+        quantumResultTask {
+            if config.EnableOptimization then
+                let! (bits, optParams, converged) = executeQaoaWithOptimization backend qubo config
+                return (bits, Some optParams, Some converged)
+            else
+                let! (bits, optParams) = executeQaoaWithGridSearchAsync backend qubo config cancellationToken
+                return (bits, Some optParams, None)
+        }
 
     // ================================================================================
     // MAXIMUM WEIGHT INDEPENDENT SET (MWIS)
@@ -198,29 +196,22 @@ module DrugDiscoverySolvers =
                 OptimizationConverged = None
             }
 
-        /// Shared implementation of solveWithConfig and solveWithConfigAsync.
-        let private solveWithConfigCore
+        /// Solve using quantum QAOA with advanced features.
+        let solveWithConfigAsync
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
             (config: QaoaConfig)
-            : Result<Solution, QuantumError> =
+            (cancellationToken: CancellationToken)
+            : Task<Result<Solution, QuantumError>> =
+            quantumResultTask {
+                cancellationToken.ThrowIfCancellationRequested()
 
-            if problem.Nodes.IsEmpty then
-                Error(QuantumError.ValidationError("nodes", "Problem has no nodes"))
-            else
-                let qubo = toQubo problem
+                if problem.Nodes.IsEmpty then
+                    return! Error(QuantumError.ValidationError("nodes", "Problem has no nodes"))
+                else
+                    let qubo = toQubo problem
+                    let! (bits, optParams, converged) = runQaoaAsync backend qubo config cancellationToken
 
-                let result =
-                    if config.EnableOptimization then
-                        executeQaoaWithOptimization backend qubo config
-                        |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                    else
-                        executeQaoaWithGridSearch backend qubo config
-                        |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
-
-                match result with
-                | Error err -> Error err
-                | Ok(bits, optParams, converged) ->
                     // Apply constraint repair if enabled and solution is invalid
                     let finalBits, wasRepaired =
                         if config.EnableConstraintRepair && not (isValid problem bits) then
@@ -230,7 +221,7 @@ module DrugDiscoverySolvers =
 
                     let solution = decode problem finalBits
 
-                    Ok
+                    return
                         { solution with
                             BackendName = backend.Name
                             NumShots = config.FinalShots
@@ -238,6 +229,7 @@ module DrugDiscoverySolvers =
                             OptimizedParameters = optParams
                             OptimizationConverged = converged
                         }
+            }
 
         /// Solve using quantum QAOA with advanced features
         [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -246,21 +238,9 @@ module DrugDiscoverySolvers =
             (problem: Problem)
             (config: QaoaConfig)
             : Result<Solution, QuantumError> =
-            solveWithConfigCore backend problem config
-
-        /// Solve using quantum QAOA with advanced features (async).
-        /// Wraps the synchronous solveWithConfig in a task; will become truly async
-        /// once the underlying QAOA helpers are wired through.
-        let solveWithConfigAsync
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (config: QaoaConfig)
-            (cancellationToken: CancellationToken)
-            : Task<Result<Solution, QuantumError>> =
-            task {
-                cancellationToken.ThrowIfCancellationRequested()
-                return solveWithConfigCore backend problem config
-            }
+            solveWithConfigAsync backend problem config CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         /// Solve using quantum QAOA with default configuration
         [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -484,31 +464,24 @@ module DrugDiscoverySolvers =
                 OptimizationConverged = None
             }
 
-        /// Shared implementation of solveWithConfig and solveWithConfigAsync.
-        let private solveWithConfigCore
+        /// Solve using quantum QAOA with advanced features.
+        let solveWithConfigAsync
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
             (config: QaoaConfig)
-            : Result<Solution, QuantumError> =
+            (cancellationToken: CancellationToken)
+            : Task<Result<Solution, QuantumError>> =
+            quantumResultTask {
+                cancellationToken.ThrowIfCancellationRequested()
 
-            if problem.Nodes.IsEmpty then
-                Error(QuantumError.ValidationError("nodes", "Problem has no nodes"))
-            elif problem.K <= 0 || problem.K > problem.Nodes.Length then
-                Error(QuantumError.ValidationError("k", $"k must be between 1 and %d{problem.Nodes.Length}"))
-            else
-                let qubo = toQubo problem
+                if problem.Nodes.IsEmpty then
+                    return! Error(QuantumError.ValidationError("nodes", "Problem has no nodes"))
+                elif problem.K <= 0 || problem.K > problem.Nodes.Length then
+                    return! Error(QuantumError.ValidationError("k", $"k must be between 1 and %d{problem.Nodes.Length}"))
+                else
+                    let qubo = toQubo problem
+                    let! (bits, optParams, converged) = runQaoaAsync backend qubo config cancellationToken
 
-                let result =
-                    if config.EnableOptimization then
-                        executeQaoaWithOptimization backend qubo config
-                        |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                    else
-                        executeQaoaWithGridSearch backend qubo config
-                        |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
-
-                match result with
-                | Error err -> Error err
-                | Ok(bits, optParams, converged) ->
                     let currentCount = bits |> Array.sum
 
                     // Apply constraint repair if enabled and cardinality is wrong
@@ -520,7 +493,7 @@ module DrugDiscoverySolvers =
 
                     let solution = decode problem finalBits
 
-                    Ok
+                    return
                         { solution with
                             BackendName = backend.Name
                             NumShots = config.FinalShots
@@ -528,6 +501,7 @@ module DrugDiscoverySolvers =
                             OptimizedParameters = optParams
                             OptimizationConverged = converged
                         }
+            }
 
         /// Solve using quantum QAOA with advanced features
         [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -536,21 +510,9 @@ module DrugDiscoverySolvers =
             (problem: Problem)
             (config: QaoaConfig)
             : Result<Solution, QuantumError> =
-            solveWithConfigCore backend problem config
-
-        /// Solve using quantum QAOA with advanced features (async).
-        /// Wraps the synchronous solveWithConfig in a task; will become truly async
-        /// once the underlying QAOA helpers are wired through.
-        let solveWithConfigAsync
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (config: QaoaConfig)
-            (cancellationToken: CancellationToken)
-            : Task<Result<Solution, QuantumError>> =
-            task {
-                cancellationToken.ThrowIfCancellationRequested()
-                return solveWithConfigCore backend problem config
-            }
+            solveWithConfigAsync backend problem config CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         /// Solve using quantum QAOA with default configuration
         [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -805,31 +767,24 @@ module DrugDiscoverySolvers =
                 OptimizationConverged = None
             }
 
-        /// Shared implementation of solveWithConfig and solveWithConfigAsync.
-        let private solveWithConfigCore
+        /// Solve using quantum QAOA with advanced features.
+        let solveWithConfigAsync
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
             (config: QaoaConfig)
-            : Result<Solution, QuantumError> =
+            (cancellationToken: CancellationToken)
+            : Task<Result<Solution, QuantumError>> =
+            quantumResultTask {
+                cancellationToken.ThrowIfCancellationRequested()
 
-            if problem.Items.IsEmpty then
-                Error(QuantumError.ValidationError("items", "Problem has no items"))
-            elif problem.Budget <= 0.0 then
-                Error(QuantumError.ValidationError("budget", "Budget must be positive"))
-            else
-                let qubo = toQubo problem
+                if problem.Items.IsEmpty then
+                    return! Error(QuantumError.ValidationError("items", "Problem has no items"))
+                elif problem.Budget <= 0.0 then
+                    return! Error(QuantumError.ValidationError("budget", "Budget must be positive"))
+                else
+                    let qubo = toQubo problem
+                    let! (bits, optParams, converged) = runQaoaAsync backend qubo config cancellationToken
 
-                let result =
-                    if config.EnableOptimization then
-                        executeQaoaWithOptimization backend qubo config
-                        |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                    else
-                        executeQaoaWithGridSearch backend qubo config
-                        |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
-
-                match result with
-                | Error err -> Error err
-                | Ok(bits, optParams, converged) ->
                     let currentCost =
                         problem.Items
                         |> List.indexed
@@ -845,7 +800,7 @@ module DrugDiscoverySolvers =
 
                     let solution = decode problem finalBits
 
-                    Ok
+                    return
                         { solution with
                             BackendName = backend.Name
                             NumShots = config.FinalShots
@@ -853,6 +808,7 @@ module DrugDiscoverySolvers =
                             OptimizedParameters = optParams
                             OptimizationConverged = converged
                         }
+            }
 
         /// Solve using quantum QAOA with advanced features
         [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -861,21 +817,9 @@ module DrugDiscoverySolvers =
             (problem: Problem)
             (config: QaoaConfig)
             : Result<Solution, QuantumError> =
-            solveWithConfigCore backend problem config
-
-        /// Solve using quantum QAOA with advanced features (async).
-        /// Wraps the synchronous solveWithConfig in a task; will become truly async
-        /// once the underlying QAOA helpers are wired through.
-        let solveWithConfigAsync
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (config: QaoaConfig)
-            (cancellationToken: CancellationToken)
-            : Task<Result<Solution, QuantumError>> =
-            task {
-                cancellationToken.ThrowIfCancellationRequested()
-                return solveWithConfigCore backend problem config
-            }
+            solveWithConfigAsync backend problem config CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         /// Solve using quantum QAOA with default configuration
         [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
