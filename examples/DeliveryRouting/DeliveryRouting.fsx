@@ -430,16 +430,20 @@ let solutionToRoute
     (route, perf)
 
 /// Solve TSP using HybridSolver (automatic classical/quantum routing)
-let solveWithHybridSolver (locations: Location list) : Result<(Route * Performance * string), string> =
-    let distances = buildDistanceMatrix locations
+let solveWithHybridSolver
+    (locations: Location list)
+    : System.Threading.Tasks.Task<Result<(Route * Performance * string), string>> =
+    task {
+        let distances = buildDistanceMatrix locations
 
-    // HybridSolver automatically decides classical vs quantum based on problem size
-    match HybridSolver.solveTsp distances None None None with
-    | Ok solution ->
-        let (route, perf) = solutionToRoute locations solution
-        // Return route, performance, and solver reasoning
-        Ok(route, perf, solution.Reasoning)
-    | Error err -> Error $"HybridSolver failed: %s{err.Message}"
+        // HybridSolver automatically decides classical vs quantum based on problem size
+        match! HybridSolver.solveTspAsync distances None None None System.Threading.CancellationToken.None with
+        | Ok solution ->
+            let (route, perf) = solutionToRoute locations solution
+            // Return route, performance, and solver reasoning
+            return Ok(route, perf, solution.Reasoning)
+        | Error err -> return Error $"HybridSolver failed: %s{err.Message}"
+    }
 
 /// Naive baseline: visit the locations in the given order and return to the
 /// first one, a closed tour like the solver's, so the two compare like for like.
@@ -544,7 +548,9 @@ if not quiet then
 if not quiet then
     printfn "\n⚙️  Solving with HybridSolver (Quantum-Ready Optimization)..."
 
-let solverResult = solveWithHybridSolver allStops
+// Script top level: wait for the solver here.
+let solverResult =
+    solveWithHybridSolver allStops |> Async.AwaitTask |> Async.RunSynchronously
 
 let resultRoute, resultPerf, resultSolver =
     match solverResult with

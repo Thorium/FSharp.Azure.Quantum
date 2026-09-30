@@ -138,6 +138,8 @@ let screeningResult =
         set_batch_size batchSize
         backend (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend())
     }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Display the output
 match screeningResult with

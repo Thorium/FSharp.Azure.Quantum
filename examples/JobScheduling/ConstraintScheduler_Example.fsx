@@ -180,6 +180,8 @@ if runAll || exampleName = "simple" then
             // Explicit backend for Rule 1 compliance
             backend quantumBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     displaySchedule "Simple" simpleResult
 
@@ -216,6 +218,8 @@ if runAll || exampleName = "workforce" then
 
             backend quantumBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     displaySchedule "Workforce" workforceResult
 
@@ -254,6 +258,8 @@ if runAll || exampleName = "cloud" then
             backend quantumBackend
             shots cliShots
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match cloudResult with
     | Ok result ->

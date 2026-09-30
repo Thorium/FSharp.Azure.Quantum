@@ -228,6 +228,8 @@ if shouldRun 1 then
             trainWith trainX trainY
             backend quantumBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result1 with
     | Error err ->
@@ -311,6 +313,8 @@ if shouldRun 2 then
             saveModelTo "fraud_detector.model"
             note "Credit card fraud detector - trained on 2024 data"
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result2 with
     | Error err ->
@@ -404,6 +408,8 @@ if shouldRun 3 then
             convergenceThreshold 0.001
             verbose false
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match evalModel with
     | Ok classifier ->

@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum.Business
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Quantum
@@ -22,7 +25,8 @@ open FSharp.Azure.Quantum.Quantum
 ///
 /// **Example:**
 /// ```fsharp
-/// let result = packingOptimizer {
+/// // The builder returns a Task<QuantumResult<PackingResult>>: await it inside task { }
+/// let! result = packingOptimizer {
 ///     containerCapacity 100.0
 ///
 ///     item "Crate-A" 45.0
@@ -125,36 +129,48 @@ module PackingOptimizer =
                     $"Partial packing: {assignments.Length}/{problem.Items.Length} items assigned to {solution.BinsUsed} bins"
         }
 
+    /// Execute packing optimization without blocking the calling thread
+    let solveAsync
+        (problem: PackingProblem)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<PackingResult>> =
+        quantumResultTask {
+            if problem.Items.IsEmpty then
+                return! Error(QuantumError.ValidationError("Items", "must have at least one item"))
+            elif problem.BinCapacity <= 0.0 then
+                return! Error(QuantumError.ValidationError("BinCapacity", "bin capacity must be positive"))
+            elif problem.Items |> List.exists (fun i -> i.Size <= 0.0) then
+                return! Error(QuantumError.ValidationError("ItemSize", "all item sizes must be positive"))
+            elif problem.Items |> List.exists (fun i -> i.Size > problem.BinCapacity) then
+                return! Error(QuantumError.ValidationError("ItemSize", "item size exceeds bin capacity"))
+            else
+                // Quantum-first: run on the caller's backend, or default to the local simulator
+                // (a real quantum backend) when none was supplied.
+                let backend =
+                    problem.Backend
+                    |> Option.defaultWith (fun () ->
+                        FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+
+                let binProblem = toBinPackingProblem problem
+
+                let! solution =
+                    QuantumBinPackingSolver.solveWithConfigAsync
+                        backend
+                        binProblem
+                        { QuantumBinPackingSolver.defaultConfig with
+                            FinalShots = problem.Shots
+                        }
+                        cancellationToken
+
+                return decodeSolution problem solution
+        }
+
     /// Execute packing optimization
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve (problem: PackingProblem) : QuantumResult<PackingResult> =
-        if problem.Items.IsEmpty then
-            Error(QuantumError.ValidationError("Items", "must have at least one item"))
-        elif problem.BinCapacity <= 0.0 then
-            Error(QuantumError.ValidationError("BinCapacity", "bin capacity must be positive"))
-        elif problem.Items |> List.exists (fun i -> i.Size <= 0.0) then
-            Error(QuantumError.ValidationError("ItemSize", "all item sizes must be positive"))
-        elif problem.Items |> List.exists (fun i -> i.Size > problem.BinCapacity) then
-            Error(QuantumError.ValidationError("ItemSize", "item size exceeds bin capacity"))
-        else
-            // Quantum-first: run on the caller's backend, or default to the local simulator
-            // (a real quantum backend) when none was supplied.
-            let backend =
-                problem.Backend
-                |> Option.defaultWith (fun () ->
-                    FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
-
-            let binProblem = toBinPackingProblem problem
-
-            QuantumBinPackingSolver.solveWithConfigAsync
-                backend
-                binProblem
-                { QuantumBinPackingSolver.defaultConfig with
-                    FinalShots = problem.Shots
-                }
-                System.Threading.CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-            |> Result.map (fun solution -> decodeSolution problem solution)
+        solveAsync problem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -174,9 +190,11 @@ module PackingOptimizer =
         member _.Yield(_) = defaultProblem
         member _.Delay(f: unit -> PackingProblem) = f
 
-        member _.Run(f: unit -> PackingProblem) : QuantumResult<PackingResult> =
+        /// Execute the optimization. The result is a task, so F# callers write
+        /// `let! result = packingOptimizer { ... }` inside `task { }`.
+        member _.Run(f: unit -> PackingProblem) : Task<QuantumResult<PackingResult>> =
             let problem = f ()
-            solve problem
+            solveAsync problem CancellationToken.None
 
         member _.Combine(p1: PackingProblem, p2: PackingProblem) = p2
         member _.Zero() = defaultProblem

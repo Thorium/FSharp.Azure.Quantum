@@ -5,6 +5,8 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.GraphOptimization
 open FSharp.Azure.Quantum.Quantum
+open System.Threading
+open System.Threading.Tasks
 
 module QuantumNetworkFlowSolverTests =
 
@@ -32,12 +34,15 @@ module QuantumNetworkFlowSolverTests =
         }
 
     [<Fact>]
-    let ``solve returns the flow meeting the most demand, not the cheapest partial one`` () =
-        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+    let ``solve returns the flow meeting the most demand, not the cheapest partial one`` () : Task =
+        task {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-        match QuantumNetworkFlowSolver.solveWithShots backend twoCustomers 1000 with
-        | Ok solution ->
-            Assert.Equal(2.0, solution.DemandSatisfied)
-            Assert.Equal(1.0, solution.FillRate)
-            Assert.Equal(3.0, solution.TotalCost)
-        | Error err -> Assert.Fail($"Network flow failed: {err}")
+            match! QuantumNetworkFlowSolver.solveWithShotsAsync backend twoCustomers 1000 CancellationToken.None with
+            | Ok solution ->
+                Assert.Equal(2.0, solution.DemandSatisfied)
+                Assert.Equal(1.0, solution.FillRate)
+                Assert.Equal(3.0, solution.TotalCost)
+            | Error err -> Assert.Fail($"Network flow failed: {err}")
+        }
+        :> Task

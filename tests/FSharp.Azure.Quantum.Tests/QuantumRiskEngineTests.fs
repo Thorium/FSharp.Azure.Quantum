@@ -362,7 +362,7 @@ module QuantumRiskEngineTests =
     // ASYNC EXECUTION TESTS
     // ========================================================================
 
-    #nowarn "44" // These two tests cover the deprecated synchronous `execute` wrapper on purpose.
+    #nowarn "44" // This test covers the deprecated synchronous `execute` wrapper on purpose.
     [<Fact>]
     let ``executeAsync should return same result as execute`` () =
         task {
@@ -384,22 +384,28 @@ module QuantumRiskEngineTests =
         }
         :> Task
 
+    #warnon "44"
+
     [<Fact; Trait("Category", "Slow")>]
     let ``executeAsync with cancellation token should respect cancellation`` () =
-        use cts = new Threading.CancellationTokenSource()
-        cts.Cancel()
+        task {
+            use cts = new Threading.CancellationTokenSource()
+            cts.Cancel()
 
-        let config =
-            { defaultConfig with
-                CancellationToken = Some cts.Token
-                Metrics = [ ValueAtRisk ]
-                SimulationPaths = 1000
-            }
-        // execute internally calls executeAsync |> Async.RunSynchronously,
-        // which propagates cancellation as OperationCanceledException
-        Assert.Throws<OperationCanceledException>(fun () -> RiskEngine.execute config |> ignore)
-        |> ignore
-    #warnon "44"
+            // The builder runs executeAsync with the configured token, so a cancelled
+            // token cancels the analysis and awaiting it raises OperationCanceledException
+            let! _ =
+                Assert.ThrowsAnyAsync<OperationCanceledException>(fun () ->
+                    quantumRiskEngine {
+                        cancellation_token cts.Token
+                        calculate_metric ValueAtRisk
+                        set_simulation_paths 1000
+                    }
+                    :> Task)
+
+            ()
+        }
+        :> Task
 
     // ========================================================================
     // HIGHER CONFIDENCE LEVEL TESTS
@@ -438,101 +444,119 @@ module QuantumRiskEngineTests =
 
     [<Fact>]
     let ``quantumRiskEngine CE should produce Ok result`` () =
-        let result =
-            quantumRiskEngine {
-                set_confidence_level 0.95
-                set_simulation_paths 1000
-                calculate_metric ValueAtRisk
-                calculate_metric Volatility
-            }
+        task {
+            let! result =
+                quantumRiskEngine {
+                    set_confidence_level 0.95
+                    set_simulation_paths 1000
+                    calculate_metric ValueAtRisk
+                    calculate_metric Volatility
+                }
 
-        match result with
-        | Ok report ->
-            Assert.Equal(0.95, report.ConfidenceLevel)
-            Assert.True(report.VaR.IsSome)
-            Assert.True(report.Volatility.IsSome)
-        | Error e -> failwith $"Should succeed, got error: {e}"
+            match result with
+            | Ok report ->
+                Assert.Equal(0.95, report.ConfidenceLevel)
+                Assert.True(report.VaR.IsSome)
+                Assert.True(report.Volatility.IsSome)
+            | Error e -> failwith $"Should succeed, got error: {e}"
+        }
+        :> Task
 
     [<Fact>]
     let ``quantumRiskEngine CE should set multiple metrics`` () =
-        let result =
-            quantumRiskEngine {
-                set_simulation_paths 500
-                calculate_metric ValueAtRisk
-                calculate_metric ConditionalVaR
-                calculate_metric ExpectedShortfall
-                calculate_metric Volatility
-            }
+        task {
+            let! result =
+                quantumRiskEngine {
+                    set_simulation_paths 500
+                    calculate_metric ValueAtRisk
+                    calculate_metric ConditionalVaR
+                    calculate_metric ExpectedShortfall
+                    calculate_metric Volatility
+                }
 
-        match result with
-        | Ok report ->
-            Assert.True(report.VaR.IsSome)
-            Assert.True(report.CVaR.IsSome)
-            Assert.True(report.ExpectedShortfall.IsSome)
-            Assert.True(report.Volatility.IsSome)
-        | Error e -> failwith $"Should succeed, got error: {e}"
+            match result with
+            | Ok report ->
+                Assert.True(report.VaR.IsSome)
+                Assert.True(report.CVaR.IsSome)
+                Assert.True(report.ExpectedShortfall.IsSome)
+                Assert.True(report.Volatility.IsSome)
+            | Error e -> failwith $"Should succeed, got error: {e}"
+        }
+        :> Task
 
     [<Fact>]
     let ``quantumRiskEngine CE with amplitude estimation and backend should succeed`` () =
-        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        task {
+            let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-        let result =
-            quantumRiskEngine {
-                use_amplitude_estimation true
-                backend quantumBackend
-                qubits 3
-                iterations 1
-                shots 100
-                set_simulation_paths 200
-                calculate_metric ValueAtRisk
-            }
+            let! result =
+                quantumRiskEngine {
+                    use_amplitude_estimation true
+                    backend quantumBackend
+                    qubits 3
+                    iterations 1
+                    shots 100
+                    set_simulation_paths 200
+                    calculate_metric ValueAtRisk
+                }
 
-        match result with
-        | Ok report ->
-            Assert.Equal("Quantum Amplitude Estimation", report.Method)
-            Assert.True(report.VaR.IsSome, "VaR should be computed")
-        | Error e -> failwith $"Should succeed, got error: {e}"
+            match result with
+            | Ok report ->
+                Assert.Equal("Quantum Amplitude Estimation", report.Method)
+                Assert.True(report.VaR.IsSome, "VaR should be computed")
+            | Error e -> failwith $"Should succeed, got error: {e}"
+        }
+        :> Task
 
     [<Fact>]
     let ``quantumRiskEngine CE should set qubits and iterations`` () =
-        let result =
-            quantumRiskEngine {
-                qubits 8
-                iterations 5
-                shots 200
-                set_simulation_paths 500
-                calculate_metric ValueAtRisk
-            }
+        task {
+            let! result =
+                quantumRiskEngine {
+                    qubits 8
+                    iterations 5
+                    shots 200
+                    set_simulation_paths 500
+                    calculate_metric ValueAtRisk
+                }
 
-        match result with
-        | Ok report ->
-            Assert.Equal(8, report.Configuration.NumQubits)
-            Assert.Equal(5, report.Configuration.GroverIterations)
-            Assert.Equal(200, report.Configuration.Shots)
-        | Error e -> failwith $"Should succeed, got error: {e}"
+            match result with
+            | Ok report ->
+                Assert.Equal(8, report.Configuration.NumQubits)
+                Assert.Equal(5, report.Configuration.GroverIterations)
+                Assert.Equal(200, report.Configuration.Shots)
+            | Error e -> failwith $"Should succeed, got error: {e}"
+        }
+        :> Task
 
     [<Fact>]
     let ``quantumRiskEngine CE should set confidence level`` () =
-        let result =
-            quantumRiskEngine {
-                set_confidence_level 0.99
-                set_simulation_paths 500
-                calculate_metric ValueAtRisk
-            }
+        task {
+            let! result =
+                quantumRiskEngine {
+                    set_confidence_level 0.99
+                    set_simulation_paths 500
+                    calculate_metric ValueAtRisk
+                }
 
-        result
-        |> Result.map (fun report -> Assert.Equal(0.99, report.ConfidenceLevel))
-        |> Result.defaultWith (fun e -> failwith $"Should succeed, got error: {e}")
+            result
+            |> Result.map (fun report -> Assert.Equal(0.99, report.ConfidenceLevel))
+            |> Result.defaultWith (fun e -> failwith $"Should succeed, got error: {e}")
+        }
+        :> Task
 
     [<Fact>]
     let ``quantumRiskEngine CE with no metrics should succeed with empty results`` () =
-        let result = quantumRiskEngine { set_simulation_paths 500 }
+        task {
+            let! result = quantumRiskEngine { set_simulation_paths 500 }
 
-        match result with
-        | Ok report ->
-            Assert.True(report.VaR.IsNone)
-            Assert.True(report.CVaR.IsNone)
-        | Error e -> failwith $"Should succeed, got error: {e}"
+            match result with
+            | Ok report ->
+                Assert.True(report.VaR.IsNone)
+                Assert.True(report.CVaR.IsNone)
+            | Error e -> failwith $"Should succeed, got error: {e}"
+        }
+        :> Task
 
     // ========================================================================
     // DETERMINISTIC RESULTS TEST

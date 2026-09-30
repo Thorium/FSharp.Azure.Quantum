@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Backends
@@ -35,11 +38,11 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///       node "R2" conflictsWith ["R1"; "R4"]
 ///       colors ["EAX"; "EBX"; "ECX"]
 ///   }
-///   let solution = GraphColoring.solve problem 3 None
+///   let! solution = GraphColoring.solveAsync problem 3 None cancellationToken
 ///
 ///   // Advanced: Specify cloud quantum backend
 ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-///   let solution = GraphColoring.solve problem 3 (Some ionqBackend)
+///   let! solution = GraphColoring.solveAsync problem 3 (Some ionqBackend) cancellationToken
 module GraphColoring =
 
     // ============================================================================
@@ -482,32 +485,35 @@ module GraphColoring =
             FixedColors = fixedColors
         }
 
-    /// Solve graph coloring problem using quantum optimization (QAOA)
+    /// Solve graph coloring problem using quantum optimization (QAOA), asynchronously
     ///
     /// QUANTUM-FIRST API:
     /// - Uses quantum backend by default (LocalBackend for simulation)
     /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
     /// - Returns business-domain Solution result
+    /// - Does not block: the backend call is awaited, so cloud jobs do not tie up a thread
     ///
     /// PARAMETERS:
     ///   problem - Graph coloring problem with nodes and conflicts
     ///   numColors - Number of colors to use for solving (capped by AvailableColors and MaxColors)
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///   cancellationToken - Cancels the backend execution
     ///
     /// EXAMPLES:
     ///   // Simple: Automatic quantum simulation
-    ///   let solution = GraphColoring.solve problem 3 None
+    ///   let! solution = GraphColoring.solveAsync problem 3 None CancellationToken.None
     ///
     ///   // Cloud execution: Specify IonQ backend
     ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-    ///   let solution = GraphColoring.solve problem 3 (Some ionqBackend)
-    let solve
+    ///   let! solution = GraphColoring.solveAsync problem 3 (Some ionqBackend) cancellationToken
+    let solveAsync
         (problem: GraphColoringProblem)
         (numColors: int)
         (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<ColoringSolution> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<ColoringSolution>> =
 
-        quantumResult {
+        quantumResultTask {
             try
                 // Validate problem first
                 do! validate problem
@@ -531,9 +537,7 @@ module GraphColoring =
                         quantumProblem
                         (toPreferences problem)
                         quantumConfig
-                        System.Threading.CancellationToken.None
-                    |> Async.AwaitTask
-                    |> Async.RunSynchronously
+                        cancellationToken
 
                 // Map color indices back to color names
                 let indexToColor =
@@ -570,6 +574,25 @@ module GraphColoring =
             with ex ->
                 return! Error(QuantumError.OperationError("Graph coloring solve", $"Failed: {ex.Message}"))
         }
+
+    /// Solve graph coloring problem using quantum optimization (QAOA)
+    ///
+    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
+    /// it blocks the calling thread until the backend has answered.
+    ///
+    /// PARAMETERS:
+    ///   problem - Graph coloring problem with nodes and conflicts
+    ///   numColors - Number of colors to use for solving (capped by AvailableColors and MaxColors)
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
+    let solve
+        (problem: GraphColoringProblem)
+        (numColors: int)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        : QuantumResult<ColoringSolution> =
+        solveAsync problem numColors backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Solve graph coloring using classical greedy algorithm (for comparison): fixed colors,
     /// MaxColors, AvoidColors, Priority (visiting order) and BalanceColors (smallest class

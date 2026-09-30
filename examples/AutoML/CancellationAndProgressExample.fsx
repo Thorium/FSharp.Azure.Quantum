@@ -194,6 +194,8 @@ if shouldRun "console" then
             verbose false
             randomSeed seed
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
@@ -267,6 +269,8 @@ if shouldRun "events" then
             verbose false
             randomSeed seed
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     let wasCancelled = cts.IsCancellationRequested
 
@@ -322,6 +326,8 @@ if shouldRun "timeout" then
             verbose false
             randomSeed seed
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     let timedOut = ctsTimeout.IsCancellationRequested
 
@@ -398,6 +404,8 @@ if shouldRun "custom-ui" then
             verbose false
             randomSeed seed
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
@@ -469,6 +477,8 @@ if shouldRun "production" then
             verbose false
             randomSeed seed
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Error err -> pr "  [ERROR] %A" err

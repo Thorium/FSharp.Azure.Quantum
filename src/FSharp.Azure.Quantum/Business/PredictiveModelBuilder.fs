@@ -35,18 +35,18 @@ open Microsoft.Extensions.Logging
 /// - Inventory optimization: Predict stock requirements
 /// - Price optimization: Optimal pricing for maximum revenue
 ///
-/// EXAMPLE USAGE:
+/// EXAMPLE USAGE (the builder yields a Task, so bind it inside task { }):
 ///   // Simple: Predict continuous value (regression)
-///   let model = predictiveModel {
+///   let! model = predictiveModel {
 ///       trainWith trainX trainY
 ///       problemType Regression
 ///   }
 ///
-///   let prediction = model |> PredictiveModel.predict newCustomer
+///   let! prediction = PredictiveModel.predictAsync newCustomer model None None cancellationToken
 ///   printfn "Expected revenue: $%.2f" prediction.Value
 ///
 ///   // Churn prediction: Multi-class classification
-///   let churnModel = predictiveModel {
+///   let! churnModel = predictiveModel {
 ///       trainWith customerFeatures churnLabels  // Labels: 0=Stay, 1=Churn30, 2=Churn60, 3=Churn90
 ///       problemType (MultiClass 4)
 ///
@@ -57,7 +57,7 @@ open Microsoft.Extensions.Logging
 ///       saveModelTo "churn_predictor.model"
 ///   }
 ///
-///   let churnPred = churnModel |> PredictiveModel.predictCategory customer
+///   let! churnPred = PredictiveModel.predictCategoryAsync customer churnModel None None cancellationToken
 ///   match churnPred.Category with
 ///   | 0 -> printfn "Customer will stay"
 ///   | 1 -> printfn "⚠️ Churn risk in 30 days - take action!"
@@ -700,109 +700,194 @@ module PredictiveModel =
     // TRAINING - Core business logic
     // ========================================================================
 
-    /// Helper: Save model if save path provided, with optional verbose output
-    let private saveModelIfRequested (savePath: string option) (verbose: bool) (logger: ILogger option) (model: Model) =
-        match savePath with
-        | Some path ->
-            match
-                saveAsync path model CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
+    /// Helper: Save model if save path provided, with optional verbose output.
+    /// A save failure is non-fatal: the trained model is returned either way.
+    let private saveModelIfRequestedAsync
+        (savePath: string option)
+        (verbose: bool)
+        (logger: ILogger option)
+        (cancellationToken: CancellationToken)
+        (model: Model)
+        : Task<Model> =
+        task {
+            match savePath with
+            | Some path ->
+                match! saveAsync path model cancellationToken with
+                | Ok() ->
+                    if verbose then
+                        logInfo logger $"[OK] Model saved to: {path}"
+                | Error e ->
+                    if verbose then
+                        logWarning logger $"[WARN] Failed to save model: {e}"
+            | None -> ()
+
+            return model
+        }
+
+    /// Train a predictive model without saving it (trainAsync saves it when requested)
+    let private trainModel (problem: PredictionProblem) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
+        task {
+            match validateProblem problem with
+            | Error e -> return Error e
             | Ok() ->
-                if verbose then
-                    logInfo logger $"[OK] Model saved to: {path}"
-            | Error e ->
-                if verbose then
-                    logWarning logger $"[WARN] Failed to save model: {e}"
-        | None -> ()
 
-        model
+                let startTime = DateTime.UtcNow
 
-    /// Train a predictive model
-    let train (problem: PredictionProblem) : QuantumResult<Model> =
-        match validateProblem problem with
-        | Error e -> Error e
-        | Ok() ->
+                let backend =
+                    problem.Backend
+                    |> Option.defaultValue (LocalBackend.LocalBackend() :> IQuantumBackend)
 
-            let startTime = DateTime.UtcNow
-
-            let backend =
-                problem.Backend
-                |> Option.defaultValue (LocalBackend.LocalBackend() :> IQuantumBackend)
-
-            let numFeatures = problem.TrainFeatures.[0].Length
-            let numSamples = problem.TrainFeatures.Length
+                let numFeatures = problem.TrainFeatures.[0].Length
+                let numSamples = problem.TrainFeatures.Length
 
 
-            if problem.Verbose then
-                let log = logInfo problem.Logger
-                log "Training Predictive Model..."
-                log $"   Problem: {problem.ProblemType}"
-                log $"   Architecture: {problem.Architecture}"
-                log $"   Samples: {numSamples}, Features: {numFeatures}"
+                if problem.Verbose then
+                    let log = logInfo problem.Logger
+                    log "Training Predictive Model..."
+                    log $"   Problem: {problem.ProblemType}"
+                    log $"   Architecture: {problem.Architecture}"
+                    log $"   Samples: {numSamples}, Features: {numFeatures}"
 
-            try
-                match problem.Architecture, problem.ProblemType with
+                try
+                    match problem.Architecture, problem.ProblemType with
 
-                // =================================================================
-                // QUANTUM REGRESSION (HHL + VQC Fallback)
-                // =================================================================
-                // Regression is a linear-system problem, so every architecture solves it on the
-                // quantum backend: HHL (QuantumRegressionHHL) for the linear fit, with a VQC
-                // (variational) fallback for non-linear data. No classical solver — RULE1.
-                | (Classical | Quantum | Hybrid), Regression ->
-                    // Strategy: Try HHL first (fast for linear), fall back to VQC (handles non-linear)
+                    // =================================================================
+                    // QUANTUM REGRESSION (HHL + VQC Fallback)
+                    // =================================================================
+                    // Regression is a linear-system problem, so every architecture solves it on the
+                    // quantum backend: HHL (QuantumRegressionHHL) for the linear fit, with a VQC
+                    // (variational) fallback for non-linear data. No classical solver — RULE1.
+                    | (Classical | Quantum | Hybrid), Regression ->
+                        // Strategy: Try HHL first (fast for linear), fall back to VQC (handles non-linear)
 
-                    if problem.Verbose then
-                        let log = logInfo problem.Logger
-                        log "Training Quantum Regression..."
-                        log $"  Samples: {problem.TrainFeatures.Length}, Features: {problem.TrainFeatures.[0].Length}"
-
-                    // Try HHL first for linear regression (exponential speedup!)
-                    let hhlConfig: RegressionConfig =
-                        {
-                            TrainX = problem.TrainFeatures
-                            TrainY = problem.TrainTargets
-                            EigenvalueQubits = 5
-                            MinEigenvalue = 0.01
-                            Backend = backend
-                            Shots = problem.Shots
-                            FitIntercept = true
-                            Verbose = problem.Verbose
-                            Logger = problem.Logger
-                        }
-
-                    match train hhlConfig with
-                    | Ok hhlResult when hhlResult.RSquared > 0.85 ->
-                        // HHL worked well (linear relationship detected)
                         if problem.Verbose then
-                            logInfo
-                                problem.Logger
-                                $"[OK] HHL successful! R-squared = {hhlResult.RSquared:F4} (linear regression)"
+                            let log = logInfo problem.Logger
+                            log "Training Quantum Regression..."
+                            log $"  Samples: {problem.TrainFeatures.Length}, Features: {problem.TrainFeatures.[0].Length}"
 
-                        let model =
+                        // Try HHL first for linear regression (exponential speedup!)
+                        let hhlConfig: RegressionConfig =
                             {
-                                InternalModel = HHLRegressor hhlResult
-                                Metadata =
-                                    {
-                                        ProblemType = Regression
-                                        Architecture = problem.Architecture
-                                        TrainingScore = hhlResult.RSquared
-                                        TrainingTime = DateTime.UtcNow - startTime
-                                        NumFeatures = hhlResult.NumFeatures
-                                        NumSamples = hhlResult.NumSamples
-                                        CreatedAt = DateTime.UtcNow
-                                        Note = problem.Note
-                                    }
+                                TrainX = problem.TrainFeatures
+                                TrainY = problem.TrainTargets
+                                EigenvalueQubits = 5
+                                MinEigenvalue = 0.01
+                                Backend = backend
+                                Shots = problem.Shots
+                                FitIntercept = true
+                                Verbose = problem.Verbose
+                                Logger = problem.Logger
                             }
 
-                        Ok(saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
+                        match train hhlConfig with
+                        | Ok hhlResult when hhlResult.RSquared > 0.85 ->
+                            // HHL worked well (linear relationship detected)
+                            if problem.Verbose then
+                                logInfo
+                                    problem.Logger
+                                    $"[OK] HHL successful! R-squared = {hhlResult.RSquared:F4} (linear regression)"
 
-                    | _ ->
-                        // HHL failed or poor fit → Try VQC (can handle non-linear)
+                            let model =
+                                {
+                                    InternalModel = HHLRegressor hhlResult
+                                    Metadata =
+                                        {
+                                            ProblemType = Regression
+                                            Architecture = problem.Architecture
+                                            TrainingScore = hhlResult.RSquared
+                                            TrainingTime = DateTime.UtcNow - startTime
+                                            NumFeatures = hhlResult.NumFeatures
+                                            NumSamples = hhlResult.NumSamples
+                                            CreatedAt = DateTime.UtcNow
+                                            Note = problem.Note
+                                        }
+                                }
+
+                            return Ok model
+
+                        | _ ->
+                            // HHL failed or poor fit → Try VQC (can handle non-linear)
+                            if problem.Verbose then
+                                logWarning problem.Logger "[WARN] HHL not suitable, trying VQC (variational) regression..."
+
+                            let featureMap = FeatureMapType.ZZFeatureMap 2
+                            let varFormDepth = 3
+                            let varForm = RealAmplitudes varFormDepth
+                            // VQC uses one qubit per feature dimension; refuse feature counts
+                            // above the simulation cap rather than silently truncating — a
+                            // model trained on a fraction of its inputs while reporting
+                            // success is worse than a clear, actionable error.
+                            let numFeatureDims = problem.TrainFeatures.[0].Length
+                            let maxQubits = 5 // simulation-tractability cap
+
+                            if numFeatureDims > maxQubits then
+                                return
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "features",
+                                            $"HHL linear regression fit poorly and VQC non-linear regression supports at most {maxQubits} features (one qubit per feature; {numFeatureDims} supplied). Reduce dimensionality first (e.g. feature selection or PCA)."
+                                        )
+                                    )
+                            else
+
+                                let numQubits = numFeatureDims
+                                let vqcFeatures = problem.TrainFeatures
+                                let numParams = numQubits * varFormDepth // RealAmplitudes: numQubits × depth
+                                let initParams = Array.init numParams (fun _ -> 0.1)
+
+                                let vqcConfig: VQC.TrainingConfig =
+                                    {
+                                        LearningRate = problem.LearningRate
+                                        MaxEpochs = problem.MaxEpochs
+                                        ConvergenceThreshold = problem.ConvergenceThreshold
+                                        Shots = problem.Shots
+                                        Verbose = problem.Verbose
+                                        Logger = problem.Logger
+                                        Optimizer = VQC.SGD
+                                        ProgressReporter = problem.ProgressReporter
+                                    }
+
+                                return
+                                    VQC.trainRegression
+                                        backend
+                                        featureMap
+                                        varForm
+                                        initParams
+                                        vqcFeatures
+                                        problem.TrainTargets
+                                        vqcConfig
+                                    |> Result.mapError (fun e ->
+                                        QuantumError.ValidationError("Input", $"Both HHL and VQC regression failed: {e}"))
+                                    |> Result.map (fun vqcResult ->
+                                        if problem.Verbose then
+                                            let log = logInfo problem.Logger
+                                            log "[OK] VQC training complete!"
+                                            log $"  R-squared Score: {vqcResult.TrainRSquared:F4} (non-linear regression)"
+
+                                        let model =
+                                            {
+                                                InternalModel = RegressionVQC(vqcResult, featureMap, varForm, numQubits)
+                                                Metadata =
+                                                    {
+                                                        ProblemType = Regression
+                                                        Architecture = problem.Architecture
+                                                        TrainingScore = vqcResult.TrainRSquared
+                                                        TrainingTime = DateTime.UtcNow - startTime
+                                                        NumFeatures = numFeatures
+                                                        NumSamples = numSamples
+                                                        CreatedAt = DateTime.UtcNow
+                                                        Note = problem.Note
+                                                    }
+                                            }
+
+                                        model)
+
+                    // =================================================================
+                    // MULTI-CLASS (VQC One-vs-Rest) — Classical and Quantum architectures
+                    // =================================================================
+                    | (Classical | Quantum), MultiClass numClasses ->
                         if problem.Verbose then
-                            logWarning problem.Logger "[WARN] HHL not suitable, trying VQC (variational) regression..."
+                            logInfo problem.Logger "Training Quantum Multi-Class (VQC One-vs-Rest)..."
 
                         let featureMap = FeatureMapType.ZZFeatureMap 2
                         let varFormDepth = 3
@@ -815,18 +900,22 @@ module PredictiveModel =
                         let maxQubits = 5 // simulation-tractability cap
 
                         if numFeatureDims > maxQubits then
-                            Error(
-                                QuantumError.ValidationError(
-                                    "features",
-                                    $"HHL linear regression fit poorly and VQC non-linear regression supports at most {maxQubits} features (one qubit per feature; {numFeatureDims} supplied). Reduce dimensionality first (e.g. feature selection or PCA)."
+                            return
+                                Error(
+                                    QuantumError.ValidationError(
+                                        "features",
+                                        $"VQC multi-class classification supports at most {maxQubits} features (one qubit per feature; {numFeatureDims} supplied). Reduce dimensionality first (e.g. feature selection or PCA)."
+                                    )
                                 )
-                            )
                         else
 
                             let numQubits = numFeatureDims
                             let vqcFeatures = problem.TrainFeatures
-                            let numParams = numQubits * varFormDepth // RealAmplitudes: numQubits × depth
+                            let numParams = numQubits * varFormDepth
                             let initParams = Array.init numParams (fun _ -> 0.1)
+
+                            // Convert targets to int labels
+                            let labels = problem.TrainTargets |> Array.map int
 
                             let vqcConfig: VQC.TrainingConfig =
                                 {
@@ -840,30 +929,82 @@ module PredictiveModel =
                                     ProgressReporter = problem.ProgressReporter
                                 }
 
-                            VQC.trainRegression
-                                backend
-                                featureMap
-                                varForm
-                                initParams
-                                vqcFeatures
-                                problem.TrainTargets
-                                vqcConfig
-                            |> Result.mapError (fun e ->
-                                QuantumError.ValidationError("Input", $"Both HHL and VQC regression failed: {e}"))
-                            |> Result.map (fun vqcResult ->
-                                if problem.Verbose then
-                                    let log = logInfo problem.Logger
-                                    log "[OK] VQC training complete!"
-                                    log $"  R-squared Score: {vqcResult.TrainRSquared:F4} (non-linear regression)"
+                            return
+                                VQC.trainMultiClass backend featureMap varForm initParams vqcFeatures labels vqcConfig
+                                |> Result.mapError (fun e ->
+                                    QuantumError.ValidationError("Input", $"VQC multi-class training failed: {e}"))
+                                |> Result.map (fun multiClassResult ->
+                                    if problem.Verbose then
+                                        let log = logInfo problem.Logger
+                                        log "[OK] VQC multi-class training complete!"
+                                        log $"  Accuracy: {multiClassResult.TrainAccuracy:F4}"
 
-                                let model =
+                                    let model =
+                                        {
+                                            InternalModel = MultiClassVQC(multiClassResult, featureMap, varForm, numQubits)
+                                            Metadata =
+                                                {
+                                                    ProblemType = MultiClass numClasses
+                                                    Architecture = problem.Architecture
+                                                    TrainingScore = multiClassResult.TrainAccuracy
+                                                    TrainingTime = DateTime.UtcNow - startTime
+                                                    NumFeatures = numFeatures
+                                                    NumSamples = numSamples
+                                                    CreatedAt = DateTime.UtcNow
+                                                    Note = problem.Note
+                                                }
+                                        }
+
+                                    model)
+
+                    // =================================================================
+                    // HYBRID MULTI-CLASS (Quantum Kernel SVM)
+                    // =================================================================
+                    | Hybrid, MultiClass numClasses ->
+                        // Hybrid uses same approach as Quantum (quantum kernels)
+                        let featureMap = FeatureMapType.ZZFeatureMap 2
+                        let labels = problem.TrainTargets |> Array.map int
+
+                        let svmConfig: QuantumKernelSVM.SVMConfig =
+                            {
+                                C = 1.0
+                                Tolerance = 0.001
+                                MaxIterations = 1000
+                                Verbose = problem.Verbose
+                                Logger = problem.Logger
+                            }
+                        match
+                            MultiClassSVM.train backend featureMap problem.TrainFeatures labels svmConfig problem.Shots
+                        with
+                        | Error e ->
+                            return Error(QuantumError.ValidationError("Input", $"Hybrid multi-class training failed: {e}"))
+                        | Ok multiClassModel ->
+                            // Training accuracy; a sample whose prediction fails counts as wrong
+                            let mutable correctCount = 0
+
+                            for i in 0 .. problem.TrainFeatures.Length - 1 do
+                                match!
+                                    MultiClassSVM.predictAsync
+                                        backend
+                                        multiClassModel
+                                        problem.TrainFeatures.[i]
+                                        problem.Shots
+                                        cancellationToken
+                                with
+                                | Ok prediction when prediction.Label = labels.[i] -> correctCount <- correctCount + 1
+                                | _ -> ()
+
+                            let accuracy = float correctCount / float labels.Length
+
+                            return
+                                Ok
                                     {
-                                        InternalModel = RegressionVQC(vqcResult, featureMap, varForm, numQubits)
+                                        InternalModel = SVMMultiClass multiClassModel
                                         Metadata =
                                             {
-                                                ProblemType = Regression
-                                                Architecture = problem.Architecture
-                                                TrainingScore = vqcResult.TrainRSquared
+                                                ProblemType = MultiClass numClasses
+                                                Architecture = Hybrid
+                                                TrainingScore = accuracy
                                                 TrainingTime = DateTime.UtcNow - startTime
                                                 NumFeatures = numFeatures
                                                 NumSamples = numSamples
@@ -871,134 +1012,23 @@ module PredictiveModel =
                                                 Note = problem.Note
                                             }
                                     }
+                with ex ->
+                    return Error(QuantumError.ValidationError("Input", $"Training failed: {ex.Message}"))
+        }
 
-                                saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
+    /// Train a predictive model, saving it when a save path is configured
+    let trainAsync (problem: PredictionProblem) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
+        quantumResultTask {
+            let! model = trainModel problem cancellationToken
+            return! saveModelIfRequestedAsync problem.SavePath problem.Verbose problem.Logger cancellationToken model
+        }
 
-                // =================================================================
-                // MULTI-CLASS (VQC One-vs-Rest) — Classical and Quantum architectures
-                // =================================================================
-                | (Classical | Quantum), MultiClass numClasses ->
-                    if problem.Verbose then
-                        logInfo problem.Logger "Training Quantum Multi-Class (VQC One-vs-Rest)..."
-
-                    let featureMap = FeatureMapType.ZZFeatureMap 2
-                    let varFormDepth = 3
-                    let varForm = RealAmplitudes varFormDepth
-                    // VQC uses one qubit per feature dimension; refuse feature counts
-                    // above the simulation cap rather than silently truncating — a
-                    // model trained on a fraction of its inputs while reporting
-                    // success is worse than a clear, actionable error.
-                    let numFeatureDims = problem.TrainFeatures.[0].Length
-                    let maxQubits = 5 // simulation-tractability cap
-
-                    if numFeatureDims > maxQubits then
-                        Error(
-                            QuantumError.ValidationError(
-                                "features",
-                                $"VQC multi-class classification supports at most {maxQubits} features (one qubit per feature; {numFeatureDims} supplied). Reduce dimensionality first (e.g. feature selection or PCA)."
-                            )
-                        )
-                    else
-
-                        let numQubits = numFeatureDims
-                        let vqcFeatures = problem.TrainFeatures
-                        let numParams = numQubits * varFormDepth
-                        let initParams = Array.init numParams (fun _ -> 0.1)
-
-                        // Convert targets to int labels
-                        let labels = problem.TrainTargets |> Array.map int
-
-                        let vqcConfig: VQC.TrainingConfig =
-                            {
-                                LearningRate = problem.LearningRate
-                                MaxEpochs = problem.MaxEpochs
-                                ConvergenceThreshold = problem.ConvergenceThreshold
-                                Shots = problem.Shots
-                                Verbose = problem.Verbose
-                                Logger = problem.Logger
-                                Optimizer = VQC.SGD
-                                ProgressReporter = problem.ProgressReporter
-                            }
-
-                        VQC.trainMultiClass backend featureMap varForm initParams vqcFeatures labels vqcConfig
-                        |> Result.mapError (fun e ->
-                            QuantumError.ValidationError("Input", $"VQC multi-class training failed: {e}"))
-                        |> Result.map (fun multiClassResult ->
-                            if problem.Verbose then
-                                let log = logInfo problem.Logger
-                                log "[OK] VQC multi-class training complete!"
-                                log $"  Accuracy: {multiClassResult.TrainAccuracy:F4}"
-
-                            let model =
-                                {
-                                    InternalModel = MultiClassVQC(multiClassResult, featureMap, varForm, numQubits)
-                                    Metadata =
-                                        {
-                                            ProblemType = MultiClass numClasses
-                                            Architecture = problem.Architecture
-                                            TrainingScore = multiClassResult.TrainAccuracy
-                                            TrainingTime = DateTime.UtcNow - startTime
-                                            NumFeatures = numFeatures
-                                            NumSamples = numSamples
-                                            CreatedAt = DateTime.UtcNow
-                                            Note = problem.Note
-                                        }
-                                }
-
-                            saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
-
-                // =================================================================
-                // HYBRID MULTI-CLASS (Quantum Kernel SVM)
-                // =================================================================
-                | Hybrid, MultiClass numClasses ->
-                    // Hybrid uses same approach as Quantum (quantum kernels)
-                    let featureMap = FeatureMapType.ZZFeatureMap 2
-                    let labels = problem.TrainTargets |> Array.map int
-
-                    let svmConfig: QuantumKernelSVM.SVMConfig =
-                        {
-                            C = 1.0
-                            Tolerance = 0.001
-                            MaxIterations = 1000
-                            Verbose = problem.Verbose
-                            Logger = problem.Logger
-                        }
-
-                    MultiClassSVM.train backend featureMap problem.TrainFeatures labels svmConfig problem.Shots
-                    |> Result.mapError (fun e ->
-                        QuantumError.ValidationError("Input", $"Hybrid multi-class training failed: {e}"))
-                    |> Result.map (fun multiClassModel ->
-
-                        let correctCount =
-                            problem.TrainFeatures
-                            |> Array.mapi (fun i features ->
-                                match MultiClassSVM.predict backend multiClassModel features problem.Shots with
-                                | Ok prediction when prediction.Label = labels.[i] -> 1
-                                | _ -> 0)
-                            |> Array.sum
-
-                        let accuracy = float correctCount / float labels.Length
-
-                        let model =
-                            {
-                                InternalModel = SVMMultiClass multiClassModel
-                                Metadata =
-                                    {
-                                        ProblemType = MultiClass numClasses
-                                        Architecture = Hybrid
-                                        TrainingScore = accuracy
-                                        TrainingTime = DateTime.UtcNow - startTime
-                                        NumFeatures = numFeatures
-                                        NumSamples = numSamples
-                                        CreatedAt = DateTime.UtcNow
-                                        Note = problem.Note
-                                    }
-                            }
-
-                        saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
-
-            with ex ->
-                Error(QuantumError.ValidationError("Input", $"Training failed: {ex.Message}"))
+    /// Train a predictive model
+    [<System.Obsolete("Use trainAsync for non-blocking execution against cloud backends")>]
+    let train (problem: PredictionProblem) : QuantumResult<Model> =
+        trainAsync problem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // PREDICTION - Use trained model
@@ -1011,12 +1041,14 @@ module PredictiveModel =
     ///   model - Trained regression model
     ///   backend - Quantum backend (defaults to LocalBackend if None)
     ///   shots - Number of measurement shots for quantum circuits (default: 1000)
-    let predict
+    ///   cancellationToken - Cancels the quantum circuit execution
+    let predictAsync
         (features: float array)
         (model: Model)
         (backend: IQuantumBackend option)
         (shots: int option)
-        : QuantumResult<RegressionPrediction> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<RegressionPrediction>> =
 
         let actualBackend =
             backend
@@ -1024,85 +1056,105 @@ module PredictiveModel =
 
         let actualShots = shots |> Option.defaultValue 1000
 
-        match model.Metadata.ProblemType with
-        | MultiClass _ ->
-            Error(QuantumError.Other "This model is for multi-class prediction. Use predictCategory instead.")
-        | Regression ->
-            try
-                match model.InternalModel with
-                | RegressionVQC(vqcResult, featureMap, varForm, numQubits) ->
-                    // VQC-based non-linear regression.
-                    // Apply the same feature truncation used at training time (qubit cap).
-                    match
-                        (VQC.predictRegressionAsync
-                            actualBackend
-                            featureMap
-                            varForm
-                            vqcResult.Parameters
-                            (truncateFeatures numQubits features)
-                            actualShots
-                            vqcResult.ValueRange
-                            CancellationToken.None)
-                            .GetAwaiter()
-                            .GetResult()
-                    with
-                    | Ok pred ->
-                        Ok
-                            {
-                                Value = pred.Value
-                                ConfidenceInterval = None
-                                ModelType = "Quantum VQC Regression (Non-Linear)"
-                            }
-                    | Error e -> Error(QuantumError.ValidationError("Input", $"VQC regression prediction failed: {e}"))
+        task {
+            match model.Metadata.ProblemType with
+            | MultiClass _ ->
+                return
+                    Error(QuantumError.Other "This model is for multi-class prediction. Use predictCategoryAsync instead.")
+            | Regression ->
+                try
+                    match model.InternalModel with
+                    | RegressionVQC(vqcResult, featureMap, varForm, numQubits) ->
+                        // VQC-based non-linear regression.
+                        // Apply the same feature truncation used at training time (qubit cap).
+                        match!
+                            VQC.predictRegressionAsync
+                                actualBackend
+                                featureMap
+                                varForm
+                                vqcResult.Parameters
+                                (truncateFeatures numQubits features)
+                                actualShots
+                                vqcResult.ValueRange
+                                cancellationToken
+                        with
+                        | Ok pred ->
+                            return
+                                Ok
+                                    {
+                                        Value = pred.Value
+                                        ConfidenceInterval = None
+                                        ModelType = "Quantum VQC Regression (Non-Linear)"
+                                    }
+                        | Error e ->
+                            return
+                                Error(QuantumError.ValidationError("Input", $"VQC regression prediction failed: {e}"))
 
-                | HHLRegressor hhlResult ->
-                    // Use HHL regression weights for prediction
-                    let value =
-                        QuantumRegressionHHL.predict hhlResult.Weights features hhlResult.HasIntercept
+                    | HHLRegressor hhlResult ->
+                        // Use HHL regression weights for prediction
+                        let value =
+                            QuantumRegressionHHL.predict hhlResult.Weights features hhlResult.HasIntercept
 
-                    Ok
-                        {
-                            Value = value
-                            ConfidenceInterval = None
-                            ModelType = "Quantum HHL Linear Regression"
-                        }
+                        return
+                            Ok
+                                {
+                                    Value = value
+                                    ConfidenceInterval = None
+                                    ModelType = "Quantum HHL Linear Regression"
+                                }
 
-                | SVMRegressor svmModel ->
-                    // Use SVM for regression prediction
-                    match
-                        (QuantumKernelSVM.predictAsync
-                            actualBackend
-                            svmModel
-                            features
-                            actualShots
-                            CancellationToken.None)
-                            .GetAwaiter()
-                            .GetResult()
-                    with
-                    | Ok prediction ->
-                        Ok
-                            {
-                                Value = prediction.DecisionValue // Use the SVM decision value as regression value
-                                ConfidenceInterval = None
-                                ModelType = "Quantum Kernel SVM Regression"
-                            }
-                    | Error e -> Error(QuantumError.ValidationError("Input", $"SVM regression prediction failed: {e}"))
+                    | SVMRegressor svmModel ->
+                        // Use SVM for regression prediction
+                        match!
+                            QuantumKernelSVM.predictAsync actualBackend svmModel features actualShots cancellationToken
+                        with
+                        | Ok prediction ->
+                            return
+                                Ok
+                                    {
+                                        Value = prediction.DecisionValue // Use the SVM decision value as regression value
+                                        ConfidenceInterval = None
+                                        ModelType = "Quantum Kernel SVM Regression"
+                                    }
+                        | Error e ->
+                            return
+                                Error(QuantumError.ValidationError("Input", $"SVM regression prediction failed: {e}"))
 
-                | ClassicalRegressor weights ->
-                    let xWithIntercept = Array.append [| 1.0 |] features
-                    let value = Array.zip xWithIntercept weights |> Array.sumBy (fun (x, w) -> x * w)
+                    | ClassicalRegressor weights ->
+                        let xWithIntercept = Array.append [| 1.0 |] features
+                        let value = Array.zip xWithIntercept weights |> Array.sumBy (fun (x, w) -> x * w)
 
-                    Ok
-                        {
-                            Value = value
-                            ConfidenceInterval = None
-                            ModelType = "Classical Linear Regression"
-                        }
+                        return
+                            Ok
+                                {
+                                    Value = value
+                                    ConfidenceInterval = None
+                                    ModelType = "Classical Linear Regression"
+                                }
 
-                | _ -> Error(QuantumError.Other "Unsupported model type for regression prediction")
+                    | _ -> return Error(QuantumError.Other "Unsupported model type for regression prediction")
 
-            with ex ->
-                Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
+                with ex ->
+                    return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
+        }
+
+    /// Predict continuous value (regression)
+    ///
+    /// Parameters:
+    ///   features - Input features for prediction
+    ///   model - Trained regression model
+    ///   backend - Quantum backend (defaults to LocalBackend if None)
+    ///   shots - Number of measurement shots for quantum circuits (default: 1000)
+    [<System.Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
+    let predict
+        (features: float array)
+        (model: Model)
+        (backend: IQuantumBackend option)
+        (shots: int option)
+        : QuantumResult<RegressionPrediction> =
+        predictAsync features model backend shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Predict category (multi-class)
     ///
@@ -1111,12 +1163,14 @@ module PredictiveModel =
     ///   model - Trained multi-class model
     ///   backend - Quantum backend (defaults to LocalBackend if None)
     ///   shots - Number of measurement shots for quantum circuits (default: 1000)
-    let predictCategory
+    ///   cancellationToken - Cancels the quantum circuit execution
+    let predictCategoryAsync
         (features: float array)
         (model: Model)
         (backend: IQuantumBackend option)
         (shots: int option)
-        : QuantumResult<CategoryPrediction> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<CategoryPrediction>> =
 
         let actualBackend =
             backend
@@ -1124,199 +1178,258 @@ module PredictiveModel =
 
         let actualShots = shots |> Option.defaultValue 1000
 
-        match model.Metadata.ProblemType with
-        | Regression -> Error(QuantumError.Other "This model is for regression. Use predict instead.")
-        | MultiClass numClasses ->
-            try
-                match model.InternalModel with
-                | MultiClassVQC(multiClassResult, featureMap, varForm, numQubits) ->
-                    // VQC multi-class using one-vs-rest strategy.
-                    // Apply the same feature truncation used at training time (qubit cap).
-                    match
-                        VQC.predictMultiClass
-                            actualBackend
-                            featureMap
-                            varForm
-                            multiClassResult
-                            (truncateFeatures numQubits features)
-                            actualShots
-                    with
-                    | Error e -> Error(QuantumError.ValidationError("Input", $"VQC multi-class prediction failed: {e}"))
-                    | Ok prediction ->
-                        Ok
-                            {
-                                Category = prediction.Label
-                                Confidence = prediction.Confidence
-                                Probabilities = prediction.Probabilities
-                                ModelType = "Quantum VQC Multi-Class (One-vs-Rest)"
-                            }
+        task {
+            match model.Metadata.ProblemType with
+            | Regression -> return Error(QuantumError.Other "This model is for regression. Use predictAsync instead.")
+            | MultiClass _ ->
+                try
+                    match model.InternalModel with
+                    | MultiClassVQC(multiClassResult, featureMap, varForm, numQubits) ->
+                        // VQC multi-class using one-vs-rest strategy.
+                        // Apply the same feature truncation used at training time (qubit cap).
+                        match!
+                            VQC.predictMultiClassAsync
+                                actualBackend
+                                featureMap
+                                varForm
+                                multiClassResult
+                                (truncateFeatures numQubits features)
+                                actualShots
+                                cancellationToken
+                        with
+                        | Error e ->
+                            return Error(QuantumError.ValidationError("Input", $"VQC multi-class prediction failed: {e}"))
+                        | Ok prediction ->
+                            return
+                                Ok
+                                    {
+                                        Category = prediction.Label
+                                        Confidence = prediction.Confidence
+                                        Probabilities = prediction.Probabilities
+                                        ModelType = "Quantum VQC Multi-Class (One-vs-Rest)"
+                                    }
 
-                | SVMMultiClass multiClassModel ->
-                    match MultiClassSVM.predict actualBackend multiClassModel features actualShots with
-                    | Error e -> Error e
-                    | Ok prediction ->
-                        let numClasses = multiClassModel.ClassLabels.Length
-                        let probabilities = Array.create numClasses (1.0 / float numClasses)
-                        probabilities.[prediction.Label] <- prediction.Confidence
+                    | SVMMultiClass multiClassModel ->
+                        match! MultiClassSVM.predictAsync actualBackend multiClassModel features actualShots cancellationToken with
+                        | Error e -> return Error e
+                        | Ok prediction ->
+                            let numClasses = multiClassModel.ClassLabels.Length
+                            let probabilities = Array.create numClasses (1.0 / float numClasses)
+                            probabilities.[prediction.Label] <- prediction.Confidence
 
-                        Ok
-                            {
-                                Category = prediction.Label
-                                Confidence = prediction.Confidence
-                                Probabilities = probabilities
-                                ModelType = "Quantum Kernel SVM Multi-Class"
-                            }
+                            return
+                                Ok
+                                    {
+                                        Category = prediction.Label
+                                        Confidence = prediction.Confidence
+                                        Probabilities = probabilities
+                                        ModelType = "Quantum Kernel SVM Multi-Class"
+                                    }
 
-                | ClassicalMultiClass weights ->
-                    let xWithIntercept = Array.append [| 1.0 |] features
+                    | ClassicalMultiClass weights ->
+                        let xWithIntercept = Array.append [| 1.0 |] features
 
-                    let scores =
-                        weights
-                        |> Array.map (fun w -> Array.zip xWithIntercept w |> Array.sumBy (fun (x, wi) -> x * wi))
+                        let scores =
+                            weights
+                            |> Array.map (fun w -> Array.zip xWithIntercept w |> Array.sumBy (fun (x, wi) -> x * wi))
 
-                    // Use Array.mapi and maxBy to avoid floating-point comparison issues
-                    let pred = scores |> Array.mapi (fun i s -> (i, s)) |> Array.maxBy snd |> fst
+                        // Use Array.mapi and maxBy to avoid floating-point comparison issues
+                        let pred = scores |> Array.mapi (fun i s -> (i, s)) |> Array.maxBy snd |> fst
 
-                    // Softmax probabilities
-                    let expScores = scores |> Array.map exp
-                    let sumExp = expScores |> Array.sum
-                    let probabilities = expScores |> Array.map (fun e -> e / sumExp)
+                        // Softmax probabilities
+                        let expScores = scores |> Array.map exp
+                        let sumExp = expScores |> Array.sum
+                        let probabilities = expScores |> Array.map (fun e -> e / sumExp)
 
-                    Ok
-                        {
-                            Category = pred
-                            Confidence = probabilities.[pred]
-                            Probabilities = probabilities
-                            ModelType = "Classical Multi-Class"
-                        }
+                        return
+                            Ok
+                                {
+                                    Category = pred
+                                    Confidence = probabilities.[pred]
+                                    Probabilities = probabilities
+                                    ModelType = "Classical Multi-Class"
+                                }
 
-                | _ -> Error(QuantumError.Other "Unsupported model type for multi-class prediction")
+                    | _ -> return Error(QuantumError.Other "Unsupported model type for multi-class prediction")
 
-            with ex ->
-                Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
+                with ex ->
+                    return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
+        }
+
+    /// Predict category (multi-class)
+    ///
+    /// Parameters:
+    ///   features - Input features for prediction
+    ///   model - Trained multi-class model
+    ///   backend - Quantum backend (defaults to LocalBackend if None)
+    ///   shots - Number of measurement shots for quantum circuits (default: 1000)
+    [<System.Obsolete("Use predictCategoryAsync for non-blocking execution against cloud backends")>]
+    let predictCategory
+        (features: float array)
+        (model: Model)
+        (backend: IQuantumBackend option)
+        (shots: int option)
+        : QuantumResult<CategoryPrediction> =
+        predictCategoryAsync features model backend shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // EVALUATION - Measure model performance
     // ========================================================================
 
     /// Evaluate regression model
+    let evaluateRegressionAsync
+        (testX: float array array)
+        (testY: float array)
+        (model: Model)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<RegressionMetrics>> =
+        task {
+            match model.Metadata.ProblemType with
+            | MultiClass _ -> return Error(QuantumError.Other "Use evaluateMultiClassAsync for multi-class models")
+            | Regression ->
+                try
+                    let predictionValues = ResizeArray<float>(testX.Length)
+
+                    for x in testX do
+                        match! predictAsync x model None None cancellationToken with
+                        | Ok pred -> predictionValues.Add pred.Value
+                        | Error _ -> ()
+
+                    let predictions = predictionValues.ToArray()
+
+                    if predictions.Length <> testY.Length then
+                        return Error(QuantumError.OperationError("Operation", "Some predictions failed"))
+                    else
+                        let mean = testY |> Array.average
+                        let ssTot = testY |> Array.sumBy (fun y -> (y - mean) ** 2.0)
+
+                        let ssRes =
+                            Array.zip testY predictions |> Array.sumBy (fun (y, p) -> (y - p) ** 2.0)
+
+                        let rSquared = 1.0 - (ssRes / ssTot)
+                        let mae = Array.zip testY predictions |> Array.averageBy (fun (y, p) -> abs (y - p))
+
+                        let mse =
+                            Array.zip testY predictions |> Array.averageBy (fun (y, p) -> (y - p) ** 2.0)
+
+                        let rmse = sqrt mse
+
+                        return
+                            Ok
+                                {
+                                    RSquared = rSquared
+                                    MAE = mae
+                                    MSE = mse
+                                    RMSE = rmse
+                                }
+                with ex ->
+                    return Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
+        }
+
+    /// Evaluate regression model
+    [<System.Obsolete("Use evaluateRegressionAsync for non-blocking execution against cloud backends")>]
     let evaluateRegression
         (testX: float array array)
         (testY: float array)
         (model: Model)
         : QuantumResult<RegressionMetrics> =
-        match model.Metadata.ProblemType with
-        | MultiClass _ -> Error(QuantumError.Other "Use evaluateMultiClass for multi-class models")
-        | Regression ->
-            try
-                let predictions =
-                    testX
-                    |> Array.choose (fun x ->
-                        (predict x model None None)
-                        |> Result.map (fun pred -> Some pred.Value)
-                        |> Result.defaultValue None)
-
-                if predictions.Length <> testY.Length then
-                    Error(QuantumError.OperationError("Operation", "Some predictions failed"))
-                else
-                    let mean = testY |> Array.average
-                    let ssTot = testY |> Array.sumBy (fun y -> (y - mean) ** 2.0)
-
-                    let ssRes =
-                        Array.zip testY predictions |> Array.sumBy (fun (y, p) -> (y - p) ** 2.0)
-
-                    let rSquared = 1.0 - (ssRes / ssTot)
-                    let mae = Array.zip testY predictions |> Array.averageBy (fun (y, p) -> abs (y - p))
-
-                    let mse =
-                        Array.zip testY predictions |> Array.averageBy (fun (y, p) -> (y - p) ** 2.0)
-
-                    let rmse = sqrt mse
-
-                    Ok
-                        {
-                            RSquared = rSquared
-                            MAE = mae
-                            MSE = mse
-                            RMSE = rmse
-                        }
-            with ex ->
-                Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
+        evaluateRegressionAsync testX testY model CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Evaluate multi-class model
+    let evaluateMultiClassAsync
+        (testX: float array array)
+        (testY: int array)
+        (model: Model)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<MultiClassMetrics>> =
+        task {
+            match model.Metadata.ProblemType with
+            | Regression -> return Error(QuantumError.Other "Use evaluateRegressionAsync for regression models")
+            | MultiClass numClasses ->
+                try
+                    let predictionValues = ResizeArray<int>(testX.Length)
+
+                    for x in testX do
+                        match! predictCategoryAsync x model None None cancellationToken with
+                        | Ok pred -> predictionValues.Add pred.Category
+                        | Error _ -> ()
+
+                    let predictions = predictionValues.ToArray()
+
+                    if predictions.Length <> testY.Length then
+                        return Error(QuantumError.OperationError("Operation", "Some predictions failed"))
+                    else
+                        // Confusion matrix
+                        let confusionMatrix = Array2D.create numClasses numClasses 0
+
+                        Array.zip testY predictions
+                        |> Array.iter (fun (actual, predicted) ->
+                            confusionMatrix.[actual, predicted] <- confusionMatrix.[actual, predicted] + 1)
+
+                        // Per-class metrics
+                        let precision =
+                            Array.init numClasses (fun c ->
+                                let tp = confusionMatrix.[c, c]
+
+                                let fp =
+                                    [| 0 .. numClasses - 1 |]
+                                    |> Array.sumBy (fun r -> if r <> c then confusionMatrix.[r, c] else 0)
+
+                                if tp + fp = 0 then 0.0 else float tp / float (tp + fp))
+
+                        let recall =
+                            Array.init numClasses (fun c ->
+                                let tp = confusionMatrix.[c, c]
+
+                                let fn =
+                                    [| 0 .. numClasses - 1 |]
+                                    |> Array.sumBy (fun cc -> if cc <> c then confusionMatrix.[c, cc] else 0)
+
+                                if tp + fn = 0 then 0.0 else float tp / float (tp + fn))
+
+                        let f1Score =
+                            Array.init numClasses (fun c ->
+                                if precision.[c] + recall.[c] = 0.0 then
+                                    0.0
+                                else
+                                    2.0 * precision.[c] * recall.[c] / (precision.[c] + recall.[c]))
+
+                        let accuracy =
+                            Array.zip testY predictions
+                            |> Array.filter (fun (y, p) -> y = p)
+                            |> Array.length
+                            |> fun correct -> float correct / float testY.Length
+
+                        let confusionMatrixArray =
+                            Array.init numClasses (fun i -> Array.init numClasses (fun j -> confusionMatrix.[i, j]))
+
+                        return
+                            Ok
+                                {
+                                    Accuracy = accuracy
+                                    Precision = precision
+                                    Recall = recall
+                                    F1Score = f1Score
+                                    ConfusionMatrix = confusionMatrixArray
+                                }
+                with ex ->
+                    return Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
+        }
+
+    /// Evaluate multi-class model
+    [<System.Obsolete("Use evaluateMultiClassAsync for non-blocking execution against cloud backends")>]
     let evaluateMultiClass
         (testX: float array array)
         (testY: int array)
         (model: Model)
         : QuantumResult<MultiClassMetrics> =
-        match model.Metadata.ProblemType with
-        | Regression -> Error(QuantumError.Other "Use evaluateRegression for regression models")
-        | MultiClass numClasses ->
-            try
-                let predictions =
-                    testX
-                    |> Array.choose (fun x ->
-                        (predictCategory x model None None)
-                        |> Result.map (fun pred -> Some pred.Category)
-                        |> Result.defaultValue None)
-
-                if predictions.Length <> testY.Length then
-                    Error(QuantumError.OperationError("Operation", "Some predictions failed"))
-                else
-                    // Confusion matrix
-                    let confusionMatrix = Array2D.create numClasses numClasses 0
-
-                    Array.zip testY predictions
-                    |> Array.iter (fun (actual, predicted) ->
-                        confusionMatrix.[actual, predicted] <- confusionMatrix.[actual, predicted] + 1)
-
-                    // Per-class metrics
-                    let precision =
-                        Array.init numClasses (fun c ->
-                            let tp = confusionMatrix.[c, c]
-
-                            let fp =
-                                [| 0 .. numClasses - 1 |]
-                                |> Array.sumBy (fun r -> if r <> c then confusionMatrix.[r, c] else 0)
-
-                            if tp + fp = 0 then 0.0 else float tp / float (tp + fp))
-
-                    let recall =
-                        Array.init numClasses (fun c ->
-                            let tp = confusionMatrix.[c, c]
-
-                            let fn =
-                                [| 0 .. numClasses - 1 |]
-                                |> Array.sumBy (fun cc -> if cc <> c then confusionMatrix.[c, cc] else 0)
-
-                            if tp + fn = 0 then 0.0 else float tp / float (tp + fn))
-
-                    let f1Score =
-                        Array.init numClasses (fun c ->
-                            if precision.[c] + recall.[c] = 0.0 then
-                                0.0
-                            else
-                                2.0 * precision.[c] * recall.[c] / (precision.[c] + recall.[c]))
-
-                    let accuracy =
-                        Array.zip testY predictions
-                        |> Array.filter (fun (y, p) -> y = p)
-                        |> Array.length
-                        |> fun correct -> float correct / float testY.Length
-
-                    let confusionMatrixArray =
-                        Array.init numClasses (fun i -> Array.init numClasses (fun j -> confusionMatrix.[i, j]))
-
-                    Ok
-                        {
-                            Accuracy = accuracy
-                            Precision = precision
-                            Recall = recall
-                            F1Score = f1Score
-                            ConfusionMatrix = confusionMatrixArray
-                        }
-            with ex ->
-                Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
+        evaluateMultiClassAsync testX testY model CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -1346,9 +1459,12 @@ module PredictiveModel =
 
         member _.Delay(f: unit -> PredictionProblem) = f
 
-        member _.Run(f: unit -> PredictionProblem) : QuantumResult<Model> =
+        /// The `predictiveModel { ... }` expression yields a task: write
+        /// `let! model = predictiveModel { ... }` inside `task { }`. The
+        /// `cancellationToken` operation, when given, cancels training and saving.
+        member _.Run(f: unit -> PredictionProblem) : Task<QuantumResult<Model>> =
             let problem = f ()
-            train problem
+            trainAsync problem (problem.CancellationToken |> Option.defaultValue CancellationToken.None)
 
         member _.Combine(p1: PredictionProblem, p2: PredictionProblem) =
             { p2 with

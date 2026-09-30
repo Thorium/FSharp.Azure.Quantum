@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Business
 
 open System
 open System.Numerics
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -561,13 +562,16 @@ type QuantumRiskEngineBuilder() =
 
     member _.For(state: RiskConfiguration, body: unit -> RiskConfiguration) = body ()
 
-    member _.Run(state: RiskConfiguration) : QuantumResult<RiskReport> =
-        // Propagate a quantum failure as Error rather than raising (executeAsync is Result-typed).
+    /// The `quantumRiskEngine { ... }` expression yields a task: write
+    /// `let! result = quantumRiskEngine { ... }` inside `task { }`. A quantum failure is
+    /// propagated as Error rather than raised (executeAsync is Result-typed); the
+    /// `cancellation_token` operation, when given, cancels the analysis.
+    member _.Run(state: RiskConfiguration) : Task<QuantumResult<RiskReport>> =
         match state.CancellationToken with
-        | Some token -> Async.RunSynchronously(RiskEngine.executeAsync state, cancellationToken = token)
-        | None -> RiskEngine.executeAsync state |> Async.RunSynchronously
+        | Some token -> Async.StartImmediateAsTask(RiskEngine.executeAsync state, cancellationToken = token)
+        | None -> Async.StartImmediateAsTask(RiskEngine.executeAsync state)
 
-    member this.Run(f: unit -> RiskConfiguration) : QuantumResult<RiskReport> = this.Run(f ())
+    member this.Run(f: unit -> RiskConfiguration) : Task<QuantumResult<RiskReport>> = this.Run(f ())
 
     /// Load market data from a file path
     [<CustomOperation("load_market_data")>]

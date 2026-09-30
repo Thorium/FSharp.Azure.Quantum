@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Business
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.GroverSearch
@@ -29,7 +31,8 @@ open FSharp.Azure.Quantum.Quantum
 ///
 /// **Example:**
 /// ```fsharp
-/// let schedule = constraintScheduler {
+/// // The builder returns a Task<QuantumResult<SchedulingResult>>: await it inside task { }
+/// let! schedule = constraintScheduler {
 ///     task "Deploy API" requiresResource "FastServer"
 ///     task "Run Tests" requiresResource "TestServer"
 ///     conflict "Deploy API" "Run Tests"  // Can't run simultaneously
@@ -740,47 +743,45 @@ module ConstraintScheduler =
     let private optimizeQaoaSat
         (backend: IQuantumBackend)
         (problem: SchedulingProblem)
-        : QuantumResult<Schedule option> =
-        let satProblem = toQaoaSatProblem problem
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Schedule option>> =
+        quantumResultTask {
+            let satProblem = toQaoaSatProblem problem
 
-        match
-            QuantumSatSolver.solveWithConfigAsync
-                backend
-                satProblem
-                { QuantumSatSolver.defaultConfig with
-                    FinalShots = problem.Shots
-                }
-                System.Threading.CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-        with
-        | Error err -> Error err
-        | Ok satSolution ->
+            let! satSolution =
+                QuantumSatSolver.solveWithConfigAsync
+                    backend
+                    satProblem
+                    { QuantumSatSolver.defaultConfig with
+                        FinalShots = problem.Shots
+                    }
+                    cancellationToken
+
             let schedule = decodeQaoaSatSolution problem satSolution
-            Ok(Some schedule)
+            return Some schedule
+        }
 
     /// Find optimal schedule using QAOA-based bin packing optimization.
     let private optimizeQaoaBinPacking
         (backend: IQuantumBackend)
         (problem: SchedulingProblem)
-        : QuantumResult<Schedule option> =
-        let binProblem = toQaoaBinPackingProblem problem
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Schedule option>> =
+        quantumResultTask {
+            let binProblem = toQaoaBinPackingProblem problem
 
-        match
-            QuantumBinPackingSolver.solveWithConfigAsync
-                backend
-                binProblem
-                { QuantumBinPackingSolver.defaultConfig with
-                    FinalShots = problem.Shots
-                }
-                System.Threading.CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-        with
-        | Error err -> Error err
-        | Ok binSolution ->
+            let! binSolution =
+                QuantumBinPackingSolver.solveWithConfigAsync
+                    backend
+                    binProblem
+                    { QuantumBinPackingSolver.defaultConfig with
+                        FinalShots = problem.Shots
+                    }
+                    cancellationToken
+
             let schedule = decodeQaoaBinPackingSolution problem binSolution
-            Ok(Some schedule)
+            return Some schedule
+        }
 
     /// Determine the effective strategy based on problem characteristics.
     /// Auto selects QAOA when capacity constraints are present (bin packing formulation),
@@ -799,35 +800,42 @@ module ConstraintScheduler =
             "Classical constraint scheduling is not implemented. \
              Provide a quantum backend via SchedulingProblem.Backend."
 
-    /// Execute scheduling optimization
-    let solve (problem: SchedulingProblem) : QuantumResult<SchedulingResult> =
-        if problem.Tasks.IsEmpty then
-            Error(QuantumError.ValidationError("Tasks", "must have at least one task"))
-        elif problem.Resources.IsEmpty then
-            Error(QuantumError.ValidationError("Resources", "must have at least one resource"))
-        elif problem.Tasks.Length > 50 then
-            Error(QuantumError.ValidationError("Tasks", $"too many tasks ({problem.Tasks.Length}), maximum is 50"))
-        elif
-            problem.HardConstraints
-            |> List.exists (function
-                | Precedence _ -> true
-                | Conflict _
-                | RequiresResource _ -> false)
-        then
-            // Precedence is a temporal ordering ("A before B"). This optimiser only
-            // assigns tasks to resources — it has no time dimension — so precedence
-            // cannot be honoured. Surfacing this is more honest than silently ignoring
-            // the constraint and returning a schedule that violates it.
-            Error(
-                QuantumError.NotImplemented(
-                    "Precedence (temporal ordering) constraints",
-                    Some
-                        "The resource-assignment scheduler does not model time, so precedence cannot be honoured. Remove Precedence constraints, or sequence tasks with a time-indexed scheduler."
-                )
-            )
-        else
-            // Infer quantum vs classical from backend presence
-            let bestSchedule =
+    /// Execute scheduling optimization without blocking the calling thread
+    let solveAsync
+        (problem: SchedulingProblem)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SchedulingResult>> =
+        quantumResultTask {
+            if problem.Tasks.IsEmpty then
+                return! Error(QuantumError.ValidationError("Tasks", "must have at least one task"))
+            elif problem.Resources.IsEmpty then
+                return! Error(QuantumError.ValidationError("Resources", "must have at least one resource"))
+            elif problem.Tasks.Length > 50 then
+                return!
+                    Error(
+                        QuantumError.ValidationError("Tasks", $"too many tasks ({problem.Tasks.Length}), maximum is 50")
+                    )
+            elif
+                problem.HardConstraints
+                |> List.exists (function
+                    | Precedence _ -> true
+                    | Conflict _
+                    | RequiresResource _ -> false)
+            then
+                // Precedence is a temporal ordering ("A before B"). This optimiser only
+                // assigns tasks to resources — it has no time dimension — so precedence
+                // cannot be honoured. Surfacing this is more honest than silently ignoring
+                // the constraint and returning a schedule that violates it.
+                return!
+                    Error(
+                        QuantumError.NotImplemented(
+                            "Precedence (temporal ordering) constraints",
+                            Some
+                                "The resource-assignment scheduler does not model time, so precedence cannot be honoured. Remove Precedence constraints, or sequence tasks with a time-indexed scheduler."
+                        )
+                    )
+            else
+                // Infer quantum vs classical from backend presence.
                 // Quantum-first: run on the caller's backend, or default to the local simulator
                 // (a real quantum backend) when none was supplied.
                 let backend =
@@ -837,30 +845,28 @@ module ConstraintScheduler =
                 let strategy = resolveStrategy problem
                 let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
 
-                match strategy, problem.Goal with
-                // Satisfaction goal: resource cost is intentionally NOT part of the
-                // objective (the user is maximising constraint satisfaction, not cost).
-                | QaoaOptimize, MaximizeSatisfaction -> optimizeQaoaSat backend problem
-                | (GroverSearch | Auto), MaximizeSatisfaction -> optimizeQuantumSat backend problem
+                let! schedule =
+                    match strategy, problem.Goal with
+                    // Satisfaction goal: resource cost is intentionally NOT part of the
+                    // objective (the user is maximising constraint satisfaction, not cost).
+                    | QaoaOptimize, MaximizeSatisfaction -> optimizeQaoaSat backend problem cancellationToken
+                    | (GroverSearch | Auto), MaximizeSatisfaction -> Task.FromResult(optimizeQuantumSat backend problem)
 
-                // Cost goal WITH capacity: capacity is a hard structural requirement,
-                // so we use the bin-packing formulation (cost minimisation is bounded
-                // by capacity feasibility in this combination).
-                | _, (MinimizeCost | Balanced) when hasCapacity -> optimizeQaoaBinPacking backend problem
+                    // Cost goal WITH capacity: capacity is a hard structural requirement,
+                    // so we use the bin-packing formulation (cost minimisation is bounded
+                    // by capacity feasibility in this combination).
+                    | _, (MinimizeCost | Balanced) when hasCapacity ->
+                        optimizeQaoaBinPacking backend problem cancellationToken
 
-                // Cost goal WITHOUT capacity: resource cost is genuinely encoded via the
-                // weighted graph-colouring oracle. The SAT/QAOA clause encoding cannot
-                // express resource costs, so every cost goal is routed to the cost-aware
-                // colouring formulation regardless of the Grover/QAOA strategy hint.
-                | _, (MinimizeCost | Balanced) -> optimizeQuantumColoring backend problem
-
-            match bestSchedule with
-            | Error e -> Error e
-            | Ok schedule ->
+                    // Cost goal WITHOUT capacity: resource cost is genuinely encoded via the
+                    // weighted graph-colouring oracle. The SAT/QAOA clause encoding cannot
+                    // express resource costs, so every cost goal is routed to the cost-aware
+                    // colouring formulation regardless of the Grover/QAOA strategy hint.
+                    | _, (MinimizeCost | Balanced) -> Task.FromResult(optimizeQuantumColoring backend problem)
 
                 // Quantum-first: when the quantum search finds no schedule, the result says
                 // so; no classical search runs in its place.
-                Ok
+                return
                     {
                         BestSchedule = schedule
                         Message =
@@ -873,6 +879,14 @@ module ConstraintScheduler =
                                 else
                                     $"Found partial schedule (unsatisfied constraints: {sched.TotalHardConstraints - sched.HardConstraintsSatisfied})"
                     }
+        }
+
+    /// Execute scheduling optimization
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
+    let solve (problem: SchedulingProblem) : QuantumResult<SchedulingResult> =
+        solveAsync problem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -887,7 +901,8 @@ module ConstraintScheduler =
     ///
     /// **Example - Workforce Scheduling:**
     /// ```fsharp
-    /// let schedule = constraintScheduler {
+    /// // The builder returns a Task<QuantumResult<SchedulingResult>>: await it inside task { }
+    /// let! schedule = constraintScheduler {
     ///     // Define tasks
     ///     task "MorningShift"
     ///     task "AfternoonShift"
@@ -911,7 +926,7 @@ module ConstraintScheduler =
     ///     backend (LocalBackend.LocalBackend() :> IQuantumBackend)
     /// }
     ///
-    /// match solve schedule with
+    /// match schedule with
     /// | Ok result ->
     ///     match result.BestSchedule with
     ///     | Some sched ->
@@ -946,10 +961,11 @@ module ConstraintScheduler =
         /// Delay execution for computation expressions
         member _.Delay(f: unit -> SchedulingProblem) = f
 
-        /// Execute the optimization and return result
-        member _.Run(f: unit -> SchedulingProblem) : QuantumResult<SchedulingResult> =
+        /// Execute the optimization. The result is a task, so F# callers write
+        /// `let! schedule = constraintScheduler { ... }` inside `task { }`.
+        member _.Run(f: unit -> SchedulingProblem) : Task<QuantumResult<SchedulingResult>> =
             let problem = f ()
-            solve problem
+            solveAsync problem CancellationToken.None
 
         /// Combine operations (later operation takes precedence)
         member _.Combine(p1: SchedulingProblem, p2: SchedulingProblem) = p2

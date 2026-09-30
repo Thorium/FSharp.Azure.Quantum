@@ -358,10 +358,23 @@ let (results, solverMethod, portfolioReturn, portfolioRisk, portfolioSharpe) =
             MaxHolding = budget
         }
 
-    let solved =
+    let solving =
         match portfolioCovariance with
-        | Some sigma -> HybridSolver.solvePortfolioWithCovariance assets sigma constraints None None None None
-        | None -> HybridSolver.solvePortfolio assets constraints None None None
+        | Some sigma ->
+            HybridSolver.solvePortfolioWithCovarianceAsync
+                assets
+                sigma
+                constraints
+                None
+                None
+                None
+                None
+                System.Threading.CancellationToken.None
+        | None ->
+            HybridSolver.solvePortfolioAsync assets constraints None None None System.Threading.CancellationToken.None
+
+    // Script top level: wait for the solver here.
+    let solved = solving |> Async.AwaitTask |> Async.RunSynchronously
 
     match solved with
     | Ok solution ->

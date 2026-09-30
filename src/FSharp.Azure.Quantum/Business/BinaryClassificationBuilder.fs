@@ -4,6 +4,7 @@ open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum
@@ -27,19 +28,19 @@ open Microsoft.Extensions.Logging
 /// - Quality control: Detect defective products
 /// - Medical diagnosis: Detect disease presence/absence
 ///
-/// EXAMPLE USAGE:
+/// EXAMPLE USAGE (the builder yields a Task, so bind it inside task { }):
 ///   // Simple: Train from data arrays
-///   let classifier = binaryClassification {
+///   let! classifier = binaryClassification {
 ///       trainWith trainX trainY
 ///   }
 ///
 ///   // Predict
-///   let result = classifier |> BinaryClassifier.predict newSample
+///   let! result = BinaryClassifier.predictAsync newSample classifier cancellationToken
 ///   if result.IsPositive then
 ///       blockTransaction()
 ///
 ///   // Advanced: Full configuration
-///   let classifier = binaryClassification {
+///   let! classifier = binaryClassification {
 ///       trainWith trainX trainY
 ///
 ///       // Architecture (optional - has smart defaults)
@@ -232,12 +233,13 @@ module BinaryClassifier =
             sample
 
     /// Train quantum VQC classifier
-    let private trainQuantum
+    let private trainQuantumAsync
         (backend: IQuantumBackend)
         (features: float array array)
         (labels: int array)
         (config: ClassificationProblem)
-        : QuantumResult<Classifier> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Classifier>> =
 
         let startTime = DateTime.UtcNow
         let numFeatures = features.[0].Length
@@ -253,10 +255,12 @@ module BinaryClassifier =
         // ignores most of its input features while reporting success is worse
         // than a clear error the user can act on.
         if numFeatures > maxQubits then
-            Error(
-                QuantumError.ValidationError(
-                    "features",
-                    $"Quantum classification supports at most {maxQubits} features (one qubit per feature; {numFeatures} supplied). Reduce dimensionality first (e.g. feature selection or PCA), or use the Classical architecture."
+            Task.FromResult(
+                Error(
+                    QuantumError.ValidationError(
+                        "features",
+                        $"Quantum classification supports at most {maxQubits} features (one qubit per feature; {numFeatures} supplied). Reduce dimensionality first (e.g. feature selection or PCA), or use the Classical architecture."
+                    )
                 )
             )
         else
@@ -288,9 +292,10 @@ module BinaryClassifier =
             let rng = Random()
             let initialParams = Array.init numParams (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
 
-            VQC.train backend featureMap variationalForm initialParams trainFeatures labels trainConfig
-            |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"VQC training failed: {e}"))
-            |> Result.map (fun result ->
+            quantumResultTask {
+                let! result =
+                    VQC.train backend featureMap variationalForm initialParams trainFeatures labels trainConfig
+                    |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"VQC training failed: {e}"))
 
                 let endTime = DateTime.UtcNow
 
@@ -320,36 +325,39 @@ module BinaryClassifier =
                         | None ->
                             Some(sprintf "Binary classifier trained %s" (startTime.ToString "yyyy-MM-dd HH:mm:ss"))
 
-                    match
-                        ModelSerialization.saveVQCTrainingResultAsync
-                            path
-                            result
-                            numQubits
-                            "ZZFeatureMap"
-                            2
-                            "RealAmplitudes"
-                            2
-                            note
-                            CancellationToken.None
-                        |> Async.AwaitTask
-                        |> Async.RunSynchronously
-                    with
-                    | Error _e ->
-                        // Model save failure is non-fatal: the trained classifier is still valid.
-                        // Callers who need durable persistence should use BinaryClassifier.save explicitly
-                        // and handle the Result. We do not use printfn in library code.
-                        ()
-                    | Ok() -> ()
+                    // Model save failure is non-fatal: the trained classifier is still valid.
+                    // Callers who need durable persistence should use BinaryClassifier.saveAsync
+                    // explicitly and handle the Result. We do not use printfn in library code.
+                    let! (_saved: QuantumResult<unit> option) =
+                        task {
+                            let! saved =
+                                ModelSerialization.saveVQCTrainingResultAsync
+                                    path
+                                    result
+                                    numQubits
+                                    "ZZFeatureMap"
+                                    2
+                                    "RealAmplitudes"
+                                    2
+                                    note
+                                    cancellationToken
 
-                classifier)
+                            return Some saved
+                        }
+
+                    ()
+
+                return classifier
+            }
 
     /// Train hybrid quantum-classical classifier
-    let private trainHybrid
+    let private trainHybridAsync
         (backend: IQuantumBackend)
         (features: float array array)
         (labels: int array)
         (config: ClassificationProblem)
-        : QuantumResult<Classifier> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Classifier>> =
 
         let startTime = DateTime.UtcNow
         let numFeatures = features.[0].Length
@@ -367,155 +375,184 @@ module BinaryClassifier =
                 Logger = config.Logger
             }
 
-        QuantumKernelSVM.train backend featureMap features labels svmConfig config.Shots
-        |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Hybrid training failed: {e}"))
-        |> Result.bind (fun model ->
+        quantumResultTask {
+            let! model =
+                QuantumKernelSVM.train backend featureMap features labels svmConfig config.Shots
+                |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Hybrid training failed: {e}"))
 
             let endTime = DateTime.UtcNow
 
             // Compute training accuracy - propagate prediction errors
-            let predictionResults =
-                features
-                |> Array.map (fun x ->
-                    (QuantumKernelSVM.predictAsync backend model x config.Shots CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult()
-                    |> Result.map (fun pred -> pred.Label))
+            let predictions = ResizeArray<int>(features.Length)
 
-            let firstError =
-                predictionResults
-                |> Array.tryPick (function
-                    | Error e -> Some e
-                    | Ok _ -> None)
+            for x in features do
+                let! label =
+                    task {
+                        let! prediction =
+                            QuantumKernelSVM.predictAsync backend model x config.Shots cancellationToken
 
-            match firstError with
-            | Some err ->
-                Error(
-                    QuantumError.ValidationError("Training", $"Prediction failed during accuracy computation: {err}")
-                )
-            | None ->
-                let predictions =
-                    predictionResults
-                    |> Array.map (function
-                        | Ok l -> l
-                        | Error _ -> 0) // safe: no errors remain
+                        return
+                            prediction
+                            |> Result.map (fun pred -> pred.Label)
+                            |> Result.mapError (fun err ->
+                                QuantumError.ValidationError(
+                                    "Training",
+                                    $"Prediction failed during accuracy computation: {err}"
+                                ))
+                    }
 
-                let correct =
-                    Array.zip predictions labels
-                    |> Array.filter (fun (p, l) -> p = l)
-                    |> Array.length
+                predictions.Add label
 
-                let accuracy = float correct / float labels.Length
+            let correct =
+                Seq.zip predictions labels |> Seq.filter (fun (p, l) -> p = l) |> Seq.length
 
-                Ok
-                    {
-                        Model = SVMModel(model, numQubits)
-                        Metadata =
-                            {
-                                Architecture = Hybrid
-                                TrainingAccuracy = accuracy
-                                TrainingTime = endTime - startTime
-                                NumFeatures = numFeatures
-                                NumSamples = features.Length
-                                CreatedAt = startTime
-                                Note = config.Note
-                            }
-                        Backend = backend
-                    })
+            let accuracy = float correct / float labels.Length
+
+            return
+                {
+                    Model = SVMModel(model, numQubits)
+                    Metadata =
+                        {
+                            Architecture = Hybrid
+                            TrainingAccuracy = accuracy
+                            TrainingTime = endTime - startTime
+                            NumFeatures = numFeatures
+                            NumSamples = features.Length
+                            CreatedAt = startTime
+                            Note = config.Note
+                        }
+                    Backend = backend
+                }
+        }
 
     /// Train classifier based on architecture choice
-    let train (problem: ClassificationProblem) : QuantumResult<Classifier> =
-        validate problem
-        |> Result.bind (fun () ->
+    let trainAsync
+        (problem: ClassificationProblem)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Classifier>> =
+        quantumResultTask {
+            do! validate problem
 
             let backend =
                 match problem.Backend with
                 | Some b -> b
                 | None -> LocalBackend.LocalBackend() :> IQuantumBackend // Default to local simulation
 
-
             match problem.Architecture with
-            | Quantum -> trainQuantum backend problem.TrainFeatures problem.TrainLabels problem
-            | Hybrid -> trainHybrid backend problem.TrainFeatures problem.TrainLabels problem
+            | Quantum ->
+                return! trainQuantumAsync backend problem.TrainFeatures problem.TrainLabels problem cancellationToken
+            | Hybrid ->
+                return! trainHybridAsync backend problem.TrainFeatures problem.TrainLabels problem cancellationToken
             | Classical ->
-                Error(
-                    QuantumError.NotImplemented(
-                        "Classical architecture",
-                        Some
-                            "Use PredictiveModelBuilder for classical baselines, or use Hybrid architecture for quantum-classical classification"
+                return!
+                    Error(
+                        QuantumError.NotImplemented(
+                            "Classical architecture",
+                            Some
+                                "Use PredictiveModelBuilder for classical baselines, or use Hybrid architecture for quantum-classical classification"
+                        )
                     )
-                ))
+        }
+
+    /// Train classifier based on architecture choice
+    [<Obsolete("Use trainAsync for non-blocking execution against cloud backends")>]
+    let train (problem: ClassificationProblem) : QuantumResult<Classifier> =
+        trainAsync problem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // PREDICTION
     // ========================================================================
 
     /// Make prediction on new sample
-    let predict (sample: float array) (classifier: Classifier) : QuantumResult<Prediction> =
+    let predictAsync
+        (sample: float array)
+        (classifier: Classifier)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Prediction>> =
         let backend = classifier.Backend
 
         match classifier.Model with
         | VQCModel(result, featureMap, varForm, numQubits) ->
             // Apply the same feature truncation used at training time (qubit cap)
-            VQC.predict backend featureMap varForm result.Parameters (truncateFeatures numQubits sample) 1000
-            |> Result.map (fun vqcPred ->
-                {
-                    Label = vqcPred.Label
-                    Confidence = vqcPred.Probability
-                    IsPositive = vqcPred.Label = 1
-                    IsNegative = vqcPred.Label = 0
-                })
+            task {
+                let! prediction =
+                    VQC.predictAsync
+                        backend
+                        featureMap
+                        varForm
+                        result.Parameters
+                        (truncateFeatures numQubits sample)
+                        1000
+                        cancellationToken
 
-        | SVMModel(model, storedNumQubits) ->
-            (QuantumKernelSVM.predictAsync backend model sample 1000 CancellationToken.None).GetAwaiter().GetResult()
-            |> Result.map (fun prediction ->
-                // Convert decision value to confidence (sigmoid-like transformation)
-                let confidence = 1.0 / (1.0 + exp (-abs prediction.DecisionValue))
+                return
+                    prediction
+                    |> Result.map (fun vqcPred ->
+                        {
+                            Label = vqcPred.Label
+                            Confidence = vqcPred.Probability
+                            IsPositive = vqcPred.Label = 1
+                            IsNegative = vqcPred.Label = 0
+                        })
+            }
 
-                {
-                    Label = prediction.Label
-                    Confidence = confidence
-                    IsPositive = prediction.Label = 1
-                    IsNegative = prediction.Label = 0
-                })
+        | SVMModel(model, _storedNumQubits) ->
+            task {
+                let! prediction =
+                    QuantumKernelSVM.predictAsync backend model sample 1000 cancellationToken
+
+                return
+                    prediction
+                    |> Result.map (fun prediction ->
+                        // Convert decision value to confidence (sigmoid-like transformation)
+                        let confidence = 1.0 / (1.0 + exp (-abs prediction.DecisionValue))
+
+                        {
+                            Label = prediction.Label
+                            Confidence = confidence
+                            IsPositive = prediction.Label = 1
+                            IsNegative = prediction.Label = 0
+                        })
+            }
 
         | ClassicalModel _ ->
-            Error(
-                QuantumError.NotImplemented(
-                    "Classical model prediction",
-                    Some "Use PredictiveModelBuilder for classical baselines"
+            Task.FromResult(
+                Error(
+                    QuantumError.NotImplemented(
+                        "Classical model prediction",
+                        Some "Use PredictiveModelBuilder for classical baselines"
+                    )
                 )
             )
 
+    /// Make prediction on new sample
+    [<Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
+    let predict (sample: float array) (classifier: Classifier) : QuantumResult<Prediction> =
+        predictAsync sample classifier CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
     /// Evaluate classifier on test set
-    let evaluate
+    let evaluateAsync
         (testFeatures: float array array)
         (testLabels: int array)
         (classifier: Classifier)
-        : QuantumResult<EvaluationMetrics> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<EvaluationMetrics>> =
+        quantumResultTask {
+            if testFeatures.Length <> testLabels.Length then
+                return! Error(QuantumError.ValidationError("Input", "Test features and labels must have same length"))
+            else
+                // Make predictions - propagate errors instead of silently defaulting to 0
+                let predictionLabels = ResizeArray<int>(testFeatures.Length)
 
-        if testFeatures.Length <> testLabels.Length then
-            Error(QuantumError.ValidationError("Input", "Test features and labels must have same length"))
-        else
-            // Make predictions - propagate errors instead of silently defaulting to 0
-            let predictionResults =
-                testFeatures
-                |> Array.map (fun x -> predict x classifier |> Result.map (fun pred -> pred.Label))
+                for x in testFeatures do
+                    let! pred = predictAsync x classifier cancellationToken
+                    predictionLabels.Add pred.Label
 
-            let firstError =
-                predictionResults
-                |> Array.tryPick (function
-                    | Error e -> Some e
-                    | Ok _ -> None)
-
-            match firstError with
-            | Some err -> Error err
-            | None ->
-                let predictions =
-                    predictionResults
-                    |> Array.map (function
-                        | Ok l -> l
-                        | Error _ -> 0) // safe: no errors remain
+                let predictions = predictionLabels.ToArray()
 
                 // Compute confusion matrix
                 let tp =
@@ -549,7 +586,7 @@ module BinaryClassifier =
                     else
                         2.0 * precision * recall / (precision + recall)
 
-                Ok
+                return
                     {
                         Accuracy = accuracy
                         Precision = precision
@@ -560,13 +597,29 @@ module BinaryClassifier =
                         FalsePositives = fp
                         FalseNegatives = fn
                     }
+        }
+
+    /// Evaluate classifier on test set
+    [<Obsolete("Use evaluateAsync for non-blocking execution against cloud backends")>]
+    let evaluate
+        (testFeatures: float array array)
+        (testLabels: int array)
+        (classifier: Classifier)
+        : QuantumResult<EvaluationMetrics> =
+        evaluateAsync testFeatures testLabels classifier CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // PERSISTENCE
     // ========================================================================
 
     /// Save classifier to file
-    let save (path: string) (classifier: Classifier) : QuantumResult<unit> =
+    let saveAsync
+        (path: string)
+        (classifier: Classifier)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
         match classifier.Model with
         | VQCModel(result, featureMap, varForm, numQubits) ->
             let fmType =
@@ -600,24 +653,29 @@ module BinaryClassifier =
                 vfType
                 vfDepth
                 classifier.Metadata.Note
-                CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
+                cancellationToken
 
         | SVMModel(svmModel, _numQubits) ->
             // numQubits is recoverable from the feature dimension on load, so it isn't
             // separately persisted; use the canonical SVM schema (SVMModelSerialization).
-            SVMModelSerialization.saveSVMModelAsync path svmModel classifier.Metadata.Note CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
+            SVMModelSerialization.saveSVMModelAsync path svmModel classifier.Metadata.Note cancellationToken
 
         | ClassicalModel _ ->
-            Error(
-                QuantumError.NotImplemented(
-                    "Classical model persistence",
-                    Some "Use PredictiveModelBuilder for classical baselines"
+            Task.FromResult(
+                Error(
+                    QuantumError.NotImplemented(
+                        "Classical model persistence",
+                        Some "Use PredictiveModelBuilder for classical baselines"
+                    )
                 )
             )
+
+    /// Save classifier to file
+    [<Obsolete("Use saveAsync for non-blocking file I/O")>]
+    let save (path: string) (classifier: Classifier) : QuantumResult<unit> =
+        saveAsync path classifier CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Load classifier from file
     let load (path: string) : QuantumResult<Classifier> =
@@ -723,9 +781,12 @@ module BinaryClassifier =
 
         member _.Delay(f: unit -> ClassificationProblem) = f
 
-        member _.Run(f: unit -> ClassificationProblem) : QuantumResult<Classifier> =
+        /// The `binaryClassification { ... }` expression yields a task: write
+        /// `let! classifier = binaryClassification { ... }` inside `task { }`. The
+        /// `cancellationToken` operation, when given, cancels training.
+        member _.Run(f: unit -> ClassificationProblem) : Task<QuantumResult<Classifier>> =
             let problem = f ()
-            train problem
+            trainAsync problem (problem.CancellationToken |> Option.defaultValue CancellationToken.None)
 
         member _.Combine(p1: ClassificationProblem, p2: ClassificationProblem) =
             { p2 with

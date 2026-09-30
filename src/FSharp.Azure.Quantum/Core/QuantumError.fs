@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Core
 
 open System
+open System.Threading.Tasks
 
 // ============================================================================
 // AZURE QUANTUM SPECIFIC ERRORS (most specific, at top of hierarchy)
@@ -376,3 +377,146 @@ module QuantumResultBuilder =
 
     /// Global instance of the QuantumResult computation expression builder
     let quantumResult = QuantumResultBuilder()
+
+/// Computation expression builder for Task<QuantumResult<'T>>: the asynchronous
+/// twin of quantumResult. A solver whose steps are tasks writes them as
+/// `let!` instead of blocking on each one with Async.AwaitTask and
+/// Async.RunSynchronously; the block itself is a hot task, like task { }.
+///
+/// `let!`, `do!` and `return!` take a Task<QuantumResult<'T>>, an
+/// Async<QuantumResult<'T>>, a plain QuantumResult<'T>, a Task<'T> or an
+/// Async<'T> (the last two cannot fail with a QuantumError, so their value is
+/// Ok). An Error short-circuits the rest of the block. An exception faults the
+/// task unless a try/with inside the block catches it; a handler that wants to
+/// turn it into an Error writes `return! Error ...`, since `return` wraps its
+/// argument in Ok.
+///
+/// Example usage:
+///   quantumResultTask {
+///       let! problem = validateInput input
+///       let! solution = QuantumTspSolver.solveAsync backend distances config cancellationToken
+///       return toTour solution
+///   }
+[<AutoOpen>]
+module QuantumResultTaskBuilder =
+
+    /// A QuantumResult that is still being computed.
+    type QuantumResultTask<'T> = Task<QuantumResult<'T>>
+
+    type QuantumResultTaskBuilder() =
+
+        /// Wraps a value in a completed, successful QuantumResult
+        member _.Return(value: 'T) : QuantumResultTask<'T> = Task.FromResult(Ok value)
+
+        /// Returns a QuantumResult task as it is
+        member _.ReturnFrom(source: QuantumResultTask<'T>) : QuantumResultTask<'T> = source
+
+        /// Zero value (completed unit result)
+        member _.Zero() : QuantumResultTask<unit> = Task.FromResult(Ok())
+
+        /// Binds a QuantumResult task, short-circuiting on Error
+        member _.Bind(source: QuantumResultTask<'T>, binder: 'T -> QuantumResultTask<'U>) : QuantumResultTask<'U> =
+            task {
+                match! source with
+                | Ok value -> return! binder value
+                | Error error -> return Error error
+            }
+
+        /// Delays computation: the block runs when the expression is evaluated, like task { }
+        member _.Delay(f: unit -> QuantumResultTask<'T>) : unit -> QuantumResultTask<'T> = f
+
+        /// Runs delayed computation
+        member _.Run(f: unit -> QuantumResultTask<'T>) : QuantumResultTask<'T> = f ()
+
+        /// Combines two QuantumResult tasks sequentially
+        member this.Combine
+            (first: QuantumResultTask<unit>, second: unit -> QuantumResultTask<'T>)
+            : QuantumResultTask<'T> =
+            this.Bind(first, second)
+
+        /// Try-with for exception handling
+        member _.TryWith
+            (body: unit -> QuantumResultTask<'T>, handler: exn -> QuantumResultTask<'T>)
+            : QuantumResultTask<'T> =
+            task {
+                try
+                    return! body ()
+                with ex ->
+                    return! handler ex
+            }
+
+        /// Try-finally for cleanup
+        member _.TryFinally(body: unit -> QuantumResultTask<'T>, cleanup: unit -> unit) : QuantumResultTask<'T> =
+            task {
+                try
+                    return! body ()
+                finally
+                    cleanup ()
+            }
+
+        /// Using for IDisposable resources
+        member this.Using(resource: 'R :> IDisposable, binder: 'R -> QuantumResultTask<'T>) : QuantumResultTask<'T> =
+            this.TryFinally(
+                (fun () -> binder resource),
+                (fun () ->
+                    if not (isNull (box resource)) then
+                        resource.Dispose())
+            )
+
+        /// While loop support. A loop rather than recursion: a long loop of
+        /// already-completed steps must not grow the stack.
+        member _.While(guard: unit -> bool, body: unit -> QuantumResultTask<unit>) : QuantumResultTask<unit> =
+            task {
+                let mutable result = Ok()
+
+                while (match result with
+                       | Ok() -> guard ()
+                       | Error _ -> false) do
+                    let! step = body ()
+                    result <- step
+
+                return result
+            }
+
+        /// For loop support
+        member this.For(sequence: seq<'T>, body: 'T -> QuantumResultTask<unit>) : QuantumResultTask<unit> =
+            this.Using(sequence.GetEnumerator(), fun e -> this.While(e.MoveNext, fun () -> body e.Current))
+
+        // What let!, do!, return! and for accept. The overloads that lift a
+        // value into a QuantumResult live in the extension below: an extension
+        // member loses overload resolution to these, so a
+        // Task<QuantumResult<'T>> binds here (and short-circuits on Error)
+        // rather than as a Task<'T> whose value would be wrapped in Ok.
+
+        /// A QuantumResult task
+        member _.Source(source: QuantumResultTask<'T>) : QuantumResultTask<'T> = source
+
+        /// An F# async QuantumResult, started as a task
+        member _.Source(source: Async<QuantumResult<'T>>) : QuantumResultTask<'T> = task { return! source }
+
+        /// An already computed QuantumResult
+        member _.Source(source: QuantumResult<'T>) : QuantumResultTask<'T> = Task.FromResult source
+
+    [<AutoOpen>]
+    module QuantumResultTaskBuilderExtensions =
+        type QuantumResultTaskBuilder with
+
+            /// A task that cannot fail with a QuantumError: its value is Ok
+            member _.Source(source: Task<'T>) : QuantumResultTask<'T> =
+                task {
+                    let! value = source
+                    return Ok value
+                }
+
+            /// An F# async that cannot fail with a QuantumError: its value is Ok
+            member _.Source(source: Async<'T>) : QuantumResultTask<'T> =
+                task {
+                    let! value = source
+                    return Ok value
+                }
+
+            /// `for` loops keep iterating sequences
+            member _.Source(source: #seq<'T>) : seq<'T> = source :> seq<'T>
+
+    /// Global instance of the QuantumResult task computation expression builder
+    let quantumResultTask = QuantumResultTaskBuilder()

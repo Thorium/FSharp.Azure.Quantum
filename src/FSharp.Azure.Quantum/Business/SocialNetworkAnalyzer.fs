@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Business
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.GroverSearch
@@ -29,7 +31,8 @@ open FSharp.Azure.Quantum.Quantum
 ///
 /// **Example:**
 /// ```fsharp
-/// let analysis = socialNetwork {
+/// // The builder returns a Task<QuantumResult<SocialNetworkResult>>: await it inside task { }
+/// let! analysis = socialNetwork {
 ///     person "Alice"
 ///     person "Bob"
 ///     person "Carol"
@@ -309,41 +312,39 @@ module SocialNetworkAnalyzer =
     let private findLargestCommunityQaoa
         (backend: IQuantumBackend)
         (problem: SocialNetworkProblem)
-        : QuantumResult<Community list> =
-        let personIndex = createPersonIndex problem.People
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Community list>> =
+        quantumResultTask {
+            let personIndex = createPersonIndex problem.People
 
-        let edges =
-            problem.Connections
-            |> List.choose (fun conn ->
-                match Map.tryFind conn.Person1 personIndex, Map.tryFind conn.Person2 personIndex with
-                | Some idx1, Some idx2 -> Some(idx1, idx2)
-                | _ -> None)
+            let edges =
+                problem.Connections
+                |> List.choose (fun conn ->
+                    match Map.tryFind conn.Person1 personIndex, Map.tryFind conn.Person2 personIndex with
+                    | Some idx1, Some idx2 -> Some(idx1, idx2)
+                    | _ -> None)
 
-        let cliqueProblem: QuantumCliqueSolver.Problem =
-            {
-                Vertices =
-                    problem.People
-                    |> List.mapi (fun _ name ->
-                        {
-                            QuantumCliqueSolver.Vertex.Id = name
-                            Weight = 1.0
-                        })
-                Edges = edges
-            }
-
-        match
-            QuantumCliqueSolver.solveWithConfigAsync
-                backend
-                cliqueProblem
-                { QuantumCliqueSolver.defaultConfig with
-                    FinalShots = problem.Shots
+            let cliqueProblem: QuantumCliqueSolver.Problem =
+                {
+                    Vertices =
+                        problem.People
+                        |> List.mapi (fun _ name ->
+                            {
+                                QuantumCliqueSolver.Vertex.Id = name
+                                Weight = 1.0
+                            })
+                    Edges = edges
                 }
-                System.Threading.CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-        with
-        | Error err -> Error err
-        | Ok solution ->
+
+            let! solution =
+                QuantumCliqueSolver.solveWithConfigAsync
+                    backend
+                    cliqueProblem
+                    { QuantumCliqueSolver.defaultConfig with
+                        FinalShots = problem.Shots
+                    }
+                    cancellationToken
+
             let members = solution.CliqueVertices |> List.map (fun v -> v.Id)
             let strength = calculateStrength members problem.Connections
 
@@ -355,9 +356,9 @@ module SocialNetworkAnalyzer =
                 |> List.length
 
             if members.IsEmpty then
-                Ok []
+                return []
             else
-                Ok
+                return
                     [
                         {
                             Members = members
@@ -365,91 +366,93 @@ module SocialNetworkAnalyzer =
                             InternalConnections = internalConns
                         }
                     ]
+        }
 
     /// Find the minimum monitor set covering all connections using QAOA min vertex cover
     let private findMonitorSetQaoa
         (backend: IQuantumBackend)
         (problem: SocialNetworkProblem)
-        : QuantumResult<PersonId list> =
-        let personIndex = createPersonIndex problem.People
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<PersonId list>> =
+        quantumResultTask {
+            let personIndex = createPersonIndex problem.People
 
-        let edges =
-            problem.Connections
-            |> List.choose (fun conn ->
-                match Map.tryFind conn.Person1 personIndex, Map.tryFind conn.Person2 personIndex with
-                | Some idx1, Some idx2 -> Some(idx1, idx2)
-                | _ -> None)
+            let edges =
+                problem.Connections
+                |> List.choose (fun conn ->
+                    match Map.tryFind conn.Person1 personIndex, Map.tryFind conn.Person2 personIndex with
+                    | Some idx1, Some idx2 -> Some(idx1, idx2)
+                    | _ -> None)
 
-        if edges.IsEmpty then
-            Ok [] // No connections to cover
-        else
-            let vcProblem: QuantumVertexCoverSolver.Problem =
-                {
-                    Vertices =
-                        problem.People
-                        |> List.mapi (fun _ name ->
-                            {
-                                QuantumVertexCoverSolver.Vertex.Id = name
-                                Weight = 1.0
-                            })
-                    Edges = edges
-                }
+            if edges.IsEmpty then
+                return [] // No connections to cover
+            else
+                let vcProblem: QuantumVertexCoverSolver.Problem =
+                    {
+                        Vertices =
+                            problem.People
+                            |> List.mapi (fun _ name ->
+                                {
+                                    QuantumVertexCoverSolver.Vertex.Id = name
+                                    Weight = 1.0
+                                })
+                        Edges = edges
+                    }
 
-            QuantumVertexCoverSolver.solveWithConfigAsync
-                backend
-                vcProblem
-                { QuantumVertexCoverSolver.defaultConfig with
-                    FinalShots = problem.Shots
-                }
-                System.Threading.CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-            |> Result.map (fun solution -> solution.CoverVertices |> List.map (fun v -> v.Id))
+                let! solution =
+                    QuantumVertexCoverSolver.solveWithConfigAsync
+                        backend
+                        vcProblem
+                        { QuantumVertexCoverSolver.defaultConfig with
+                            FinalShots = problem.Shots
+                        }
+                        cancellationToken
+
+                return solution.CoverVertices |> List.map (fun v -> v.Id)
+        }
 
     /// Find optimal 1:1 pairings using QAOA max weight matching
     let private findPairingsQaoa
         (backend: IQuantumBackend)
         (problem: SocialNetworkProblem)
-        : QuantumResult<Pairing list> =
-        let personIndex = createPersonIndex problem.People
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Pairing list>> =
+        quantumResultTask {
+            let personIndex = createPersonIndex problem.People
 
-        let edges =
-            problem.Connections
-            |> List.choose (fun conn ->
-                match Map.tryFind conn.Person1 personIndex, Map.tryFind conn.Person2 personIndex with
-                | Some idx1, Some idx2 ->
-                    Some(
-                        {
-                            Source = idx1
-                            Target = idx2
-                            Weight = 1.0
-                        }
-                        : QuantumMatchingSolver.Edge
-                    )
-                | _ -> None)
+            let edges =
+                problem.Connections
+                |> List.choose (fun conn ->
+                    match Map.tryFind conn.Person1 personIndex, Map.tryFind conn.Person2 personIndex with
+                    | Some idx1, Some idx2 ->
+                        Some(
+                            {
+                                Source = idx1
+                                Target = idx2
+                                Weight = 1.0
+                            }
+                            : QuantumMatchingSolver.Edge
+                        )
+                    | _ -> None)
 
-        if edges.IsEmpty then
-            Ok [] // No connections to pair
-        else
-            let matchingProblem: QuantumMatchingSolver.Problem =
-                {
-                    NumVertices = problem.People.Length
-                    Edges = edges
-                }
-
-            match
-                QuantumMatchingSolver.solveWithConfigAsync
-                    backend
-                    matchingProblem
-                    { QuantumMatchingSolver.defaultConfig with
-                        FinalShots = problem.Shots
+            if edges.IsEmpty then
+                return [] // No connections to pair
+            else
+                let matchingProblem: QuantumMatchingSolver.Problem =
+                    {
+                        NumVertices = problem.People.Length
+                        Edges = edges
                     }
-                    System.Threading.CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Error err -> Error err
-            | Ok solution ->
+
+                let! solution =
+                    QuantumMatchingSolver.solveWithConfigAsync
+                        backend
+                        matchingProblem
+                        { QuantumMatchingSolver.defaultConfig with
+                            FinalShots = problem.Shots
+                        }
+                        cancellationToken
+
                 let pairings =
                     solution.SelectedEdges
                     |> List.map (fun edge ->
@@ -459,7 +462,8 @@ module SocialNetworkAnalyzer =
                             Weight = edge.Weight
                         })
 
-                Ok pairings
+                return pairings
+        }
 
     // ========================================================================
     // STRATEGY RESOLUTION
@@ -523,25 +527,29 @@ module SocialNetworkAnalyzer =
     // SOLVE — MAIN DISPATCH
     // ========================================================================
 
-    /// Execute social network analysis
-    [<TailCall>]
-    let rec solve (problem: SocialNetworkProblem) : QuantumResult<SocialNetworkResult> =
-        if problem.People.IsEmpty then
-            Error(QuantumError.ValidationError("People", "network must have at least one person"))
-        elif problem.People.Length > 100 then
-            Error(
-                QuantumError.ValidationError("People", $"network too large ({problem.People.Length}), maximum is 100")
-            )
-        else
-            match problem.Backend with
-            | None ->
+    /// Execute social network analysis without blocking the calling thread
+    let solveAsync
+        (problem: SocialNetworkProblem)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SocialNetworkResult>> =
+        quantumResultTask {
+            if problem.People.IsEmpty then
+                return! Error(QuantumError.ValidationError("People", "network must have at least one person"))
+            elif problem.People.Length > 100 then
+                return!
+                    Error(
+                        QuantumError.ValidationError(
+                            "People",
+                            $"network too large ({problem.People.Length}), maximum is 100"
+                        )
+                    )
+            else
                 // Quantum-first: default to the local simulator (a real quantum backend) when
                 // no backend was supplied, then run the same quantum analysis path.
-                solve
-                    { problem with
-                        Backend = Some(LocalBackend.LocalBackend() :> IQuantumBackend)
-                    }
-            | Some backend ->
+                let backend =
+                    problem.Backend
+                    |> Option.defaultWith (fun () -> LocalBackend.LocalBackend() :> IQuantumBackend)
+
                 // Determine the effective analysis mode
                 let effectiveMode =
                     match problem.Mode with
@@ -560,14 +568,15 @@ module SocialNetworkAnalyzer =
                     match resolvedStrategy with
                     | QaoaOptimize ->
                         // User explicitly requested QAOA for FindCommunities — not supported
-                        Error(
-                            QuantumError.ValidationError(
-                                "Strategy",
-                                "QaoaOptimize is not supported for FindCommunities mode. \
-                             Use FindLargestCommunity mode for QAOA optimization, \
-                             or use Auto/GroverSearch strategy."
+                        return!
+                            Error(
+                                QuantumError.ValidationError(
+                                    "Strategy",
+                                    "QaoaOptimize is not supported for FindCommunities mode. \
+                                 Use FindLargestCommunity mode for QAOA optimization, \
+                                 or use Auto/GroverSearch strategy."
+                                )
                             )
-                        )
                     | Auto
                     | GroverSearch ->
                         let legacyProblem =
@@ -575,35 +584,9 @@ module SocialNetworkAnalyzer =
                                 MinCommunitySize = Some minSize
                             }
 
-                        match findCommunitiesQuantum backend legacyProblem with
-                        | Ok communities ->
-                            Ok
-                                {
-                                    Communities = communities
-                                    MonitorSet = []
-                                    Pairings = []
-                                    TotalPeople = problem.People.Length
-                                    TotalConnections = problem.Connections.Length
-                                    Message =
-                                        if communities.IsEmpty then
-                                            "No communities found with the specified criteria"
-                                        else
-                                            $"Found {communities.Length} communities"
-                                }
-                        | Error e -> Error e
+                        let! communities = findCommunitiesQuantum backend legacyProblem
 
-                | FindLargestCommunity ->
-                    let resolvedStrategy = resolveStrategy effectiveMode problem.Strategy
-
-                    let communityResult =
-                        match resolvedStrategy with
-                        | GroverSearch -> findLargestCommunityGrover backend problem
-                        | QaoaOptimize
-                        | Auto -> findLargestCommunityQaoa backend problem
-
-                    match communityResult with
-                    | Ok communities ->
-                        Ok
+                        return
                             {
                                 Communities = communities
                                 MonitorSet = []
@@ -611,76 +594,106 @@ module SocialNetworkAnalyzer =
                                 TotalPeople = problem.People.Length
                                 TotalConnections = problem.Connections.Length
                                 Message =
-                                    match communities with
-                                    | [] -> "No community found in the network"
-                                    | [ c ] -> $"Found largest community of {c.Members.Length} people"
-                                    | cs -> $"Found {cs.Length} communities"
+                                    if communities.IsEmpty then
+                                        "No communities found with the specified criteria"
+                                    else
+                                        $"Found {communities.Length} communities"
                             }
-                    | Error e -> Error e
+
+                | FindLargestCommunity ->
+                    let resolvedStrategy = resolveStrategy effectiveMode problem.Strategy
+
+                    let! communities =
+                        match resolvedStrategy with
+                        | GroverSearch -> Task.FromResult(findLargestCommunityGrover backend problem)
+                        | QaoaOptimize
+                        | Auto -> findLargestCommunityQaoa backend problem cancellationToken
+
+                    return
+                        {
+                            Communities = communities
+                            MonitorSet = []
+                            Pairings = []
+                            TotalPeople = problem.People.Length
+                            TotalConnections = problem.Connections.Length
+                            Message =
+                                match communities with
+                                | [] -> "No community found in the network"
+                                | [ c ] -> $"Found largest community of {c.Members.Length} people"
+                                | cs -> $"Found {cs.Length} communities"
+                        }
 
                 | FindMonitorSet ->
                     let resolvedStrategy = resolveStrategy effectiveMode problem.Strategy
 
                     match resolvedStrategy with
                     | GroverSearch ->
-                        Error(
-                            QuantumError.ValidationError(
-                                "Strategy",
-                                "GroverSearch is not supported for FindMonitorSet mode. \
-                             Only QAOA optimization is available for vertex cover problems. \
-                             Use Auto or QaoaOptimize strategy."
+                        return!
+                            Error(
+                                QuantumError.ValidationError(
+                                    "Strategy",
+                                    "GroverSearch is not supported for FindMonitorSet mode. \
+                                 Only QAOA optimization is available for vertex cover problems. \
+                                 Use Auto or QaoaOptimize strategy."
+                                )
                             )
-                        )
                     | Auto
                     | QaoaOptimize ->
-                        match findMonitorSetQaoa backend problem with
-                        | Ok monitors ->
-                            Ok
-                                {
-                                    Communities = []
-                                    MonitorSet = monitors
-                                    Pairings = []
-                                    TotalPeople = problem.People.Length
-                                    TotalConnections = problem.Connections.Length
-                                    Message =
-                                        if monitors.IsEmpty then
-                                            "No monitors needed (no connections in network)"
-                                        else
-                                            $"Found monitor set of {monitors.Length} people covering all connections"
-                                }
-                        | Error e -> Error e
+                        let! monitors = findMonitorSetQaoa backend problem cancellationToken
+
+                        return
+                            {
+                                Communities = []
+                                MonitorSet = monitors
+                                Pairings = []
+                                TotalPeople = problem.People.Length
+                                TotalConnections = problem.Connections.Length
+                                Message =
+                                    if monitors.IsEmpty then
+                                        "No monitors needed (no connections in network)"
+                                    else
+                                        $"Found monitor set of {monitors.Length} people covering all connections"
+                            }
 
                 | FindPairings ->
                     let resolvedStrategy = resolveStrategy effectiveMode problem.Strategy
 
                     match resolvedStrategy with
                     | GroverSearch ->
-                        Error(
-                            QuantumError.ValidationError(
-                                "Strategy",
-                                "GroverSearch is not supported for FindPairings mode. \
-                             Only QAOA optimization is available for matching problems. \
-                             Use Auto or QaoaOptimize strategy."
+                        return!
+                            Error(
+                                QuantumError.ValidationError(
+                                    "Strategy",
+                                    "GroverSearch is not supported for FindPairings mode. \
+                                 Only QAOA optimization is available for matching problems. \
+                                 Use Auto or QaoaOptimize strategy."
+                                )
                             )
-                        )
                     | Auto
                     | QaoaOptimize ->
-                        match findPairingsQaoa backend problem with
-                        | Ok pairings ->
-                            Ok
-                                {
-                                    Communities = []
-                                    MonitorSet = []
-                                    Pairings = pairings
-                                    TotalPeople = problem.People.Length
-                                    TotalConnections = problem.Connections.Length
-                                    Message =
-                                        if pairings.IsEmpty then
-                                            "No pairings found (no connections in network)"
-                                        else
-                                            $"Found {pairings.Length} optimal pairings"
-                                }
-                        | Error e -> Error e
+                        let! pairings = findPairingsQaoa backend problem cancellationToken
+
+                        return
+                            {
+                                Communities = []
+                                MonitorSet = []
+                                Pairings = pairings
+                                TotalPeople = problem.People.Length
+                                TotalConnections = problem.Connections.Length
+                                Message =
+                                    if pairings.IsEmpty then
+                                        "No pairings found (no connections in network)"
+                                    else
+                                        $"Found {pairings.Length} optimal pairings"
+                            }
+        }
+
+    /// Execute social network analysis
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
+    let solve (problem: SocialNetworkProblem) : QuantumResult<SocialNetworkResult> =
+        solveAsync problem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -701,7 +714,8 @@ module SocialNetworkAnalyzer =
     ///
     /// **Example - Finding the Largest Community:**
     /// ```fsharp
-    /// let analysis = socialNetwork {
+    /// // The builder returns a Task<QuantumResult<SocialNetworkResult>>: await it inside task { }
+    /// let! analysis = socialNetwork {
     ///     people ["Alice"; "Bob"; "Carol"; "Dave"]
     ///     connection "Alice" "Bob"
     ///     connection "Bob" "Carol"
@@ -714,7 +728,7 @@ module SocialNetworkAnalyzer =
     ///
     /// **Example - Finding Monitor Set:**
     /// ```fsharp
-    /// let monitors = socialNetwork {
+    /// let! monitors = socialNetwork {
     ///     people ["Alice"; "Bob"; "Carol"]
     ///     connection "Alice" "Bob"
     ///     connection "Bob" "Carol"
@@ -743,10 +757,11 @@ module SocialNetworkAnalyzer =
         /// Delay execution for computation expressions
         member _.Delay(f: unit -> SocialNetworkProblem) = f
 
-        /// Execute the analysis and return result
-        member _.Run(f: unit -> SocialNetworkProblem) : QuantumResult<SocialNetworkResult> =
+        /// Execute the analysis. The result is a task, so F# callers write
+        /// `let! analysis = socialNetwork { ... }` inside `task { }`.
+        member _.Run(f: unit -> SocialNetworkProblem) : Task<QuantumResult<SocialNetworkResult>> =
             let problem = f ()
-            solve problem
+            solveAsync problem CancellationToken.None
 
         /// Combine operations (later operation takes precedence)
         member _.Combine(p1: SocialNetworkProblem, p2: SocialNetworkProblem) = p2

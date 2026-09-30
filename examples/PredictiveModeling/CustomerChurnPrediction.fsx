@@ -228,6 +228,8 @@ if shouldRun 1 then
             problemType (MultiClass 4) // 4 categories
             backend quantumBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result1 with
     | Error err ->
@@ -370,6 +372,8 @@ if shouldRun 2 then
             saveModelTo "churn_predictor.model"
             note "Customer churn prediction model - Q2 2024"
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result2 with
     | Error err ->
@@ -521,6 +525,8 @@ if shouldRun 3 then
 
             verbose false
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result3 with
     | Error err ->
@@ -604,6 +610,8 @@ if shouldRun 4 then
                 backend quantumBackend
                 verbose false
             }
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
     /// Production-ready churn assessment function
     let assessCustomerChurn (customerFeatures: float array) (model: PredictiveModel.Model) =

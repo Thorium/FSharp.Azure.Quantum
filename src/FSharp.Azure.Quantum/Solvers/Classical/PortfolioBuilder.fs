@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Backends
@@ -20,15 +23,15 @@ open FSharp.Azure.Quantum.Core
 ///
 /// EXAMPLE USAGE:
 ///   // Simple: Uses quantum simulation automatically
-///   let allocation = Portfolio.solve problem None
+///   let! allocation = Portfolio.solveAsync problem None cancellationToken
 ///
 ///   // Advanced: Specify cloud quantum backend
 ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-///   let allocation = Portfolio.solve problem (Some ionqBackend)
+///   let! allocation = Portfolio.solveAsync problem (Some ionqBackend) cancellationToken
 ///
 ///   // Expert: Direct quantum solver access
 ///   open FSharp.Azure.Quantum.Quantum
-///   let result = QuantumPortfolioSolver.solve backend assets constraints config
+///   let! result = QuantumPortfolioSolver.solveAsync backend assets constraints config cancellationToken
 module Portfolio =
 
     // ============================================================================
@@ -162,79 +165,80 @@ module Portfolio =
             })
 
     /// <summary>
-    /// Solve Portfolio problem using quantum optimization (QAOA)
+    /// Solve Portfolio problem using quantum optimization (QAOA), asynchronously
     /// </summary>
     /// <remarks>
     /// QUANTUM-FIRST API:
     /// - Uses quantum backend by default (LocalBackend for simulation)
     /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
     /// - Returns business-domain PortfolioAllocation result (not low-level QAOA output)
+    /// - Does not block: the backend call is awaited, so cloud jobs do not tie up a thread
     ///
     /// EXAMPLES:
     ///   // Simple: Automatic quantum simulation
-    ///   let allocation = Portfolio.solve problem None
+    ///   let! allocation = Portfolio.solveAsync problem None CancellationToken.None
     ///
     ///   // Cloud execution: Specify IonQ backend
     ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-    ///   let allocation = Portfolio.solve problem (Some ionqBackend)
+    ///   let! allocation = Portfolio.solveAsync problem (Some ionqBackend) cancellationToken
     /// </remarks>
     /// With problem.Covariance the QUBO includes the covariance terms and Risk is sqrt(wᵀΣw);
     /// an invalid covariance gives a ValidationError.
     /// <param name="problem">Portfolio problem to solve</param>
     /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
-    /// <returns>Result with PortfolioAllocation or error message</returns>
-    let solve
+    /// <param name="cancellationToken">Cancels the backend execution</param>
+    /// <returns>Task of Result with PortfolioAllocation or error message</returns>
+    let solveAsync
         (problem: PortfolioProblem)
         (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<PortfolioAllocation> =
-        try
-            // Use provided backend or create LocalBackend for simulation
-            let actualBackend =
-                backend
-                |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<PortfolioAllocation>> =
+        quantumResultTask {
+            try
+                // Use provided backend or create LocalBackend for simulation
+                let actualBackend =
+                    backend
+                    |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
 
-            // Assets are already the correct type (PortfolioTypes.Asset)
-            let solverAssets = problem.Assets |> Array.toList
+                // Assets are already the correct type (PortfolioTypes.Asset)
+                let solverAssets = problem.Assets |> Array.toList
 
-            // Create constraints
-            let constraints =
-                problem.Constraints
-                |> Option.defaultValue
+                // Create constraints
+                let constraints =
+                    problem.Constraints
+                    |> Option.defaultValue
+                        {
+                            Budget = problem.Budget
+                            MinHolding = 0.0
+                            MaxHolding = problem.Budget // No per-asset limit by default
+                        }
+
+                // Create quantum portfolio solver configuration
+                let quantumConfig: QuantumPortfolioSolver.QuantumPortfolioConfig =
                     {
-                        Budget = problem.Budget
-                        MinHolding = 0.0
-                        MaxHolding = problem.Budget // No per-asset limit by default
+                        NumShots = 1000
+                        RiskAversion = 0.5
+                        InitialParameters = (0.5, 0.5)
                     }
 
-            // Create quantum portfolio solver configuration
-            let quantumConfig: QuantumPortfolioSolver.QuantumPortfolioConfig =
-                {
-                    NumShots = 1000
-                    RiskAversion = 0.5
-                    InitialParameters = (0.5, 0.5)
-                }
-
-            let solveTask =
-                match problem.Covariance with
-                | Some covariance ->
-                    QuantumPortfolioSolver.solveWithCovarianceAsync
-                        actualBackend
-                        solverAssets
-                        covariance
-                        constraints
-                        quantumConfig
-                        System.Threading.CancellationToken.None
-                | None ->
-                    QuantumPortfolioSolver.solveAsync
-                        actualBackend
-                        solverAssets
-                        constraints
-                        quantumConfig
-                        System.Threading.CancellationToken.None
-
-            // Call quantum portfolio solver directly using computation expression
-            quantumResult {
-                let! quantumResult = solveTask |> Async.AwaitTask |> Async.RunSynchronously
+                // Call quantum portfolio solver directly
+                let! quantumResult =
+                    match problem.Covariance with
+                    | Some covariance ->
+                        QuantumPortfolioSolver.solveWithCovarianceAsync
+                            actualBackend
+                            solverAssets
+                            covariance
+                            constraints
+                            quantumConfig
+                            cancellationToken
+                    | None ->
+                        QuantumPortfolioSolver.solveAsync
+                            actualBackend
+                            solverAssets
+                            constraints
+                            quantumConfig
+                            cancellationToken
 
                 // Validate solution
                 let valid = isValidPortfolio quantumResult.TotalValue problem.Budget
@@ -252,26 +256,67 @@ module Portfolio =
                         Risk = quantumResult.Risk
                         IsValid = valid
                     }
-            }
-        with ex ->
-            Error(QuantumError.OperationError("Portfolio solve failed: ", $"Failed: {ex.Message}"))
+            with ex ->
+                return! Error(QuantumError.OperationError("Portfolio solve failed: ", $"Failed: {ex.Message}"))
+        }
 
     /// <summary>
-    /// Convenience function: Create problem and solve in one step using quantum optimization
+    /// Solve Portfolio problem using quantum optimization (QAOA)
+    /// </summary>
+    /// <remarks>
+    /// This is a synchronous wrapper around <c>solveAsync</c> for backward compatibility:
+    /// it blocks the calling thread until the backend has answered.
+    /// </remarks>
+    /// <param name="problem">Portfolio problem to solve</param>
+    /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
+    /// <returns>Result with PortfolioAllocation or error message</returns>
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
+    let solve
+        (problem: PortfolioProblem)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        : QuantumResult<PortfolioAllocation> =
+        solveAsync problem backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    /// <summary>
+    /// Convenience function: Create problem and solve in one step using quantum optimization, asynchronously
     /// </summary>
     /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
     /// <param name="budget">Total budget available for investment</param>
     /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
-    /// <returns>Result with PortfolioAllocation or error message</returns>
+    /// <param name="cancellationToken">Cancels the backend execution</param>
+    /// <returns>Task of Result with PortfolioAllocation or error message</returns>
     /// <example>
     /// <code>
-    /// let allocation = Portfolio.solveDirectly [("AAPL", 0.12, 0.15, 150.0)] 10000.0 None
+    /// let! allocation = Portfolio.solveDirectlyAsync [("AAPL", 0.12, 0.15, 150.0)] 10000.0 None CancellationToken.None
     /// </code>
     /// </example>
+    let solveDirectlyAsync
+        (assets: (string * float * float * float) list)
+        (budget: float)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<PortfolioAllocation>> =
+        let problem = createProblem assets budget
+        solveAsync problem backend cancellationToken
+
+    /// <summary>
+    /// Convenience function: Create problem and solve in one step using quantum optimization
+    /// </summary>
+    /// <remarks>
+    /// This is a synchronous wrapper around <c>solveDirectlyAsync</c> for backward compatibility.
+    /// </remarks>
+    /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
+    /// <param name="budget">Total budget available for investment</param>
+    /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
+    /// <returns>Result with PortfolioAllocation or error message</returns>
+    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
     let solveDirectly
         (assets: (string * float * float * float) list)
         (budget: float)
         (backend: BackendAbstraction.IQuantumBackend option)
         : QuantumResult<PortfolioAllocation> =
-        let problem = createProblem assets budget
-        solve problem backend
+        solveDirectlyAsync assets budget backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously

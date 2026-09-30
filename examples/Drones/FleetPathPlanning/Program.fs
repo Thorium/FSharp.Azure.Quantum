@@ -388,9 +388,9 @@ module PathOptimizer =
     /// Solve path planning using Hybrid solver (auto-selects classical vs quantum)
     let solveHybrid
         (waypoints: Waypoint array)
-        : QuantumResult<HybridSolver.Solution<FSharp.Azure.Quantum.Classical.TspSolver.TspSolution>> =
+        : Threading.Tasks.Task<QuantumResult<HybridSolver.Solution<Classical.TspSolver.TspSolution>>> =
         let distances = buildDistanceMatrix waypoints
-        HybridSolver.solveTsp distances None None None
+        HybridSolver.solveTspAsync distances None None None System.Threading.CancellationToken.None
 
 // =============================================================================
 // FLEET DECOMPOSITION AND FEASIBILITY
@@ -2935,7 +2935,12 @@ module Program =
                             printfn "❌ Quantum solver failed: %s" e.Message
                             ("Failed", [||], 0.0)
                     | _ -> // hybrid (default)
-                        match PathOptimizer.solveHybrid waypointsArr with
+                        // Program entry point: wait for the solver here.
+                        match
+                            PathOptimizer.solveHybrid waypointsArr
+                            |> Async.AwaitTask
+                            |> Async.RunSynchronously
+                        with
                         | Ok solution ->
                             let methodName =
                                 match solution.Method with

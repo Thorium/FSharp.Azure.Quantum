@@ -8,6 +8,8 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// Strategy: For each class k, train binary classifier (class k vs. all others)
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open Microsoft.Extensions.Logging
@@ -154,53 +156,106 @@ module MultiClassSVM =
     ///   model - Trained multi-class model
     ///   sample - Feature vector to classify
     ///   shots - Number of shots for kernel evaluation
+    ///   cancellationToken - Cancels the kernel evaluations
     ///
     /// Returns:
     ///   Multi-class prediction with label and confidence
+    let predictAsync
+        (backend: IQuantumBackend)
+        (model: MultiClassModel)
+        (sample: float array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<MultiClassPrediction>> =
+        task {
+            if shots <= 0 then
+                return Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
+            else
+                // One binary classifier per class, evaluated concurrently
+                let! binaryPredictions =
+                    model.BinaryModels
+                    |> Array.map (fun binaryModel ->
+                        QuantumKernelSVM.predictAsync backend binaryModel sample shots cancellationToken)
+                    |> Task.WhenAll
+
+                return
+                    binaryPredictions
+                    |> traverseResult
+                    |> Result.map (fun predictions ->
+                        // Extract decision values
+                        let decisionValues = predictions |> Array.map (fun pred -> pred.DecisionValue)
+
+                        // Find class with maximum decision value
+                        let maxIndex =
+                            decisionValues
+                            |> Array.mapi (fun i value -> (i, value))
+                            |> Array.maxBy snd
+                            |> fst
+
+                        let predictedClass = model.ClassLabels.[maxIndex]
+                        let confidence = decisionValues.[maxIndex]
+
+                        {
+                            Label = predictedClass
+                            DecisionValues = decisionValues
+                            Confidence = confidence
+                        })
+        }
+
+    /// Predict class label for a single sample
+    ///
+    /// This is a synchronous wrapper around `predictAsync` for backward compatibility.
+    [<Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
     let predict
         (backend: IQuantumBackend)
         (model: MultiClassModel)
         (sample: float array)
         (shots: int)
         : QuantumResult<MultiClassPrediction> =
-
-        if shots <= 0 then
-            Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
-        else
-            // Get predictions from all binary classifiers (functional)
-            model.BinaryModels
-            |> Array.map (fun binaryModel ->
-                (QuantumKernelSVM.predictAsync backend binaryModel sample shots System.Threading.CancellationToken.None)
-                    .GetAwaiter()
-                    .GetResult())
-            |> traverseResult
-            |> Result.map (fun predictions ->
-                // Extract decision values
-                let decisionValues = predictions |> Array.map (fun pred -> pred.DecisionValue)
-
-                // Find class with maximum decision value
-                let maxIndex =
-                    decisionValues
-                    |> Array.mapi (fun i value -> (i, value))
-                    |> Array.maxBy snd
-                    |> fst
-
-                let predictedClass = model.ClassLabels.[maxIndex]
-                let confidence = decisionValues.[maxIndex]
-
-                {
-                    Label = predictedClass
-                    DecisionValues = decisionValues
-                    Confidence = confidence
-                })
+        predictAsync backend model sample shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // EVALUATION
     // ========================================================================
 
-    /// Evaluate multi-class model on a dataset
+    /// Evaluate multi-class model on a dataset, asynchronously
+    ///
+    /// Samples are predicted in order; the first failing sample's error is the result.
     ///
     /// Returns accuracy (fraction of correct predictions)
+    let evaluateAsync
+        (backend: IQuantumBackend)
+        (model: MultiClassModel)
+        (testData: float array array)
+        (testLabels: int array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float>> =
+        quantumResultTask {
+            if testData.Length = 0 then
+                return! Error(QuantumError.Other "Test data cannot be empty")
+            elif testData.Length <> testLabels.Length then
+                return! Error(QuantumError.ValidationError("Input", "Test data and labels must have same length"))
+            else
+                let mutable correctCount = 0
+
+                for i in 0 .. testData.Length - 1 do
+                    let! prediction = predictAsync backend model testData.[i] shots cancellationToken
+
+                    if prediction.Label = testLabels.[i] then
+                        correctCount <- correctCount + 1
+
+                return float correctCount / float testData.Length
+        }
+
+    /// Evaluate multi-class model on a dataset
+    ///
+    /// This is a synchronous wrapper around `evaluateAsync` for backward compatibility.
+    ///
+    /// Returns accuracy (fraction of correct predictions)
+    [<Obsolete("Use evaluateAsync for non-blocking execution against cloud backends")>]
     let evaluate
         (backend: IQuantumBackend)
         (model: MultiClassModel)
@@ -208,26 +263,9 @@ module MultiClassSVM =
         (testLabels: int array)
         (shots: int)
         : QuantumResult<float> =
-
-        if testData.Length = 0 then
-            Error(QuantumError.Other "Test data cannot be empty")
-        elif testData.Length <> testLabels.Length then
-            Error(QuantumError.ValidationError("Input", "Test data and labels must have same length"))
-        else
-            // Get predictions for all test samples (functional)
-            testData
-            |> Array.map (fun sample -> predict backend model sample shots)
-            |> traverseResult
-            |> Result.map (fun predictions ->
-                // Extract predicted labels and compute accuracy
-                let correctCount =
-                    predictions
-                    |> Array.map (fun pred -> pred.Label)
-                    |> Array.zip testLabels
-                    |> Array.filter (fun (actual, pred) -> pred = actual)
-                    |> Array.length
-
-                float correctCount / float testData.Length)
+        evaluateAsync backend model testData testLabels shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // CONFUSION MATRIX & METRICS

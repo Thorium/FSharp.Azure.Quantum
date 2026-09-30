@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum.Business
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Quantum
@@ -21,7 +24,8 @@ open FSharp.Azure.Quantum.Quantum
 ///
 /// **Example:**
 /// ```fsharp
-/// let result = resourcePairing {
+/// // The builder returns a Task<QuantumResult<PairingResult>>: await it inside task { }
+/// let! result = resourcePairing {
 ///     participant "Alice"
 ///     participant "Bob"
 ///     participant "Carol"
@@ -156,41 +160,55 @@ module ResourcePairing =
                     $"Found {pairings.Length} pairings (may have conflicts)"
         }
 
+    /// Execute resource pairing optimization without blocking the calling thread
+    let solveAsync
+        (problem: PairingProblem)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<PairingResult>> =
+        quantumResultTask {
+            if problem.Participants.Length < 2 then
+                return! Error(QuantumError.ValidationError("Participants", "must have at least 2 participants"))
+            elif problem.Compatibilities.IsEmpty then
+                return!
+                    Error(QuantumError.ValidationError("Compatibilities", "must have at least one compatibility score"))
+            elif problem.Compatibilities |> List.exists (fun c -> c.Weight < 0.0) then
+                return! Error(QuantumError.ValidationError("Weight", "compatibility weights must be non-negative"))
+            elif
+                problem.Compatibilities
+                |> List.exists (fun c ->
+                    not (List.contains c.Participant1 problem.Participants)
+                    || not (List.contains c.Participant2 problem.Participants))
+            then
+                return!
+                    Error(QuantumError.ValidationError("Participants", "compatibility references unknown participant"))
+            else
+                // Quantum-first: run on the caller's backend, or default to the local simulator
+                // (a real quantum backend) when none was supplied.
+                let backend =
+                    problem.Backend
+                    |> Option.defaultWith (fun () ->
+                        FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+
+                let matchingProblem = toMatchingProblem problem
+
+                let! solution =
+                    QuantumMatchingSolver.solveWithConfigAsync
+                        backend
+                        matchingProblem
+                        { QuantumMatchingSolver.defaultConfig with
+                            FinalShots = problem.Shots
+                        }
+                        cancellationToken
+
+                return decodeSolution problem solution
+        }
+
     /// Execute resource pairing optimization
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve (problem: PairingProblem) : QuantumResult<PairingResult> =
-        if problem.Participants.Length < 2 then
-            Error(QuantumError.ValidationError("Participants", "must have at least 2 participants"))
-        elif problem.Compatibilities.IsEmpty then
-            Error(QuantumError.ValidationError("Compatibilities", "must have at least one compatibility score"))
-        elif problem.Compatibilities |> List.exists (fun c -> c.Weight < 0.0) then
-            Error(QuantumError.ValidationError("Weight", "compatibility weights must be non-negative"))
-        elif
-            problem.Compatibilities
-            |> List.exists (fun c ->
-                not (List.contains c.Participant1 problem.Participants)
-                || not (List.contains c.Participant2 problem.Participants))
-        then
-            Error(QuantumError.ValidationError("Participants", "compatibility references unknown participant"))
-        else
-            // Quantum-first: run on the caller's backend, or default to the local simulator
-            // (a real quantum backend) when none was supplied.
-            let backend =
-                problem.Backend
-                |> Option.defaultWith (fun () ->
-                    FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
-
-            let matchingProblem = toMatchingProblem problem
-
-            QuantumMatchingSolver.solveWithConfigAsync
-                backend
-                matchingProblem
-                { QuantumMatchingSolver.defaultConfig with
-                    FinalShots = problem.Shots
-                }
-                System.Threading.CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-            |> Result.map (fun solution -> decodeSolution problem solution)
+        solveAsync problem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -210,9 +228,11 @@ module ResourcePairing =
         member _.Yield(_) = defaultProblem
         member _.Delay(f: unit -> PairingProblem) = f
 
-        member _.Run(f: unit -> PairingProblem) : QuantumResult<PairingResult> =
+        /// Execute the optimization. The result is a task, so F# callers write
+        /// `let! result = resourcePairing { ... }` inside `task { }`.
+        member _.Run(f: unit -> PairingProblem) : Task<QuantumResult<PairingResult>> =
             let problem = f ()
-            solve problem
+            solveAsync problem CancellationToken.None
 
         member _.Combine(p1: PairingProblem, p2: PairingProblem) = p2
         member _.Zero() = defaultProblem

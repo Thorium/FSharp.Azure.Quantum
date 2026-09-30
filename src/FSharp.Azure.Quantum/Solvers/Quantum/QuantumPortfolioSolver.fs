@@ -667,6 +667,14 @@ module QuantumPortfolioSolver =
 
         Array2D.init kept.Length kept.Length (fun a b -> dense.[kept.[a], kept.[b]]), kept
 
+    /// The (γ, β) pair whose samples have the lowest mean QUBO energy. A function of its own
+    /// rather than a lambda inside sampleWithAngleGridAsync: there the lambda keeps the task
+    /// from compiling to a static state machine (FS3511 in Release builds).
+    let private lowestMeanEnergyAngles (qubo: float[,]) (sampled: ((float * float) * int[][])[]) : float * float =
+        sampled
+        |> Array.minBy (fun (_, m) -> m |> Array.averageBy (QaoaExecutionHelpers.evaluateQubo qubo))
+        |> fst
+
     /// Samples p = 1 QAOA at `initial` and every (γ, β) of the angle grid with gridShots shots
     /// each, then finalShots at the pair with the lowest mean sampled QUBO energy. Returns every
     /// sample and the chosen pair.
@@ -724,10 +732,7 @@ module QuantumPortfolioSolver =
             | [] when sampled.Length = 0 ->
                 return Error(QuantumError.OperationError("QAOA", "The backend returned no samples"))
             | [] ->
-                let bestAngles =
-                    sampled
-                    |> Array.minBy (fun (_, m) -> m |> Array.averageBy (QaoaExecutionHelpers.evaluateQubo qubo))
-                    |> fst
+                let bestAngles = lowestMeanEnergyAngles qubo sampled
 
                 let! final =
                     QaoaExecutionHelpers.executeQaoaCircuitAsync
@@ -941,17 +946,49 @@ module QuantumPortfolioSolver =
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
+    /// Solve portfolio with default configuration (asynchronous)
+    let solveWithDefaultsAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (assets: PortfolioTypes.Asset list)
+        (constraints: PortfolioSolver.Constraints)
+        (cancellationToken: CancellationToken)
+        : Task<Result<QuantumPortfolioSolution, QuantumError>> =
+        solveAsync backend assets constraints defaultConfig cancellationToken
+
     /// Solve portfolio with default configuration
+    ///
+    /// This is a synchronous wrapper around `solveWithDefaultsAsync` for backward compatibility.
+    [<Obsolete("Use solveWithDefaultsAsync for non-blocking execution against cloud backends")>]
     let solveWithDefaults
         (backend: BackendAbstraction.IQuantumBackend)
         (assets: PortfolioTypes.Asset list)
         (constraints: PortfolioSolver.Constraints)
         : Result<QuantumPortfolioSolution, QuantumError> =
-        solveAsync backend assets constraints defaultConfig CancellationToken.None
+        solveWithDefaultsAsync backend assets constraints CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
+    /// Solve portfolio with custom number of shots and risk aversion (asynchronous)
+    let solveWithParamsAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (assets: PortfolioTypes.Asset list)
+        (constraints: PortfolioSolver.Constraints)
+        (numShots: int)
+        (riskAversion: float)
+        (cancellationToken: CancellationToken)
+        : Task<Result<QuantumPortfolioSolution, QuantumError>> =
+        let config =
+            { defaultConfig with
+                NumShots = numShots
+                RiskAversion = riskAversion
+            }
+
+        solveAsync backend assets constraints config cancellationToken
+
     /// Solve portfolio with custom number of shots and risk aversion
+    ///
+    /// This is a synchronous wrapper around `solveWithParamsAsync` for backward compatibility.
+    [<Obsolete("Use solveWithParamsAsync for non-blocking execution against cloud backends")>]
     let solveWithParams
         (backend: BackendAbstraction.IQuantumBackend)
         (assets: PortfolioTypes.Asset list)
@@ -959,12 +996,6 @@ module QuantumPortfolioSolver =
         (numShots: int)
         (riskAversion: float)
         : Result<QuantumPortfolioSolution, QuantumError> =
-        let config =
-            { defaultConfig with
-                NumShots = numShots
-                RiskAversion = riskAversion
-            }
-
-        solveAsync backend assets constraints config CancellationToken.None
+        solveWithParamsAsync backend assets constraints numShots riskAversion CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously

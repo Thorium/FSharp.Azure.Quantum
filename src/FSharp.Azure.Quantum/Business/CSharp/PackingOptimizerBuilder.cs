@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.PackingOptimizer;
@@ -16,14 +18,14 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     ///
     /// Example:
     /// <code>
-    /// var result = new PackingOptimizerBuilder()
+    /// var result = await new PackingOptimizerBuilder()
     ///     .SetBinCapacity(100.0)
     ///     .AddItem("Crate-A", 45.0)
     ///     .AddItem("Crate-B", 35.0)
     ///     .AddItem("Crate-C", 25.0)
     ///     .AddItem("Crate-D", 50.0)
     ///     .WithBackend(backend)
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// Console.WriteLine($"Bins used: {result.BinsUsed}");
     /// foreach (var a in result.Assignments)
@@ -87,12 +89,13 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         }
 
         /// <summary>
-        /// Builds and executes the packing optimization.
+        /// Builds and executes the packing optimization without blocking the calling thread.
         /// Returns a C#-native result with no F# types exposed.
         /// </summary>
+        /// <param name="cancellationToken">Token that cancels the optimization.</param>
         /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
-        /// <returns>A <see cref="PackingOptimizationResult"/> with the optimal bin assignments.</returns>
-        public PackingOptimizationResult Build()
+        /// <returns>A task producing a <see cref="PackingOptimizationResult"/> with the optimal bin assignments.</returns>
+        public async Task<PackingOptimizationResult> BuildAsync(CancellationToken cancellationToken = default)
         {
             // Convert C# types to F# types internally
             var fsharpItems = _items.Select(i =>
@@ -104,7 +107,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
                 _shots);
 
-            var result = PackingOptimizer.solve(problem);
+            var result = await PackingOptimizer.solveAsync(problem, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -112,6 +115,18 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             }
 
             return PackingResultWrapper.Convert(result.ResultValue);
+        }
+
+        /// <summary>
+        /// Builds and executes the packing optimization, blocking until it completes.
+        /// Returns a C#-native result with no F# types exposed.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
+        /// <returns>A <see cref="PackingOptimizationResult"/> with the optimal bin assignments.</returns>
+        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
+        public PackingOptimizationResult Build()
+        {
+            return BuildAsync().GetAwaiter().GetResult();
         }
     }
 

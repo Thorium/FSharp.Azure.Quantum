@@ -223,6 +223,8 @@ if shouldRun "zeroconfig" then
             maxTrials cliMaxTrials
             randomSeed seed
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
@@ -294,6 +296,8 @@ if shouldRun "custom" then
             randomSeed seed
             verbose (not quiet)
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
@@ -365,6 +369,8 @@ if shouldRun "regression" then
             maxTrials cliMaxTrials
             verbose (not quiet)
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
@@ -418,6 +424,8 @@ if shouldRun "compare" then
             verbose false
             randomSeed seed
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
@@ -477,6 +485,8 @@ if shouldRun "production" then
             verbose false
             randomSeed seed
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Error err -> pr "  [ERROR] %A" err

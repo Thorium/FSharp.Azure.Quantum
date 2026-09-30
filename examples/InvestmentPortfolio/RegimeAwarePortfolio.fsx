@@ -455,7 +455,7 @@ module RegimeAwareOptimizer =
         (qBackend: IQuantumBackend)
         (stockList: StockInfo list)
         (recent: StockInfo -> float * float)
-        : Result<PortfolioSolver.Allocation list * float * float * float * float * string, string> =
+        : System.Threading.Tasks.Task<Result<PortfolioSolver.Allocation list * float * float * float * float * string, string>> =
 
         let solverAssets = stockList |> List.map (toSolverAsset recent)
 
@@ -484,32 +484,50 @@ module RegimeAwareOptimizer =
         let dailyCovariance =
             MarketData.covariance marketStats (solverAssets |> List.map (fun a -> a.Symbol, a.Risk))
 
-        let solved =
-            match dailyCovariance with
-            | Some sigma ->
-                HybridSolver.solvePortfolioWithCovariance solverAssets sigma constraints None None method None
-            | None -> HybridSolver.solvePortfolio solverAssets constraints None None method
+        task {
+            let! solved =
+                match dailyCovariance with
+                | Some sigma ->
+                    HybridSolver.solvePortfolioWithCovarianceAsync
+                        solverAssets
+                        sigma
+                        constraints
+                        None
+                        None
+                        method
+                        None
+                        System.Threading.CancellationToken.None
+                | None ->
+                    HybridSolver.solvePortfolioAsync
+                        solverAssets
+                        constraints
+                        None
+                        None
+                        method
+                        System.Threading.CancellationToken.None
 
-        match solved with
-        | Ok solution ->
-            // Inputs are daily, so the return/risk ratio is annualised by sqrt 252.
-            let sharpe =
-                if solution.Result.Risk > 0.0 then
-                    solution.Result.ExpectedReturn / solution.Result.Risk * sqrt 252.0
-                else
-                    0.0
+            match solved with
+            | Ok solution ->
+                // Inputs are daily, so the return/risk ratio is annualised by sqrt 252.
+                let sharpe =
+                    if solution.Result.Risk > 0.0 then
+                        solution.Result.ExpectedReturn / solution.Result.Risk * sqrt 252.0
+                    else
+                        0.0
 
-            let methodStr = $"%A{solution.Method}"
+                let methodStr = $"%A{solution.Method}"
 
-            Ok(
-                solution.Result.Allocations,
-                solution.Result.TotalValue,
-                solution.Result.ExpectedReturn,
-                solution.Result.Risk,
-                sharpe,
-                methodStr
-            )
-        | Error e -> Error e.Message
+                return
+                    Ok(
+                        solution.Result.Allocations,
+                        solution.Result.TotalValue,
+                        solution.Result.ExpectedReturn,
+                        solution.Result.Risk,
+                        sharpe,
+                        methodStr
+                    )
+            | Error e -> return Error e.Message
+        }
 
 // ==============================================================================
 // QUANTUM COMPUTATION
@@ -603,7 +621,13 @@ if not quiet then
 
 // 3. Optimize portfolio
 let sortedResults =
-    match RegimeAwareOptimizer.optimize detectedRegime budget backend selectedStocks recent with
+    // Script top level: wait for the optimizer here.
+    let optimized =
+        RegimeAwareOptimizer.optimize detectedRegime budget backend selectedStocks recent
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    match optimized with
     | Ok(allocations, totalValue, pReturn, pRisk, pSharpe, methodStr) ->
         selectedStocks
         |> List.map (fun stock ->

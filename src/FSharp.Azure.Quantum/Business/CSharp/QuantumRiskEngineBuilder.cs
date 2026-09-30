@@ -152,7 +152,22 @@ public class QuantumRiskEngineBuilder
     /// Builds a risk configuration from the current settings and executes the risk engine.
     /// </summary>
     /// <returns>A computed <see cref="RiskReport"/>.</returns>
+    [Obsolete("Use BuildAndRunAsync for non-blocking execution against cloud backends")]
     public RiskReport BuildAndRun()
+    {
+        return BuildAndRunAsync().GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Builds a risk configuration from the current settings and executes the risk engine
+    /// without blocking the calling thread.
+    /// </summary>
+    /// <param name="cancellationToken">
+    /// Cancels the analysis, together with any token given to <see cref="WithCancellationToken"/>.
+    /// </param>
+    /// <returns>A computed <see cref="RiskReport"/>.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the risk analysis fails.</exception>
+    public async Task<RiskReport> BuildAndRunAsync(CancellationToken cancellationToken = default)
     {
         var config = new RiskConfiguration(
             _marketDataPath == null ? FSharpOption<string>.None : FSharpOption<string>.Some(_marketDataPath),
@@ -168,10 +183,14 @@ public class QuantumRiskEngineBuilder
             _cancellationToken.HasValue ? FSharpOption<CancellationToken>.Some(_cancellationToken.Value) : FSharpOption<CancellationToken>.None);
 
         // Same as the obsolete RiskEngine.execute: run the async analysis and raise on failure.
-        var token = _cancellationToken.HasValue
-            ? FSharpOption<CancellationToken>.Some(_cancellationToken.Value)
-            : FSharpOption<CancellationToken>.None;
-        var result = FSharpAsync.RunSynchronously(RiskEngine.executeAsync(config), FSharpOption<int>.None, token);
+        using var linked = _cancellationToken.HasValue
+            ? CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken.Value, cancellationToken)
+            : null;
+        var token = linked?.Token ?? cancellationToken;
+        var result = await FSharpAsync.StartAsTask(
+            RiskEngine.executeAsync(config),
+            FSharpOption<TaskCreationOptions>.None,
+            FSharpOption<CancellationToken>.Some(token)).ConfigureAwait(false);
 
         if (result.IsError)
         {

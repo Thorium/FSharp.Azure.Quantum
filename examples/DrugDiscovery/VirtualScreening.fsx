@@ -212,6 +212,8 @@ if runMethods |> List.contains "kernel" then
             shots numShots
             backend localBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match kernelSvmResult with
     | Ok result ->
@@ -277,6 +279,8 @@ if runMethods |> List.contains "vqc" then
             shots (min numShots 50)
             backend localBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match vqcResult with
     | Ok result ->
@@ -341,6 +345,8 @@ if runMethods |> List.contains "qaoa" then
             shots (max numShots 200)
             backend localBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match qaoaResult with
     | Ok result ->

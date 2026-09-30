@@ -122,7 +122,7 @@ internal sealed class Program
 
         // Covariance S_ij = rho_ij * sigma_i * sigma_j from the window correlations.
         var covariance = Covariance(market, stocks);
-        var result = OptimizePortfolio(stocks, budget, covariance);
+        var result = await OptimizePortfolioAsync(stocks, budget, covariance).ConfigureAwait(false);
 
         var elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds;
         Console.WriteLine($"Completed in {elapsed:F0} ms");
@@ -411,8 +411,8 @@ internal sealed class Program
     /// <summary>
     /// Optimize portfolio allocation using HybridSolver with the covariance of the asset returns.
     /// </summary>
-    private static Microsoft.FSharp.Core.FSharpResult<HybridSolver.Solution<PortfolioSolver.PortfolioSolution>, FSharp.Azure.Quantum.Core.QuantumError>
-        OptimizePortfolio(PortfolioTypes.Asset[] assets, double budget, double[,] covariance)
+    private static Task<Microsoft.FSharp.Core.FSharpResult<HybridSolver.Solution<PortfolioSolver.PortfolioSolution>, FSharp.Azure.Quantum.Core.QuantumError>>
+        OptimizePortfolioAsync(PortfolioTypes.Asset[] assets, double budget, double[,] covariance)
     {
         // Define constraints
         var constraints = new PortfolioSolver.Constraints(
@@ -421,14 +421,15 @@ internal sealed class Program
             maxHolding: budget);      // Can invest entire budget in one asset if optimal
 
         // Call HybridSolver (quantum-ready optimization); risk is sqrt(w' S w)
-        return HybridSolver.solvePortfolioWithCovariance(
+        return HybridSolver.solvePortfolioWithCovarianceAsync(
             Microsoft.FSharp.Collections.ListModule.OfSeq(assets),
             covariance,
             constraints,
             budget: null,
             timeout: null,
             forceMethod: null,
-            backend: null);
+            backend: null,
+            cancellationToken: CancellationToken.None);
     }
 
     /// <summary>

@@ -138,6 +138,7 @@
     <Compile Include="QuantumKeyDistributionTests.fs" />
     <Compile Include="EkertQKDTests.fs" />
     <Compile Include="QuantumErrorCorrectionTests.fs" />
+    <Compile Include="QuantumResultTaskBuilderTests.fs" />
     
     <!-- Unified Backend Architecture Tests -->
     <Compile Include="UnifiedBackendTests.fs" />

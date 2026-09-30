@@ -145,6 +145,8 @@ module App =
                         maxEpochs 50
                         convergenceThreshold 0.001
                     }
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
 
                 swTrain.Stop()
 

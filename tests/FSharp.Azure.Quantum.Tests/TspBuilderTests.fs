@@ -6,6 +6,8 @@ open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 module TspBuilderTests =
 
@@ -38,90 +40,105 @@ module TspBuilderTests =
         Assert.Equal(5.0, problem.DistanceMatrix.[2, 1], 5) // C to B
 
     [<Fact>]
-    let ``TSP.solve should return valid tour for 3 cities`` () =
-        // Arrange
-        let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
-        let problem = TSP.createProblem cities
+    let ``TSP.solve should return valid tour for 3 cities`` () : Task =
+        task {
+            // Arrange
+            let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
+            let problem = TSP.createProblem cities
 
-        // Act
-        let result = TSP.solve problem None
+            // Act
+            let! result = TSP.solveAsync problem None CancellationToken.None
 
-        // Assert
-        match result with
-        | Ok tour ->
-            Assert.Equal(3, tour.Cities.Length)
-            Assert.True(tour.TotalDistance > 0.0)
-            Assert.True(tour.IsValid)
-        | Error msg -> Assert.Fail($"solve failed: {msg}")
-
-    [<Fact>]
-    let ``TSP.solve should handle 3 cities triangle`` () =
-        // Arrange - Triangle shape (within LocalBackend 16-qubit limit)
-        let cities = [ ("A", 0.0, 1.0); ("B", 0.87, -0.5); ("C", -0.87, -0.5) ]
-        let problem = TSP.createProblem cities
-
-        // Act
-        let result = TSP.solve problem None
-
-        // Assert
-        match result with
-        | Ok tour ->
-            Assert.Equal(3, tour.Cities.Length)
-            Assert.True(tour.TotalDistance > 0.0)
-            Assert.True(tour.IsValid)
-            // All cities should be in the tour
-            Assert.Contains("A", tour.Cities)
-            Assert.Contains("B", tour.Cities)
-            Assert.Contains("C", tour.Cities)
-        | Error msg -> Assert.Fail($"solve failed: {msg}")
+            // Assert
+            match result with
+            | Ok tour ->
+                Assert.Equal(3, tour.Cities.Length)
+                Assert.True(tour.TotalDistance > 0.0)
+                Assert.True(tour.IsValid)
+            | Error msg -> Assert.Fail($"solve failed: {msg}")
+        }
+        :> Task
 
     [<Fact>]
-    let ``TSP.solve should return tour with all unique cities`` () =
-        // Arrange - 3 cities (within LocalBackend 16-qubit limit)
-        let cities = [ ("City1", 0.0, 0.0); ("City2", 1.0, 0.0); ("City3", 0.5, 0.87) ]
-        let problem = TSP.createProblem cities
+    let ``TSP.solve should handle 3 cities triangle`` () : Task =
+        task {
+            // Arrange - Triangle shape (within LocalBackend 16-qubit limit)
+            let cities = [ ("A", 0.0, 1.0); ("B", 0.87, -0.5); ("C", -0.87, -0.5) ]
+            let problem = TSP.createProblem cities
 
-        // Act
-        let result = TSP.solve problem None
+            // Act
+            let! result = TSP.solveAsync problem None CancellationToken.None
 
-        // Assert
-        match result with
-        | Ok tour ->
-            let uniqueCities = tour.Cities |> Set.ofList
-            Assert.Equal(3, uniqueCities.Count) // All cities unique
-        | Error msg -> Assert.Fail($"solve failed: {msg}")
-
-    [<Fact>]
-    let ``TSP.solveDirectly should solve without creating problem explicitly`` () =
-        // Arrange
-        let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.5, 1.0) ]
-
-        // Act
-        let result = TSP.solveDirectly cities None
-
-        // Assert
-        match result with
-        | Ok tour ->
-            Assert.Equal(3, tour.Cities.Length)
-            Assert.True(tour.IsValid)
-            Assert.True(tour.TotalDistance > 0.0)
-        | Error msg -> Assert.Fail($"solveDirectly failed: {msg}")
+            // Assert
+            match result with
+            | Ok tour ->
+                Assert.Equal(3, tour.Cities.Length)
+                Assert.True(tour.TotalDistance > 0.0)
+                Assert.True(tour.IsValid)
+                // All cities should be in the tour
+                Assert.Contains("A", tour.Cities)
+                Assert.Contains("B", tour.Cities)
+                Assert.Contains("C", tour.Cities)
+            | Error msg -> Assert.Fail($"solve failed: {msg}")
+        }
+        :> Task
 
     [<Fact>]
-    let ``TSP.solve should accept custom backend`` () =
-        // Arrange - 3 cities (within LocalBackend 16-qubit limit)
-        let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
-        let problem = TSP.createProblem cities
-        // Use LocalBackend explicitly (though None would also work)
-        let backend =
-            Some(LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+    let ``TSP.solve should return tour with all unique cities`` () : Task =
+        task {
+            // Arrange - 3 cities (within LocalBackend 16-qubit limit)
+            let cities = [ ("City1", 0.0, 0.0); ("City2", 1.0, 0.0); ("City3", 0.5, 0.87) ]
+            let problem = TSP.createProblem cities
 
-        // Act
-        let result = TSP.solve problem backend
+            // Act
+            let! result = TSP.solveAsync problem None CancellationToken.None
 
-        // Assert
-        match result with
-        | Ok tour ->
-            Assert.Equal(3, tour.Cities.Length)
-            Assert.True(tour.IsValid)
-        | Error msg -> Assert.Fail($"solve with custom backend failed: {msg}")
+            // Assert
+            match result with
+            | Ok tour ->
+                let uniqueCities = tour.Cities |> Set.ofList
+                Assert.Equal(3, uniqueCities.Count) // All cities unique
+            | Error msg -> Assert.Fail($"solve failed: {msg}")
+        }
+        :> Task
+
+    [<Fact>]
+    let ``TSP.solveDirectly should solve without creating problem explicitly`` () : Task =
+        task {
+            // Arrange
+            let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.5, 1.0) ]
+
+            // Act
+            let! result = TSP.solveDirectlyAsync cities None CancellationToken.None
+
+            // Assert
+            match result with
+            | Ok tour ->
+                Assert.Equal(3, tour.Cities.Length)
+                Assert.True(tour.IsValid)
+                Assert.True(tour.TotalDistance > 0.0)
+            | Error msg -> Assert.Fail($"solveDirectly failed: {msg}")
+        }
+        :> Task
+
+    [<Fact>]
+    let ``TSP.solve should accept custom backend`` () : Task =
+        task {
+            // Arrange - 3 cities (within LocalBackend 16-qubit limit)
+            let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
+            let problem = TSP.createProblem cities
+            // Use LocalBackend explicitly (though None would also work)
+            let backend =
+                Some(LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+
+            // Act
+            let! result = TSP.solveAsync problem backend CancellationToken.None
+
+            // Assert
+            match result with
+            | Ok tour ->
+                Assert.Equal(3, tour.Cities.Length)
+                Assert.True(tour.IsValid)
+            | Error msg -> Assert.Fail($"solve with custom backend failed: {msg}")
+        }
+        :> Task

@@ -162,7 +162,20 @@ public class QuantumDrugDiscoveryBuilder
     /// <returns>
     /// A result containing the <see cref="ScreeningResult"/> on success, or a <see cref="QuantumError"/> on failure.
     /// </returns>
+    [Obsolete("Use RunAsync for non-blocking execution against cloud backends")]
     public FSharpResult<ScreeningResult, QuantumError> Run()
+    {
+        return RunAsync().GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Builds the configuration and runs the drug discovery workflow without blocking the calling thread.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the workflow.</param>
+    /// <returns>
+    /// A result containing the <see cref="ScreeningResult"/> on success, or a <see cref="QuantumError"/> on failure.
+    /// </returns>
+    public Task<FSharpResult<ScreeningResult, QuantumError>> RunAsync(CancellationToken cancellationToken = default)
     {
         // Build CandidateSource from _candidatesPath if provided
         var candidateSource = _candidatesPath == null
@@ -184,6 +197,6 @@ public class QuantumDrugDiscoveryBuilder
             _selectionBudget,
             _diversityWeight);
 
-        return drugDiscovery.Run(FSharpFunc<Unit, DrugDiscoveryConfiguration>.FromConverter(_ => config));
+        return drugDiscovery.RunAsync(config, cancellationToken);
     }
 }
