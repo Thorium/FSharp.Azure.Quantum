@@ -550,26 +550,49 @@ module QuantumNetworkFlowSolver =
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
+    /// Solve network flow with default configuration (asynchronous)
+    let solveWithDefaultsAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: NetworkFlowProblem)
+        (cancellationToken: CancellationToken)
+        : Task<Result<NetworkFlowSolution, QuantumError>> =
+        solveAsync backend problem defaultConfig cancellationToken
+
     /// Solve network flow with default configuration
+    ///
+    /// This is a synchronous wrapper around `solveWithDefaultsAsync` for backward compatibility.
+    [<Obsolete("Use solveWithDefaultsAsync for non-blocking execution against cloud backends")>]
     let solveWithDefaults
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         : Result<NetworkFlowSolution, QuantumError> =
-        solveAsync backend problem defaultConfig CancellationToken.None
+        solveWithDefaultsAsync backend problem CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
-    /// Solve network flow with custom number of shots
-    let solveWithShots
+    /// Solve network flow with custom number of shots (asynchronous)
+    let solveWithShotsAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         (numShots: int)
-        : Result<NetworkFlowSolution, QuantumError> =
+        (cancellationToken: CancellationToken)
+        : Task<Result<NetworkFlowSolution, QuantumError>> =
         let config =
             { defaultConfig with
                 NumShots = numShots
             }
 
-        solveAsync backend problem config CancellationToken.None
+        solveAsync backend problem config cancellationToken
+
+    /// Solve network flow with custom number of shots
+    ///
+    /// This is a synchronous wrapper around `solveWithShotsAsync` for backward compatibility.
+    [<Obsolete("Use solveWithShotsAsync for non-blocking execution against cloud backends")>]
+    let solveWithShots
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: NetworkFlowProblem)
+        (numShots: int)
+        : Result<NetworkFlowSolution, QuantumError> =
+        solveWithShotsAsync backend problem numShots CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously

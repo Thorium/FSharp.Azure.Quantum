@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Backends
@@ -30,15 +33,15 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///
 /// EXAMPLE USAGE:
 ///   // Simple: Uses quantum simulation automatically
-///   let solution = MaxCut.solve graph None
+///   let! solution = MaxCut.solveAsync graph None cancellationToken
 ///
 ///   // Advanced: Specify cloud quantum backend
 ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-///   let solution = MaxCut.solve graph (Some ionqBackend)
+///   let! solution = MaxCut.solveAsync graph (Some ionqBackend) cancellationToken
 ///
 ///   // Expert: Direct quantum solver access
 ///   open FSharp.Azure.Quantum.Quantum
-///   let result = QuantumMaxCutSolver.solve backend problem config
+///   let! result = QuantumMaxCutSolver.solveAsync backend problem config cancellationToken
 module MaxCut =
 
     // ============================================================================
@@ -230,58 +233,58 @@ module MaxCut =
     // MAIN SOLVER
     // ============================================================================
 
-    /// Solve MaxCut problem using quantum optimization (QAOA)
+    /// Solve MaxCut problem using quantum optimization (QAOA), asynchronously
     ///
     /// QUANTUM-FIRST API:
     /// - Uses quantum backend by default (LocalBackend for simulation)
     /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
     /// - Returns business-domain Solution result (not low-level QAOA output)
+    /// - Does not block: the backend call is awaited, so cloud jobs do not tie up a thread
     ///
     /// PARAMETERS:
     ///   problem - MaxCut problem with vertices and weighted edges
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///   cancellationToken - Cancels the backend execution
     ///
     /// EXAMPLES:
     ///   // Simple: Automatic quantum simulation
-    ///   let solution = MaxCut.solve problem None
+    ///   let! solution = MaxCut.solveAsync problem None CancellationToken.None
     ///
     ///   // Cloud execution: Specify IonQ backend
     ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-    ///   let solution = MaxCut.solve problem (Some ionqBackend)
+    ///   let! solution = MaxCut.solveAsync problem (Some ionqBackend) cancellationToken
     ///
     /// RETURNS:
-    ///   Result with Solution (partitions, cut value) or error message
-    let solve (problem: MaxCutProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Solution> =
-        try
-            // Use provided backend or create LocalBackend for simulation
-            let actualBackend =
-                backend
-                |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+    ///   Task of Result with Solution (partitions, cut value) or error message
+    let solveAsync
+        (problem: MaxCutProblem)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution>> =
+        quantumResultTask {
+            try
+                // Use provided backend or create LocalBackend for simulation
+                let actualBackend =
+                    backend
+                    |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
 
-            // Convert to quantum solver format
-            let quantumProblem: QuantumMaxCutSolver.MaxCutProblem =
-                {
-                    Vertices = problem.Vertices
-                    Edges = problem.Edges
-                }
+                // Convert to quantum solver format
+                let quantumProblem: QuantumMaxCutSolver.MaxCutProblem =
+                    {
+                        Vertices = problem.Vertices
+                        Edges = problem.Edges
+                    }
 
-            // Create quantum MaxCut solver configuration
-            let quantumConfig: QuantumMaxCutSolver.QaoaConfig =
-                {
-                    NumShots = 1000
-                    InitialParameters = (0.5, 0.5)
-                }
+                // Create quantum MaxCut solver configuration
+                let quantumConfig: QuantumMaxCutSolver.QaoaConfig =
+                    {
+                        NumShots = 1000
+                        InitialParameters = (0.5, 0.5)
+                    }
 
-            // Call quantum MaxCut solver directly using computation expression
-            quantumResult {
+                // Call quantum MaxCut solver directly
                 let! quantumResult =
-                    QuantumMaxCutSolver.solveAsync
-                        actualBackend
-                        quantumProblem
-                        quantumConfig
-                        System.Threading.CancellationToken.None
-                    |> Async.AwaitTask
-                    |> Async.RunSynchronously
+                    QuantumMaxCutSolver.solveAsync actualBackend quantumProblem quantumConfig cancellationToken
 
                 return
                     {
@@ -292,9 +295,26 @@ module MaxCut =
                         BackendName = quantumResult.BackendName
                         IsQuantum = true
                     }
-            }
-        with ex ->
-            Error(QuantumError.OperationError("MaxCut solve failed: ", $"Failed: {ex.Message}"))
+            with ex ->
+                return! Error(QuantumError.OperationError("MaxCut solve failed: ", $"Failed: {ex.Message}"))
+        }
+
+    /// Solve MaxCut problem using quantum optimization (QAOA)
+    ///
+    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
+    /// it blocks the calling thread until the backend has answered.
+    ///
+    /// PARAMETERS:
+    ///   problem - MaxCut problem with vertices and weighted edges
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///
+    /// RETURNS:
+    ///   Result with Solution (partitions, cut value) or error message
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
+    let solve (problem: MaxCutProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Solution> =
+        solveAsync problem backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Solve MaxCut with ADAPT-QAOA (adaptive per-layer mixer selection) instead of the
     /// fixed-mixer QAOA used by `solve`. ADAPT-QAOA grows a compact, problem-tailored ansatz
@@ -391,7 +411,34 @@ module MaxCut =
             IsQuantum = false
         }
 
+    /// Convenience function: Create problem and solve in one step using quantum optimization, asynchronously
+    ///
+    /// PARAMETERS:
+    ///   vertices - List of vertex names
+    ///   edges - List of (source, target, weight) tuples
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///   cancellationToken - Cancels the backend execution
+    ///
+    /// RETURNS:
+    ///   Task of Result with Solution or error message
+    ///
+    /// EXAMPLE:
+    ///   let vertices = ["A"; "B"; "C"; "D"]
+    ///   let edges = [("A", "B", 1.0); ("B", "C", 1.0); ("C", "D", 1.0); ("D", "A", 1.0)]
+    ///   let! solution = MaxCut.solveDirectlyAsync vertices edges None CancellationToken.None
+    let solveDirectlyAsync
+        (vertices: string list)
+        (edges: (string * string * float) list)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution>> =
+
+        let problem = createProblem vertices edges
+        solveAsync problem backend cancellationToken
+
     /// Convenience function: Create problem and solve in one step using quantum optimization
+    ///
+    /// This is a synchronous wrapper around `solveDirectlyAsync` for backward compatibility.
     ///
     /// PARAMETERS:
     ///   vertices - List of vertex names
@@ -400,19 +447,15 @@ module MaxCut =
     ///
     /// RETURNS:
     ///   Result with Solution or error message
-    ///
-    /// EXAMPLE:
-    ///   let vertices = ["A"; "B"; "C"; "D"]
-    ///   let edges = [("A", "B", 1.0); ("B", "C", 1.0); ("C", "D", 1.0); ("D", "A", 1.0)]
-    ///   let solution = MaxCut.solveDirectly vertices edges None
+    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
     let solveDirectly
         (vertices: string list)
         (edges: (string * string * float) list)
         (backend: BackendAbstraction.IQuantumBackend option)
         : QuantumResult<Solution> =
-
-        let problem = createProblem vertices edges
-        solve problem backend
+        solveDirectlyAsync vertices edges backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ============================================================================
     // VALIDATION AND UTILITIES

@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Quantum
@@ -18,15 +21,15 @@ open FSharp.Azure.Quantum.Core
 ///
 /// EXAMPLE USAGE:
 ///   // Simple: Uses quantum simulation automatically
-///   let tour = TSP.solve cities None
+///   let! tour = TSP.solveAsync cities None cancellationToken
 ///
 ///   // Advanced: Specify cloud quantum backend
 ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-///   let tour = TSP.solve cities (Some ionqBackend)
+///   let! tour = TSP.solveAsync cities (Some ionqBackend) cancellationToken
 ///
 ///   // Expert: Direct quantum solver access
 ///   open FSharp.Azure.Quantum.Quantum
-///   let result = QuantumTspSolver.solve backend distances config
+///   let! result = QuantumTspSolver.solveAsync backend distances config cancellationToken
 module TSP =
 
     // ============================================================================
@@ -103,54 +106,54 @@ module TSP =
             DistanceMatrix = distanceMatrix
         }
 
-    /// Solve TSP problem using quantum optimization (QAOA)
+    /// Solve TSP problem using quantum optimization (QAOA), asynchronously
     ///
     /// QUANTUM-FIRST API:
     /// - Uses quantum backend by default (LocalBackend for simulation)
     /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
     /// - Returns business-domain Tour result (not low-level QAOA output)
+    /// - Does not block: the backend call is awaited, so cloud jobs do not tie up a thread
     ///
     /// PARAMETERS:
     ///   problem - TSP problem with cities and distance matrix
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///   cancellationToken - Cancels the backend execution
     ///
     /// EXAMPLES:
     ///   // Simple: Automatic quantum simulation
-    ///   let tour = TSP.solve problem None
+    ///   let! tour = TSP.solveAsync problem None CancellationToken.None
     ///
     ///   // Cloud execution: Specify IonQ backend
     ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-    ///   let tour = TSP.solve problem (Some ionqBackend)
+    ///   let! tour = TSP.solveAsync problem (Some ionqBackend) cancellationToken
     ///
     /// RETURNS:
-    ///   QuantumResult with Tour (city names, distance, validity) or QuantumError
-    let solve (problem: TspProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Tour> =
-        try
-            // Use provided backend or create LocalBackend for simulation
-            let actualBackend =
-                backend
-                |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+    ///   Task of QuantumResult with Tour (city names, distance, validity) or QuantumError
+    let solveAsync
+        (problem: TspProblem)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Tour>> =
+        quantumResultTask {
+            try
+                // Use provided backend or create LocalBackend for simulation
+                let actualBackend =
+                    backend
+                    |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
 
-            // Create quantum TSP solver configuration
-            let quantumConfig: QuantumTspSolver.QuantumTspConfig =
-                {
-                    OptimizationShots = 100
-                    FinalShots = 1000
-                    EnableOptimization = true
-                    InitialParameters = (0.5, 0.5)
-                    MaxOptimizationIterations = 1000
-                }
+                // Create quantum TSP solver configuration
+                let quantumConfig: QuantumTspSolver.QuantumTspConfig =
+                    {
+                        OptimizationShots = 100
+                        FinalShots = 1000
+                        EnableOptimization = true
+                        InitialParameters = (0.5, 0.5)
+                        MaxOptimizationIterations = 1000
+                    }
 
-            // Call quantum TSP solver directly using computation expression
-            quantumResult {
+                // Call quantum TSP solver directly
                 let! quantumResult =
-                    QuantumTspSolver.solveAsync
-                        actualBackend
-                        problem.DistanceMatrix
-                        quantumConfig
-                        System.Threading.CancellationToken.None
-                    |> Async.AwaitTask
-                    |> Async.RunSynchronously
+                    QuantumTspSolver.solveAsync actualBackend problem.DistanceMatrix quantumConfig cancellationToken
 
                 // Validate tour
                 let valid = isValidTour quantumResult.Tour problem.CityCount
@@ -170,11 +173,50 @@ module TSP =
                         TotalDistance = quantumResult.TourLength
                         IsValid = valid
                     }
-            }
-        with ex ->
-            Error(QuantumError.OperationError("TSP solve", $"Failed: {ex.Message}"))
+            with ex ->
+                return! Error(QuantumError.OperationError("TSP solve", $"Failed: {ex.Message}"))
+        }
+
+    /// Solve TSP problem using quantum optimization (QAOA)
+    ///
+    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
+    /// it blocks the calling thread until the backend has answered.
+    ///
+    /// PARAMETERS:
+    ///   problem - TSP problem with cities and distance matrix
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///
+    /// RETURNS:
+    ///   QuantumResult with Tour (city names, distance, validity) or QuantumError
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
+    let solve (problem: TspProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Tour> =
+        solveAsync problem backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    /// Convenience function: Create problem and solve in one step using quantum optimization, asynchronously
+    ///
+    /// PARAMETERS:
+    ///   cities - List of (name, x, y) tuples defining city locations
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///   cancellationToken - Cancels the backend execution
+    ///
+    /// RETURNS:
+    ///   Task of Result with Tour or error message
+    ///
+    /// EXAMPLE:
+    ///   let! tour = TSP.solveDirectlyAsync [("A", 0.0, 0.0); ("B", 1.0, 0.0)] None CancellationToken.None
+    let solveDirectlyAsync
+        (cities: (string * float * float) list)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Tour>> =
+        let problem = createProblem cities
+        solveAsync problem backend cancellationToken
 
     /// Convenience function: Create problem and solve in one step using quantum optimization
+    ///
+    /// This is a synchronous wrapper around `solveDirectlyAsync` for backward compatibility.
     ///
     /// PARAMETERS:
     ///   cities - List of (name, x, y) tuples defining city locations
@@ -182,12 +224,11 @@ module TSP =
     ///
     /// RETURNS:
     ///   Result with Tour or error message
-    ///
-    /// EXAMPLE:
-    ///   let tour = TSP.solveDirectly [("A", 0.0, 0.0); ("B", 1.0, 0.0)] None
+    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
     let solveDirectly
         (cities: (string * float * float) list)
         (backend: BackendAbstraction.IQuantumBackend option)
         : QuantumResult<Tour> =
-        let problem = createProblem cities
-        solve problem backend
+        solveDirectlyAsync cities backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously

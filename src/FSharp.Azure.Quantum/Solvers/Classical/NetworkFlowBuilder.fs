@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Backends
@@ -21,15 +24,15 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///
 /// EXAMPLE USAGE:
 ///   // Simple: Uses quantum simulation automatically
-///   let flow = NetworkFlow.solve problem None
+///   let! flow = NetworkFlow.solveAsync problem None cancellationToken
 ///
 ///   // Advanced: Specify cloud quantum backend
 ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-///   let flow = NetworkFlow.solve problem (Some ionqBackend)
+///   let! flow = NetworkFlow.solveAsync problem (Some ionqBackend) cancellationToken
 ///
 ///   // Expert: Direct quantum solver access
 ///   open FSharp.Azure.Quantum.Quantum
-///   let result = QuantumNetworkFlowSolver.solve backend problem config
+///   let! result = QuantumNetworkFlowSolver.solveAsync backend problem config cancellationToken
 module NetworkFlow =
 
     // ============================================================================
@@ -216,62 +219,87 @@ module NetworkFlow =
     /// Create network flow problem from nodes and routes
     let createProblem (nodes: Node list) (routes: Route list) : NetworkFlowProblem = { Nodes = nodes; Routes = routes }
 
-    /// Solve network flow problem using quantum optimization (QAOA)
+    /// Solve network flow problem using quantum optimization (QAOA), asynchronously
     ///
     /// QUANTUM-FIRST API:
     /// - Uses quantum backend by default (LocalBackend for simulation)
     /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
     /// - Returns business-domain FlowSolution result (not low-level QAOA output)
+    /// - Does not block: the backend call is awaited, so cloud jobs do not tie up a thread
     ///
     /// PARAMETERS:
     ///   problem - Network flow problem with nodes and routes
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///   cancellationToken - Cancels the backend execution
     ///
     /// EXAMPLES:
     ///   // Simple: Automatic quantum simulation
-    ///   let solution = NetworkFlow.solve problem None
+    ///   let! solution = NetworkFlow.solveAsync problem None CancellationToken.None
     ///
     ///   // Cloud execution: Specify IonQ backend
     ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
-    ///   let solution = NetworkFlow.solve problem (Some ionqBackend)
+    ///   let! solution = NetworkFlow.solveAsync problem (Some ionqBackend) cancellationToken
     ///
     /// BACKEND LIMITATIONS:
     ///   LocalBackend supports up to 16 qubits (approximately 16 routes)
     ///   For larger problems, use cloud quantum backends (IonQ, Rigetti)
     ///
     /// RETURNS:
+    ///   Task of Result with FlowSolution (routes, cost, fill rate) or error message
+    let solveAsync
+        (problem: NetworkFlowProblem)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<FlowSolution>> =
+        quantumResultTask {
+            try
+                // Use provided backend or create LocalBackend for simulation
+                let actualBackend =
+                    backend
+                    |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+
+                // Convert to quantum solver format
+                let quantumProblem = toQuantumProblem problem
+
+                // Call quantum network flow solver with default shots
+                let! quantumResult =
+                    QuantumNetworkFlowSolver.solveWithShotsAsync actualBackend quantumProblem 1000 cancellationToken
+
+                return fromQuantumSolution quantumResult
+            with ex ->
+                return! Error(QuantumError.OperationError("Network Flow solve failed: ", $"Failed: {ex.Message}"))
+        }
+
+    /// Solve network flow problem using quantum optimization (QAOA)
+    ///
+    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
+    /// it blocks the calling thread until the backend has answered.
+    ///
+    /// PARAMETERS:
+    ///   problem - Network flow problem with nodes and routes
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///
+    /// RETURNS:
     ///   Result with FlowSolution (routes, cost, fill rate) or error message
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve
         (problem: NetworkFlowProblem)
         (backend: BackendAbstraction.IQuantumBackend option)
         : QuantumResult<FlowSolution> =
-        try
-            // Use provided backend or create LocalBackend for simulation
-            let actualBackend =
-                backend
-                |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+        solveAsync problem backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
-            // Convert to quantum solver format
-            let quantumProblem = toQuantumProblem problem
-
-            // Call quantum network flow solver with default shots
-            match QuantumNetworkFlowSolver.solveWithShots actualBackend quantumProblem 1000 with
-            | Error err -> Error err // Quantum Network Flow solve failed
-            | Ok quantumResult ->
-                let solution = fromQuantumSolution quantumResult
-                Ok solution
-        with ex ->
-            Error(QuantumError.OperationError("Network Flow solve failed: ", $"Failed: {ex.Message}"))
-
-    /// Convenience function: Create problem and solve in one step using quantum optimization
+    /// Convenience function: Create problem and solve in one step using quantum optimization, asynchronously
     ///
     /// PARAMETERS:
     ///   nodes - List of source/sink/intermediate nodes
     ///   routes - List of transport routes with costs
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///   cancellationToken - Cancels the backend execution
     ///
     /// RETURNS:
-    ///   Result with FlowSolution or error message
+    ///   Task of Result with FlowSolution or error message
     ///
     /// EXAMPLE:
     ///   let nodes = [
@@ -281,11 +309,33 @@ module NetworkFlow =
     ///   let routes = [
     ///       NetworkFlow.createRoute "S1" "C1" 10.0
     ///   ]
-    ///   let solution = NetworkFlow.solveDirectly nodes routes None
+    ///   let! solution = NetworkFlow.solveDirectlyAsync nodes routes None CancellationToken.None
+    let solveDirectlyAsync
+        (nodes: Node list)
+        (routes: Route list)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<FlowSolution>> =
+        let problem = createProblem nodes routes
+        solveAsync problem backend cancellationToken
+
+    /// Convenience function: Create problem and solve in one step using quantum optimization
+    ///
+    /// This is a synchronous wrapper around `solveDirectlyAsync` for backward compatibility.
+    ///
+    /// PARAMETERS:
+    ///   nodes - List of source/sink/intermediate nodes
+    ///   routes - List of transport routes with costs
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///
+    /// RETURNS:
+    ///   Result with FlowSolution or error message
+    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
     let solveDirectly
         (nodes: Node list)
         (routes: Route list)
         (backend: BackendAbstraction.IQuantumBackend option)
         : QuantumResult<FlowSolution> =
-        let problem = createProblem nodes routes
-        solve problem backend
+        solveDirectlyAsync nodes routes backend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
