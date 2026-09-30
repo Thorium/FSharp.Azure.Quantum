@@ -1751,4 +1751,4 @@ val exportToFileWithConfigAsync : config:QasmConfig -> circuit:Circuit -> filePa
 
 ---
 
-**Last Updated**: 2026-09-29 (package version 1.4.14)
+**Last Updated**: 2026-09-30 (package version 1.4.15)

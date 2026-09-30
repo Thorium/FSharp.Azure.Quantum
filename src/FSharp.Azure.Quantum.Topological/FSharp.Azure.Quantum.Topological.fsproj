@@ -6,12 +6,15 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.14</Version>
+    <Version>0.4.15</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.14: magic-state T injection applies T; rejected distillation batches stay rejected
+    <PackageReleaseNotes>v0.4.15: Rebuilt against FSharp.Azure.Quantum v1.4.15
+- ADDED: quantum Monte Carlo, option pricing and the risk engine run on the topological backend: amplitude estimation reads its logical-qubit probabilities
+
+v0.4.14: magic-state T injection applies T; rejected distillation batches stay rejected
 - CHANGED (breaking type): MagicStateDistillation.applyTGate returned the data qubit unrotated. The new applyTGateToQubit applies the exact T through TopologicalOperations.tGate, and applyTGate calls it; TGateResult.OutputState is now a TopologicalOperations.Superposition, since a single fusion tree cannot hold the T phase. GateFidelity still carries the magic state's fidelity
 - CHANGED: distill15to1 returned an improved state even when the syndrome check rejected the batch. DistillationResult gains Accepted, and a rejected batch keeps the input fidelity. distillIterative keeps only accepted batches, ignores partial batches and returns an Error when too few pass; supply several times 15^rounds states for a reliable run
 - Requires FSharp.Azure.Quantum v1.4.14+
