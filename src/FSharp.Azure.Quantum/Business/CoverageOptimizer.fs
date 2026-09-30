@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum.Business
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Quantum
@@ -22,7 +25,8 @@ open FSharp.Azure.Quantum.Quantum
 ///
 /// **Example:**
 /// ```fsharp
-/// let result = coverageOptimizer {
+/// // The builder returns a Task<QuantumResult<CoverageResult>>: await it inside task { }
+/// let! result = coverageOptimizer {
 ///     element 0  // Time slot 0
 ///     element 1  // Time slot 1
 ///     element 2  // Time slot 2
@@ -128,39 +132,58 @@ module CoverageOptimizer =
                     $"Partial coverage: {coveredElements}/{problem.UniverseSize} elements covered"
         }
 
+    /// Execute coverage optimization without blocking the calling thread
+    let solveAsync
+        (problem: CoverageProblem)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<CoverageResult>> =
+        quantumResultTask {
+            if problem.UniverseSize <= 0 then
+                return! Error(QuantumError.ValidationError("UniverseSize", "must be positive"))
+            elif problem.Options.IsEmpty then
+                return! Error(QuantumError.ValidationError("Options", "must have at least one coverage option"))
+            elif problem.Options |> List.exists (fun opt -> opt.Cost < 0.0) then
+                return! Error(QuantumError.ValidationError("Cost", "option costs must be non-negative"))
+            elif
+                problem.Options
+                |> List.exists (fun opt ->
+                    opt.CoveredElements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize))
+            then
+                return!
+                    Error(
+                        QuantumError.ValidationError(
+                            "CoveredElements",
+                            "element indices must be in range [0, UniverseSize)"
+                        )
+                    )
+            else
+                // Quantum-first: run on the caller's backend, or default to the local simulator
+                // (a real quantum backend) when none was supplied.
+                let backend =
+                    problem.Backend
+                    |> Option.defaultWith (fun () ->
+                        FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+
+                let setCoverProblem = toSetCoverProblem problem
+
+                let! solution =
+                    QuantumSetCoverSolver.solveWithConfigAsync
+                        backend
+                        setCoverProblem
+                        { QuantumSetCoverSolver.defaultConfig with
+                            FinalShots = problem.Shots
+                        }
+                        cancellationToken
+
+                return decodeSolution problem solution
+        }
+
     /// Execute coverage optimization
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve (problem: CoverageProblem) : QuantumResult<CoverageResult> =
-        if problem.UniverseSize <= 0 then
-            Error(QuantumError.ValidationError("UniverseSize", "must be positive"))
-        elif problem.Options.IsEmpty then
-            Error(QuantumError.ValidationError("Options", "must have at least one coverage option"))
-        elif problem.Options |> List.exists (fun opt -> opt.Cost < 0.0) then
-            Error(QuantumError.ValidationError("Cost", "option costs must be non-negative"))
-        elif
-            problem.Options
-            |> List.exists (fun opt -> opt.CoveredElements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize))
-        then
-            Error(QuantumError.ValidationError("CoveredElements", "element indices must be in range [0, UniverseSize)"))
-        else
-            // Quantum-first: run on the caller's backend, or default to the local simulator
-            // (a real quantum backend) when none was supplied.
-            let backend =
-                problem.Backend
-                |> Option.defaultWith (fun () ->
-                    FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
-
-            let setCoverProblem = toSetCoverProblem problem
-
-            QuantumSetCoverSolver.solveWithConfigAsync
-                backend
-                setCoverProblem
-                { QuantumSetCoverSolver.defaultConfig with
-                    FinalShots = problem.Shots
-                }
-                System.Threading.CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-            |> Result.map (fun solution -> decodeSolution problem solution)
+        solveAsync problem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -180,9 +203,11 @@ module CoverageOptimizer =
         member _.Yield(_) = defaultProblem
         member _.Delay(f: unit -> CoverageProblem) = f
 
-        member _.Run(f: unit -> CoverageProblem) : QuantumResult<CoverageResult> =
+        /// Execute the optimization. The result is a task, so F# callers write
+        /// `let! result = coverageOptimizer { ... }` inside `task { }`.
+        member _.Run(f: unit -> CoverageProblem) : Task<QuantumResult<CoverageResult>> =
             let problem = f ()
-            solve problem
+            solveAsync problem CancellationToken.None
 
         member _.Combine(p1: CoverageProblem, p2: CoverageProblem) = p2
         member _.Zero() = defaultProblem

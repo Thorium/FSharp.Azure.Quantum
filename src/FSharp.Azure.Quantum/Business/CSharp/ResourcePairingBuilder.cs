@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.ResourcePairing;
@@ -16,7 +18,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     ///
     /// Example:
     /// <code>
-    /// var result = new ResourcePairingBuilder()
+    /// var result = await new ResourcePairingBuilder()
     ///     .AddParticipant("Alice")
     ///     .AddParticipant("Bob")
     ///     .AddParticipant("Carol")
@@ -24,7 +26,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     ///     .AddCompatibility("Alice", "Carol", 0.5)
     ///     .AddCompatibility("Bob", "Carol", 0.7)
     ///     .WithBackend(backend)
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// Console.WriteLine($"Total score: {result.TotalScore}");
     /// foreach (var pair in result.Pairings)
@@ -103,12 +105,13 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         }
 
         /// <summary>
-        /// Builds and executes the pairing optimization.
+        /// Builds and executes the pairing optimization without blocking the calling thread.
         /// Returns a C#-native result with no F# types exposed.
         /// </summary>
+        /// <param name="cancellationToken">Token that cancels the optimization.</param>
         /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
-        /// <returns>A <see cref="PairingOptimizationResult"/> with the optimal pairings.</returns>
-        public PairingOptimizationResult Build()
+        /// <returns>A task producing a <see cref="PairingOptimizationResult"/> with the optimal pairings.</returns>
+        public async Task<PairingOptimizationResult> BuildAsync(CancellationToken cancellationToken = default)
         {
             // Convert C# types to F# types internally
             var fsharpCompats = _compatibilities.Select(c =>
@@ -120,7 +123,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
                 _shots);
 
-            var result = ResourcePairing.solve(problem);
+            var result = await ResourcePairing.solveAsync(problem, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -128,6 +131,18 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             }
 
             return PairingResultWrapper.Convert(result.ResultValue);
+        }
+
+        /// <summary>
+        /// Builds and executes the pairing optimization, blocking until it completes.
+        /// Returns a C#-native result with no F# types exposed.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
+        /// <returns>A <see cref="PairingOptimizationResult"/> with the optimal pairings.</returns>
+        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
+        public PairingOptimizationResult Build()
+        {
+            return BuildAsync().GetAwaiter().GetResult();
         }
     }
 
