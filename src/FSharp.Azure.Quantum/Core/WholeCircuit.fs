@@ -1,6 +1,5 @@
 namespace FSharp.Azure.Quantum.Core
 
-open System.Runtime.CompilerServices
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
@@ -165,8 +164,24 @@ module WholeCircuit =
     // Oracle closures
     // ------------------------------------------------------------------------
 
-    /// Gate lists of oracle closures built by `gateOracle`, keyed by the closure itself.
-    let private gateOracles = ConditionalWeakTable<obj, QuantumOperation list>()
+    /// An oracle closure that carries its gates.
+    ///
+    /// It IS the function (an FSharpFunc subclass), so it can be passed wherever an oracle
+    /// `QuantumState -> Result<QuantumState, QuantumError>` is expected, and a whole-circuit
+    /// backend recognises it by type and submits its gates. Recognition by type rather than by
+    /// reference matters: the F# optimiser may inline a function-valued top-level binding as a
+    /// fresh lambda at each use site, so a closure registered by reference can arrive as a
+    /// different object.
+    type GateOracle(operations: QuantumOperation list, apply: QuantumState -> Result<QuantumState, QuantumError>) =
+        inherit FSharpFunc<QuantumState, Result<QuantumState, QuantumError>>()
+
+        /// The oracle's gates, in program order.
+        member _.Operations = operations
+
+        override _.Invoke(state: QuantumState) = apply state
+
+    let private asOracle (oracle: GateOracle) : QuantumState -> Result<QuantumState, QuantumError> =
+        unbox<QuantumState -> Result<QuantumState, QuantumError>> (box oracle)
 
     /// An oracle closure `state -> applySequence backend ops state` whose gates stay readable,
     /// so a whole-circuit backend can have the oracle submitted inside the algorithm's circuit.
@@ -174,20 +189,16 @@ module WholeCircuit =
         (backend: IQuantumBackend)
         (ops: QuantumOperation list)
         : QuantumState -> Result<QuantumState, QuantumError> =
-        let oracle = fun state -> UnifiedBackend.applySequence backend ops state
-        gateOracles.AddOrUpdate(box oracle, ops)
-        oracle
+        GateOracle(ops, (fun state -> UnifiedBackend.applySequence backend ops state)) |> asOracle
 
     /// The identity oracle: no gates, readable on whole-circuit backends like any `gateOracle`.
-    /// One shared closure, so it is recognised by reference wherever it is passed.
     let identityOracle: QuantumState -> Result<QuantumState, QuantumError> =
-        let oracle = fun (state: QuantumState) -> Ok state
-        gateOracles.AddOrUpdate(box oracle, [])
-        oracle
+        GateOracle([], Ok) |> asOracle
 
     /// The gates of an oracle closure, for whole-circuit submission.
     ///
-    /// Known for closures built by `gateOracle` and for `identityOracle`. Any other closure is
+    /// Known for oracles that carry their gates (`GateOracle`: those built by `gateOracle`, and
+    /// `identityOracle`). Any other closure is
     /// an Error: the oracle is a function, not a circuit, and nothing observable from outside
     /// it proves what it does. (Probing one with an empty state and calling it the identity
     /// when it returned that state unchanged let a closure that branches on its input be
@@ -197,8 +208,8 @@ module WholeCircuit =
         (_numQubits: int)
         (oracle: QuantumState -> Result<QuantumState, QuantumError>)
         : Result<QuantumOperation list, QuantumError> =
-        match gateOracles.TryGetValue(box oracle) with
-        | true, ops -> Ok ops
+        match box oracle with
+        | :? GateOracle as known -> Ok known.Operations
         | _ ->
             Error(
                 QuantumError.OperationError(
