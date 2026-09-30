@@ -35,18 +35,18 @@ open Microsoft.Extensions.Logging
 /// - Inventory optimization: Predict stock requirements
 /// - Price optimization: Optimal pricing for maximum revenue
 ///
-/// EXAMPLE USAGE:
+/// EXAMPLE USAGE (the builder yields a Task, so bind it inside task { }):
 ///   // Simple: Predict continuous value (regression)
-///   let model = predictiveModel {
+///   let! model = predictiveModel {
 ///       trainWith trainX trainY
 ///       problemType Regression
 ///   }
 ///
-///   let prediction = model |> PredictiveModel.predict newCustomer
+///   let! prediction = PredictiveModel.predictAsync newCustomer model None None cancellationToken
 ///   printfn "Expected revenue: $%.2f" prediction.Value
 ///
 ///   // Churn prediction: Multi-class classification
-///   let churnModel = predictiveModel {
+///   let! churnModel = predictiveModel {
 ///       trainWith customerFeatures churnLabels  // Labels: 0=Stay, 1=Churn30, 2=Churn60, 3=Churn90
 ///       problemType (MultiClass 4)
 ///
@@ -57,7 +57,7 @@ open Microsoft.Extensions.Logging
 ///       saveModelTo "churn_predictor.model"
 ///   }
 ///
-///   let churnPred = churnModel |> PredictiveModel.predictCategory customer
+///   let churnPred = PredictiveModel.predictCategory customer churnModel None None
 ///   match churnPred.Category with
 ///   | 0 -> printfn "Customer will stay"
 ///   | 1 -> printfn "⚠️ Churn risk in 30 days - take action!"
@@ -700,27 +700,32 @@ module PredictiveModel =
     // TRAINING - Core business logic
     // ========================================================================
 
-    /// Helper: Save model if save path provided, with optional verbose output
-    let private saveModelIfRequested (savePath: string option) (verbose: bool) (logger: ILogger option) (model: Model) =
-        match savePath with
-        | Some path ->
-            match
-                saveAsync path model CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Ok() ->
-                if verbose then
-                    logInfo logger $"[OK] Model saved to: {path}"
-            | Error e ->
-                if verbose then
-                    logWarning logger $"[WARN] Failed to save model: {e}"
-        | None -> ()
+    /// Helper: Save model if save path provided, with optional verbose output.
+    /// A save failure is non-fatal: the trained model is returned either way.
+    let private saveModelIfRequestedAsync
+        (savePath: string option)
+        (verbose: bool)
+        (logger: ILogger option)
+        (cancellationToken: CancellationToken)
+        (model: Model)
+        : Task<Model> =
+        task {
+            match savePath with
+            | Some path ->
+                match! saveAsync path model cancellationToken with
+                | Ok() ->
+                    if verbose then
+                        logInfo logger $"[OK] Model saved to: {path}"
+                | Error e ->
+                    if verbose then
+                        logWarning logger $"[WARN] Failed to save model: {e}"
+            | None -> ()
 
-        model
+            return model
+        }
 
-    /// Train a predictive model
-    let train (problem: PredictionProblem) : QuantumResult<Model> =
+    /// Train a predictive model without saving it (trainAsync saves it when requested)
+    let private trainModel (problem: PredictionProblem) : QuantumResult<Model> =
         match validateProblem problem with
         | Error e -> Error e
         | Ok() ->
@@ -797,7 +802,7 @@ module PredictiveModel =
                                     }
                             }
 
-                        Ok(saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
+                        Ok model
 
                     | _ ->
                         // HHL failed or poor fit → Try VQC (can handle non-linear)
@@ -872,7 +877,7 @@ module PredictiveModel =
                                             }
                                     }
 
-                                saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
+                                model)
 
                 // =================================================================
                 // MULTI-CLASS (VQC One-vs-Rest) — Classical and Quantum architectures
@@ -945,7 +950,7 @@ module PredictiveModel =
                                         }
                                 }
 
-                            saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
+                            model)
 
                 // =================================================================
                 // HYBRID MULTI-CLASS (Quantum Kernel SVM)
@@ -995,10 +1000,24 @@ module PredictiveModel =
                                     }
                             }
 
-                        saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
+                        model)
 
             with ex ->
                 Error(QuantumError.ValidationError("Input", $"Training failed: {ex.Message}"))
+
+    /// Train a predictive model, saving it when a save path is configured
+    let trainAsync (problem: PredictionProblem) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
+        quantumResultTask {
+            let! model = trainModel problem
+            return! saveModelIfRequestedAsync problem.SavePath problem.Verbose problem.Logger cancellationToken model
+        }
+
+    /// Train a predictive model
+    [<System.Obsolete("Use trainAsync for non-blocking execution against cloud backends")>]
+    let train (problem: PredictionProblem) : QuantumResult<Model> =
+        trainAsync problem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // PREDICTION - Use trained model
@@ -1011,12 +1030,14 @@ module PredictiveModel =
     ///   model - Trained regression model
     ///   backend - Quantum backend (defaults to LocalBackend if None)
     ///   shots - Number of measurement shots for quantum circuits (default: 1000)
-    let predict
+    ///   cancellationToken - Cancels the quantum circuit execution
+    let predictAsync
         (features: float array)
         (model: Model)
         (backend: IQuantumBackend option)
         (shots: int option)
-        : QuantumResult<RegressionPrediction> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<RegressionPrediction>> =
 
         let actualBackend =
             backend
@@ -1024,85 +1045,105 @@ module PredictiveModel =
 
         let actualShots = shots |> Option.defaultValue 1000
 
-        match model.Metadata.ProblemType with
-        | MultiClass _ ->
-            Error(QuantumError.Other "This model is for multi-class prediction. Use predictCategory instead.")
-        | Regression ->
-            try
-                match model.InternalModel with
-                | RegressionVQC(vqcResult, featureMap, varForm, numQubits) ->
-                    // VQC-based non-linear regression.
-                    // Apply the same feature truncation used at training time (qubit cap).
-                    match
-                        (VQC.predictRegressionAsync
-                            actualBackend
-                            featureMap
-                            varForm
-                            vqcResult.Parameters
-                            (truncateFeatures numQubits features)
-                            actualShots
-                            vqcResult.ValueRange
-                            CancellationToken.None)
-                            .GetAwaiter()
-                            .GetResult()
-                    with
-                    | Ok pred ->
-                        Ok
-                            {
-                                Value = pred.Value
-                                ConfidenceInterval = None
-                                ModelType = "Quantum VQC Regression (Non-Linear)"
-                            }
-                    | Error e -> Error(QuantumError.ValidationError("Input", $"VQC regression prediction failed: {e}"))
+        task {
+            match model.Metadata.ProblemType with
+            | MultiClass _ ->
+                return
+                    Error(QuantumError.Other "This model is for multi-class prediction. Use predictCategory instead.")
+            | Regression ->
+                try
+                    match model.InternalModel with
+                    | RegressionVQC(vqcResult, featureMap, varForm, numQubits) ->
+                        // VQC-based non-linear regression.
+                        // Apply the same feature truncation used at training time (qubit cap).
+                        match!
+                            VQC.predictRegressionAsync
+                                actualBackend
+                                featureMap
+                                varForm
+                                vqcResult.Parameters
+                                (truncateFeatures numQubits features)
+                                actualShots
+                                vqcResult.ValueRange
+                                cancellationToken
+                        with
+                        | Ok pred ->
+                            return
+                                Ok
+                                    {
+                                        Value = pred.Value
+                                        ConfidenceInterval = None
+                                        ModelType = "Quantum VQC Regression (Non-Linear)"
+                                    }
+                        | Error e ->
+                            return
+                                Error(QuantumError.ValidationError("Input", $"VQC regression prediction failed: {e}"))
 
-                | HHLRegressor hhlResult ->
-                    // Use HHL regression weights for prediction
-                    let value =
-                        QuantumRegressionHHL.predict hhlResult.Weights features hhlResult.HasIntercept
+                    | HHLRegressor hhlResult ->
+                        // Use HHL regression weights for prediction
+                        let value =
+                            QuantumRegressionHHL.predict hhlResult.Weights features hhlResult.HasIntercept
 
-                    Ok
-                        {
-                            Value = value
-                            ConfidenceInterval = None
-                            ModelType = "Quantum HHL Linear Regression"
-                        }
+                        return
+                            Ok
+                                {
+                                    Value = value
+                                    ConfidenceInterval = None
+                                    ModelType = "Quantum HHL Linear Regression"
+                                }
 
-                | SVMRegressor svmModel ->
-                    // Use SVM for regression prediction
-                    match
-                        (QuantumKernelSVM.predictAsync
-                            actualBackend
-                            svmModel
-                            features
-                            actualShots
-                            CancellationToken.None)
-                            .GetAwaiter()
-                            .GetResult()
-                    with
-                    | Ok prediction ->
-                        Ok
-                            {
-                                Value = prediction.DecisionValue // Use the SVM decision value as regression value
-                                ConfidenceInterval = None
-                                ModelType = "Quantum Kernel SVM Regression"
-                            }
-                    | Error e -> Error(QuantumError.ValidationError("Input", $"SVM regression prediction failed: {e}"))
+                    | SVMRegressor svmModel ->
+                        // Use SVM for regression prediction
+                        match!
+                            QuantumKernelSVM.predictAsync actualBackend svmModel features actualShots cancellationToken
+                        with
+                        | Ok prediction ->
+                            return
+                                Ok
+                                    {
+                                        Value = prediction.DecisionValue // Use the SVM decision value as regression value
+                                        ConfidenceInterval = None
+                                        ModelType = "Quantum Kernel SVM Regression"
+                                    }
+                        | Error e ->
+                            return
+                                Error(QuantumError.ValidationError("Input", $"SVM regression prediction failed: {e}"))
 
-                | ClassicalRegressor weights ->
-                    let xWithIntercept = Array.append [| 1.0 |] features
-                    let value = Array.zip xWithIntercept weights |> Array.sumBy (fun (x, w) -> x * w)
+                    | ClassicalRegressor weights ->
+                        let xWithIntercept = Array.append [| 1.0 |] features
+                        let value = Array.zip xWithIntercept weights |> Array.sumBy (fun (x, w) -> x * w)
 
-                    Ok
-                        {
-                            Value = value
-                            ConfidenceInterval = None
-                            ModelType = "Classical Linear Regression"
-                        }
+                        return
+                            Ok
+                                {
+                                    Value = value
+                                    ConfidenceInterval = None
+                                    ModelType = "Classical Linear Regression"
+                                }
 
-                | _ -> Error(QuantumError.Other "Unsupported model type for regression prediction")
+                    | _ -> return Error(QuantumError.Other "Unsupported model type for regression prediction")
 
-            with ex ->
-                Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
+                with ex ->
+                    return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
+        }
+
+    /// Predict continuous value (regression)
+    ///
+    /// Parameters:
+    ///   features - Input features for prediction
+    ///   model - Trained regression model
+    ///   backend - Quantum backend (defaults to LocalBackend if None)
+    ///   shots - Number of measurement shots for quantum circuits (default: 1000)
+    [<System.Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
+    let predict
+        (features: float array)
+        (model: Model)
+        (backend: IQuantumBackend option)
+        (shots: int option)
+        : QuantumResult<RegressionPrediction> =
+        predictAsync features model backend shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Predict category (multi-class)
     ///
@@ -1200,48 +1241,65 @@ module PredictiveModel =
     // ========================================================================
 
     /// Evaluate regression model
+    let evaluateRegressionAsync
+        (testX: float array array)
+        (testY: float array)
+        (model: Model)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<RegressionMetrics>> =
+        task {
+            match model.Metadata.ProblemType with
+            | MultiClass _ -> return Error(QuantumError.Other "Use evaluateMultiClass for multi-class models")
+            | Regression ->
+                try
+                    let predictionValues = ResizeArray<float>(testX.Length)
+
+                    for x in testX do
+                        match! predictAsync x model None None cancellationToken with
+                        | Ok pred -> predictionValues.Add pred.Value
+                        | Error _ -> ()
+
+                    let predictions = predictionValues.ToArray()
+
+                    if predictions.Length <> testY.Length then
+                        return Error(QuantumError.OperationError("Operation", "Some predictions failed"))
+                    else
+                        let mean = testY |> Array.average
+                        let ssTot = testY |> Array.sumBy (fun y -> (y - mean) ** 2.0)
+
+                        let ssRes =
+                            Array.zip testY predictions |> Array.sumBy (fun (y, p) -> (y - p) ** 2.0)
+
+                        let rSquared = 1.0 - (ssRes / ssTot)
+                        let mae = Array.zip testY predictions |> Array.averageBy (fun (y, p) -> abs (y - p))
+
+                        let mse =
+                            Array.zip testY predictions |> Array.averageBy (fun (y, p) -> (y - p) ** 2.0)
+
+                        let rmse = sqrt mse
+
+                        return
+                            Ok
+                                {
+                                    RSquared = rSquared
+                                    MAE = mae
+                                    MSE = mse
+                                    RMSE = rmse
+                                }
+                with ex ->
+                    return Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
+        }
+
+    /// Evaluate regression model
+    [<System.Obsolete("Use evaluateRegressionAsync for non-blocking execution against cloud backends")>]
     let evaluateRegression
         (testX: float array array)
         (testY: float array)
         (model: Model)
         : QuantumResult<RegressionMetrics> =
-        match model.Metadata.ProblemType with
-        | MultiClass _ -> Error(QuantumError.Other "Use evaluateMultiClass for multi-class models")
-        | Regression ->
-            try
-                let predictions =
-                    testX
-                    |> Array.choose (fun x ->
-                        (predict x model None None)
-                        |> Result.map (fun pred -> Some pred.Value)
-                        |> Result.defaultValue None)
-
-                if predictions.Length <> testY.Length then
-                    Error(QuantumError.OperationError("Operation", "Some predictions failed"))
-                else
-                    let mean = testY |> Array.average
-                    let ssTot = testY |> Array.sumBy (fun y -> (y - mean) ** 2.0)
-
-                    let ssRes =
-                        Array.zip testY predictions |> Array.sumBy (fun (y, p) -> (y - p) ** 2.0)
-
-                    let rSquared = 1.0 - (ssRes / ssTot)
-                    let mae = Array.zip testY predictions |> Array.averageBy (fun (y, p) -> abs (y - p))
-
-                    let mse =
-                        Array.zip testY predictions |> Array.averageBy (fun (y, p) -> (y - p) ** 2.0)
-
-                    let rmse = sqrt mse
-
-                    Ok
-                        {
-                            RSquared = rSquared
-                            MAE = mae
-                            MSE = mse
-                            RMSE = rmse
-                        }
-            with ex ->
-                Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
+        evaluateRegressionAsync testX testY model CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Evaluate multi-class model
     let evaluateMultiClass
@@ -1346,9 +1404,12 @@ module PredictiveModel =
 
         member _.Delay(f: unit -> PredictionProblem) = f
 
-        member _.Run(f: unit -> PredictionProblem) : QuantumResult<Model> =
+        /// The `predictiveModel { ... }` expression yields a task: write
+        /// `let! model = predictiveModel { ... }` inside `task { }`. The
+        /// `cancellationToken` operation, when given, cancels training and saving.
+        member _.Run(f: unit -> PredictionProblem) : Task<QuantumResult<Model>> =
             let problem = f ()
-            train problem
+            trainAsync problem (problem.CancellationToken |> Option.defaultValue CancellationToken.None)
 
         member _.Combine(p1: PredictionProblem, p2: PredictionProblem) =
             { p2 with
