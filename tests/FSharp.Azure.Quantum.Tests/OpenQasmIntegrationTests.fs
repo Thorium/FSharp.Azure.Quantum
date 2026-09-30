@@ -539,6 +539,10 @@ cx q[0],q[2];
 
         let circuit = { QubitCount = 10; Gates = gates }
 
+        // Once untimed, so the budgets measure the work and not the JIT of the
+        // exporter and parser on a loaded machine.
+        OpenQasmExport.export circuit |> OpenQasmImport.parse |> ignore
+
         // Measure export time
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let qasm = OpenQasmExport.export circuit
