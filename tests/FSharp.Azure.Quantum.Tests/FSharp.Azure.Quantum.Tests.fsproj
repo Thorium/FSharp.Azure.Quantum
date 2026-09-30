@@ -98,6 +98,7 @@
     <Compile Include="AtomComputingBackendTests.fs" />
     <Compile Include="CloudBackendTests.fs" />
     <Compile Include="LocalQuantumServiceTests.fs" />
+    <Compile Include="CloudEndToEndTests.fs" />
     <Compile Include="ZeroNoiseExtrapolationTests.fs" />
     <Compile Include="ProbabilisticErrorCancellationTests.fs" />
     <Compile Include="ReadoutErrorMitigationTests.fs" />
