@@ -4,6 +4,8 @@ open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphColoring
+open System.Threading
+open System.Threading.Tasks
 
 module QSolver = FSharp.Azure.Quantum.Quantum.QuantumGraphColoringSolver
 
@@ -64,9 +66,11 @@ let private solution
     }
 
 let private solveOk problem numColors =
-    match GraphColoring.solve problem numColors None with
-    | Ok sol -> sol
-    | Error err -> failwith $"solve failed: {err.Message}"
+    task {
+        match! GraphColoring.solveAsync problem numColors None CancellationToken.None with
+        | Ok sol -> return sol
+        | Error err -> return failwith $"solve failed: {err.Message}"
+    }
 
 // ============================================================================
 // QUBO: EACH OPTION CHANGES THE ENCODING
@@ -270,119 +274,133 @@ let ``Priority breaks ties in favour of earlier colors for higher-priority verti
 // ============================================================================
 
 [<Fact>]
-let ``Graph without conflicts is colored without running a circuit`` () =
-    let problem =
-        graphColoring {
-            nodes
-                [
-                    coloredNode {
-                        nodeId "A"
-                        fixedColor "Blue"
-                    }
-                    GraphColoring.node "B" []
-                    GraphColoring.node "C" []
-                ]
-
-            colors [ "Red"; "Green"; "Blue" ]
-        }
-
-    let sol = solveOk problem 3
-
-    Assert.True(sol.IsValid)
-    Assert.Equal(0, sol.ConflictCount)
-    Assert.False(sol.IsQuantum)
-    Assert.Equal(QSolver.NoCircuitBackendName, sol.BackendName)
-    Assert.Equal("Blue", sol.Assignments.["A"])
-    // MinimizeColors reuses the color already in use
-    Assert.Equal("Blue", sol.Assignments.["B"])
-    Assert.Equal("Blue", sol.Assignments.["C"])
-    Assert.Equal(1, sol.ColorsUsed)
-
-[<Fact>]
-let ``AvoidColors and MaxColors decide the color of an unconstrained node`` () =
-    let build maxColorsOpt =
+let ``Graph without conflicts is colored without running a circuit`` () : Task =
+    task {
         let problem =
             graphColoring {
                 nodes
                     [
                         coloredNode {
                             nodeId "A"
-                            avoidColors [ "Red"; "Green" ]
+                            fixedColor "Blue"
                         }
+                        GraphColoring.node "B" []
+                        GraphColoring.node "C" []
                     ]
 
                 colors [ "Red"; "Green"; "Blue" ]
             }
 
-        { problem with
-            MaxColors = maxColorsOpt
-        }
+        let! sol = solveOk problem 3
 
-    // Avoided colors are skipped when another color is allowed
-    Assert.Equal("Blue", (solveOk (build None) 3).Assignments.["A"])
-    // MaxColors = 2 leaves only avoided colors: the first allowed one is used
-    Assert.Equal("Red", (solveOk (build (Some 2)) 3).Assignments.["A"])
-
-[<Fact>]
-let ``BalanceColors spreads nodes and Priority orders them`` () =
-    let problem objectiveValue =
-        graphColoring {
-            nodes
-                [
-                    GraphColoring.node "A" []
-                    GraphColoring.node "B" []
-                    GraphColoring.node "C" []
-                    GraphColoring.node "D" []
-                ]
-
-            colors [ "Red"; "Green" ]
-            objective objectiveValue
-        }
-
-    let minimize = solveOk (problem MinimizeColors) 2
-    Assert.Equal(1, minimize.ColorsUsed)
-
-    let balanced = solveOk (problem BalanceColors) 2
-    Assert.Equal(2, balanced.ColorDistribution.["Red"])
-    Assert.Equal(2, balanced.ColorDistribution.["Green"])
-    Assert.Equal("Red", balanced.Assignments.["A"])
-    Assert.Equal("Green", balanced.Assignments.["B"])
-
-    // Descending priority D, C, B, A: D takes the first color, C the second, ...
-    let prioritized =
-        { problem BalanceColors with
-            Nodes =
-                (problem BalanceColors).Nodes
-                |> List.map (fun n ->
-                    { n with
-                        Priority = float (int n.Id.[0] - int 'A')
-                    })
-        }
-
-    let byPriority = solveOk prioritized 2
-    Assert.Equal("Red", byPriority.Assignments.["D"])
-    Assert.Equal("Green", byPriority.Assignments.["C"])
-    Assert.Equal("Red", byPriority.Assignments.["B"])
-    Assert.Equal("Green", byPriority.Assignments.["A"])
+        Assert.True(sol.IsValid)
+        Assert.Equal(0, sol.ConflictCount)
+        Assert.False(sol.IsQuantum)
+        Assert.Equal(QSolver.NoCircuitBackendName, sol.BackendName)
+        Assert.Equal("Blue", sol.Assignments.["A"])
+        // MinimizeColors reuses the color already in use
+        Assert.Equal("Blue", sol.Assignments.["B"])
+        Assert.Equal("Blue", sol.Assignments.["C"])
+        Assert.Equal(1, sol.ColorsUsed)
+    }
+    :> Task
 
 [<Fact>]
-let ``MaxColors restricts the quantum solver to the first colors`` () =
-    // Triangle needs 3 colors; with MaxColors = 2 only Red and Green are encoded
-    let problem =
-        graphColoring {
-            node "A" [ "B"; "C" ]
-            node "B" [ "C" ]
-            node "C" []
-            colors [ "Red"; "Green"; "Blue" ]
-            maxColors 2
-        }
+let ``AvoidColors and MaxColors decide the color of an unconstrained node`` () : Task =
+    task {
+        let build maxColorsOpt =
+            let problem =
+                graphColoring {
+                    nodes
+                        [
+                            coloredNode {
+                                nodeId "A"
+                                avoidColors [ "Red"; "Green" ]
+                            }
+                        ]
 
-    let sol = solveOk problem 3
+                    colors [ "Red"; "Green"; "Blue" ]
+                }
 
-    Assert.True(sol.IsQuantum)
+            { problem with
+                MaxColors = maxColorsOpt
+            }
 
-    for KeyValue(_, color) in sol.Assignments do
-        Assert.Contains(color, [ "Red"; "Green" ])
+        // Avoided colors are skipped when another color is allowed
+        let! unrestricted = solveOk (build None) 3
+        Assert.Equal("Blue", unrestricted.Assignments.["A"])
+        // MaxColors = 2 leaves only avoided colors: the first allowed one is used
+        let! twoColors = solveOk (build (Some 2)) 3
+        Assert.Equal("Red", twoColors.Assignments.["A"])
+    }
+    :> Task
+
+[<Fact>]
+let ``BalanceColors spreads nodes and Priority orders them`` () : Task =
+    task {
+        let problem objectiveValue =
+            graphColoring {
+                nodes
+                    [
+                        GraphColoring.node "A" []
+                        GraphColoring.node "B" []
+                        GraphColoring.node "C" []
+                        GraphColoring.node "D" []
+                    ]
+
+                colors [ "Red"; "Green" ]
+                objective objectiveValue
+            }
+
+        let! minimize = solveOk (problem MinimizeColors) 2
+        Assert.Equal(1, minimize.ColorsUsed)
+
+        let! balanced = solveOk (problem BalanceColors) 2
+        Assert.Equal(2, balanced.ColorDistribution.["Red"])
+        Assert.Equal(2, balanced.ColorDistribution.["Green"])
+        Assert.Equal("Red", balanced.Assignments.["A"])
+        Assert.Equal("Green", balanced.Assignments.["B"])
+
+        // Descending priority D, C, B, A: D takes the first color, C the second, ...
+        let prioritized =
+            { problem BalanceColors with
+                Nodes =
+                    (problem BalanceColors).Nodes
+                    |> List.map (fun n ->
+                        { n with
+                            Priority = float (int n.Id.[0] - int 'A')
+                        })
+            }
+
+        let! byPriority = solveOk prioritized 2
+        Assert.Equal("Red", byPriority.Assignments.["D"])
+        Assert.Equal("Green", byPriority.Assignments.["C"])
+        Assert.Equal("Red", byPriority.Assignments.["B"])
+        Assert.Equal("Green", byPriority.Assignments.["A"])
+    }
+    :> Task
+
+[<Fact>]
+let ``MaxColors restricts the quantum solver to the first colors`` () : Task =
+    task {
+        // Triangle needs 3 colors; with MaxColors = 2 only Red and Green are encoded
+        let problem =
+            graphColoring {
+                node "A" [ "B"; "C" ]
+                node "B" [ "C" ]
+                node "C" []
+                colors [ "Red"; "Green"; "Blue" ]
+                maxColors 2
+            }
+
+        let! sol = solveOk problem 3
+
+        Assert.True(sol.IsQuantum)
+
+        for KeyValue(_, color) in sol.Assignments do
+            Assert.Contains(color, [ "Red"; "Green" ])
+    }
+    :> Task
 
 [<Fact>]
 let ``Validation rejects bad ConflictPenalty, unknown avoid colors and fixed colors beyond MaxColors`` () =
@@ -470,21 +488,24 @@ let ``Conflict listed from both ends gives the same edges and QUBO as one listin
     Assert.Equal<Map<int * int, float>>(quboOf oneWay, quboOf bothWays)
 
 [<Fact>]
-let ``Conflict listed from both ends is counted once`` () =
-    // One color only: A and B must share it, which is exactly one conflict
-    let solveWithOneColor bothDirections =
-        solveOk
-            { pairProblem bothDirections with
-                MaxColors = Some 1
-            }
-            2
+let ``Conflict listed from both ends is counted once`` () : Task =
+    task {
+        // One color only: A and B must share it, which is exactly one conflict
+        let solveWithOneColor bothDirections =
+            solveOk
+                { pairProblem bothDirections with
+                    MaxColors = Some 1
+                }
+                2
 
-    let oneWay = solveWithOneColor false
-    let bothWays = solveWithOneColor true
+        let! oneWay = solveWithOneColor false
+        let! bothWays = solveWithOneColor true
 
-    Assert.Equal(1, oneWay.ConflictCount)
-    Assert.Equal(1, bothWays.ConflictCount)
-    Assert.Equal(oneWay.Cost, bothWays.Cost, 9)
+        Assert.Equal(1, oneWay.ConflictCount)
+        Assert.Equal(1, bothWays.ConflictCount)
+        Assert.Equal(oneWay.Cost, bothWays.Cost, 9)
+    }
+    :> Task
 
 // ============================================================================
 // CLASSICAL GREEDY: FIXED COLORS, AVOID COLORS, PRIORITY, OBJECTIVE
@@ -721,56 +742,62 @@ let ``Direct coloring energy equals the QUBO energy`` () =
             )
 
 [<Fact>]
-let ``Edgeless BalanceColors reports the QUBO energy of its coloring`` () =
-    let problem =
-        graphColoring {
-            nodes
-                [
-                    GraphColoring.node "A" []
-                    GraphColoring.node "B" []
-                    GraphColoring.node "C" []
-                ]
+let ``Edgeless BalanceColors reports the QUBO energy of its coloring`` () : Task =
+    task {
+        let problem =
+            graphColoring {
+                nodes
+                    [
+                        GraphColoring.node "A" []
+                        GraphColoring.node "B" []
+                        GraphColoring.node "C" []
+                    ]
 
-            colors [ "Red"; "Green" ]
-            objective BalanceColors
-        }
+                colors [ "Red"; "Green" ]
+                objective BalanceColors
+            }
 
-    let sol = solveOk problem 2
-    let quantum = GraphColoring.toQuantumProblem problem 2
+        let! sol = solveOk problem 2
+        let quantum = GraphColoring.toQuantumProblem problem 2
 
-    let preferences =
-        { QSolver.defaultPreferences with
-            Goal = QSolver.ColoringGoal.BalanceColors
-        }
+        let preferences =
+            { QSolver.defaultPreferences with
+                Goal = QSolver.ColoringGoal.BalanceColors
+            }
 
-    let colorIndex = Map.ofList [ "Red", 0; "Green", 1 ]
+        let colorIndex = Map.ofList [ "Red", 0; "Green", 1 ]
 
-    let assignment =
-        sol.Assignments |> Map.toList |> List.map (fun (n, c) -> n, colorIndex.[c])
+        let assignment =
+            sol.Assignments |> Map.toList |> List.map (fun (n, c) -> n, colorIndex.[c])
 
-    Assert.Equal(energy quantum (qubo quantum preferences) assignment, sol.Cost, 9)
+        Assert.Equal(energy quantum (qubo quantum preferences) assignment, sol.Cost, 9)
+    }
+    :> Task
 
 [<Fact>]
-let ``Edgeless MinimizeColors reuses a color before opening a new one`` () =
-    let problem =
-        graphColoring {
-            nodes
-                [
-                    coloredNode {
-                        nodeId "A"
-                        avoidColors [ "Red" ]
-                    }
-                    GraphColoring.node "B" []
-                ]
+let ``Edgeless MinimizeColors reuses a color before opening a new one`` () : Task =
+    task {
+        let problem =
+            graphColoring {
+                nodes
+                    [
+                        coloredNode {
+                            nodeId "A"
+                            avoidColors [ "Red" ]
+                        }
+                        GraphColoring.node "B" []
+                    ]
 
-            colors [ "Red"; "Green" ]
-        }
+                colors [ "Red"; "Green" ]
+            }
 
-    let sol = solveOk problem 2
+        let! sol = solveOk problem 2
 
-    Assert.Equal("Green", sol.Assignments.["A"])
-    Assert.Equal("Green", sol.Assignments.["B"])
-    Assert.Equal(1, sol.ColorsUsed)
+        Assert.Equal("Green", sol.Assignments.["A"])
+        Assert.Equal("Green", sol.Assignments.["B"])
+        Assert.Equal(1, sol.ColorsUsed)
+    }
+    :> Task
 
 [<Fact>]
 let ``HybridSolver reports an edgeless graph as classical`` () =

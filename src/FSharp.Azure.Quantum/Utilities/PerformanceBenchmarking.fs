@@ -144,20 +144,22 @@ module PerformanceBenchmarking =
             if repetitions < 1 then
                 failwithf "Repetitions must be at least 1 (got %d)" repetitions
 
-            let results =
-                [
-                    for _ in 1..repetitions do
-                        let sw = System.Diagnostics.Stopwatch.StartNew()
-                        let problem = TSP.createProblem (cities |> Array.toList)
-                        let solution = TSP.solve problem None
-                        sw.Stop()
+            let! cancellationToken = Async.CancellationToken
+            let runs = ResizeArray<float * float>()
 
-                        match solution with
-                        | Ok tour -> yield (sw.Elapsed.TotalMilliseconds, tour.TotalDistance)
-                        | Error err ->
-                            // Log error but continue - some runs might succeed
-                            logWarning logger $"TSP solve failed: {err.Message}"
-                ]
+            for _ in 1..repetitions do
+                let sw = System.Diagnostics.Stopwatch.StartNew()
+                let problem = TSP.createProblem (cities |> Array.toList)
+                let! solution = TSP.solveAsync problem None cancellationToken |> Async.AwaitTask
+                sw.Stop()
+
+                match solution with
+                | Ok tour -> runs.Add((sw.Elapsed.TotalMilliseconds, tour.TotalDistance))
+                | Error err ->
+                    // Log error but continue - some runs might succeed
+                    logWarning logger $"TSP solve failed: {err.Message}"
+
+            let results = List.ofSeq runs
 
             // Ensure we got at least one successful result
             if results.IsEmpty then
@@ -204,20 +206,25 @@ module PerformanceBenchmarking =
             if repetitions < 1 then
                 failwithf "Repetitions must be at least 1 (got %d)" repetitions
 
-            let results =
-                [
-                    for _ in 1..repetitions do
-                        let sw = System.Diagnostics.Stopwatch.StartNew()
-                        let problem = Portfolio.createProblem assets budget
-                        let solution = Portfolio.solve problem None
-                        sw.Stop()
+            let! cancellationToken = Async.CancellationToken
+            let runs = ResizeArray<float * float>()
 
-                        match solution with
-                        | Ok allocation -> yield (sw.Elapsed.TotalMilliseconds, allocation.ExpectedReturn)
-                        | Error err ->
-                            // Log error but continue - some runs might succeed
-                            logWarning logger $"Portfolio solve failed: {err.Message}"
-                ]
+            for _ in 1..repetitions do
+                let sw = System.Diagnostics.Stopwatch.StartNew()
+                let problem = Portfolio.createProblem assets budget
+
+                let! solution =
+                    Portfolio.solveAsync problem None cancellationToken |> Async.AwaitTask
+
+                sw.Stop()
+
+                match solution with
+                | Ok allocation -> runs.Add((sw.Elapsed.TotalMilliseconds, allocation.ExpectedReturn))
+                | Error err ->
+                    // Log error but continue - some runs might succeed
+                    logWarning logger $"Portfolio solve failed: {err.Message}"
+
+            let results = List.ofSeq runs
 
             // Ensure we got at least one successful result
             if results.IsEmpty then

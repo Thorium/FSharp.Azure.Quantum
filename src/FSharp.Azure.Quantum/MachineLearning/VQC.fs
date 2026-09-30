@@ -556,21 +556,21 @@ module VQC =
             AdamState: AdamOptimizer.AdamState option
         }
 
-    /// Predict label for a single sample
-    let predict
+    /// Predict label for a single sample, asynchronously
+    let predictAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (variationalForm: VariationalForm)
         (parameters: float array)
         (features: float array)
         (shots: int)
-        : QuantumResult<Prediction> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Prediction>> =
 
-        quantumResult {
+        quantumResultTask {
             let! circuit = buildVQCCircuit featureMap variationalForm features parameters
 
-            let! probability =
-                (forwardPassAsync backend circuit shots CancellationToken.None).GetAwaiter().GetResult()
+            let! probability = forwardPassAsync backend circuit shots cancellationToken
 
             let label = if probability >= 0.5 then 1 else 0
 
@@ -581,6 +581,78 @@ module VQC =
                 }
         }
 
+    /// Predict label for a single sample
+    ///
+    /// This is a synchronous wrapper around `predictAsync` for backward compatibility.
+    [<Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
+    let predict
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array)
+        (shots: int)
+        : QuantumResult<Prediction> =
+        predictAsync backend featureMap variationalForm parameters features shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    /// Predicts every sample in order; the first failing sample's error is the result
+    let private predictEachAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Prediction array>> =
+
+        quantumResultTask {
+            let predictions = ResizeArray<Prediction>(features.Length)
+
+            for sample in features do
+                let! prediction =
+                    predictAsync backend featureMap variationalForm parameters sample shots cancellationToken
+
+                predictions.Add prediction
+
+            return predictions.ToArray()
+        }
+
+    /// Evaluate model accuracy on dataset, asynchronously
+    let evaluateAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array array)
+        (labels: int array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float>> =
+
+        if features.Length <> labels.Length then
+            Task.FromResult(Error(QuantumError.ValidationError("Input", "Features and labels must have same length")))
+        elif features.Length = 0 then
+            Task.FromResult(Error(QuantumError.Other "Dataset cannot be empty"))
+        else
+            quantumResultTask {
+                let! predictions =
+                    predictEachAsync backend featureMap variationalForm parameters features shots cancellationToken
+
+                let correctCount =
+                    predictions
+                    |> Array.mapi (fun i pred -> if pred.Label = labels.[i] then 1 else 0)
+                    |> Array.sum
+
+                return float correctCount / float features.Length
+            }
+
+    /// Evaluate model accuracy on dataset
+    ///
+    /// This is a synchronous wrapper around `evaluateAsync` for backward compatibility.
+    [<Obsolete("Use evaluateAsync for non-blocking execution against cloud backends")>]
     let evaluate
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -590,31 +662,10 @@ module VQC =
         (labels: int array)
         (shots: int)
         : QuantumResult<float> =
+        evaluateAsync backend featureMap variationalForm parameters features labels shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
-        if features.Length <> labels.Length then
-            Error(QuantumError.ValidationError("Input", "Features and labels must have same length"))
-        elif features.Length = 0 then
-            Error(QuantumError.Other "Dataset cannot be empty")
-        else
-            let predictSample i =
-                predict backend featureMap variationalForm parameters features.[i] shots
-                |> Result.map (fun pred -> if pred.Label = labels.[i] then 1 else 0)
-
-            let results = features |> Array.mapi (fun i _ -> predictSample i)
-
-            match results |> Array.tryFind Result.isError with
-            | Some(Error e) -> Error e
-            | _ ->
-                let correctCounts =
-                    results
-                    |> Array.choose (function
-                        | Ok v -> Some v
-                        | Error _ -> None)
-
-                let accuracy = float (Array.sum correctCounts) / float features.Length
-                Ok accuracy
-
-    /// Evaluate model accuracy on dataset
     /// Train VQC model using gradient descent
     let rec train
         (backend: IQuantumBackend)
@@ -794,9 +845,10 @@ module VQC =
             quantumResult {
                 let! finalState = trainLoop initialState
 
-                // Compute final training accuracy
+                // Compute final training accuracy (train is synchronous: it waits here as it
+                // does for every epoch's loss and gradient above)
                 let! accuracy =
-                    evaluate
+                    (evaluateAsync
                         backend
                         featureMap
                         variationalForm
@@ -804,6 +856,9 @@ module VQC =
                         trainFeatures
                         trainLabels
                         config.Shots
+                        CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                     |> Result.mapError (fun e ->
                         QuantumError.ValidationError("Input", $"Final evaluation failed: {e.Message}"))
 
@@ -884,7 +939,53 @@ module VQC =
             FalseNegatives: int
         }
 
+    /// Compute confusion matrix, asynchronously
+    let confusionMatrixAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array array)
+        (labels: int array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<ConfusionMatrix>> =
+
+        if features.Length <> labels.Length then
+            Task.FromResult(Error(QuantumError.ValidationError("Input", "Features and labels must have same length")))
+        else
+            quantumResultTask {
+                let! predictions =
+                    predictEachAsync backend featureMap variationalForm parameters features shots cancellationToken
+
+                let categorize i (pred: Prediction) =
+                    match (pred.Label, labels.[i]) with
+                    | (1, 1) -> (1, 0, 0, 0) // TP
+                    | (0, 0) -> (0, 1, 0, 0) // TN
+                    | (1, 0) -> (0, 0, 1, 0) // FP
+                    | (0, 1) -> (0, 0, 0, 1) // FN
+                    | _ -> (0, 0, 0, 0)
+
+                let (tp, tn, fp, fn) =
+                    predictions
+                    |> Array.mapi categorize
+                    |> Array.fold
+                        (fun (tp, tn, fp, fn) (dtp, dtn, dfp, dfn) -> (tp + dtp, tn + dtn, fp + dfp, fn + dfn))
+                        (0, 0, 0, 0)
+
+                return
+                    {
+                        TruePositives = tp
+                        TrueNegatives = tn
+                        FalsePositives = fp
+                        FalseNegatives = fn
+                    }
+            }
+
     /// Compute confusion matrix
+    ///
+    /// This is a synchronous wrapper around `confusionMatrixAsync` for backward compatibility.
+    [<Obsolete("Use confusionMatrixAsync for non-blocking execution against cloud backends")>]
     let confusionMatrix
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -894,44 +995,9 @@ module VQC =
         (labels: int array)
         (shots: int)
         : QuantumResult<ConfusionMatrix> =
-
-        if features.Length <> labels.Length then
-            Error(QuantumError.ValidationError("Input", "Features and labels must have same length"))
-        else
-            let categorizePrediction i =
-                predict backend featureMap variationalForm parameters features.[i] shots
-                |> Result.map (fun pred ->
-                    match (pred.Label, labels.[i]) with
-                    | (1, 1) -> (1, 0, 0, 0) // TP
-                    | (0, 0) -> (0, 1, 0, 0) // TN
-                    | (1, 0) -> (0, 0, 1, 0) // FP
-                    | (0, 1) -> (0, 0, 0, 1) // FN
-                    | _ -> (0, 0, 0, 0))
-
-            let results = features |> Array.mapi (fun i _ -> categorizePrediction i)
-
-            match results |> Array.tryFind Result.isError with
-            | Some(Error e) -> Error e
-            | _ ->
-                let categories =
-                    results
-                    |> Array.choose (function
-                        | Ok v -> Some v
-                        | Error _ -> None)
-
-                let (tp, tn, fp, fn) =
-                    categories
-                    |> Array.fold
-                        (fun (tp, tn, fp, fn) (dtp, dtn, dfp, dfn) -> (tp + dtp, tn + dtn, fp + dfp, fn + dfn))
-                        (0, 0, 0, 0)
-
-                Ok
-                    {
-                        TruePositives = tp
-                        TrueNegatives = tn
-                        FalsePositives = fp
-                        FalseNegatives = fn
-                    }
+        confusionMatrixAsync backend featureMap variationalForm parameters features labels shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Compute precision from confusion matrix
     let precision (cm: ConfusionMatrix) : float =
@@ -1796,13 +1862,17 @@ module VQC =
                             let scoreResults =
                                 classifiers
                                 |> Array.map (fun classifier ->
-                                    predict
+                                    // trainMultiClass is synchronous: it waits here as train does
+                                    (predictAsync
                                         backend
                                         featureMap
                                         variationalForm
                                         classifier.Parameters
                                         features
                                         config.Shots
+                                        CancellationToken.None)
+                                        .GetAwaiter()
+                                        .GetResult()
                                     |> Result.map (fun pred -> pred.Probability))
 
                             let firstError =
@@ -1861,7 +1931,92 @@ module VQC =
                                 NumClasses = numClasses
                             }
 
+    /// Turns the score of every one-vs-rest classifier into a multi-class prediction
+    let private multiClassPredictionFromScores
+        (result: MultiClassTrainingResult)
+        (scores: float array)
+        : QuantumResult<MultiClassPrediction> =
+
+        if result.NumClasses = 2 && scores.Length = 1 then
+            // Two-class models store a single binary classifier whose score is
+            // p = P(class = ClassLabels.[1]); derive both class probabilities from it.
+            let p = scores.[0]
+            let probabilities = [| 1.0 - p; p |]
+            let predictedClassIdx = if p >= 0.5 then 1 else 0
+
+            Ok
+                {
+                    Label = result.ClassLabels.[predictedClassIdx]
+                    Confidence = probabilities.[predictedClassIdx]
+                    Probabilities = probabilities
+                }
+        else
+            // Normalize measurement probabilities directly
+            // Scores are already probabilities from quantum measurements — softmax is inappropriate here
+            let sumScores = scores |> Array.sum
+
+            let probabilities =
+                if sumScores > 0.0 then
+                    scores |> Array.map (fun s -> s / sumScores)
+                else
+                    Array.create result.NumClasses (1.0 / float result.NumClasses)
+
+            // Predicted class is the one with highest probability
+            // Use Array.mapi and maxBy to avoid floating-point comparison issues
+            let predictedClassIdx =
+                probabilities |> Array.mapi (fun i p -> (i, p)) |> Array.maxBy snd |> fst
+
+            let predictedLabel = result.ClassLabels.[predictedClassIdx]
+
+            Ok
+                {
+                    Label = predictedLabel
+                    Confidence = probabilities.[predictedClassIdx]
+                    Probabilities = probabilities
+                }
+
+    /// Predict class for multi-class VQC (one-vs-rest), asynchronously
+    let predictMultiClassAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (result: MultiClassTrainingResult)
+        (features: float array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<MultiClassPrediction>> =
+        task {
+            // Get scores from all classifiers; the first failing classifier's error is the result
+            let! scoreResult =
+                quantumResultTask {
+                    let scores = ResizeArray<float>(result.Classifiers.Length)
+
+                    for classifier in result.Classifiers do
+                        let! pred =
+                            predictAsync
+                                backend
+                                featureMap
+                                variationalForm
+                                classifier.Parameters
+                                features
+                                shots
+                                cancellationToken
+
+                        scores.Add pred.Probability
+
+                    return scores.ToArray()
+                }
+
+            return
+                match scoreResult with
+                | Error e -> Error(QuantumError.ValidationError("Input", $"Multi-class prediction failed: {e}"))
+                | Ok scores -> multiClassPredictionFromScores result scores
+        }
+
     /// Predict class for multi-class VQC (one-vs-rest)
+    ///
+    /// This is a synchronous wrapper around `predictMultiClassAsync` for backward compatibility.
+    [<Obsolete("Use predictMultiClassAsync for non-blocking execution against cloud backends")>]
     let predictMultiClass
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -1870,58 +2025,6 @@ module VQC =
         (features: float array)
         (shots: int)
         : QuantumResult<MultiClassPrediction> =
-
-        // Get scores from all classifiers
-        let scoreResults =
-            result.Classifiers
-            |> Array.map (fun classifier ->
-                (predict backend featureMap variationalForm classifier.Parameters features shots)
-                |> Result.map (fun pred -> pred.Probability))
-
-        // Check if any prediction failed
-        match scoreResults |> Array.tryFind Result.isError with
-        | Some(Error e) -> Error(QuantumError.ValidationError("Input", $"Multi-class prediction failed: {e}"))
-        | _ ->
-            let scores =
-                scoreResults
-                |> Array.choose (function
-                    | Ok s -> Some s
-                    | Error _ -> None)
-
-            if result.NumClasses = 2 && scores.Length = 1 then
-                // Two-class models store a single binary classifier whose score is
-                // p = P(class = ClassLabels.[1]); derive both class probabilities from it.
-                let p = scores.[0]
-                let probabilities = [| 1.0 - p; p |]
-                let predictedClassIdx = if p >= 0.5 then 1 else 0
-
-                Ok
-                    {
-                        Label = result.ClassLabels.[predictedClassIdx]
-                        Confidence = probabilities.[predictedClassIdx]
-                        Probabilities = probabilities
-                    }
-            else
-                // Normalize measurement probabilities directly
-                // Scores are already probabilities from quantum measurements — softmax is inappropriate here
-                let sumScores = scores |> Array.sum
-
-                let probabilities =
-                    if sumScores > 0.0 then
-                        scores |> Array.map (fun s -> s / sumScores)
-                    else
-                        Array.create result.NumClasses (1.0 / float result.NumClasses)
-
-                // Predicted class is the one with highest probability
-                // Use Array.mapi and maxBy to avoid floating-point comparison issues
-                let predictedClassIdx =
-                    probabilities |> Array.mapi (fun i p -> (i, p)) |> Array.maxBy snd |> fst
-
-                let predictedLabel = result.ClassLabels.[predictedClassIdx]
-
-                Ok
-                    {
-                        Label = predictedLabel
-                        Confidence = probabilities.[predictedClassIdx]
-                        Probabilities = probabilities
-                    }
+        predictMultiClassAsync backend featureMap variationalForm result features shots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously

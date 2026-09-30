@@ -667,6 +667,14 @@ module QuantumPortfolioSolver =
 
         Array2D.init kept.Length kept.Length (fun a b -> dense.[kept.[a], kept.[b]]), kept
 
+    /// The (γ, β) pair whose samples have the lowest mean QUBO energy. A function of its own
+    /// rather than a lambda inside sampleWithAngleGridAsync: there the lambda keeps the task
+    /// from compiling to a static state machine (FS3511 in Release builds).
+    let private lowestMeanEnergyAngles (qubo: float[,]) (sampled: ((float * float) * int[][])[]) : float * float =
+        sampled
+        |> Array.minBy (fun (_, m) -> m |> Array.averageBy (QaoaExecutionHelpers.evaluateQubo qubo))
+        |> fst
+
     /// Samples p = 1 QAOA at `initial` and every (γ, β) of the angle grid with gridShots shots
     /// each, then finalShots at the pair with the lowest mean sampled QUBO energy. Returns every
     /// sample and the chosen pair.
@@ -694,13 +702,7 @@ module QuantumPortfolioSolver =
 
             let runs = ResizeArray<(float * float) * Result<int[][], QuantumError>>()
 
-            // Indexed loop rather than `for ... in` over the array: a `let!` inside a
-            // `for` over an array keeps the task from compiling to a static state machine.
-            let mutable i = 0
-
-            while i < candidates.Length do
-                let angles = candidates.[i]
-
+            for angles in candidates do
                 let! result =
                     QaoaExecutionHelpers.executeQaoaCircuitAsync
                         backend
@@ -711,7 +713,6 @@ module QuantumPortfolioSolver =
                         cancellationToken
 
                 runs.Add((angles, result))
-                i <- i + 1
 
             let failures =
                 runs
@@ -731,10 +732,7 @@ module QuantumPortfolioSolver =
             | [] when sampled.Length = 0 ->
                 return Error(QuantumError.OperationError("QAOA", "The backend returned no samples"))
             | [] ->
-                let bestAngles =
-                    sampled
-                    |> Array.minBy (fun (_, m) -> m |> Array.averageBy (QaoaExecutionHelpers.evaluateQubo qubo))
-                    |> fst
+                let bestAngles = lowestMeanEnergyAngles qubo sampled
 
                 let! final =
                     QaoaExecutionHelpers.executeQaoaCircuitAsync

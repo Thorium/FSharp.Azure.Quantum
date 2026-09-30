@@ -8,6 +8,8 @@ open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Backends.DWaveBackend
 open FSharp.Azure.Quantum.Backends.DWaveTypes
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open System.Threading
+open System.Threading.Tasks
 
 /// Unit tests for D-Wave Backend (MockDWaveBackend)
 ///
@@ -315,18 +317,23 @@ module DWaveBackendTests =
             |> Result.defaultWith (fun e -> Assert.True(false, $"Solver {solver} failed: {e}"))
 
     [<Fact>]
-    let ``QUBO business builder (MaxCut) solves via D-Wave annealing through the unified backend`` () =
-        // A D-Wave backend is an IQuantumBackend: the QAOA circuit the solver builds is
-        // reverse-extracted to a QUBO, annealed, and decoded — so the *same* MaxCut.solve
-        // targets annealing hardware just by passing a D-Wave backend. Triangle MaxCut = 2.
-        let dwave =
-            MockDWaveBackend(Advantage_System6_1, seed = 42) :> BackendAbstraction.IQuantumBackend
+    let ``QUBO business builder (MaxCut) solves via D-Wave annealing through the unified backend`` () : Task =
+        task {
+            // A D-Wave backend is an IQuantumBackend: the QAOA circuit the solver builds is
+            // reverse-extracted to a QUBO, annealed, and decoded — so the *same* MaxCut.solveAsync
+            // targets annealing hardware just by passing a D-Wave backend. Triangle MaxCut = 2.
+            let dwave =
+                MockDWaveBackend(Advantage_System6_1, seed = 42) :> BackendAbstraction.IQuantumBackend
 
-        let triangle =
-            FSharp.Azure.Quantum.MaxCut.createProblem
-                [ "A"; "B"; "C" ]
-                [ ("A", "B", 1.0); ("B", "C", 1.0); ("A", "C", 1.0) ]
+            let triangle =
+                FSharp.Azure.Quantum.MaxCut.createProblem
+                    [ "A"; "B"; "C" ]
+                    [ ("A", "B", 1.0); ("B", "C", 1.0); ("A", "C", 1.0) ]
 
-        (FSharp.Azure.Quantum.MaxCut.solve triangle (Some dwave))
-        |> Result.map (fun solution -> Assert.Equal(2.0, solution.CutValue, 3))
-        |> Result.defaultWith (fun e -> failwith $"D-Wave MaxCut failed: {e.Message}")
+            let! result = FSharp.Azure.Quantum.MaxCut.solveAsync triangle (Some dwave) CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.Equal(2.0, solution.CutValue, 3))
+            |> Result.defaultWith (fun e -> failwith $"D-Wave MaxCut failed: {e.Message}")
+        }
+        :> Task

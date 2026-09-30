@@ -8,6 +8,7 @@ open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open System.Threading.Tasks
 
 /// Mean-variance portfolio support: covariance validation, risk sqrt(wᵀΣw), the covariance
 /// QUBO (checked against brute force) and covariance pass-through in the solvers.
@@ -489,41 +490,48 @@ module PortfolioCovarianceTests =
             )
 
     [<Fact>]
-    let ``Portfolio.solve with covariance reports correlated risk`` () =
-        let assets =
-            [ ("A", 0.30, 0.30, 50.0); ("B", 0.30, 0.30, 50.0); ("C", 0.20, 0.30, 50.0) ]
+    let ``Portfolio.solve with covariance reports correlated risk`` () : Task =
+        task {
+            let assets =
+                [ ("A", 0.30, 0.30, 50.0); ("B", 0.30, 0.30, 50.0); ("C", 0.20, 0.30, 50.0) ]
 
-        let _, sigma, _ = correlatedPairCase ()
-        let problem = Portfolio.createProblemWithCovariance assets 3000.0 sigma
+            let _, sigma, _ = correlatedPairCase ()
+            let problem = Portfolio.createProblemWithCovariance assets 3000.0 sigma
 
-        match Portfolio.solve problem None with
-        | Error err -> Assert.Fail(err.Message)
-        | Ok allocation ->
-            Assert.True(allocation.IsValid)
+            match! Portfolio.solveAsync problem None CancellationToken.None with
+            | Error err -> Assert.Fail(err.Message)
+            | Ok allocation ->
+                Assert.True(allocation.IsValid)
 
-            let weights =
-                problem.Assets
-                |> Array.map (fun a ->
-                    allocation.Allocations
-                    |> List.tryFind (fun (s, _, _) -> s = a.Symbol)
-                    |> Option.map (fun (_, _, v) -> v / allocation.TotalValue)
-                    |> Option.defaultValue 0.0)
+                let weights =
+                    problem.Assets
+                    |> Array.map (fun a ->
+                        allocation.Allocations
+                        |> List.tryFind (fun (s, _, _) -> s = a.Symbol)
+                        |> Option.map (fun (_, _, v) -> v / allocation.TotalValue)
+                        |> Option.defaultValue 0.0)
 
-            Assert.Equal(
-                PortfolioTypes.portfolioRisk (List.ofArray problem.Assets) weights (Some sigma),
-                allocation.Risk,
-                10
-            )
+                Assert.Equal(
+                    PortfolioTypes.portfolioRisk (List.ofArray problem.Assets) weights (Some sigma),
+                    allocation.Risk,
+                    10
+                )
+        }
+        :> Task
 
     [<Fact>]
-    let ``Portfolio.solve rejects a covariance of the wrong size`` () =
-        let assets =
-            [ ("A", 0.30, 0.30, 50.0); ("B", 0.30, 0.30, 50.0); ("C", 0.20, 0.30, 50.0) ]
+    let ``Portfolio.solve rejects a covariance of the wrong size`` () : Task =
+        task {
+            let assets =
+                [ ("A", 0.30, 0.30, 50.0); ("B", 0.30, 0.30, 50.0); ("C", 0.20, 0.30, 50.0) ]
 
-        let problem =
-            Portfolio.createProblemWithCovariance assets 3000.0 (twoAssetCovariance 0.3 0.3 0.5)
+            let problem =
+                Portfolio.createProblemWithCovariance assets 3000.0 (twoAssetCovariance 0.3 0.3 0.5)
 
-        Assert.True(Portfolio.solve problem None |> isValidationError "covariance")
+            let! result = Portfolio.solveAsync problem None CancellationToken.None
+            Assert.True(result |> isValidationError "covariance")
+        }
+        :> Task
 
     [<Fact>]
     let ``Portfolio.createProblemWithCorrelation builds the covariance from the asset risks`` () =

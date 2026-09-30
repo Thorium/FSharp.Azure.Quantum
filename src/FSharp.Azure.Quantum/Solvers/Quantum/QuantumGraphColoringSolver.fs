@@ -719,6 +719,30 @@ module QuantumGraphColoringSolver =
             PenaltyWeight = 10.0
         }
 
+    /// Colors a graph without edges, where no edge can conflict: the greedy coloring never
+    /// fails, and its energy comes from the terms directly instead of a built QUBO. A function
+    /// of its own rather than inline in solveWithPreferencesAsync: there this branch keeps the
+    /// task from compiling to a static state machine (FS3511 in Release builds).
+    let private colorWithoutCircuit
+        (problem: GraphColoringProblem)
+        (preferences: ColoringPreferences)
+        (penaltyWeight: float)
+        (startTime: DateTime)
+        : Result<GraphColoringSolution, QuantumError> =
+        match validateEncoding problem preferences with
+        | Error err -> Error err
+        | Ok() ->
+            let assignments =
+                greedyColoring problem preferences |> Result.defaultValue Map.empty
+
+            Ok
+                { summarizeAssignments problem assignments with
+                    BackendName = NoCircuitBackendName
+                    NumShots = 0
+                    ElapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                    BestEnergy = coloringEnergy problem penaltyWeight preferences assignments
+                }
+
     // ================================================================================
     // MAIN SOLVER
     // ================================================================================
@@ -758,22 +782,7 @@ module QuantumGraphColoringSolver =
                             )
                         )
                 elif problem.Edges.IsEmpty then
-                    // No edge can conflict: the greedy coloring never fails, and its energy
-                    // comes from the terms directly instead of a built QUBO
-                    match validateEncoding problem preferences with
-                    | Error err -> return Error err
-                    | Ok() ->
-                        let assignments =
-                            greedyColoring problem preferences |> Result.defaultValue Map.empty
-
-                        return
-                            Ok
-                                { summarizeAssignments problem assignments with
-                                    BackendName = NoCircuitBackendName
-                                    NumShots = 0
-                                    ElapsedMs = (DateTime.Now - startTime).TotalMilliseconds
-                                    BestEnergy = coloringEnergy problem config.PenaltyWeight preferences assignments
-                                }
+                    return colorWithoutCircuit problem preferences config.PenaltyWeight startTime
                 else
                     // Step 2: Encode graph coloring as QUBO
                     match toQuboWithPreferences problem config.PenaltyWeight preferences with
