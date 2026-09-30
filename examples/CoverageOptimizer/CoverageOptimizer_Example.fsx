@@ -159,6 +159,8 @@ if runAll || exampleName = "facilities" then
             backend quantumBackend
             shots cliShots
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     displayResult "Facilities" result
 
@@ -189,6 +191,8 @@ if runAll || exampleName = "sensors" then
             backend quantumBackend
             shots cliShots
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     displayResult "Sensors" result
 
@@ -220,6 +224,8 @@ if runAll || exampleName = "tests" then
             backend quantumBackend
             shots cliShots
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     displayResult "TestSuite" result
 

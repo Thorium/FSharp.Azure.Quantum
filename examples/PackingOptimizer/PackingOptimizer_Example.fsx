@@ -158,6 +158,8 @@ if runAll || exampleName = "shipping" then
             backend quantumBackend
             shots cliShots
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     displayResult "Shipping" result
 
@@ -188,6 +190,8 @@ if runAll || exampleName = "servers" then
             backend quantumBackend
             shots cliShots
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     displayResult "Servers" result
 
@@ -220,6 +224,8 @@ if runAll || exampleName = "storage" then
             backend quantumBackend
             shots cliShots
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     displayResult "Storage" result
 

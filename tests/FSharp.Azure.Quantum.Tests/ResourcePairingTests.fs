@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Business
@@ -19,108 +21,124 @@ module ResourcePairingTests =
 
     [<Fact>]
     let ``ResourcePairing CE - simple two-person pairing`` () =
-        let result =
-            resourcePairing {
-                participant "Alice"
-                participant "Bob"
+        task {
+            let! result =
+                resourcePairing {
+                    participant "Alice"
+                    participant "Bob"
 
-                compatibility "Alice" "Bob" 0.9
+                    compatibility "Alice" "Bob" 0.9
 
-                backend (localBackend ())
-            }
+                    backend (localBackend ())
+                }
 
-        match result with
-        | Ok r ->
-            Assert.True(
-                r.Pairings.Length > 0 || r.TotalParticipants = 2,
-                "Should find pairing or return result for 2 participants"
-            )
+            match result with
+            | Ok r ->
+                Assert.True(
+                    r.Pairings.Length > 0 || r.TotalParticipants = 2,
+                    "Should find pairing or return result for 2 participants"
+                )
 
-            Assert.Equal(2, r.TotalParticipants)
-        | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
+                Assert.Equal(2, r.TotalParticipants)
+            | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing CE - three participants`` () =
-        let result =
-            resourcePairing {
-                participant "Alice"
-                participant "Bob"
-                participant "Carol"
+        task {
+            let! result =
+                resourcePairing {
+                    participant "Alice"
+                    participant "Bob"
+                    participant "Carol"
 
-                compatibility "Alice" "Bob" 0.9
-                compatibility "Alice" "Carol" 0.5
-                compatibility "Bob" "Carol" 0.7
+                    compatibility "Alice" "Bob" 0.9
+                    compatibility "Alice" "Carol" 0.5
+                    compatibility "Bob" "Carol" 0.7
 
-                backend (localBackend ())
-            }
+                    backend (localBackend ())
+                }
 
-        match result with
-        | Ok r ->
-            Assert.Equal(3, r.TotalParticipants)
-            // Max matching for 3 people: at most 1 pair
-            Assert.True(r.Pairings.Length <= 1 || r.Pairings.Length >= 0, "Should return valid matching")
-        | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
+            match result with
+            | Ok r ->
+                Assert.Equal(3, r.TotalParticipants)
+                // Max matching for 3 people: at most 1 pair
+                Assert.True(r.Pairings.Length <= 1 || r.Pairings.Length >= 0, "Should return valid matching")
+            | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing CE - four participants optimal matching`` () =
-        let result =
-            resourcePairing {
-                participant "Alice"
-                participant "Bob"
-                participant "Carol"
-                participant "Dave"
+        task {
+            let! result =
+                resourcePairing {
+                    participant "Alice"
+                    participant "Bob"
+                    participant "Carol"
+                    participant "Dave"
 
-                compatibility "Alice" "Bob" 0.9
-                compatibility "Carol" "Dave" 0.8
-                compatibility "Alice" "Carol" 0.3
-                compatibility "Bob" "Dave" 0.2
+                    compatibility "Alice" "Bob" 0.9
+                    compatibility "Carol" "Dave" 0.8
+                    compatibility "Alice" "Carol" 0.3
+                    compatibility "Bob" "Dave" 0.2
 
-                backend (localBackend ())
-            }
+                    backend (localBackend ())
+                }
 
-        match result with
-        | Ok r ->
-            Assert.Equal(4, r.TotalParticipants)
-            Assert.True(r.TotalScore >= 0.0, "Total score should be non-negative")
-        | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
+            match result with
+            | Ok r ->
+                Assert.Equal(4, r.TotalParticipants)
+                Assert.True(r.TotalScore >= 0.0, "Total score should be non-negative")
+            | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing CE - participants batch add`` () =
-        let result =
-            resourcePairing {
-                participants [ "X"; "Y"; "Z" ]
+        task {
+            let! result =
+                resourcePairing {
+                    participants [ "X"; "Y"; "Z" ]
 
-                compatibility "X" "Y" 1.0
-                compatibility "Y" "Z" 0.5
+                    compatibility "X" "Y" 1.0
+                    compatibility "Y" "Z" 0.5
 
-                backend (localBackend ())
-            }
+                    backend (localBackend ())
+                }
 
-        result
-        |> Result.map (fun r -> Assert.Equal(3, r.TotalParticipants))
-        |> Result.defaultWith (fun e -> Assert.Fail($"Resource pairing failed: %A{e}"))
+            result
+            |> Result.map (fun r -> Assert.Equal(3, r.TotalParticipants))
+            |> Result.defaultWith (fun e -> Assert.Fail($"Resource pairing failed: %A{e}"))
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing CE - custom shots`` () =
-        let result =
-            resourcePairing {
-                participant "A"
-                participant "B"
+        task {
+            let! result =
+                resourcePairing {
+                    participant "A"
+                    participant "B"
 
-                compatibility "A" "B" 1.0
+                    compatibility "A" "B" 1.0
 
-                shots 500
-                backend (localBackend ())
-            }
+                    shots 500
+                    backend (localBackend ())
+                }
 
-        result
-        |> Result.map (fun r -> Assert.Equal(2, r.TotalParticipants))
-        |> Result.defaultWith (fun e -> Assert.Fail($"Resource pairing failed: %A{e}"))
+            result
+            |> Result.map (fun r -> Assert.Equal(2, r.TotalParticipants))
+            |> Result.defaultWith (fun e -> Assert.Fail($"Resource pairing failed: %A{e}"))
+        }
+        :> Task
 
     // ========================================================================
     // PROGRAMMATIC API TESTS
     // ========================================================================
 
+    #nowarn "44" // This test covers the deprecated synchronous `solve` wrapper on purpose.
     [<Fact>]
     let ``ResourcePairing API - programmatic solve`` () =
         let backend = localBackend ()
@@ -157,6 +175,7 @@ module ResourcePairingTests =
             Assert.Equal(3, r.TotalParticipants)
             Assert.True(r.TotalScore >= 0.0)
         | Error e -> Assert.Fail($"Programmatic solve failed: %A{e}")
+    #warnon "44"
 
     // ========================================================================
     // VALIDATION ERROR TESTS
@@ -164,120 +183,138 @@ module ResourcePairingTests =
 
     [<Fact>]
     let ``ResourcePairing - fewer than 2 participants returns error`` () =
-        let problem =
-            {
-                Participants = [ "Alice" ]
-                Compatibilities = []
-                Backend = Some(localBackend ())
-                Shots = 1000
-            }
+        task {
+            let problem =
+                {
+                    Participants = [ "Alice" ]
+                    Compatibilities = []
+                    Backend = Some(localBackend ())
+                    Shots = 1000
+                }
 
-        let result = ResourcePairing.solve problem
+            let! result = ResourcePairing.solveAsync problem CancellationToken.None
 
-        match result with
-        | Error(QuantumError.ValidationError("Participants", _)) -> ()
-        | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
+            match result with
+            | Error(QuantumError.ValidationError("Participants", _)) -> ()
+            | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing - empty participants returns error`` () =
-        let problem =
-            {
-                Participants = []
-                Compatibilities = []
-                Backend = Some(localBackend ())
-                Shots = 1000
-            }
+        task {
+            let problem =
+                {
+                    Participants = []
+                    Compatibilities = []
+                    Backend = Some(localBackend ())
+                    Shots = 1000
+                }
 
-        let result = ResourcePairing.solve problem
+            let! result = ResourcePairing.solveAsync problem CancellationToken.None
 
-        match result with
-        | Error(QuantumError.ValidationError("Participants", _)) -> ()
-        | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
+            match result with
+            | Error(QuantumError.ValidationError("Participants", _)) -> ()
+            | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing - empty compatibilities returns error`` () =
-        let problem =
-            {
-                Participants = [ "Alice"; "Bob" ]
-                Compatibilities = []
-                Backend = Some(localBackend ())
-                Shots = 1000
-            }
+        task {
+            let problem =
+                {
+                    Participants = [ "Alice"; "Bob" ]
+                    Compatibilities = []
+                    Backend = Some(localBackend ())
+                    Shots = 1000
+                }
 
-        let result = ResourcePairing.solve problem
+            let! result = ResourcePairing.solveAsync problem CancellationToken.None
 
-        match result with
-        | Error(QuantumError.ValidationError("Compatibilities", _)) -> ()
-        | other -> Assert.Fail($"Expected Compatibilities validation error, got: %A{other}")
+            match result with
+            | Error(QuantumError.ValidationError("Compatibilities", _)) -> ()
+            | other -> Assert.Fail($"Expected Compatibilities validation error, got: %A{other}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing - negative weight returns error`` () =
-        let problem =
-            {
-                Participants = [ "Alice"; "Bob" ]
-                Compatibilities =
-                    [
-                        {
-                            Participant1 = "Alice"
-                            Participant2 = "Bob"
-                            Weight = -0.5
-                        }
-                    ]
-                Backend = Some(localBackend ())
-                Shots = 1000
-            }
+        task {
+            let problem =
+                {
+                    Participants = [ "Alice"; "Bob" ]
+                    Compatibilities =
+                        [
+                            {
+                                Participant1 = "Alice"
+                                Participant2 = "Bob"
+                                Weight = -0.5
+                            }
+                        ]
+                    Backend = Some(localBackend ())
+                    Shots = 1000
+                }
 
-        let result = ResourcePairing.solve problem
+            let! result = ResourcePairing.solveAsync problem CancellationToken.None
 
-        match result with
-        | Error(QuantumError.ValidationError("Weight", _)) -> ()
-        | other -> Assert.Fail($"Expected Weight validation error, got: %A{other}")
+            match result with
+            | Error(QuantumError.ValidationError("Weight", _)) -> ()
+            | other -> Assert.Fail($"Expected Weight validation error, got: %A{other}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing - unknown participant in compatibility returns error`` () =
-        let problem =
-            {
-                Participants = [ "Alice"; "Bob" ]
-                Compatibilities =
-                    [
-                        {
-                            Participant1 = "Alice"
-                            Participant2 = "Unknown"
-                            Weight = 0.5
-                        }
-                    ]
-                Backend = Some(localBackend ())
-                Shots = 1000
-            }
+        task {
+            let problem =
+                {
+                    Participants = [ "Alice"; "Bob" ]
+                    Compatibilities =
+                        [
+                            {
+                                Participant1 = "Alice"
+                                Participant2 = "Unknown"
+                                Weight = 0.5
+                            }
+                        ]
+                    Backend = Some(localBackend ())
+                    Shots = 1000
+                }
 
-        let result = ResourcePairing.solve problem
+            let! result = ResourcePairing.solveAsync problem CancellationToken.None
 
-        match result with
-        | Error(QuantumError.ValidationError("Participants", _)) -> ()
-        | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
+            match result with
+            | Error(QuantumError.ValidationError("Participants", _)) -> ()
+            | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing - no backend defaults to local simulator`` () =
-        let problem =
-            {
-                Participants = [ "Alice"; "Bob" ]
-                Compatibilities =
-                    [
-                        {
-                            Participant1 = "Alice"
-                            Participant2 = "Bob"
-                            Weight = 0.9
-                        }
-                    ]
-                Backend = None
-                Shots = 1000
-            }
+        task {
+            let problem =
+                {
+                    Participants = [ "Alice"; "Bob" ]
+                    Compatibilities =
+                        [
+                            {
+                                Participant1 = "Alice"
+                                Participant2 = "Bob"
+                                Weight = 0.9
+                            }
+                        ]
+                    Backend = None
+                    Shots = 1000
+                }
 
-        // Quantum-first: omitting a backend defaults to the local simulator (a real quantum
-        // backend) and still solves — it must not short-circuit with NotImplemented.
-        match ResourcePairing.solve problem with
-        | Ok _ -> ()
-        | other -> Assert.Fail($"Expected Ok via default local simulator, got: %A{other}")
+            // Quantum-first: omitting a backend defaults to the local simulator (a real quantum
+            // backend) and still solves — it must not short-circuit with NotImplemented.
+            match! ResourcePairing.solveAsync problem CancellationToken.None with
+            | Ok _ -> ()
+            | other -> Assert.Fail($"Expected Ok via default local simulator, got: %A{other}")
+        }
+        :> Task
 
     // ========================================================================
     // EDGE CASES
@@ -285,41 +322,47 @@ module ResourcePairingTests =
 
     [<Fact>]
     let ``ResourcePairing - exactly two participants`` () =
-        let result =
-            resourcePairing {
-                participant "X"
-                participant "Y"
+        task {
+            let! result =
+                resourcePairing {
+                    participant "X"
+                    participant "Y"
 
-                compatibility "X" "Y" 1.0
+                    compatibility "X" "Y" 1.0
 
-                backend (localBackend ())
-            }
+                    backend (localBackend ())
+                }
 
-        match result with
-        | Ok r ->
-            Assert.Equal(2, r.TotalParticipants)
-            Assert.True(r.ParticipantsPaired <= 2)
-        | Error e -> Assert.Fail($"Two participant case failed: %A{e}")
+            match result with
+            | Ok r ->
+                Assert.Equal(2, r.TotalParticipants)
+                Assert.True(r.ParticipantsPaired <= 2)
+            | Error e -> Assert.Fail($"Two participant case failed: %A{e}")
+        }
+        :> Task
 
     [<Fact>]
     let ``ResourcePairing - zero weight compatibility`` () =
-        let problem =
-            {
-                Participants = [ "A"; "B" ]
-                Compatibilities =
-                    [
-                        {
-                            Participant1 = "A"
-                            Participant2 = "B"
-                            Weight = 0.0
-                        }
-                    ]
-                Backend = Some(localBackend ())
-                Shots = 1000
-            }
+        task {
+            let problem =
+                {
+                    Participants = [ "A"; "B" ]
+                    Compatibilities =
+                        [
+                            {
+                                Participant1 = "A"
+                                Participant2 = "B"
+                                Weight = 0.0
+                            }
+                        ]
+                    Backend = Some(localBackend ())
+                    Shots = 1000
+                }
 
-        let result = ResourcePairing.solve problem
+            let! result = ResourcePairing.solveAsync problem CancellationToken.None
 
-        result
-        |> Result.map (fun r -> Assert.Equal(2, r.TotalParticipants))
-        |> Result.defaultWith (fun e -> Assert.Fail($"Zero weight case failed: %A{e}"))
+            result
+            |> Result.map (fun r -> Assert.Equal(2, r.TotalParticipants))
+            |> Result.defaultWith (fun e -> Assert.Fail($"Zero weight case failed: %A{e}"))
+        }
+        :> Task

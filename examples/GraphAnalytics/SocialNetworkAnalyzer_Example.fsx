@@ -118,6 +118,8 @@ if runAll || exampleName = "classical" then
             // Explicit backend for Rule 1 compliance (classical fallback internally)
             backend quantumBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match classicalResult with
     | Ok result ->
@@ -183,6 +185,8 @@ if runAll || exampleName = "quantum" then
             backend quantumBackend
             shots cliShots
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match quantumResult with
     | Ok result ->
@@ -261,6 +265,8 @@ if runAll || exampleName = "fraud" then
             backend quantumBackend
             shots (cliShots * 2)
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match fraudResult with
     | Ok result ->

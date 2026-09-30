@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.CoverageOptimizer;
@@ -16,13 +18,13 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     ///
     /// Example:
     /// <code>
-    /// var result = new CoverageOptimizerBuilder()
+    /// var result = await new CoverageOptimizerBuilder()
     ///     .SetUniverseSize(3)
     ///     .AddOption("MorningShift", new[] { 0, 1 }, 25.0)
     ///     .AddOption("AfternoonShift", new[] { 1, 2 }, 20.0)
     ///     .AddOption("FullDay", new[] { 0, 1, 2 }, 40.0)
     ///     .WithBackend(backend)
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// Console.WriteLine($"Total cost: ${result.TotalCost}");
     /// foreach (var opt in result.SelectedOptions)
@@ -100,12 +102,13 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         }
 
         /// <summary>
-        /// Builds and executes the coverage optimization.
+        /// Builds and executes the coverage optimization without blocking the calling thread.
         /// Returns a C#-native result with no F# types exposed.
         /// </summary>
+        /// <param name="cancellationToken">Token that cancels the optimization.</param>
         /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
-        /// <returns>A <see cref="CoverageOptimizationResult"/> with the optimal coverage solution.</returns>
-        public CoverageOptimizationResult Build()
+        /// <returns>A task producing a <see cref="CoverageOptimizationResult"/> with the optimal coverage solution.</returns>
+        public async Task<CoverageOptimizationResult> BuildAsync(CancellationToken cancellationToken = default)
         {
             // Convert C# types to F# types internally
             var fsharpOptions = _options.Select(o =>
@@ -117,7 +120,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
                 _shots);
 
-            var result = CoverageOptimizer.solve(problem);
+            var result = await CoverageOptimizer.solveAsync(problem, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -125,6 +128,18 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             }
 
             return CoverageResultWrapper.Convert(result.ResultValue);
+        }
+
+        /// <summary>
+        /// Builds and executes the coverage optimization, blocking until it completes.
+        /// Returns a C#-native result with no F# types exposed.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
+        /// <returns>A <see cref="CoverageOptimizationResult"/> with the optimal coverage solution.</returns>
+        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
+        public CoverageOptimizationResult Build()
+        {
+            return BuildAsync().GetAwaiter().GetResult();
         }
     }
 
