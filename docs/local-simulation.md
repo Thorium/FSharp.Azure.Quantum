@@ -713,6 +713,21 @@ module QaoaTests =
         Assert.Equal(1.0, total, 10)
 ```
 
+## Testing the Azure Code Path Locally
+
+`LocalBackend` bypasses the Azure job lifecycle entirely. To test code that uses the cloud backends (`IonQCloudBackend`, `RigettiCloudBackend`, `QuantinuumCloudBackend`, `IqmCloudBackend`, `AtomComputingCloudBackend`) without an Azure account, start the optional local REST emulator: the backends then submit, poll and download results over real HTTP on 127.0.0.1, and each job runs on this simulator.
+
+```fsharp
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Backends.CloudBackends
+
+use service = LocalQuantumService.start LocalQuantumService.defaultOptions
+use http = service.CreateHttpClient()
+let backend = RigettiCloudBackend(http, service.WorkspaceUrl, "rigetti.sim.qvm", 1000)
+```
+
+See [Local Azure Quantum Service](local-quantum-service) for the emulated API, result formats, options and failure injection.
+
 ## Error Handling
 
 `QaoaSimulator.simulate` returns an `Error` for invalid input instead of throwing:
