@@ -398,3 +398,77 @@ module QuantumRegressionHHLTests =
         (train config)
         |> Result.map (fun _ -> Assert.Fail("Should reject insufficient shots"))
         |> Result.defaultWith (fun msg -> Assert.Contains("Shots", msg.Message))
+
+    // ========================================================================
+    // CLOUD (WHOLE-CIRCUIT, SHOT-SAMPLING) BACKENDS: SIGNS FROM INTERFERENCE CIRCUITS
+    // ========================================================================
+
+    /// y = 2·x1 − x2 exactly: 2 features (no intercept), a well-conditioned Gram matrix.
+    let private twoFeatureDesign =
+        [|
+            [| 1.0; 0.2 |]
+            [| 0.1; 1.0 |]
+            [| 0.9; -0.1 |]
+            [| -0.2; 0.8 |]
+            [| 0.5; 0.4 |]
+            [| 0.3; -0.6 |]
+        |]
+
+    /// y = x1 − 2·x2 + 0.5·x3 + 1.5·x4 exactly: 4 features (no intercept).
+    let private fourFeatureDesign =
+        Array.init 12 (fun i ->
+            [|
+                float (i % 2)
+                float ((i / 2) % 2)
+                float ((i / 4) % 3) / 2.0
+                float ((i * 7) % 5) / 4.0
+            |])
+
+    let private regressionConfig (x: float array array) (weights: float[]) (backend: IQuantumBackend) : RegressionConfig =
+        {
+            TrainX = x
+            TrainY = x |> Array.map (fun row -> Array.fold2 (fun acc xi wi -> acc + xi * wi) 0.0 row weights)
+            EigenvalueQubits = 6
+            MinEigenvalue = 1e-6
+            Backend = backend
+            Shots = 10000
+            FitIntercept = false
+            Verbose = false
+            Logger = None
+        }
+
+    /// Train on the local simulator and on a seeded 10,000-shot cloud-style backend; the cloud
+    /// weights (signs measured by interference circuits) must match the exact path within
+    /// `tolerance`, with `expectedJobs` whole-circuit jobs.
+    let private assertCloudMatchesExact (x: float array array) (weights: float[]) (expectedJobs: int) (tolerance: float) =
+        let cloud = CloudStyleBackends.ShotSamplingCloud(10000, 17)
+
+        match train (regressionConfig x weights (createLocalBackend ())), train (regressionConfig x weights cloud) with
+        | Ok exact, Ok sampled ->
+            Assert.Equal(0, exact.Circuits)
+            Assert.Equal(expectedJobs, sampled.Circuits)
+            Assert.Equal(expectedJobs, cloud.Jobs)
+
+            for i in 0 .. weights.Length - 1 do
+                // Same sign as the true weight on both routes (the negative one included).
+                Assert.Equal(sign weights.[i], sign exact.Weights.[i])
+                Assert.Equal(sign weights.[i], sign sampled.Weights.[i])
+
+                Assert.True(
+                    abs (sampled.Weights.[i] - exact.Weights.[i]) < tolerance,
+                    $"weight {i}: cloud {sampled.Weights.[i]} vs exact {exact.Weights.[i]}"
+                )
+
+            Assert.True(abs (sampled.RSquared - exact.RSquared) < 0.01, $"R² {sampled.RSquared} vs {exact.RSquared}")
+        | Error e, _
+        | _, Error e -> failwith $"training failed: {e.Message}"
+
+    [<Fact>]
+    let ``Train on a shot-sampling cloud backend recovers signed weights matching the exact path (2 features)`` () =
+        // 2 weights: 1 solution qubit, 8 qubits in all; magnitude circuit + 1 Hadamard circuit.
+        assertCloudMatchesExact twoFeatureDesign [| 2.0; -1.0 |] 2 0.08
+
+    [<Fact>]
+    let ``Train on a shot-sampling cloud backend recovers signed weights matching the exact path (4 features)`` () =
+        // 4 weights: 2 solution qubits, 9 qubits in all; magnitude circuit + 2 Hadamard circuits.
+        assertCloudMatchesExact fourFeatureDesign [| 1.0; -2.0; 0.5; 1.5 |] 3 0.1

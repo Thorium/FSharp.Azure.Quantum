@@ -2618,17 +2618,21 @@ match AdaptVqe.run backend h pool 2 AdaptVqe.defaultConfig with
 On a state-vector simulator `AdaptVqe.run` is exact (`Primitives.expectation` for ⟨H⟩,
 central-difference gradients, Nelder-Mead). On a cloud backend every energy is measured
 (`Primitives.sampledExpectation`, one job per commuting group of terms), gradients use the
-parameter-shift rule and the angles are re-optimised by Adam steps; a round of screening and
-re-optimisation submits many jobs, so give the backend a `JobBudget`. `AdaptResult` reports the final `Energy`, the
-`SelectedOperators`/`Parameters`, and the `EnergyHistory` (monotonically non-increasing on a
-simulator; measured energies carry shot noise).
+parameter-shift rule and the angles are re-optimised by Adam steps. A round of screening and
+re-optimisation submits many jobs (growing with the square of the iterations), so a run is capped
+by `AdaptConfig.MaxCloudJobs` (default 2,000; `None` = no cap): it is refused before any job when
+the first operator cannot fit (`AdaptVqe.estimateCloudJobs` gives the plan), and otherwise stops
+with the best ansatz so far and `JobCapReached = true` before an iteration that could cross the
+cap. `AdaptResult` reports the final `Energy` and, on a cloud backend, its shot-noise
+`EnergyStandardError` and the `CloudJobs` submitted, the `SelectedOperators`/`Parameters`, and
+the `EnergyHistory` (monotonically non-increasing on a simulator; measured energies carry shot noise).
 
 **ADAPT-QAOA** (`AdaptQaoa.run`) applies the same idea to QAOA: instead of a fixed mixer it
 selects, at each layer, the mixer from a pool with the largest gradient — each layer being a
 cost evolution `e^(-iγH)` followed by the chosen mixer `e^(-iβA)`, starting from `|+…+⟩`. It
 solves MaxCut on a frustrated triangle to the optimal `min ⟨H⟩ = -1` in a single adaptive layer.
 On a cloud backend it takes the same measured route as ADAPT-VQE (sampled energies,
-parameter-shift gradients).
+parameter-shift gradients), with the same `MaxCloudJobs` cap (`AdaptQaoaConfig`) and result fields.
 
 It's wired into the business layer too: `AdaptQaoa.solveQubo backend numQubits quboMap config`
 solves any QUBO end-to-end (Ising mapping → adaptive ansatz → best sampled assignment), and

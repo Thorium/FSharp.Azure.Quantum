@@ -30,7 +30,7 @@ open Microsoft.Extensions.Logging
 /// ✅ Gray code optimization for multi-controlled gates
 /// ✅ Trotter-Suzuki decomposition for non-diagonal matrices
 /// ✅ Optimal scale factor recovery via least-squares fitting
-/// ✅ Sign recovery using moment vector guidance
+/// ✅ Signs measured on cloud backends by interference circuits (HHL.executeWithRelativePhases)
 /// ✅ Automatic padding to power-of-2 dimensions
 /// ✅ Configurable eigenvalue precision and minimum eigenvalue threshold
 ///
@@ -38,6 +38,17 @@ open Microsoft.Extensions.Logging
 /// - Matrix dimension after padding ≤ 2^10 (1024×1024) for local simulation
 /// - Well-conditioned matrices (κ < 1000 recommended for best accuracy)
 /// - Hermitian/symmetric matrices (automatically satisfied for Gram matrices)
+///
+/// BACKENDS:
+/// - State access (LocalBackend, TopologicalBackend): the HHL solution amplitudes are read
+///   exactly, signs included.
+/// - Complete circuits only (cloud hardware, IShotSamplingBackend): computational-basis counts
+///   give |w_i| alone, and regression weights need their signs. HHL.executeWithRelativePhases
+///   runs, besides the magnitude circuit, one interference circuit per solution qubit (a
+///   Hadamard on that qubit before measurement), whose post-selected outcome differences give
+///   Re(w_i·w_j) for every pair of components differing in that qubit, hence every relative
+///   sign: 1 + log2(padded dimension) jobs per fit (3 for 2 features + intercept, or for 4
+///   features). The overall scale is recovered on both routes by the same least-squares fit.
 ///
 /// ACCURACY CONSIDERATIONS:
 /// - R² scores typically > 0.95 for well-conditioned systems
@@ -117,6 +128,12 @@ module QuantumRegressionHHL =
 
             /// Condition number of Gram matrix (if available)
             ConditionNumber: float option
+
+            /// Whole-circuit jobs this fit submitted: 1 + log2(padded dimension) on a backend
+            /// that runs complete circuits only (the magnitude circuit and one interference
+            /// circuit per solution qubit); 0 when the backend gave state access, and for a
+            /// result loaded from a file.
+            Circuits: int
         }
 
     // ========================================================================
@@ -386,25 +403,24 @@ module QuantumRegressionHHL =
                                 config.Logger
                                 $"   Total qubits: {config.EigenvalueQubits + hhlConfig.SolutionQubits + 1}"
 
-                        // Execute HHL with new unified API
-                        match HHL.execute hhlConfig config.Backend with
+                        // Regression weights are signed. With state access the amplitudes carry
+                        // the signs; on a backend that runs complete circuits only, the measured
+                        // magnitudes are completed by interference circuits that measure every
+                        // relative sign (never guessed classically).
+                        match HHL.executeWithRelativePhases hhlConfig config.Backend with
                         | Error err -> Error err
-                        | Ok hhlResult when hhlResult.Readout = HhlReadout.MeasuredMagnitudes ->
-                            // Regression weights are signed. Measured counts give |w_i| only, and
-                            // guessing the signs would be a classical substitute for the quantum
-                            // answer, so this is refused.
-                            Error(
-                                QuantumError.OperationError(
-                                    "QuantumRegressionHHL",
-                                    $"Backend '{config.Backend.Name}' runs complete circuits only, so HHL returns measured magnitudes |w_i| without signs, and regression weights need their signs. Recovering them takes further interference circuits, which are not implemented; train on a backend with state access (LocalBackend, TopologicalBackend)."
-                                )
-                            )
-                        | Ok hhlResult ->
+                        | Ok phased ->
+                            let hhlResult = phased.Result
+
                             if config.Verbose then
                                 logInfo config.Logger $"   HHL success probability: {hhlResult.SuccessProbability:F4}"
 
-                            // HHL.execute returns the solution-register amplitudes directly (simulator path).
-                            // These are proportional to the regression weights, up to an unknown global scale.
+                                if phased.Circuits > 0 then
+                                    logInfo config.Logger $"   Whole-circuit jobs (magnitudes + signs): {phased.Circuits}"
+
+                            // The solution-register amplitudes (read exactly, or measured with their
+                            // relative signs) are proportional to the regression weights, up to an
+                            // unknown global scale and sign, which the least-squares fit below sets.
                             let weightsUnnormalized = hhlResult.Solution |> Array.map (fun amp -> amp.Real)
 
                             let weightsUnscaled = weightsUnnormalized |> Array.take actualFeatures
@@ -450,6 +466,7 @@ module QuantumRegressionHHL =
                                     NumSamples = nSamples
                                     HasIntercept = config.FitIntercept
                                     ConditionNumber = hermitianMatrix.ConditionNumber
+                                    Circuits = phased.Circuits
                                 }
 
             with ex ->

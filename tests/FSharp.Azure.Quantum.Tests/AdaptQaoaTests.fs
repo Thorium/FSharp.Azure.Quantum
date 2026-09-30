@@ -203,3 +203,72 @@ module AdaptQaoaTests =
             Assert.Equal(-2.0, solution.QuboCost)
             // The final sample is the last job, measured with the backend's 1000 shots.
             Assert.Equal(1000, cloud.Histograms |> List.last |> Map.toSeq |> Seq.sumBy snd)
+
+    // ========================================================================
+    // Cloud job cap and the sampled energy's standard error
+    // ========================================================================
+
+    [<Fact>]
+    let ``ADAPT-QAOA job estimate matches the jobs a capped-off run submits`` () =
+        // Triangle: 1 measurement group, 3 cost terms, 6 mixers → per layer L: 13 + 320·L.
+        Assert.Equal(1 + 333, AdaptQaoa.estimateCloudJobs triangle triangleMixers.Length 1)
+        Assert.Equal(1 + 333 + 653, AdaptQaoa.estimateCloudJobs triangle triangleMixers.Length 2)
+
+    [<Fact>]
+    let ``ADAPT-QAOA stops at the default cap with the best ansatz so far`` () =
+        // Transverse-field Ising chain: 2 measurement groups (Z, X), 5 cost terms. Uncapped,
+        // this run submits 9,730 jobs over 4 layers (10 layers could need 53,062); a second
+        // layer needs 1,946 jobs on top of the first 988, over the default 2,000.
+        let tfim: TrotterSuzuki.PauliHamiltonian =
+            {
+                Terms =
+                    [
+                        ps [| 'Z'; 'Z'; 'I' |] 1.0
+                        ps [| 'I'; 'Z'; 'Z' |] 1.0
+                        ps [| 'X'; 'I'; 'I' |] 0.5
+                        ps [| 'I'; 'X'; 'I' |] 0.7
+                        ps [| 'I'; 'I'; 'X' |] 0.3
+                    ]
+                NumQubits = 3
+            }
+
+        Assert.Equal(988, AdaptQaoa.estimateCloudJobs tfim triangleMixers.Length 1)
+        Assert.Equal(2934, AdaptQaoa.estimateCloudJobs tfim triangleMixers.Length 2)
+        let cloud = CloudStyleBackends.ShotSamplingCloud(4000, 21)
+
+        match AdaptQaoa.run cloud tfim triangleMixers 3 AdaptQaoa.defaultConfig with
+        | Ok result ->
+            Assert.True(result.JobCapReached)
+            Assert.False(result.Converged)
+            Assert.Equal(1, result.Layers)
+            Assert.Equal(988, result.CloudJobs)
+            Assert.Equal(988, cloud.Jobs)
+
+            // Not an eigenstate: the X-group outcomes vary shot to shot.
+            match result.EnergyStandardError with
+            | Some sigma -> Assert.InRange(sigma, 0.005, 0.05)
+            | None -> failwith "a sampled energy must report its standard error"
+        | Error e -> failwith $"ADAPT-QAOA failed: {e.Message}"
+
+    [<Fact>]
+    let ``ADAPT-QAOA refuses up front, before any job, when the first layer cannot fit under MaxCloudJobs`` () =
+        let cloud = CloudStyleBackends.ShotSamplingCloud(4000, 21)
+
+        let config =
+            { AdaptQaoa.defaultConfig with
+                MaxCloudJobs = Some 100
+            }
+
+        match AdaptQaoa.run cloud triangle triangleMixers 3 config with
+        | Error(QuantumError.ValidationError("MaxCloudJobs", message)) ->
+            Assert.Contains("334", message)
+            Assert.Equal(0, cloud.Jobs)
+        | other -> failwith $"expected a MaxCloudJobs refusal, got {other}"
+
+    [<Fact>]
+    let ``ADAPT-QAOA on an exact backend reports no standard error and no cloud jobs`` () =
+        match AdaptQaoa.run (backend ()) triangle triangleMixers 3 AdaptQaoa.defaultConfig with
+        | Error e -> failwith $"ADAPT-QAOA failed: {e.Message}"
+        | Ok result ->
+            Assert.Equal(None, result.EnergyStandardError)
+            Assert.Equal(0, result.CloudJobs)
