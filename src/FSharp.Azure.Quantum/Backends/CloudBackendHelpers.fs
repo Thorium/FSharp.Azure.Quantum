@@ -199,6 +199,32 @@ module CloudBackendHelpers =
             |> CircuitAbstraction.wrapCircuit
         | None -> circuit
 
+    /// `circuit` with every qubit measured at the end when it measures none of them.
+    ///
+    /// Algorithms hand cloud backends unitary circuits and read the returned counts, but a
+    /// provider reports only what the program measures: a Quil program that DECLAREs `ro`
+    /// and never MEASUREs into it, or OpenQASM with no `measure`, comes back with an empty or
+    /// all-zero readout. Qubit q is measured into classical bit q. A circuit that measures
+    /// anything already chose its readout and is left alone. IonQ's JSON format measures
+    /// every qubit implicitly and does not need this.
+    let withTerminalMeasurements (circuit: CircuitAbstraction.ICircuit) : CircuitAbstraction.ICircuit =
+        match CircuitAbstraction.CircuitAdapter.tryGetCircuit circuit with
+        | Some gateCircuit when
+            gateCircuit.Gates
+            |> List.forall (function
+                | FSharp.Azure.Quantum.CircuitBuilder.Measure _ -> false
+                | _ -> true)
+            ->
+            // Gates are stored most-recent-first.
+            let measurements =
+                List.init gateCircuit.QubitCount FSharp.Azure.Quantum.CircuitBuilder.Measure |> List.rev
+
+            CircuitAbstraction.wrapCircuit
+                { gateCircuit with
+                    Gates = measurements @ gateCircuit.Gates
+                }
+        | _ -> circuit
+
     // ============================================================================
     // JOB BUDGET
     // ============================================================================

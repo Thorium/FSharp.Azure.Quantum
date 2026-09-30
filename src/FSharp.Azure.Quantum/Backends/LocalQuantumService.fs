@@ -101,7 +101,8 @@ module internal LocalQuantumServiceFormats =
         | Iqm
         | AtomComputing -> "microsoft.quantum-results.v1"
 
-    /// Terminal "measure every qubit into the same-numbered bit" readout.
+    /// Terminal "measure every qubit into the same-numbered bit" readout: what an IonQ
+    /// circuit means (its format has no measurement instruction; every qubit is read).
     let private measureAll (count: int) : Instruction list =
         List.init count (fun q -> MeasureInto(q, Some q))
 
@@ -111,9 +112,11 @@ module internal LocalQuantumServiceFormats =
             | MeasureInto _ -> true
             | _ -> false)
 
-    let private implicitMeasurementWarning =
-        "The program contains no measurement; LocalQuantumService measured every qubit at the end "
-        + "(the real provider would report an empty or all-zero readout)."
+    /// Like the real providers, the service reads out only what the program measures: an
+    /// unmeasured classical bit reads 0 on every shot. The warning on the job says so.
+    let private noMeasurementWarning =
+        "The program contains no measurement, so every classical bit reads 0 on every shot, as it "
+        + "would on the real provider."
 
     // ============================================================================
     // IONQ JSON (ionq.circuit.v1)
@@ -457,8 +460,8 @@ module internal LocalQuantumServiceFormats =
                     {
                         NumQubits = numQubits
                         ClassicalBits = classicalBits
-                        Instructions = program @ measureAll (min classicalBits numQubits)
-                        Warnings = [ implicitMeasurementWarning ]
+                        Instructions = program
+                        Warnings = [ noMeasurementWarning ]
                     }
 
     // ============================================================================
@@ -467,7 +470,7 @@ module internal LocalQuantumServiceFormats =
 
     /// Decode OpenQASM 2.0/3.0 through the library's OpenQasmImport parser. The readout
     /// register spans every qubit (OpenQasmExport declares `creg c[n]` and measures
-    /// q[i] -> c[i]); a program with no measurement is measured in full at the end.
+    /// q[i] -> c[i]); a program with no measurement reads all zeros.
     let decodeOpenQasm (qasm: string) : Result<DecodedProgram, string> =
         match OpenQasmImport.parse qasm with
         | Error e -> Error $"OpenQASM parse error: {e}"
@@ -496,8 +499,8 @@ module internal LocalQuantumServiceFormats =
                     {
                         NumQubits = numQubits
                         ClassicalBits = numQubits
-                        Instructions = program @ measureAll numQubits
-                        Warnings = [ implicitMeasurementWarning ]
+                        Instructions = program
+                        Warnings = [ noMeasurementWarning ]
                     }
 
     /// Decode job input by its `inputDataFormat`.
@@ -697,12 +700,11 @@ module internal LocalQuantumServiceFormats =
     /// Encode readouts as the provider's result blob, in the shape the library's result
     /// parsers read:
     /// - IonQ: {"histogram": {"<decimal basis index>": probability}} (ionq.quantum-results.v1)
-    /// - Rigetti: {"ro": [[ro0, ro1, ...] per shot], "histogram": {"<bitstring>": count}}
-    /// - Quantinuum: {"c": ["<bitstring>" per shot], "results": {"<bitstring>": count}}
+    /// - Rigetti: {"ro": [[ro0, ro1, ...] per shot]} (rigetti.quil-results.v1)
+    /// - Quantinuum: {"c": ["<bitstring>" per shot]} (honeywell.quantum-results.v1)
     /// - IQM / Atom Computing: {"results": {"<bitstring>": count}}
-    /// Rigetti and Quantinuum carry both the provider's native per-shot register and the
-    /// aggregated histogram key that RigettiBackend.parseRigettiResults /
-    /// QuantinuumBackend.parseQuantinuumResult read.
+    /// Rigetti and Quantinuum get only the provider's native per-shot registers, so the
+    /// library's parsers are tested against the format the real service returns.
     let encodeResult (provider: Provider) (readouts: bool[][]) : string =
         let counts = histogram readouts
         let shots = readouts.Length
@@ -731,7 +733,6 @@ module internal LocalQuantumServiceFormats =
                     writer.WriteEndArray()
 
                 writer.WriteEndArray()
-                writeCounts writer "histogram" counts
             | Quantinuum ->
                 writer.WriteStartArray "c"
 
@@ -739,7 +740,6 @@ module internal LocalQuantumServiceFormats =
                     writer.WriteStringValue(bitstring bits)
 
                 writer.WriteEndArray()
-                writeCounts writer "results" counts
             | Iqm
             | AtomComputing -> writeCounts writer "results" counts
 

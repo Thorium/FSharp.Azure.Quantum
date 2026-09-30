@@ -100,6 +100,9 @@ module CloudBackends =
                                 wrapCircuit routed, Some(mapping, gateCircuit.QubitCount)
                             | None -> circuit, None
                         | None -> circuit, None
+                    // Every (physical) qubit is read into ro when the circuit measures nothing:
+                    // Rigetti reports only what the program MEASUREs.
+                    let circuit = CloudBackendHelpers.withTerminalMeasurements circuit
                     // Step 1: Convert ICircuit → QuilProgram
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
@@ -528,7 +531,10 @@ module CloudBackends =
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
                         |> Result.bind (fun () ->
-                            circuitToOpenQasm (CloudBackendHelpers.transpileForTarget "quantinuum" circuit))
+                            circuitToOpenQasm (
+                                CloudBackendHelpers.transpileForTarget "quantinuum" circuit
+                                |> CloudBackendHelpers.withTerminalMeasurements
+                            ))
                         |> Result.bind (fun qasm -> jobBudget.TryReserve target |> Result.map (fun () -> qasm))
                     with
                     | Error err -> return Error err
@@ -755,7 +761,10 @@ module CloudBackends =
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
                         |> Result.bind (fun () ->
-                            circuitToOpenQasm (CloudBackendHelpers.transpileForTarget "atom" circuit))
+                            circuitToOpenQasm (
+                                CloudBackendHelpers.transpileForTarget "atom" circuit
+                                |> CloudBackendHelpers.withTerminalMeasurements
+                            ))
                         |> Result.bind (fun qasm -> jobBudget.TryReserve target |> Result.map (fun () -> qasm))
                     with
                     | Error err -> return Error err
@@ -960,7 +969,10 @@ module CloudBackends =
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
                         |> Result.bind (fun () ->
-                            circuitToOpenQasm (CloudBackendHelpers.transpileForTarget "iqm" circuit))
+                            circuitToOpenQasm (
+                                CloudBackendHelpers.transpileForTarget "iqm" circuit
+                                |> CloudBackendHelpers.withTerminalMeasurements
+                            ))
                         |> Result.bind (fun qasm -> jobBudget.TryReserve target |> Result.map (fun () -> qasm))
                     with
                     | Error err -> return Error err

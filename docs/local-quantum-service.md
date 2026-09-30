@@ -66,8 +66,8 @@ Programs are decoded from the formats the library emits, and results are written
 | Provider | Input decoded | Result blob |
 |----------|---------------|-------------|
 | IonQ | `ionq.circuit.v1` JSON | `{"histogram": {"<decimal basis index>": probability}}` |
-| Rigetti | Quil (`DECLARE`, gates, `MEASURE q ro[i]`, `DAGGER`, `pi` expressions) | `{"ro": [[...] per shot], "histogram": {"<bits>": count}}` |
-| Quantinuum | OpenQASM 2.0/3.0 via `OpenQasmImport` | `{"c": ["<bits>" per shot], "results": {"<bits>": count}}` |
+| Rigetti | Quil (`DECLARE`, gates, `MEASURE q ro[i]`, `DAGGER`, `pi` expressions) | `{"ro": [[...] per shot]}` (`rigetti.quil-results.v1`) |
+| Quantinuum | OpenQASM 2.0/3.0 via `OpenQasmImport` | `{"c": ["<bits>" per shot]}` (`honeywell.quantum-results.v1`) |
 | IQM, Atom Computing | OpenQASM 2.0/3.0 via `OpenQasmImport` | `{"results": {"<bits>": count}}` |
 
 Bitstrings put classical bit 0 on the right, the convention `CloudBackendHelpers.histogramToQuantumState` reads. A program with measurements only at the end is sampled from its final state vector; mid-circuit measurement, `reset` and classically controlled gates are simulated shot by shot.
@@ -76,8 +76,8 @@ A job the service cannot run ends `Failed`, never with made-up counts: an undeco
 
 Differences from the real service to keep in mind:
 
-- The library's cloud backends submit circuits without measurement instructions. Real providers then report an empty or all-zero readout; the service measures every qubit instead (IonQ always measures every qubit anyway) and records a warning on the job.
-- The Rigetti and Quantinuum result blobs carry both the provider's per-shot register (`ro`, `c`) and the aggregated histogram key (`histogram`, `results`) that `RigettiBackend.parseRigettiResults` and `QuantinuumBackend.parseQuantinuumResult` read.
+- Like the real providers, the service reads out only what a program measures: an unmeasured classical bit reads 0 on every shot, and the job carries a warning saying so. The Rigetti, Quantinuum, IQM and Atom Computing cloud backends measure every qubit at the end of a circuit that measures none (`CloudBackendHelpers.withTerminalMeasurements`); an IonQ circuit measures every qubit by definition.
+- The Rigetti and Quantinuum result blobs carry only the provider's per-shot register (`ro`, `c`), which `RigettiBackend.parseRigettiResults` and `QuantinuumBackend.parseQuantinuumResult` count into a histogram.
 - Results are noiseless simulator samples, not hardware results.
 
 ## Options

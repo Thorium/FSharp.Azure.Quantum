@@ -138,7 +138,14 @@ module LocalQuantumServiceTests =
         // Quantinuum: one c register string per shot
         let quantinuum = output "quantinuum"
         Assert.Equal(shots, quantinuum.GetProperty("c").GetArrayLength())
-        Assert.True(quantinuum.TryGetProperty("results") |> fst)
+        // Only the providers' native registers: the library parses the real formats.
+        Assert.False(quantinuum.TryGetProperty("results") |> fst)
+        Assert.False(rigetti.TryGetProperty("histogram") |> fst)
+
+        // Bell circuits carry no measurement; the backends added one per qubit, so the
+        // service raised no "reads all zeros" warning.
+        for job in service.Jobs do
+            Assert.Empty job.Warnings
 
     // ------------------------------------------------------------------------
     // Job lifecycle
@@ -412,3 +419,45 @@ module LocalQuantumServiceTests =
         | Ok program ->
             // c[0] records the measurement before the second X; c[1] is never written.
             Assert.Equal(Ok(Map [ "01", 50 ]), runProgram program)
+
+    // ------------------------------------------------------------------------
+    // Provider result formats and readout
+    // ------------------------------------------------------------------------
+
+    [<Fact>]
+    let ``Rigetti ro and Quantinuum c registers parse per shot with bit 0 on the right`` () =
+        // ro[0] = 1, ro[1] = 0 on two shots; ro[0] = 0, ro[1] = 1 on one.
+        match RigettiBackend.parseRigettiResults """{"ro": [[1, 0], [1, 0], [0, 1]]}""" with
+        | Ok histogram -> Assert.Equal<Map<string, int>>(Map [ "01", 2; "10", 1 ], histogram)
+        | Error e -> Assert.Fail(e.Message)
+
+        match QuantinuumBackend.parseQuantinuumResult """{"c": ["01", "01", "10"]}""" with
+        | Ok histogram -> Assert.Equal<Map<string, int>>(Map [ "01", 2; "10", 1 ], histogram)
+        | Error e -> Assert.Fail e
+
+        // The aggregated shapes are still read.
+        Assert.True(RigettiBackend.parseRigettiResults """{"histogram": {"00": 3}}""" |> Result.isOk)
+        Assert.True(QuantinuumBackend.parseQuantinuumResult """{"results": {"00": 3}}""" |> Result.isOk)
+
+    [<Fact>]
+    let ``Circuits without measurements are read out in full on every provider`` () =
+        use service = LocalQuantumService.start seeded
+        use http = service.CreateHttpClient()
+        let xOnOne = circuitOf 2 [ CircuitBuilder.X 1 ]
+
+        for provider in [ "rigetti"; "quantinuum"; "iqm"; "atom" ] do
+            let backend = backendFor provider service http (CloudBackendHelpers.JobBudget())
+            let state = backend.ExecuteToState xOnOne |> expectOk
+
+            // Every shot reads qubit 1 as 1: the submitted program measured it.
+            Assert.Equal(1.0, (probabilities state).[2], 9)
+            // The state carries the job's own shots.
+            Assert.Equal(Some shots, QuantumState.recordedShotCount state)
+            Assert.Equal(shots, (UnifiedBackend.measureState state 5000).Length)
+
+        let quil =
+            service.Jobs
+            |> List.find (fun j -> j.ProviderId = "rigetti")
+            |> fun j -> j.InputData
+
+        Assert.Contains("MEASURE 1 ro[1]", quil)
