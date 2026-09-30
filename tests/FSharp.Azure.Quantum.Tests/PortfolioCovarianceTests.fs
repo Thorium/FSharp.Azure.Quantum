@@ -386,107 +386,126 @@ module PortfolioCovarianceTests =
     // ========================================================================
 
     [<Fact>]
-    let ``solvePortfolioWithCovariance forced classical reports sqrt(w'Sw)`` () =
-        let assets = [ asset "A" 0.10 0.20 1.0; asset "B" 0.05 0.10 1.0 ]
+    let ``solvePortfolioWithCovarianceAsync forced classical reports sqrt(w'Sw)`` () =
+        task {
+            let assets = [ asset "A" 0.10 0.20 1.0; asset "B" 0.05 0.10 1.0 ]
 
-        let constraints: PortfolioSolver.Constraints =
-            {
-                Budget = 10.0
-                MinHolding = 0.0
-                MaxHolding = 6.0
-            }
+            let constraints: PortfolioSolver.Constraints =
+                {
+                    Budget = 10.0
+                    MinHolding = 0.0
+                    MaxHolding = 6.0
+                }
 
-        // Greedy: both ratios are 0.5; the first gets MaxHolding 6, the other the remaining 4
-        let covariance = twoAssetCovariance 0.2 0.1 (-0.5)
+            // Greedy: both ratios are 0.5; the first gets MaxHolding 6, the other the remaining 4
+            let covariance = twoAssetCovariance 0.2 0.1 (-0.5)
 
-        match
-            HybridSolver.solvePortfolioWithCovariance
-                assets
-                covariance
-                constraints
-                None
-                None
-                (Some HybridSolver.SolverMethod.Classical)
-                None
-        with
-        | Error err -> Assert.Fail(err.Message)
-        | Ok solution ->
-            Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
+            match!
+                HybridSolver.solvePortfolioWithCovarianceAsync
+                    assets
+                    covariance
+                    constraints
+                    None
+                    None
+                    (Some HybridSolver.SolverMethod.Classical)
+                    None
+                    CancellationToken.None
+            with
+            | Error err -> Assert.Fail(err.Message)
+            | Ok solution ->
+                Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
 
-            let weights =
-                assets
-                |> List.map (fun a ->
-                    solution.Result.Allocations
-                    |> List.tryFind (fun x -> x.Asset.Symbol = a.Symbol)
-                    |> Option.map (fun x -> x.Percentage)
-                    |> Option.defaultValue 0.0)
-                |> List.toArray
+                let weights =
+                    assets
+                    |> List.map (fun a ->
+                        solution.Result.Allocations
+                        |> List.tryFind (fun x -> x.Asset.Symbol = a.Symbol)
+                        |> Option.map (fun x -> x.Percentage)
+                        |> Option.defaultValue 0.0)
+                    |> List.toArray
 
-            Assert.Equal(1.0, Array.sum weights, 10)
-            Assert.True(weights |> Array.forall (fun w -> w > 0.0), "Both assets are held")
+                Assert.Equal(1.0, Array.sum weights, 10)
+                Assert.True(weights |> Array.forall (fun w -> w > 0.0), "Both assets are held")
 
-            let expected =
-                sqrt (
-                    weights.[0] * weights.[0] * 0.04
-                    + weights.[1] * weights.[1] * 0.01
-                    + 2.0 * weights.[0] * weights.[1] * (-0.5 * 0.2 * 0.1)
-                )
+                let expected =
+                    sqrt (
+                        weights.[0] * weights.[0] * 0.04
+                        + weights.[1] * weights.[1] * 0.01
+                        + 2.0 * weights.[0] * weights.[1] * (-0.5 * 0.2 * 0.1)
+                    )
 
-            Assert.Equal(expected, solution.Result.Risk, 10)
-            Assert.True(solution.Result.Risk < PortfolioTypes.portfolioRisk assets weights None)
-
-    [<Fact>]
-    let ``solvePortfolioWithCovariance forced quantum reports sqrt(w'Sw)`` () =
-        let assets, sigma, constraints = correlatedPairCase ()
-
-        match
-            HybridSolver.solvePortfolioWithCovariance
-                assets
-                sigma
-                constraints
-                None
-                None
-                (Some HybridSolver.SolverMethod.Quantum)
-                None
-        with
-        | Error err -> Assert.Fail(err.Message)
-        | Ok solution ->
-            Assert.Equal(HybridSolver.SolverMethod.Quantum, solution.Method)
-
-            let weights =
-                assets
-                |> List.map (fun a ->
-                    solution.Result.Allocations
-                    |> List.tryFind (fun x -> x.Asset.Symbol = a.Symbol)
-                    |> Option.map (fun x -> x.Percentage)
-                    |> Option.defaultValue 0.0)
-                |> List.toArray
-
-            Assert.Equal(PortfolioTypes.portfolioRisk assets weights (Some sigma), solution.Result.Risk, 10)
+                Assert.Equal(expected, solution.Result.Risk, 10)
+                Assert.True(solution.Result.Risk < PortfolioTypes.portfolioRisk assets weights None)
+        }
+        :> System.Threading.Tasks.Task
 
     [<Fact>]
-    let ``solvePortfolioWithCovariance rejects an invalid covariance on every path`` () =
-        let assets = [ asset "A" 0.10 0.20 10.0; asset "B" 0.05 0.10 5.0 ]
+    let ``solvePortfolioWithCovarianceAsync forced quantum reports sqrt(w'Sw)`` () =
+        task {
+            let assets, sigma, constraints = correlatedPairCase ()
 
-        let constraints: PortfolioSolver.Constraints =
-            {
-                Budget = 10.0
-                MinHolding = 0.0
-                MaxHolding = 10.0
-            }
+            match!
+                HybridSolver.solvePortfolioWithCovarianceAsync
+                    assets
+                    sigma
+                    constraints
+                    None
+                    None
+                    (Some HybridSolver.SolverMethod.Quantum)
+                    None
+                    CancellationToken.None
+            with
+            | Error err -> Assert.Fail(err.Message)
+            | Ok solution ->
+                Assert.Equal(HybridSolver.SolverMethod.Quantum, solution.Method)
 
-        let asymmetric = array2D [ [ 0.04; 0.01 ]; [ 0.0; 0.01 ] ]
+                let weights =
+                    assets
+                    |> List.map (fun a ->
+                        solution.Result.Allocations
+                        |> List.tryFind (fun x -> x.Asset.Symbol = a.Symbol)
+                        |> Option.map (fun x -> x.Percentage)
+                        |> Option.defaultValue 0.0)
+                    |> List.toArray
 
-        for method in
-            [
-                Some HybridSolver.SolverMethod.Classical
-                Some HybridSolver.SolverMethod.Quantum
-                None
-            ] do
-            Assert.True(
-                HybridSolver.solvePortfolioWithCovariance assets asymmetric constraints None None method None
-                |> isValidationError "covariance"
-            )
+                Assert.Equal(PortfolioTypes.portfolioRisk assets weights (Some sigma), solution.Result.Risk, 10)
+        }
+        :> System.Threading.Tasks.Task
+
+    [<Fact>]
+    let ``solvePortfolioWithCovarianceAsync rejects an invalid covariance on every path`` () =
+        task {
+            let assets = [ asset "A" 0.10 0.20 10.0; asset "B" 0.05 0.10 5.0 ]
+
+            let constraints: PortfolioSolver.Constraints =
+                {
+                    Budget = 10.0
+                    MinHolding = 0.0
+                    MaxHolding = 10.0
+                }
+
+            let asymmetric = array2D [ [ 0.04; 0.01 ]; [ 0.0; 0.01 ] ]
+
+            for method in
+                [
+                    Some HybridSolver.SolverMethod.Classical
+                    Some HybridSolver.SolverMethod.Quantum
+                    None
+                ] do
+                let! result =
+                    HybridSolver.solvePortfolioWithCovarianceAsync
+                        assets
+                        asymmetric
+                        constraints
+                        None
+                        None
+                        method
+                        None
+                        CancellationToken.None
+
+                Assert.True(result |> isValidationError "covariance", $"{method}: expected a covariance validation error")
+        }
+        :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``Portfolio.solve with covariance reports correlated risk`` () =
@@ -661,8 +680,14 @@ module PortfolioCovarianceTests =
                     Assert.True(a.Shares >= 1.0, $"{a.Asset.Symbol}: {a.Shares} shares")
 
             // The classical greedy also needs at least one share's worth.
-            match
-                HybridSolver.solvePortfolio pricey constraints None None (Some HybridSolver.SolverMethod.Classical)
+            match!
+                HybridSolver.solvePortfolioAsync
+                    pricey
+                    constraints
+                    None
+                    None
+                    (Some HybridSolver.SolverMethod.Classical)
+                    CancellationToken.None
             with
             | Error err -> Assert.Fail(err.Message)
             | Ok solution ->
