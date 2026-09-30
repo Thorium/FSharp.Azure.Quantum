@@ -163,7 +163,7 @@ module CloudEndToEndTests =
 
             Assert.Equal(3, service.SubmittedJobCount)
             // Three copies of the 3-qubit protocol side by side.
-            Assert.True(service.Jobs |> List.forall (fun job -> job.InputData.Contains "qreg q[9];"))
+            Assert.True(service.Jobs |> List.forall (fun job -> job.InputData.Contains "qreg q[9];")))
 
     // ========================================================================
     // QRNG, PRIMITIVES AND JOB BUDGETS
