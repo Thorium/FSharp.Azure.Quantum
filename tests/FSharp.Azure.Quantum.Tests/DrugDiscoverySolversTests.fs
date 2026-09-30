@@ -1,6 +1,8 @@
 module FSharp.Azure.Quantum.Tests.DrugDiscoverySolversTests
 
 open Xunit
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Quantum.DrugDiscoverySolvers
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
@@ -8,6 +10,7 @@ open FSharp.Azure.Quantum.Backends
 // Helper to create local backend for tests
 let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
     LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
 
 // ============================================================================
 // CONFIGURATION TESTS
@@ -173,41 +176,51 @@ module IndependentSetTests =
         Assert.True(solution.TotalWeight >= 10.0, "Should select at least one node")
 
     [<Fact>]
-    let ``solve validates empty nodes list`` () =
-        // Arrange
-        let problem: IndependentSet.Problem = { Nodes = []; Edges = [] }
-        let backend = createLocalBackend ()
+    let ``solve validates empty nodes list`` () : Task =
+        task {
+            // Arrange
+            let problem: IndependentSet.Problem = { Nodes = []; Edges = [] }
+            let backend = createLocalBackend ()
 
-        // Act
-        let result = IndependentSet.solve backend problem 100
+            // Act
+            let! result =
+                IndependentSet.solveWithConfigAsync
+                    backend
+                    problem
+                    { defaultConfig with FinalShots = 100 }
+                    CancellationToken.None
 
-        // Assert
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with empty nodes"))
-        |> Result.defaultWith (fun err -> Assert.Contains("no nodes", err.ToString().ToLower()))
+            // Assert
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with empty nodes"))
+            |> Result.defaultWith (fun err -> Assert.Contains("no nodes", err.ToString().ToLower()))
+        }
 
     [<Fact>]
-    let ``solveWithConfig uses custom configuration`` () =
-        // Arrange
-        let problem: IndependentSet.Problem =
-            {
-                Nodes = [ { Id = "A"; Weight = 10.0 }; { Id = "B"; Weight = 5.0 } ]
-                Edges = [ (0, 1) ]
-            }
+    let ``solveWithConfig uses custom configuration`` () : Task =
+        task {
+            // Arrange
+            let problem: IndependentSet.Problem =
+                {
+                    Nodes = [ { Id = "A"; Weight = 10.0 }; { Id = "B"; Weight = 5.0 } ]
+                    Edges = [ (0, 1) ]
+                }
 
-        let backend = createLocalBackend ()
-        let config = { fastConfig with FinalShots = 50 }
+            let backend = createLocalBackend ()
+            let config = { fastConfig with FinalShots = 50 }
 
-        // Act
-        let result = IndependentSet.solveWithConfig backend problem config
+            // Act
+            let! result =
+                IndependentSet.solveWithConfigAsync backend problem config CancellationToken.None
 
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.Equal(50, solution.NumShots)
-            // With constraint repair, solution should always be valid
-            Assert.True(solution.IsValid || solution.WasRepaired)
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.Equal(50, solution.NumShots)
+                // With constraint repair, solution should always be valid
+                Assert.True(solution.IsValid || solution.WasRepaired)
+        }
 
 // ============================================================================
 // INFLUENCE MAXIMIZATION TESTS
@@ -331,79 +344,96 @@ module InfluenceMaximizationTests =
         Assert.Contains("C", selectedIds)
 
     [<Fact>]
-    let ``solve validates k parameter`` () =
-        // Arrange: k > number of nodes
-        let problem: InfluenceMaximization.Problem =
-            {
-                Nodes = [ { Id = "A"; Score = 10.0 } ]
-                Edges = []
-                K = 5
-                SynergyWeight = 0.0
-            }
+    let ``solve validates k parameter`` () : Task =
+        task {
+            // Arrange: k > number of nodes
+            let problem: InfluenceMaximization.Problem =
+                {
+                    Nodes = [ { Id = "A"; Score = 10.0 } ]
+                    Edges = []
+                    K = 5
+                    SynergyWeight = 0.0
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        // Act
-        let result = InfluenceMaximization.solve backend problem 100
+            // Act
+            let! result =
+                InfluenceMaximization.solveWithConfigAsync
+                    backend
+                    problem
+                    { defaultConfig with FinalShots = 100 }
+                    CancellationToken.None
 
-        // Assert
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with invalid k"))
-        |> Result.defaultWith (fun err -> Assert.Contains("k", err.ToString().ToLower()))
-
-    [<Fact>]
-    let ``solve validates empty nodes list`` () =
-        // Arrange
-        let problem: InfluenceMaximization.Problem =
-            {
-                Nodes = []
-                Edges = []
-                K = 1
-                SynergyWeight = 0.0
-            }
-
-        let backend = createLocalBackend ()
-
-        // Act
-        let result = InfluenceMaximization.solve backend problem 100
-
-        // Assert
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with empty nodes"))
-        |> Result.defaultWith (fun err -> Assert.Contains("no nodes", err.ToString().ToLower()))
+            // Assert
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with invalid k"))
+            |> Result.defaultWith (fun err -> Assert.Contains("k", err.ToString().ToLower()))
+        }
 
     [<Fact>]
-    let ``solveWithConfig with constraint repair fixes cardinality violations`` () =
-        // Arrange
-        let problem: InfluenceMaximization.Problem =
-            {
-                Nodes =
-                    [
-                        { Id = "A"; Score = 10.0 }
-                        { Id = "B"; Score = 20.0 }
-                        { Id = "C"; Score = 5.0 }
-                    ]
-                Edges = []
-                K = 2
-                SynergyWeight = 0.0
-            }
+    let ``solve validates empty nodes list`` () : Task =
+        task {
+            // Arrange
+            let problem: InfluenceMaximization.Problem =
+                {
+                    Nodes = []
+                    Edges = []
+                    K = 1
+                    SynergyWeight = 0.0
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-            }
+            // Act
+            let! result =
+                InfluenceMaximization.solveWithConfigAsync
+                    backend
+                    problem
+                    { defaultConfig with FinalShots = 100 }
+                    CancellationToken.None
 
-        // Act
-        let result = InfluenceMaximization.solveWithConfig backend problem config
+            // Assert
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with empty nodes"))
+            |> Result.defaultWith (fun err -> Assert.Contains("no nodes", err.ToString().ToLower()))
+        }
 
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            // With constraint repair, should have exactly k nodes
-            Assert.Equal(2, solution.NumSelected)
+    [<Fact>]
+    let ``solveWithConfig with constraint repair fixes cardinality violations`` () : Task =
+        task {
+            // Arrange
+            let problem: InfluenceMaximization.Problem =
+                {
+                    Nodes =
+                        [
+                            { Id = "A"; Score = 10.0 }
+                            { Id = "B"; Score = 20.0 }
+                            { Id = "C"; Score = 5.0 }
+                        ]
+                    Edges = []
+                    K = 2
+                    SynergyWeight = 0.0
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                }
+
+            // Act
+            let! result =
+                InfluenceMaximization.solveWithConfigAsync backend problem config CancellationToken.None
+
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                // With constraint repair, should have exactly k nodes
+                Assert.Equal(2, solution.NumSelected)
+        }
 
 // ============================================================================
 // DIVERSE SELECTION TESTS
@@ -626,82 +656,99 @@ module DiverseSelectionTests =
         Assert.True(solution.DiversityBonus >= 1.0, "Should have some diversity bonus")
 
     [<Fact>]
-    let ``solve validates empty items list`` () =
-        // Arrange
-        let problem: DiverseSelection.Problem =
-            {
-                Items = []
-                Diversity = Array2D.zeroCreate 0 0
-                Budget = 100.0
-                DiversityWeight = 0.0
-            }
+    let ``solve validates empty items list`` () : Task =
+        task {
+            // Arrange
+            let problem: DiverseSelection.Problem =
+                {
+                    Items = []
+                    Diversity = Array2D.zeroCreate 0 0
+                    Budget = 100.0
+                    DiversityWeight = 0.0
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        // Act
-        let result = DiverseSelection.solve backend problem 100
+            // Act
+            let! result =
+                DiverseSelection.solveWithConfigAsync
+                    backend
+                    problem
+                    { defaultConfig with FinalShots = 100 }
+                    CancellationToken.None
 
-        // Assert
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with empty items"))
-        |> Result.defaultWith (fun err -> Assert.Contains("no items", err.ToString().ToLower()))
-
-    [<Fact>]
-    let ``solve validates negative budget`` () =
-        // Arrange
-        let problem: DiverseSelection.Problem =
-            {
-                Items = [ { Id = "A"; Value = 10.0; Cost = 5.0 } ]
-                Diversity = Array2D.zeroCreate 1 1
-                Budget = -10.0
-                DiversityWeight = 0.0
-            }
-
-        let backend = createLocalBackend ()
-
-        // Act
-        let result = DiverseSelection.solve backend problem 100
-
-        // Assert
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with negative budget"))
-        |> Result.defaultWith (fun err -> Assert.Contains("budget", err.ToString().ToLower()))
+            // Assert
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with empty items"))
+            |> Result.defaultWith (fun err -> Assert.Contains("no items", err.ToString().ToLower()))
+        }
 
     [<Fact>]
-    let ``solveWithConfig with constraint repair fixes budget violations`` () =
-        // Arrange
-        let problem: DiverseSelection.Problem =
-            {
-                Items =
-                    [
-                        { Id = "A"; Value = 10.0; Cost = 20.0 }
-                        { Id = "B"; Value = 15.0; Cost = 30.0 }
-                        { Id = "C"; Value = 5.0; Cost = 10.0 }
-                    ]
-                Diversity = Array2D.zeroCreate 3 3
-                Budget = 40.0
-                DiversityWeight = 0.0
-            }
+    let ``solve validates negative budget`` () : Task =
+        task {
+            // Arrange
+            let problem: DiverseSelection.Problem =
+                {
+                    Items = [ { Id = "A"; Value = 10.0; Cost = 5.0 } ]
+                    Diversity = Array2D.zeroCreate 1 1
+                    Budget = -10.0
+                    DiversityWeight = 0.0
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-            }
+            // Act
+            let! result =
+                DiverseSelection.solveWithConfigAsync
+                    backend
+                    problem
+                    { defaultConfig with FinalShots = 100 }
+                    CancellationToken.None
 
-        // Act
-        let result = DiverseSelection.solveWithConfig backend problem config
+            // Assert
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with negative budget"))
+            |> Result.defaultWith (fun err -> Assert.Contains("budget", err.ToString().ToLower()))
+        }
 
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            // With constraint repair, should be within budget
-            Assert.True(
-                solution.IsFeasible || solution.WasRepaired,
-                $"Solution should be feasible or repaired. Feasible={solution.IsFeasible}, Repaired={solution.WasRepaired}, Cost={solution.TotalCost}"
-            )
+    [<Fact>]
+    let ``solveWithConfig with constraint repair fixes budget violations`` () : Task =
+        task {
+            // Arrange
+            let problem: DiverseSelection.Problem =
+                {
+                    Items =
+                        [
+                            { Id = "A"; Value = 10.0; Cost = 20.0 }
+                            { Id = "B"; Value = 15.0; Cost = 30.0 }
+                            { Id = "C"; Value = 5.0; Cost = 10.0 }
+                        ]
+                    Diversity = Array2D.zeroCreate 3 3
+                    Budget = 40.0
+                    DiversityWeight = 0.0
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                }
+
+            // Act
+            let! result =
+                DiverseSelection.solveWithConfigAsync backend problem config CancellationToken.None
+
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                // With constraint repair, should be within budget
+                Assert.True(
+                    solution.IsFeasible || solution.WasRepaired,
+                    $"Solution should be feasible or repaired. Feasible={solution.IsFeasible}, Repaired={solution.WasRepaired}, Cost={solution.TotalCost}"
+                )
+        }
 
 // ============================================================================
 // QUBO PROPERTY TESTS
@@ -824,75 +871,96 @@ module QuboPropertyTests =
 module QuantumBackendTests =
 
     [<Fact>]
-    let ``IndependentSet solve returns solution with backend info`` () =
-        // Arrange
-        let problem: IndependentSet.Problem =
-            {
-                Nodes = [ { Id = "A"; Weight = 10.0 }; { Id = "B"; Weight = 5.0 } ]
-                Edges = [ (0, 1) ]
-            }
+    let ``IndependentSet solve returns solution with backend info`` () : Task =
+        task {
+            // Arrange
+            let problem: IndependentSet.Problem =
+                {
+                    Nodes = [ { Id = "A"; Weight = 10.0 }; { Id = "B"; Weight = 5.0 } ]
+                    Edges = [ (0, 1) ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        // Act
-        let result = IndependentSet.solve backend problem 100
+            // Act
+            let! result =
+                IndependentSet.solveWithConfigAsync
+                    backend
+                    problem
+                    { defaultConfig with FinalShots = 100 }
+                    CancellationToken.None
 
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.NotEmpty(solution.BackendName)
-            Assert.Equal(100, solution.NumShots)
-
-    [<Fact>]
-    let ``InfluenceMaximization solve returns solution with backend info`` () =
-        // Arrange
-        let problem: InfluenceMaximization.Problem =
-            {
-                Nodes = [ { Id = "A"; Score = 10.0 }; { Id = "B"; Score = 5.0 } ]
-                Edges = []
-                K = 1
-                SynergyWeight = 0.0
-            }
-
-        let backend = createLocalBackend ()
-
-        // Act
-        let result = InfluenceMaximization.solve backend problem 100
-
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.NotEmpty(solution.BackendName)
-            Assert.Equal(100, solution.NumShots)
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.NotEmpty(solution.BackendName)
+                Assert.Equal(100, solution.NumShots)
+        }
 
     [<Fact>]
-    let ``DiverseSelection solve returns solution with backend info`` () =
-        // Arrange
-        let problem: DiverseSelection.Problem =
-            {
-                Items =
-                    [
-                        { Id = "A"; Value = 10.0; Cost = 5.0 }
-                        { Id = "B"; Value = 5.0; Cost = 3.0 }
-                    ]
-                Diversity = Array2D.zeroCreate 2 2
-                Budget = 10.0
-                DiversityWeight = 0.0
-            }
+    let ``InfluenceMaximization solve returns solution with backend info`` () : Task =
+        task {
+            // Arrange
+            let problem: InfluenceMaximization.Problem =
+                {
+                    Nodes = [ { Id = "A"; Score = 10.0 }; { Id = "B"; Score = 5.0 } ]
+                    Edges = []
+                    K = 1
+                    SynergyWeight = 0.0
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        // Act
-        let result = DiverseSelection.solve backend problem 100
+            // Act
+            let! result =
+                InfluenceMaximization.solveWithConfigAsync
+                    backend
+                    problem
+                    { defaultConfig with FinalShots = 100 }
+                    CancellationToken.None
 
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.NotEmpty(solution.BackendName)
-            Assert.Equal(100, solution.NumShots)
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.NotEmpty(solution.BackendName)
+                Assert.Equal(100, solution.NumShots)
+        }
+
+    [<Fact>]
+    let ``DiverseSelection solve returns solution with backend info`` () : Task =
+        task {
+            // Arrange
+            let problem: DiverseSelection.Problem =
+                {
+                    Items =
+                        [
+                            { Id = "A"; Value = 10.0; Cost = 5.0 }
+                            { Id = "B"; Value = 5.0; Cost = 3.0 }
+                        ]
+                    Diversity = Array2D.zeroCreate 2 2
+                    Budget = 10.0
+                    DiversityWeight = 0.0
+                }
+
+            let backend = createLocalBackend ()
+
+            // Act
+            let! result =
+                DiverseSelection.solveWithConfigAsync
+                    backend
+                    problem
+                    { defaultConfig with FinalShots = 100 }
+                    CancellationToken.None
+
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.NotEmpty(solution.BackendName)
+                Assert.Equal(100, solution.NumShots)
+        }
 
 // ============================================================================
 // ADVANCED QAOA FEATURE TESTS
@@ -901,143 +969,155 @@ module QuantumBackendTests =
 module AdvancedQaoaTests =
 
     [<Fact>]
-    let ``solveWithConfig returns optimization parameters when enabled`` () =
-        // Arrange
-        let problem: IndependentSet.Problem =
-            {
-                Nodes = [ { Id = "A"; Weight = 10.0 }; { Id = "B"; Weight = 5.0 } ]
-                Edges = []
-            }
+    let ``solveWithConfig returns optimization parameters when enabled`` () : Task =
+        task {
+            // Arrange
+            let problem: IndependentSet.Problem =
+                {
+                    Nodes = [ { Id = "A"; Weight = 10.0 }; { Id = "B"; Weight = 5.0 } ]
+                    Edges = []
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { defaultConfig with
-                EnableOptimization = true
-                NumLayers = 2
-                OptimizationShots = 50
-                FinalShots = 100
-            }
+            let config =
+                { defaultConfig with
+                    EnableOptimization = true
+                    NumLayers = 2
+                    OptimizationShots = 50
+                    FinalShots = 100
+                }
 
-        // Act
-        let result = IndependentSet.solveWithConfig backend problem config
+            // Act
+            let! result =
+                IndependentSet.solveWithConfigAsync backend problem config CancellationToken.None
 
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.OptimizedParameters.IsSome, "Should return optimized parameters")
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.OptimizedParameters.IsSome, "Should return optimized parameters")
 
-            match solution.OptimizedParameters with
-            | Some parameters ->
-                Assert.Equal(2, parameters.Length) // 2 layers
+                match solution.OptimizedParameters with
+                | Some parameters ->
+                    Assert.Equal(2, parameters.Length) // 2 layers
 
-                for (gamma, beta) in parameters do
-                    Assert.True(gamma >= 0.0 && gamma <= System.Math.PI, $"Gamma {gamma} should be in [0, π]")
-                    Assert.True(beta >= 0.0 && beta <= System.Math.PI / 2.0, $"Beta {beta} should be in [0, π/2]")
-            | None -> Assert.Fail("OptimizedParameters should not be None")
-
-    [<Fact>]
-    let ``constraint repair produces valid solutions for IndependentSet`` () =
-        // Arrange: Problem where QAOA likely violates constraints
-        let problem: IndependentSet.Problem =
-            {
-                Nodes =
-                    [
-                        { Id = "A"; Weight = 10.0 }
-                        { Id = "B"; Weight = 10.0 }
-                        { Id = "C"; Weight = 10.0 }
-                    ]
-                Edges = [ (0, 1); (1, 2); (0, 2) ] // Triangle - fully connected
-            }
-
-        let backend = createLocalBackend ()
-
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-            }
-
-        // Act
-        let result = IndependentSet.solveWithConfig backend problem config
-
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            // With constraint repair, solution MUST be valid
-            Assert.True(
-                solution.IsValid,
-                $"Solution should be valid after constraint repair. WasRepaired={solution.WasRepaired}"
-            )
+                    for (gamma, beta) in parameters do
+                        Assert.True(gamma >= 0.0 && gamma <= System.Math.PI, $"Gamma {gamma} should be in [0, π]")
+                        Assert.True(beta >= 0.0 && beta <= System.Math.PI / 2.0, $"Beta {beta} should be in [0, π/2]")
+                | None -> Assert.Fail("OptimizedParameters should not be None")
+        }
 
     [<Fact>]
-    let ``constraint repair produces correct cardinality for InfluenceMaximization`` () =
-        // Arrange
-        let problem: InfluenceMaximization.Problem =
-            {
-                Nodes =
-                    [
-                        { Id = "A"; Score = 10.0 }
-                        { Id = "B"; Score = 20.0 }
-                        { Id = "C"; Score = 15.0 }
-                        { Id = "D"; Score = 5.0 }
-                    ]
-                Edges = []
-                K = 2
-                SynergyWeight = 0.0
-            }
+    let ``constraint repair produces valid solutions for IndependentSet`` () : Task =
+        task {
+            // Arrange: Problem where QAOA likely violates constraints
+            let problem: IndependentSet.Problem =
+                {
+                    Nodes =
+                        [
+                            { Id = "A"; Weight = 10.0 }
+                            { Id = "B"; Weight = 10.0 }
+                            { Id = "C"; Weight = 10.0 }
+                        ]
+                    Edges = [ (0, 1); (1, 2); (0, 2) ] // Triangle - fully connected
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                }
 
-        // Act
-        let result = InfluenceMaximization.solveWithConfig backend problem config
+            // Act
+            let! result =
+                IndependentSet.solveWithConfigAsync backend problem config CancellationToken.None
 
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            // With constraint repair, should have exactly k nodes
-            Assert.Equal(2, solution.NumSelected)
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                // With constraint repair, solution MUST be valid
+                Assert.True(
+                    solution.IsValid,
+                    $"Solution should be valid after constraint repair. WasRepaired={solution.WasRepaired}"
+                )
+        }
 
     [<Fact>]
-    let ``constraint repair produces feasible solutions for DiverseSelection`` () =
-        // Arrange
-        let problem: DiverseSelection.Problem =
-            {
-                Items =
-                    [
-                        { Id = "A"; Value = 50.0; Cost = 30.0 }
-                        { Id = "B"; Value = 40.0; Cost = 25.0 }
-                        { Id = "C"; Value = 30.0; Cost = 20.0 }
-                        { Id = "D"; Value = 20.0; Cost = 15.0 }
-                    ]
-                Diversity = Array2D.zeroCreate 4 4
-                Budget = 50.0
-                DiversityWeight = 0.0
-            }
+    let ``constraint repair produces correct cardinality for InfluenceMaximization`` () : Task =
+        task {
+            // Arrange
+            let problem: InfluenceMaximization.Problem =
+                {
+                    Nodes =
+                        [
+                            { Id = "A"; Score = 10.0 }
+                            { Id = "B"; Score = 20.0 }
+                            { Id = "C"; Score = 15.0 }
+                            { Id = "D"; Score = 5.0 }
+                        ]
+                    Edges = []
+                    K = 2
+                    SynergyWeight = 0.0
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                }
 
-        // Act
-        let result = DiverseSelection.solveWithConfig backend problem config
+            // Act
+            let! result =
+                InfluenceMaximization.solveWithConfigAsync backend problem config CancellationToken.None
 
-        // Assert
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            // With constraint repair, should be within budget
-            Assert.True(
-                solution.IsFeasible,
-                $"Solution should be feasible. Cost={solution.TotalCost}, Budget={problem.Budget}, Repaired={solution.WasRepaired}"
-            )
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                // With constraint repair, should have exactly k nodes
+                Assert.Equal(2, solution.NumSelected)
+        }
+
+    [<Fact>]
+    let ``constraint repair produces feasible solutions for DiverseSelection`` () : Task =
+        task {
+            // Arrange
+            let problem: DiverseSelection.Problem =
+                {
+                    Items =
+                        [
+                            { Id = "A"; Value = 50.0; Cost = 30.0 }
+                            { Id = "B"; Value = 40.0; Cost = 25.0 }
+                            { Id = "C"; Value = 30.0; Cost = 20.0 }
+                            { Id = "D"; Value = 20.0; Cost = 15.0 }
+                        ]
+                    Diversity = Array2D.zeroCreate 4 4
+                    Budget = 50.0
+                    DiversityWeight = 0.0
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                }
+
+            // Act
+            let! result =
+                DiverseSelection.solveWithConfigAsync backend problem config CancellationToken.None
+
+            // Assert
+            match result with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                // With constraint repair, should be within budget
+                Assert.True(
+                    solution.IsFeasible,
+                    $"Solution should be feasible. Cost={solution.TotalCost}, Budget={problem.Budget}, Repaired={solution.WasRepaired}"
+                )
+        }
