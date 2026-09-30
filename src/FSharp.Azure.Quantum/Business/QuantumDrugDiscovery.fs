@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.Business
 
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -208,6 +210,40 @@ module internal ScreeningScoring =
         else
             $"Mol_{i}"
 
+    /// Score every candidate in order with `scoreOne` (returning score and predicted-active
+    /// flag), stopping at the first failure, which is reported as a Scoring error.
+    let scoreAllAsync
+        (identifiers: string array)
+        (features: float[][])
+        (scoreOne: float[] -> Task<QuantumResult<float * bool>>)
+        : Task<QuantumResult<ScoredCandidate[]>> =
+        task {
+            let scored = ResizeArray<ScoredCandidate>()
+            let mutable firstError = None
+            let mutable i = 0
+
+            while firstError.IsNone && i < features.Length do
+                let! result = scoreOne features.[i]
+
+                match result with
+                | Ok(score, active) ->
+                    scored.Add
+                        {
+                            Index = i
+                            Identifier = identifierAt identifiers i
+                            Score = score
+                            PredictedActive = Some active
+                        }
+                | Error e -> firstError <- Some e
+
+                i <- i + 1
+
+            match firstError with
+            | Some(e: QuantumError) ->
+                return Error(QuantumError.OperationError("Scoring", $"Candidate scoring failed: {e.Message}"))
+            | None -> return Ok(scored.ToArray())
+        }
+
 type QuantumDrugDiscoveryBuilder() =
 
     let defaultConfig =
@@ -234,29 +270,8 @@ type QuantumDrugDiscoveryBuilder() =
 
     member _.For(state: DrugDiscoveryConfiguration, body: unit -> DrugDiscoveryConfiguration) = body ()
 
-    member private _.LoadCandidates(state: DrugDiscoveryConfiguration) =
-        match state.CandidateSource with
-        | Some(Provider provider) -> ProviderDataLoader.loadFromProvider provider
-        | Some(ProviderAsync provider) ->
-            // Note: This uses Async.RunSynchronously on a private member.
-            // Use LoadCandidatesAsync for non-blocking execution.
-            ProviderDataLoader.loadFromProviderAsync provider |> Async.RunSynchronously
-        | Some(FilePath path) -> ProviderDataLoader.loadFromFilePath path
-        | None ->
-            match state.CandidatesPath with
-            | Some path -> ProviderDataLoader.loadFromFilePath path
-            | None ->
-                Error(
-                    QuantumError.ValidationError(
-                        "Input",
-                        "No candidates specified. Use 'load_candidates_from_file' or 'load_candidates_from_provider'."
-                    )
-                )
-
-    /// Non-blocking variant of LoadCandidates that awaits async providers via task CE.
-    member private _.LoadCandidatesAsync
-        (state: DrugDiscoveryConfiguration, cancellationToken: System.Threading.CancellationToken)
-        =
+    /// Load the candidate molecules, awaiting async providers.
+    member private _.LoadCandidatesAsync(state: DrugDiscoveryConfiguration, cancellationToken: CancellationToken) =
         task {
             cancellationToken.ThrowIfCancellationRequested()
 
@@ -285,7 +300,7 @@ type QuantumDrugDiscoveryBuilder() =
         | PauliFeatureMap -> FeatureMapType.PauliFeatureMap([ "Z"; "ZZ" ], 2)
         | ZFeatureMap -> FeatureMapType.ZZFeatureMap 1
 
-    member private _.TrainQuantumKernelSVM
+    member private _.TrainQuantumKernelSVMAsync
         (backend: IQuantumBackend)
         featureMap
         (features: float[][])
@@ -294,7 +309,8 @@ type QuantumDrugDiscoveryBuilder() =
         shots
         (identifiers: string[])
         state
-        =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<ScreeningResult>> =
         let limit = min features.Length batchSize
         let trainData = features.[0 .. limit - 1]
         let trainLabels = labels.[0 .. limit - 1]
@@ -305,32 +321,26 @@ type QuantumDrugDiscoveryBuilder() =
                 MaxIterations = 20
             }
 
-        QuantumKernelSVM.train backend featureMap trainData trainLabels config shots
-        |> Result.mapError (fun e -> QuantumError.OperationError("Training", $"Training Failed: {e.Message}"))
-        |> Result.bind (fun model ->
+        quantumResultTask {
+            let! model =
+                QuantumKernelSVM.train backend featureMap trainData trainLabels config shots
+                |> Result.mapError (fun e -> QuantumError.OperationError("Training", $"Training Failed: {e.Message}"))
+
             // Genuinely score the whole candidate pool with the trained model: the SVM
             // decision value is the screening score (signed distance from the hyperplane).
-            features
-            |> Array.mapi (fun i feat ->
-                (QuantumKernelSVM.predictAsync backend model feat shots System.Threading.CancellationToken.None)
-                    .GetAwaiter()
-                    .GetResult()
-                |> Result.map (fun pred ->
-                    {
-                        Index = i
-                        Identifier = ScreeningScoring.identifierAt identifiers i
-                        Score = pred.DecisionValue
-                        PredictedActive = Some(pred.Label = 1)
-                    }))
-            |> ScreeningScoring.sequence
-            |> Result.mapError (fun e ->
-                QuantumError.OperationError("Scoring", $"Candidate scoring failed: {e.Message}"))
-            |> Result.map (fun scored ->
-                let ranked = scored |> Array.sortByDescending (fun c -> c.Score)
+            let! scored =
+                ScreeningScoring.scoreAllAsync identifiers features (fun feat ->
+                    task {
+                        let! pred = QuantumKernelSVM.predictAsync backend model feat shots cancellationToken
+                        return pred |> Result.map (fun pred -> (pred.DecisionValue, pred.Label = 1))
+                    })
 
-                let hits =
-                    ranked |> Array.filter (fun c -> c.PredictedActive = Some true) |> Array.length
+            let ranked = scored |> Array.sortByDescending (fun c -> c.Score)
 
+            let hits =
+                ranked |> Array.filter (fun c -> c.PredictedActive = Some true) |> Array.length
+
+            return
                 {
                     Message =
                         $"Quantum Kernel SVM screening complete.\nSupport Vectors: {model.SupportVectorIndices.Length}\nBias: {model.Bias:F4}\nCandidates scored: {ranked.Length}\nPredicted active hits: {hits}"
@@ -338,7 +348,8 @@ type QuantumDrugDiscoveryBuilder() =
                     MoleculesProcessed = features.Length
                     RankedCandidates = ranked
                     Configuration = state
-                }))
+                }
+        }
 
     member private this.TrainVQCClassifier
         (backend: IQuantumBackend)
@@ -409,12 +420,13 @@ type QuantumDrugDiscoveryBuilder() =
                     Configuration = state
                 }))
 
-    member private _.RunQAOADiverseSelection
+    member private _.RunQAOADiverseSelectionAsync
         (backend: IQuantumBackend)
         (features: float[][])
         (labelsOpt: int[] option)
         state
-        =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<ScreeningResult>> =
         let limit = min features.Length state.BatchSize
 
         // Create items from molecules with activity scores
@@ -459,53 +471,68 @@ type QuantumDrugDiscoveryBuilder() =
             }
 
         // Run QAOA solver
-        DrugDiscoverySolvers.DiverseSelection.solveWithConfigAsync
-            backend
-            problem
-            { DrugDiscoverySolvers.defaultConfig with
-                FinalShots = state.Shots
-            }
-            System.Threading.CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-        |> Result.map (fun solution ->
-            let selectedIds =
-                solution.SelectedItems |> List.map (fun item -> item.Id) |> String.concat ", "
-            // Expose the selected diverse set as ranked candidates (by activity value).
-            let ranked =
-                solution.SelectedItems
-                |> List.map (fun item ->
-                    let idx =
-                        match System.Int32.TryParse(item.Id.Replace("Mol_", "")) with
-                        | true, n -> n
-                        | _ -> -1
+        task {
+            let! solution =
+                DrugDiscoverySolvers.DiverseSelection.solveWithConfigAsync
+                    backend
+                    problem
+                    { DrugDiscoverySolvers.defaultConfig with
+                        FinalShots = state.Shots
+                    }
+                    cancellationToken
+
+            return
+                solution
+                |> Result.map (fun solution ->
+                    let selectedIds =
+                        solution.SelectedItems |> List.map (fun item -> item.Id) |> String.concat ", "
+                    // Expose the selected diverse set as ranked candidates (by activity value).
+                    let ranked =
+                        solution.SelectedItems
+                        |> List.map (fun item ->
+                            let idx =
+                                match System.Int32.TryParse(item.Id.Replace("Mol_", "")) with
+                                | true, n -> n
+                                | _ -> -1
+
+                            {
+                                Index = idx
+                                Identifier = item.Id
+                                Score = item.Value
+                                PredictedActive = None
+                            })
+                        |> List.sortByDescending (fun c -> c.Score)
+                        |> Array.ofList
 
                     {
-                        Index = idx
-                        Identifier = item.Id
-                        Score = item.Value
-                        PredictedActive = None
+                        Message =
+                            $"QAOA Diverse Selection Complete!\nSelected: {solution.SelectedItems.Length} compounds\nTotal Value: {solution.TotalValue:F2}\nDiversity Bonus: {solution.DiversityBonus:F2}\nTotal Cost: {solution.TotalCost:F2}\nFeasible: {solution.IsFeasible}\n\nSelected Compounds: {selectedIds}"
+                        Method = QAOADiverseSelection
+                        MoleculesProcessed = limit
+                        RankedCandidates = ranked
+                        Configuration = state
                     })
-                |> List.sortByDescending (fun c -> c.Score)
-                |> Array.ofList
+                |> Result.mapError (fun e ->
+                    QuantumError.OperationError("QAOASelection", $"QAOA Selection Failed: {e.Message}"))
+        }
 
-            {
-                Message =
-                    $"QAOA Diverse Selection Complete!\nSelected: {solution.SelectedItems.Length} compounds\nTotal Value: {solution.TotalValue:F2}\nDiversity Bonus: {solution.DiversityBonus:F2}\nTotal Cost: {solution.TotalCost:F2}\nFeasible: {solution.IsFeasible}\n\nSelected Compounds: {selectedIds}"
-                Method = QAOADiverseSelection
-                MoleculesProcessed = limit
-                RankedCandidates = ranked
-                Configuration = state
-            })
-        |> Result.mapError (fun e ->
-            QuantumError.OperationError("QAOASelection", $"QAOA Selection Failed: {e.Message}"))
+    /// Run the configured screening pipeline: load candidates, extract features and
+    /// screen them with the selected method on the configured backend.
+    member this.RunAsync
+        (state: DrugDiscoveryConfiguration, cancellationToken: CancellationToken)
+        : Task<QuantumResult<ScreeningResult>> =
+        quantumResultTask {
+            // Load and validate candidates
+            let! dataset =
+                task {
+                    let! loaded = this.LoadCandidatesAsync(state, cancellationToken)
 
-    member this.Run(state: DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> =
-        // Load and validate candidates
-        this.LoadCandidates state
-        |> Result.mapError (fun e ->
-            QuantumError.OperationError("DataLoading", $"Error loading molecular data: {e.Message}"))
-        |> Result.bind (fun dataset ->
+                    return
+                        loaded
+                        |> Result.mapError (fun e ->
+                            QuantumError.OperationError("DataLoading", $"Error loading molecular data: {e.Message}"))
+                }
+
             // Extract features, retaining a stable identifier (SMILES) per molecule so the
             // scored candidates can be reported with their chemistry, not just an index.
             let identifiers = dataset.Molecules |> Array.map (fun m -> m.Smiles)
@@ -515,54 +542,64 @@ type QuantumDrugDiscoveryBuilder() =
                 |> MolecularData.withDescriptors
                 |> MolecularData.withFingerprints state.FingerprintSize
 
-            MolecularData.toFeatureMatrix true true datasetWithFeats
-            |> Result.mapError (fun e ->
-                QuantumError.OperationError("FeatureExtraction", $"Error generating features: {e.Message}"))
-            |> Result.map (fun (features, labelsOpt) -> (features, labelsOpt, identifiers)))
-        |> Result.bind (fun (features, labelsOpt, identifiers) ->
+            let! (features, labelsOpt) =
+                MolecularData.toFeatureMatrix true true datasetWithFeats
+                |> Result.mapError (fun e ->
+                    QuantumError.OperationError("FeatureExtraction", $"Error generating features: {e.Message}"))
+
             // Run screening method
             match state.Method with
             | QuantumKernelSVM ->
                 match state.Backend, labelsOpt with
-                | None, _ -> Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
+                | None, _ -> return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
                 | _, None ->
-                    Error(
-                        QuantumError.ValidationError(
-                            "labels",
-                            "QuantumKernelSVM screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data or use QAOADiverseSelection for unlabeled candidates."
+                    return!
+                        Error(
+                            QuantumError.ValidationError(
+                                "labels",
+                                "QuantumKernelSVM screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data or use QAOADiverseSelection for unlabeled candidates."
+                            )
                         )
-                    )
                 | Some backend, Some labels ->
                     let featureMap = this.MapFeatureMap state.FeatureMap
 
-                    this.TrainQuantumKernelSVM
-                        backend
-                        featureMap
-                        features
-                        labels
-                        state.BatchSize
-                        state.Shots
-                        identifiers
-                        state
+                    return!
+                        this.TrainQuantumKernelSVMAsync
+                            backend
+                            featureMap
+                            features
+                            labels
+                            state.BatchSize
+                            state.Shots
+                            identifiers
+                            state
+                            cancellationToken
             | VQCClassifier ->
                 match state.Backend, labelsOpt with
-                | None, _ -> Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
+                | None, _ -> return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
                 | _, None ->
-                    Error(
-                        QuantumError.ValidationError(
-                            "labels",
-                            "VQCClassifier screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data or use QAOADiverseSelection for unlabeled candidates."
+                    return!
+                        Error(
+                            QuantumError.ValidationError(
+                                "labels",
+                                "VQCClassifier screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data or use QAOADiverseSelection for unlabeled candidates."
+                            )
                         )
-                    )
                 | Some backend, Some labels ->
                     let featureMap = this.MapFeatureMap state.FeatureMap
-                    this.TrainVQCClassifier backend featureMap features labels identifiers state
+                    return! this.TrainVQCClassifier backend featureMap features labels identifiers state
             | QAOADiverseSelection ->
                 match state.Backend with
-                | None -> Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
-                | Some backend -> this.RunQAOADiverseSelection backend features labelsOpt state)
+                | None -> return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
+                | Some backend -> return! this.RunQAOADiverseSelectionAsync backend features labelsOpt state cancellationToken
+        }
 
-    member this.Run(f: unit -> DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> = this.Run(f ())
+    /// The `drugDiscovery { ... }` expression yields a task: `let! result = drugDiscovery { ... }`
+    /// inside `task { }`, or `RunAsync` with a cancellation token.
+    member this.Run(state: DrugDiscoveryConfiguration) : Task<QuantumResult<ScreeningResult>> =
+        this.RunAsync(state, CancellationToken.None)
+
+    member this.Run(f: unit -> DrugDiscoveryConfiguration) : Task<QuantumResult<ScreeningResult>> = this.Run(f ())
 
     /// Load target protein structure from a PDB file
     [<CustomOperation("target_protein_from_pdb")>]
