@@ -801,11 +801,22 @@ let ``Edgeless MinimizeColors reuses a color before opening a new one`` () : Tas
 
 [<Fact>]
 let ``HybridSolver reports an edgeless graph as classical`` () =
-    let problem = quantumProblem [ "A"; "B" ] [] 2
+    task {
+        let problem = quantumProblem [ "A"; "B" ] [] 2
 
-    match HybridSolver.solveGraphColoring problem 2 None None (Some HybridSolver.Quantum) with
-    | Ok solution ->
-        Assert.Equal(HybridSolver.Classical, solution.Method)
-        Assert.Contains("no edges", solution.Reasoning)
-        Assert.Equal(QSolver.NoCircuitBackendName, solution.Result.BackendName)
-    | Error err -> Assert.Fail($"solveGraphColoring failed: {err.Message}")
+        match!
+            HybridSolver.solveGraphColoringAsync
+                problem
+                2
+                None
+                None
+                (Some HybridSolver.Quantum)
+                System.Threading.CancellationToken.None
+        with
+        | Ok solution ->
+            Assert.Equal(HybridSolver.Classical, solution.Method)
+            Assert.Contains("no edges", solution.Reasoning)
+            Assert.Equal(QSolver.NoCircuitBackendName, solution.Result.BackendName)
+        | Error err -> Assert.Fail($"solveGraphColoringAsync failed: {err.Message}")
+    }
+    :> System.Threading.Tasks.Task
