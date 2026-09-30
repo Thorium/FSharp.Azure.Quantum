@@ -163,29 +163,35 @@ module Shor =
     let private isEven n = n % 2 = 0
 
     /// <summary>
-    /// Convert phase estimate to period using continued fraction approximation.
-    /// Given phase φ = s/r (reduced fraction), extracts period r.
+    /// Candidate periods for a measured QPE outcome: the denominators of the continued-fraction
+    /// convergents of outcome / 2^c that are below N, each followed by its multiples below N.
     /// </summary>
-    /// <param name="phi">Phase estimate from QPE (in range [0, 1))</param>
-    /// <param name="maxDenom">Maximum denominator to search (typically N)</param>
-    /// <returns>Best rational approximation (numerator, denominator) or None</returns>
-    /// <example>
-    /// <code>
-    /// continuedFractionConvergent 0.125 15 = Some (1, 8)  // φ = 1/8
-    /// continuedFractionConvergent 0.25 15 = Some (1, 4)   // φ = 1/4
-    /// continuedFractionConvergent 0.5 15 = Some (1, 2)    // φ = 1/2
-    /// </code>
-    /// </example>
-    let private continuedFractionConvergent (phi: float) (maxDenom: int) : (int * int) option =
-        // Simple continued fraction approximation
-        // Find s/r such that |phi - s/r| is minimized
-        [ 1..maxDenom ]
-        |> List.map (fun denom ->
-            let num = int (round (phi * float denom))
-            let error = abs (phi - float num / float denom)
-            (num, denom, error))
-        |> List.minBy (fun (_, _, error) -> error)
-        |> fun (num, denom, _) -> if denom > 0 then Some(num, denom) else None
+    /// <remarks>
+    /// The outcome is ≈ 2^c · s/r for a random s, and s/r is a convergent of outcome / 2^c
+    /// when the phase is resolved finely enough — the standard post-processing of Shor's
+    /// algorithm. When gcd(s, r) > 1 the convergent reports a divisor of r, hence the multiples.
+    /// The expansion is exact integer arithmetic. (Choosing the fraction with denominator ≤ N
+    /// closest to the phase instead is not the same thing: with 6 counting qubits for N = 21
+    /// the outcome 11/64 is closest to 3/17, while its convergents are 1/5 and 1/6, and the
+    /// period 6 of 2 mod 21 was then almost never found.)
+    /// </remarks>
+    let private periodCandidates (outcome: int) (countingQubits: int) (n: int) : int list =
+        let rec expand (num: int64) (den: int64) (terms: int64 list) =
+            if den = 0L then
+                List.rev terms
+            else
+                expand den (num % den) ((num / den) :: terms)
+
+        // q_k = a_k · q_(k-1) + q_(k-2), from q_(-2) = 1, q_(-1) = 0.
+        expand (int64 outcome) (1L <<< countingQubits) []
+        |> List.scan (fun (older, previous) term -> (previous, term * previous + older)) (1L, 0L)
+        |> List.tail
+        |> List.map snd
+        |> List.filter (fun q -> q > 1L && q < int64 n)
+        |> List.map int
+        |> List.distinct
+        |> List.collect (fun q -> [ q .. q .. n - 1 ])
+        |> List.distinct
 
     // ========================================================================
     // FACTOR EXTRACTION FROM PERIOD (CLASSICAL)
@@ -725,11 +731,15 @@ module Shor =
                     let (_, countingQubits, totalQubits) = run
                     let phaseResult = phaseOfShot countingQubits totalQubits shots.[next]
 
-                    match continuedFractionConvergent phaseResult.EstimatedPhase n with
-                    | Some(_, r) when r > 0 && r < n && modPow a r n = 1 ->
+                    let periods =
+                        periodCandidates phaseResult.MeasurementOutcome countingQubits n
+                        |> List.filter (fun r -> modPow a r n = 1)
+
+                    match periods with
+                    | _ :: _ ->
                         Ok
                             {
-                                Period = r
+                                Period = List.min periods
                                 Base = a
                                 PhaseEstimate = phaseResult.EstimatedPhase
                                 Attempts = tries
