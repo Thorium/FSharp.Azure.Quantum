@@ -305,7 +305,11 @@ let marketStats, liveUsed =
     if liveDataEnabled then
         let symbols = selectedSpecs |> List.map (fun s -> s.Symbol)
 
-        match MarketData.computeFromYahoo info symbols windowFrom windowTo (Some MarketData.defaultRegimeProxy) with
+        match
+            MarketData.computeFromYahooAsync info symbols windowFrom windowTo (Some MarketData.defaultRegimeProxy)
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Ok(stats, dropped) ->
             for (s, reason) in dropped do
                 printfn "  Dropped %s: %s" s reason

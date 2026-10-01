@@ -490,13 +490,13 @@ let liveDataEnabled =
 let yahooCacheDir = Path.Combine(__SOURCE_DIRECTORY__, "output", "yahoo-cache")
 let _ = Directory.CreateDirectory(yahooCacheDir) |> ignore
 
-let private tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option =
-    try
-        use httpClient = new HttpClient()
+let private tryFetchReturnSeriesAsync (symbols: string list) =
+    task {
+        try
+            use httpClient = new HttpClient()
+            let series = ResizeArray<ReturnSeries>()
 
-        let series =
-            symbols
-            |> List.map (fun symbol ->
+            for symbol in symbols do
                 let request: YahooHistoryRequest =
                     {
                         Symbol = symbol
@@ -509,19 +509,17 @@ let private tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option 
                         EndDate = None
                     }
 
-                match
-                    fetchYahooHistoryAsync httpClient request CancellationToken.None
-                    |> Async.AwaitTask
-                    |> Async.RunSynchronously
-                with
-                | Ok priceSeries -> calculateReturns priceSeries
-                | Error error ->
-                    raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}")))
-            |> List.toArray
+                let! fetched = fetchYahooHistoryAsync httpClient request CancellationToken.None
 
-        Some series
-    with _ ->
-        None
+                match fetched with
+                | Ok priceSeries -> series.Add(calculateReturns priceSeries)
+                | Error error ->
+                    raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}"))
+
+            return Some(series.ToArray())
+        with _ ->
+            return None
+    }
 
 // ==============================================================================
 // RETURN SERIES GENERATION
@@ -552,7 +550,11 @@ let returnSeries =
     if liveDataEnabled then
         let symbols = marketData |> List.map (fun (sym, _, _, _, _, _, _) -> sym)
 
-        match tryFetchReturnSeries symbols with
+        match
+            tryFetchReturnSeriesAsync symbols
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Some series ->
             if not quiet then
                 printfn "Using live Yahoo Finance data (cached at %s)" yahooCacheDir
@@ -720,9 +722,9 @@ if not quiet then
 
 let mutable anyQuantumFailure = false
 
-let scenarioResults =
-    selectedScenarios
-    |> List.map (fun scenario ->
+/// Classical shock plus quantum tail-probability estimate for one scenario.
+let private stressScenarioAsync (scenario: ScenarioInfo) =
+    task {
         let (classicalLoss, classicalLossPct) = applyStressScenario scenario
 
         let stressedStatePrep =
@@ -731,10 +733,8 @@ let scenarioResults =
         let stressedThreshold = varThreshold * scenario.VolatilityMultiplier
         let oracle = buildLossOracle portfolioReturns stressedThreshold quantumQubits
 
-        let quantumResult =
+        let! quantumResult =
             estimateProbabilityAsync stressedStatePrep oracle groverIterations backend CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
 
         match quantumResult with
         | Ok tailProb ->
@@ -765,34 +765,50 @@ let scenarioResults =
                     (tailProb * 100.0)
                     speedup
 
-            {
-                Scenario = scenario
-                ClassicalLoss = classicalLoss
-                ClassicalLossPct = classicalLossPct
-                QuantumVaR = scaledVaR
-                QuantumES = quantumES
-                TailProbability = tailProb
-                QuantumQueries = groverIterations
-                Speedup = speedup
-                HasQuantumFailure = false
-            }
+            return
+                {
+                    Scenario = scenario
+                    ClassicalLoss = classicalLoss
+                    ClassicalLossPct = classicalLossPct
+                    QuantumVaR = scaledVaR
+                    QuantumES = quantumES
+                    TailProbability = tailProb
+                    QuantumQueries = groverIterations
+                    Speedup = speedup
+                    HasQuantumFailure = false
+                }
         | Error err ->
             anyQuantumFailure <- true
 
             if not quiet then
                 printfn "  [FAIL] %-33s  Loss: $%12s  Error: %A" scenario.Name (classicalLoss.ToString "N0") err
 
-            {
-                Scenario = scenario
-                ClassicalLoss = classicalLoss
-                ClassicalLossPct = classicalLossPct
-                QuantumVaR = nan
-                QuantumES = nan
-                TailProbability = nan
-                QuantumQueries = 0
-                Speedup = nan
-                HasQuantumFailure = true
-            })
+            return
+                {
+                    Scenario = scenario
+                    ClassicalLoss = classicalLoss
+                    ClassicalLossPct = classicalLossPct
+                    QuantumVaR = nan
+                    QuantumES = nan
+                    TailProbability = nan
+                    QuantumQueries = 0
+                    Speedup = nan
+                    HasQuantumFailure = true
+                }
+    }
+
+let scenarioResults =
+    task {
+        let stressed = ResizeArray()
+
+        for scenario in selectedScenarios do
+            let! scenarioResult = stressScenarioAsync scenario
+            stressed.Add scenarioResult
+
+        return List.ofSeq stressed
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 if not quiet then
     printfn ""

@@ -424,15 +424,13 @@ module PredictiveModel =
 
     /// Load model from file (async, task-based)
     let loadAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
-        async {
+        task {
             // Try to load as VQC model first.
             // NOTE: System.Text.Json fills missing members with defaults (null for arrays),
             // so a file saved as a different model kind can still deserialize "successfully"
             // into the wrong schema. Validate discriminating required fields (non-null,
             // non-empty) before accepting each branch.
-            let! transferResult =
-                ModelSerialization.loadForTransferLearningAsync path cancellationToken
-                |> Async.AwaitTask
+            let! transferResult = ModelSerialization.loadForTransferLearningAsync path cancellationToken
 
             let transferResult =
                 match transferResult with
@@ -455,7 +453,7 @@ module PredictiveModel =
                     | _ -> VariationalForm.RealAmplitudes 2
 
                 // Load full model to get finalLoss (stored as TrainMSE for regression)
-                match! ModelSerialization.loadVQCModelAsync path cancellationToken |> Async.AwaitTask with
+                match! ModelSerialization.loadVQCModelAsync path cancellationToken with
                 | Error e -> return Error e
                 | Ok serializedModel ->
                     let result: VQC.RegressionTrainingResult =
@@ -487,9 +485,7 @@ module PredictiveModel =
                             }
             | Error _ ->
                 // Try to load as multi-class VQC model
-                let! multiClassVqcResult =
-                    ModelSerialization.loadVQCMultiClassModelAsync path cancellationToken
-                    |> Async.AwaitTask
+                let! multiClassVqcResult = ModelSerialization.loadVQCMultiClassModelAsync path cancellationToken
 
                 let multiClassVqcResult =
                     match multiClassVqcResult with
@@ -559,9 +555,7 @@ module PredictiveModel =
                             }
                 | Error _ ->
                     // Try to load as HHL model
-                    let! hhlResult =
-                        HHLModelSerialization.loadHHLRegressionResultAsync path cancellationToken
-                        |> Async.AwaitTask
+                    let! hhlResult = HHLModelSerialization.loadHHLRegressionResultAsync path cancellationToken
 
                     let hhlResult =
                         match hhlResult with
@@ -594,9 +588,7 @@ module PredictiveModel =
                                 }
                     | Error _ ->
                         // Try to load as binary SVM model
-                        let! svmResult =
-                            SVMModelSerialization.loadSVMModelAsync path cancellationToken
-                            |> Async.AwaitTask
+                        let! svmResult = SVMModelSerialization.loadSVMModelAsync path cancellationToken
 
                         let svmResult =
                             match svmResult with
@@ -635,10 +627,7 @@ module PredictiveModel =
                                     }
                         | Error _ ->
                             // Try to load as multi-class SVM model
-                            match!
-                                SVMModelSerialization.loadMultiClassSVMModelAsync path cancellationToken
-                                |> Async.AwaitTask
-                            with
+                            match! SVMModelSerialization.loadMultiClassSVMModelAsync path cancellationToken with
                             | Ok multiClassModel ->
                                 let numFeatures =
                                     if
@@ -680,7 +669,6 @@ module PredictiveModel =
                                         )
                                     )
         }
-        |> Async.StartImmediateAsTask
 
     // ========================================================================
     // TRAINING - Core business logic
@@ -1020,7 +1008,7 @@ module PredictiveModel =
                                                 Note = problem.Note
                                             }
                                     }
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.ValidationError("Input", $"Training failed: {ex.Message}"))
         }
 
@@ -1135,7 +1123,7 @@ module PredictiveModel =
 
                     | _ -> return Error(QuantumError.Other "Unsupported model type for regression prediction")
 
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
         }
 
@@ -1235,7 +1223,7 @@ module PredictiveModel =
 
                     | _ -> return Error(QuantumError.Other "Unsupported model type for multi-class prediction")
 
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
         }
 
@@ -1289,7 +1277,7 @@ module PredictiveModel =
                                     MSE = mse
                                     RMSE = rmse
                                 }
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
         }
 
@@ -1370,7 +1358,7 @@ module PredictiveModel =
                                     F1Score = f1Score
                                     ConfusionMatrix = confusionMatrixArray
                                 }
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
         }
 

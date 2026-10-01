@@ -566,7 +566,7 @@ module AutoML =
                 if paired.Count = 0 then
                     0.0
                 else
-                    balancedAccuracy (paired |> Seq.map fst |> Array.ofSeq) (paired |> Seq.map snd |> Array.ofSeq)
+                    paired.ToArray() |> Array.unzip ||> balancedAccuracy
         }
 
     /// Genuine similarity-search score: average precision@k over the labelled validation
@@ -1059,7 +1059,7 @@ module AutoML =
                                                         logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
 
                                                     Ok(createFailureResult e.Message))
-                                    with ex ->
+                                    with ex when not (ex :? OperationCanceledException) ->
                                         if problemWithToken.Verbose then
                                             logError problemWithToken.Logger $"  [ERROR] Exception: {ex.Message}"
 
@@ -1208,7 +1208,7 @@ module AutoML =
                             SimilaritySearch.findSimilarAsync firstItem features topN searchIndex cancellationToken
 
                         return matches |> Result.map SimilarityPrediction
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
         }
 

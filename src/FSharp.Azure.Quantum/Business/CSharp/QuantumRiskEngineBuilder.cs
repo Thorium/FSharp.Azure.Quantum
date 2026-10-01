@@ -171,7 +171,7 @@ public class QuantumRiskEngineBuilder
             _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend),
             _cancellationToken.HasValue ? FSharpOption<CancellationToken>.Some(_cancellationToken.Value) : FSharpOption<CancellationToken>.None);
 
-        // Same as the obsolete RiskEngine.execute: run the async analysis and raise on failure.
+        // Run the async analysis and raise on failure; RiskEngine.executeAsync returns it as a Result.
         using var linked = _cancellationToken.HasValue
             ? CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken.Value, cancellationToken)
             : null;

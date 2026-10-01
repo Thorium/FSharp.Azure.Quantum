@@ -475,6 +475,66 @@ module GridSearchIntegrationTests =
         }
 
 // ============================================================================
+// runQaoaAsync TESTS (optimization or grid search, by configuration)
+// ============================================================================
+
+module RunQaoaTests =
+
+    let private twoQubitQubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
+
+    [<Fact>]
+    let ``runQaoaAsync grid-searches when optimization is disabled`` () : Task =
+        task {
+            let config =
+                { fastConfig with
+                    NumLayers = 1
+                    FinalShots = 200
+                }
+
+            match! runQaoaAsync (createLocalBackend ()) twoQubitQubo config CancellationToken.None with
+            | Ok(solution, parameters, converged) ->
+                Assert.Equal(2, solution.Length)
+                Assert.Equal(Some 1, parameters |> Option.map Array.length)
+                Assert.True(converged.IsNone, "a grid search reports no convergence")
+            | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        }
+
+    [<Fact>]
+    let ``runQaoaAsync optimizes when optimization is enabled`` () : Task =
+        task {
+            let config =
+                { defaultConfig with
+                    NumLayers = 1
+                    OptimizationShots = 50
+                    FinalShots = 200
+                    MaxOptimizationIterations = 50
+                }
+
+            match! runQaoaAsync (createLocalBackend ()) twoQubitQubo config CancellationToken.None with
+            | Ok(solution, parameters, converged) ->
+                Assert.Equal(2, solution.Length)
+                Assert.Equal(Some 1, parameters |> Option.map Array.length)
+                Assert.True(converged.IsSome, "an optimization reports whether it converged")
+            | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        }
+
+    [<Theory>]
+    [<InlineData(true)>]
+    [<InlineData(false)>]
+    let ``runQaoaAsync reports an invalid configuration as Error`` (enableOptimization: bool) : Task =
+        task {
+            let config =
+                { fastConfig with
+                    EnableOptimization = enableOptimization
+                    FinalShots = 0
+                }
+
+            match! runQaoaAsync (createLocalBackend ()) twoQubitQubo config CancellationToken.None with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("FinalShots", field)
+            | other -> Assert.Fail($"Expected a FinalShots validation error but got {other}")
+        }
+
+// ============================================================================
 // executeQaoaWithOptimization INTEGRATION TESTS
 // ============================================================================
 

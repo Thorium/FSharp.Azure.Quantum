@@ -55,6 +55,7 @@
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
@@ -495,40 +496,31 @@ let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) 
 
 /// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
 /// Returns (Ok energy | Error message, elapsed seconds).
-let private computeEnergy
+let private computeEnergyAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
     (molecule: Molecule)
-    : Result<float, string> * float =
-    let startTime = DateTime.Now
-    let config = solverConfig backend maxIter tol
+    : Task<Result<float, string> * float> =
+    task {
+        let startTime = DateTime.Now
+        let config = solverConfig backend maxIter tol
 
-    let result =
-        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
+        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
-    let elapsed = (DateTime.Now - startTime).TotalSeconds
+        let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-    match result with
-    | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
-    | Error err ->
-        if not quiet then
-            eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        match result with
+        | Ok vqeResult -> return (Ok vqeResult.Energy, elapsed)
+        | Error err ->
+            if not quiet then
+                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
-
-/// Unwrap energy result, tracking failure.
-let private unwrapEnergy (res: Result<float, string>) (anyFailure: byref<bool>) : float =
-    match res with
-    | Ok e -> e
-    | Error _ ->
-        anyFailure <- true
-        0.0
+            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+    }
 
 /// Screen one catalyst: compute catalyst energy, complex energy, derive binding energy.
-let private screenCatalyst
+let private screenCatalystAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
@@ -537,89 +529,92 @@ let private screenCatalyst
     (idx: int)
     (total: int)
     (catInfo: CatalystInfo)
-    : CatalystResult =
+    : Task<CatalystResult> =
+    task {
+        if not quiet then
+            printfn "  [%d/%d] %s (%s)" (idx + 1) total catInfo.Name catInfo.Formula
+            printfn "         Lewis acidity: %s" catInfo.LewisAcidity
 
-    if not quiet then
-        printfn "  [%d/%d] %s (%s)" (idx + 1) total catInfo.Name catInfo.Formula
-        printfn "         Lewis acidity: %s" catInfo.LewisAcidity
+        // Catalyst energy (0.0 when VQE failed)
+        let! (catRes, catTime) = computeEnergyAsync backend maxIter tol catInfo.Molecule
+        let catEnergy = catRes |> Result.defaultValue 0.0
 
-    let mutable anyFailure = not substrateOk
+        if not quiet then
+            match catRes with
+            | Ok e -> printfn "         E_cat = %.6f Ha  (%.1fs)" e catTime
+            | Error _ -> printfn "         E_cat = FAILED  (%.1fs)" catTime
 
-    // Catalyst energy
-    let (catRes, catTime) = computeEnergy backend maxIter tol catInfo.Molecule
-    let catEnergy = unwrapEnergy catRes &anyFailure
+        // Catalyst-substrate complex (offset substrate by 3 A)
+        let complex: Molecule =
+            {
+                Name = $"%s{catInfo.Formula} + CO"
+                Atoms =
+                    catInfo.Molecule.Atoms
+                    @ (carbonyl.Atoms
+                       |> List.map (fun a ->
+                           let (x, y, z) = a.Position
+                           { a with Position = (x + 3.0, y, z) }))
+                Bonds =
+                    catInfo.Molecule.Bonds
+                    @ (carbonyl.Bonds
+                       |> List.map (fun b ->
+                           { b with
+                               Atom1 = b.Atom1 + catInfo.Molecule.Atoms.Length
+                               Atom2 = b.Atom2 + catInfo.Molecule.Atoms.Length
+                           }))
+                Charge = 0
+                Multiplicity = 1
+            }
 
-    if not quiet then
-        match catRes with
-        | Ok e -> printfn "         E_cat = %.6f Ha  (%.1fs)" e catTime
-        | Error _ -> printfn "         E_cat = FAILED  (%.1fs)" catTime
+        let! (complexRes, complexTime) = computeEnergyAsync backend maxIter tol complex
+        let complexEnergy = complexRes |> Result.defaultValue 0.0
 
-    // Catalyst-substrate complex (offset substrate by 3 A)
-    let complex: Molecule =
-        {
-            Name = $"%s{catInfo.Formula} + CO"
-            Atoms =
-                catInfo.Molecule.Atoms
-                @ (carbonyl.Atoms
-                   |> List.map (fun a ->
-                       let (x, y, z) = a.Position
-                       { a with Position = (x + 3.0, y, z) }))
-            Bonds =
-                catInfo.Molecule.Bonds
-                @ (carbonyl.Bonds
-                   |> List.map (fun b ->
-                       { b with
-                           Atom1 = b.Atom1 + catInfo.Molecule.Atoms.Length
-                           Atom2 = b.Atom2 + catInfo.Molecule.Atoms.Length
-                       }))
-            Charge = 0
-            Multiplicity = 1
-        }
+        let anyFailure =
+            not substrateOk || Result.isError catRes || Result.isError complexRes
 
-    let (complexRes, complexTime) = computeEnergy backend maxIter tol complex
-    let complexEnergy = unwrapEnergy complexRes &anyFailure
+        if not quiet then
+            match complexRes with
+            | Ok e -> printfn "         E_cpx = %.6f Ha  (%.1fs)" e complexTime
+            | Error _ -> printfn "         E_cpx = FAILED  (%.1fs)" complexTime
 
-    if not quiet then
-        match complexRes with
-        | Ok e -> printfn "         E_cpx = %.6f Ha  (%.1fs)" e complexTime
-        | Error _ -> printfn "         E_cpx = FAILED  (%.1fs)" complexTime
+        // Binding energy
+        let bindingHartree =
+            if anyFailure then
+                0.0
+            else
+                complexEnergy - catEnergy - substrateEnergy
 
-    // Binding energy
-    let bindingHartree =
-        if anyFailure then
-            0.0
-        else
-            complexEnergy - catEnergy - substrateEnergy
+        let bindingKcal = bindingHartree * hartreeToKcalMol
 
-    let bindingKcal = bindingHartree * hartreeToKcalMol
+        // Estimated barrier reduction
+        let reduction =
+            if anyFailure then 0.0
+            elif bindingKcal < -50.0 then 15.0
+            elif bindingKcal < -20.0 then 12.0
+            elif bindingKcal < -5.0 then 8.0
+            else 0.0
 
-    // Estimated barrier reduction
-    let reduction =
-        if anyFailure then 0.0
-        elif bindingKcal < -50.0 then 15.0
-        elif bindingKcal < -20.0 then 12.0
-        elif bindingKcal < -5.0 then 8.0
-        else 0.0
+        let barrier = uncatalyzedBarrier - reduction
 
-    let barrier = uncatalyzedBarrier - reduction
+        if not quiet then
+            if not anyFailure then
+                printfn "         E_bind = %.4f Ha (%.1f kcal/mol)" bindingHartree bindingKcal
 
-    if not quiet then
-        if not anyFailure then
-            printfn "         E_bind = %.4f Ha (%.1f kcal/mol)" bindingHartree bindingKcal
+            printfn ""
 
-        printfn ""
-
-    {
-        Catalyst = catInfo
-        CatalystEnergy = catEnergy
-        SubstrateEnergy = substrateEnergy
-        ComplexEnergy = complexEnergy
-        BindingEnergyHartree = bindingHartree
-        BindingEnergyKcal = bindingKcal
-        EstimatedBarrierReduction = reduction
-        EstimatedBarrier = barrier
-        ComputeTimeSeconds = catTime + complexTime
-        HasVqeFailure = anyFailure
+        return
+            {
+                Catalyst = catInfo
+                CatalystEnergy = catEnergy
+                SubstrateEnergy = substrateEnergy
+                ComplexEnergy = complexEnergy
+                BindingEnergyHartree = bindingHartree
+                BindingEnergyKcal = bindingKcal
+                EstimatedBarrierReduction = reduction
+                EstimatedBarrier = barrier
+                ComputeTimeSeconds = catTime + complexTime
+                HasVqeFailure = anyFailure
+            }
     }
 
 // --- Compute substrate energy once ---
@@ -628,7 +623,9 @@ if not quiet then
     printfn "Computing substrate energy (CO carbonyl model)..."
 
 let (substrateRes, substrateTime) =
-    computeEnergy backend maxIterations tolerance carbonyl
+    computeEnergyAsync backend maxIterations tolerance carbonyl
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 let substrateOk = Result.isOk substrateRes
 
@@ -655,9 +652,19 @@ if not quiet then
     printfn ""
 
 let results =
-    catalysts
-    |> List.mapi (fun i cat ->
-        screenCatalyst backend maxIterations tolerance substrateEnergy substrateOk i catalysts.Length cat)
+    task {
+        let screened = ResizeArray()
+
+        for (i, cat) in List.indexed catalysts do
+            let! result =
+                screenCatalystAsync backend maxIterations tolerance substrateEnergy substrateOk i catalysts.Length cat
+
+            screened.Add result
+
+        return List.ofSeq screened
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Sort: most negative binding energy first (strongest binder). Failed → bottom.
 let ranked =

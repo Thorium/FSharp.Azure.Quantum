@@ -192,7 +192,7 @@ module SVMModelSerialization =
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
 
                 return Ok()
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to save SVM model: {ex.Message}"))
         }
 
@@ -223,7 +223,7 @@ module SVMModelSerialization =
                                 }
 
                             model)
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to load SVM model: {ex.Message}"))
         }
 
@@ -310,7 +310,7 @@ module SVMModelSerialization =
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
 
                 return Ok()
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return
                     Error(QuantumError.ValidationError("Input", $"Failed to save multi-class SVM model: {ex.Message}"))
         }
@@ -363,7 +363,7 @@ module SVMModelSerialization =
                                 }
 
                             model)
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return
                     Error(QuantumError.ValidationError("Input", $"Failed to load multi-class SVM model: {ex.Message}"))
         }

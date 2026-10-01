@@ -605,30 +605,34 @@ if not quiet then
     printfn "Running %d circuits with cached calibration..." testCircuits.Length
     printfn ""
 
-for (name, circ) in testCircuits do
-    match getOrMeasureCalibration "ionq" (qubitCount circ) remConfig twoQubitExecutor |> Async.AwaitTask |> Async.RunSynchronously with
-    | Error err ->
-        if not quiet then
-            printfn "  [ERROR] %s failed: %s" name err
-    | Ok calibration ->
-        if not quiet then
-            printfn "  Circuit: %s" name
-
-        match twoQubitExecutor circ circuitShots |> Async.AwaitTask |> Async.RunSynchronously with
+task {
+    for (name, circ) in testCircuits do
+        match! getOrMeasureCalibration "ionq" (qubitCount circ) remConfig twoQubitExecutor with
         | Error err ->
             if not quiet then
-                printfn "    [ERROR] Execution failed: %s" err
-        | Ok measured ->
-            match correctReadoutErrors measured calibration remConfig with
+                printfn "  [ERROR] %s failed: %s" name err
+        | Ok calibration ->
+            if not quiet then
+                printfn "  Circuit: %s" name
+
+            match! twoQubitExecutor circ circuitShots with
             | Error err ->
                 if not quiet then
-                    printfn "    [ERROR] Correction failed: %s" err
-            | Ok correctedResult ->
-                if not quiet then
-                    printfn "    [OK] Corrected (goodness-of-fit: %.4f)" correctedResult.GoodnessOfFit
+                    printfn "    [ERROR] Execution failed: %s" err
+            | Ok measured ->
+                match correctReadoutErrors measured calibration remConfig with
+                | Error err ->
+                    if not quiet then
+                        printfn "    [ERROR] Correction failed: %s" err
+                | Ok correctedResult ->
+                    if not quiet then
+                        printfn "    [OK] Corrected (goodness-of-fit: %.4f)" correctedResult.GoodnessOfFit
 
-    if not quiet then
-        printfn ""
+        if not quiet then
+            printfn ""
+}
+|> Async.AwaitTask
+|> Async.RunSynchronously
 
 if not quiet then
     printfn "Notice: Second circuit used cached calibration (no re-measurement)!"

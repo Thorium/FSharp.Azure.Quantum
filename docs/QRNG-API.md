@@ -190,7 +190,7 @@ let salt = QRNG.generateBytes 16
 val generateWithBackendAsync : 
     numBits:int -> 
     backend:IQuantumBackend -> 
-    ct:CancellationToken -> 
+    cancellationToken:CancellationToken -> 
     Task<QuantumResult<QRNGResult>>
 ```
 

@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
@@ -42,7 +43,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// Example:
 ///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-///   match QuantumKnapsackSolver.solve backend problem config with
+///   match! QuantumKnapsackSolver.solveAsync backend problem config CancellationToken.None with
 ///   | Ok solution -> printfn "Total value: %f" solution.TotalValue
 ///   | Error msg -> printfn "Error: %s" msg
 module QuantumKnapsackSolver =
@@ -303,7 +304,7 @@ module QuantumKnapsackSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<KnapsackSolution, QuantumError>> =
 
-        let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+        let stopwatch = Stopwatch.StartNew()
 
         try
             // Step 1: Validate problem
@@ -642,7 +643,7 @@ module QuantumKnapsackSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<SubsetSumResult, QuantumError>> =
         task {
-            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+            let stopwatch = Stopwatch.StartNew()
             let n = items.Length
             let epsilon = 0.0001
 

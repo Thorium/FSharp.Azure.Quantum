@@ -391,53 +391,60 @@ let createZnSDimer () : Molecule =
     }
 
 /// Run VQE for a molecule and return result row
-let runVqe (label: string) (description: string) (molecule: Molecule) : Map<string, string> =
-    if not quiet then
-        printfn "  VQE: %s — %s" label molecule.Name
-
-    match calculateVQEEnergy backend molecule with
-    | Ok(energy, iterations, time) ->
+let runVqeAsync (label: string) (description: string) (molecule: Molecule) =
+    task {
         if not quiet then
-            printfn
-                "    Energy: %.6f Ha (%.3f eV), Iterations: %d, Time: %.2f s"
-                energy
-                (energy * hartreeToEV)
-                iterations
-                time
+            printfn "  VQE: %s — %s" label molecule.Name
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", $"%.6f{energy}"
-                "energy_eV", sprintf "%.3f" (energy * hartreeToEV)
-                "iterations", $"%d{iterations}"
-                "time_seconds", $"%.2f{time}"
-                "has_vqe_failure", "false"
-            ]
-    | Error msg ->
-        anyVqeFailure <- true
+        match! calculateVQEEnergyAsync backend molecule with
+        | Ok(energy, iterations, time) ->
+            if not quiet then
+                printfn
+                    "    Energy: %.6f Ha (%.3f eV), Iterations: %d, Time: %.2f s"
+                    energy
+                    (energy * hartreeToEV)
+                    iterations
+                    time
 
-        if not quiet then
-            eprintfn "    Error: %s" msg
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", $"%.6f{energy}"
+                        "energy_eV", sprintf "%.3f" (energy * hartreeToEV)
+                        "iterations", $"%d{iterations}"
+                        "time_seconds", $"%.2f{time}"
+                        "has_vqe_failure", "false"
+                    ]
+        | Error msg ->
+            anyVqeFailure <- true
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", "N/A"
-                "energy_eV", "N/A"
-                "iterations", "N/A"
-                "time_seconds", "N/A"
-                "has_vqe_failure", "true"
-            ]
+            if not quiet then
+                eprintfn "    Error: %s" msg
+
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", "N/A"
+                        "energy_eV", "N/A"
+                        "iterations", "N/A"
+                        "time_seconds", "N/A"
+                        "has_vqe_failure", "true"
+                    ]
+    }
 
 let vqeResults =
-    [
-        runVqe "CdSe Dimer" $"Cd-Se bond: %.2f{cdSeBondLength} A" (createCdSeDimer ())
-        runVqe "Cd2Se2 Cluster" "Rhombus structure, 4 atoms" (createCd2Se2Cluster ())
-        runVqe "ZnS Dimer" "Comparison material, Zn-S bond: 2.34 A" (createZnSDimer ())
-    ]
+    task {
+        let! cdSeDimer = runVqeAsync "CdSe Dimer" $"Cd-Se bond: %.2f{cdSeBondLength} A" (createCdSeDimer ())
+        let! cd2Se2Cluster = runVqeAsync "Cd2Se2 Cluster" "Rhombus structure, 4 atoms" (createCd2Se2Cluster ())
+        let! znSDimer = runVqeAsync "ZnS Dimer" "Comparison material, Zn-S bond: 2.34 A" (createZnSDimer ())
+        return [ cdSeDimer; cd2Se2Cluster; znSDimer ]
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // ==============================================================================
 // COMPARISON TABLE (unconditional)

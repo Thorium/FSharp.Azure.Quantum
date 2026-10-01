@@ -441,18 +441,16 @@ let problem = scheduling {
 // Solve with a quantum backend (qubits = tasks x time slots)
 let backend = LocalBackend() :> IQuantumBackend
 
-match
-    solveQuantumAsync backend problem CancellationToken.None
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
-with
-| Ok solution ->
-    printfn "Makespan: %.2f hours" solution.Makespan.TotalHours
-    solution.Assignments
-    |> List.iter (fun assignment ->
-        printfn "%s: starts %O, ends %O"
-            assignment.TaskId assignment.StartTime assignment.EndTime)
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! solveQuantumAsync backend problem CancellationToken.None with
+    | Ok solution ->
+        printfn "Makespan: %.2f hours" solution.Makespan.TotalHours
+        solution.Assignments
+        |> List.iter (fun assignment ->
+            printfn "%s: starts %O, ends %O"
+                assignment.TaskId assignment.StartTime assignment.EndTime)
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Features:**
@@ -920,7 +918,7 @@ task {
 - Model Serialization - Save/load trained models
 - Data Preprocessing - Normalization, encoding, splits
 
-The same code runs on a cloud backend: every forward pass and every kernel entry is one circuit submitted with `ExecuteToState`, so training is many billed jobs (a kernel matrix of n samples is n(n+1)/2 circuits). Kernel matrices keep at most `QuantumKernel.MaxConcurrentSampledJobs` (8) circuits in flight on a cloud backend; cap the total with a `JobBudget`.
+The same code runs on a cloud backend: every forward pass and every kernel entry is one circuit submitted with `ExecuteToState`, so training is many billed jobs (a kernel matrix of n samples is n(n+1)/2 circuits). Kernel matrices keep at most `QuantumKernels.MaxConcurrentSampledJobs` (8) circuits in flight on a cloud backend; cap the total with a `JobBudget`.
 
 **Examples:** 
 - `examples/QML/VQCExample.fsx` - Complete VQC training pipeline
@@ -1879,7 +1877,7 @@ The high-level solvers (QAOA, QFT, Grover) take any of these through the same in
 
 ### Azure Quantum Workspace Management
 
-**Production-ready hybrid approach: Workspace quota management (Azure.Quantum.Jobs) + proven HTTP cloud backends for job execution**
+**Production-ready hybrid approach: Workspace quota and provider-status queries (REST data plane) + proven HTTP cloud backends for job execution**
 
 ```fsharp
 open FSharp.Azure.Quantum

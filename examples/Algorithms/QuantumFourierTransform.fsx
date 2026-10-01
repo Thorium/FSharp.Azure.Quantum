@@ -26,7 +26,7 @@
 #else
 #r "nuget: FSharp.Azure.Quantum"
 #endif
-#load "../_common/SvgAnimation.fsx"
+#load "../_common/SvgAnimation.fs"
 
 open System
 open System.IO

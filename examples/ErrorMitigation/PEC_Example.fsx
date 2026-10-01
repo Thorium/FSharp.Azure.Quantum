@@ -482,44 +482,48 @@ if compareSamples || not quiet then
         printfn "Running PEC with different sample counts..."
         printfn ""
 
-    for s in sampleCounts do
-        let config: PECConfig =
-            {
-                NoiseModel = noiseModel
-                Samples = s
-                Seed = Some 42
-            }
+    task {
+        for s in sampleCounts do
+            let config: PECConfig =
+                {
+                    NoiseModel = noiseModel
+                    Samples = s
+                    Seed = Some 42
+                }
 
-        match mitigateAsync h2Circuit config noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
-        | Ok result ->
-            let error = abs (result.CorrectedExpectation - trueEnergy)
-            let uncorrectedError = abs (result.UncorrectedExpectation - trueEnergy)
-            let improvement = if error > 0.0 then uncorrectedError / error else 0.0
+            match! mitigateAsync h2Circuit config noisyExecutor CancellationToken.None with
+            | Ok result ->
+                let error = abs (result.CorrectedExpectation - trueEnergy)
+                let uncorrectedError = abs (result.UncorrectedExpectation - trueEnergy)
+                let improvement = if error > 0.0 then uncorrectedError / error else 0.0
 
-            if not quiet then
-                printfn "  %3d samples -> Error: %.4f Hartree, Improvement: %.2fx, Cost: %dx" s error improvement s
+                if not quiet then
+                    printfn "  %3d samples -> Error: %.4f Hartree, Improvement: %.2fx, Cost: %dx" s error improvement s
 
-            if compareSamples then
-                allResults.Add(
-                    [
-                        "example", $"4_compare_%d{s}_samples"
-                        "samples", string s
-                        "single_qubit_error", $"%.4f{singleQubitError}"
-                        "two_qubit_error", $"%.4f{twoQubitError}"
-                        "readout_error", $"%.4f{readoutError}"
-                        "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
-                        "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
-                        "corrected_error_Ha", $"%.6f{error}"
-                        "uncorrected_error_Ha", $"%.6f{uncorrectedError}"
-                        "accuracy_improvement_x", $"%.2f{improvement}"
-                        "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
-                        "overhead_x", string s
-                    ]
-                    |> Map.ofList
-                )
-        | Error msg ->
-            if not quiet then
-                printfn "  %3d samples -> Error: %s" s msg
+                if compareSamples then
+                    allResults.Add(
+                        [
+                            "example", $"4_compare_%d{s}_samples"
+                            "samples", string s
+                            "single_qubit_error", $"%.4f{singleQubitError}"
+                            "two_qubit_error", $"%.4f{twoQubitError}"
+                            "readout_error", $"%.4f{readoutError}"
+                            "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
+                            "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
+                            "corrected_error_Ha", $"%.6f{error}"
+                            "uncorrected_error_Ha", $"%.6f{uncorrectedError}"
+                            "accuracy_improvement_x", $"%.2f{improvement}"
+                            "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
+                            "overhead_x", string s
+                        ]
+                        |> Map.ofList
+                    )
+            | Error msg ->
+                if not quiet then
+                    printfn "  %3d samples -> Error: %s" s msg
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
     if not quiet then
         printfn ""

@@ -646,42 +646,65 @@ let createFeatureMapCircuit (features: float array) (nQubits: int) : string =
 
     sb.ToString()
 
-/// Compute the quantum kernel K(x,y) = |<phi(x)|phi(y)>|^2 between two feature
-/// vectors by building a ZZ feature-map circuit and executing it on the quantum
-/// backend (real quantum kernel, not a classical approximation).
-let computeQuantumKernel (features1: float array) (features2: float array) : float =
-    match
-        QuantumKernels.computeKernelAsync
-            backend
-            (ZZFeatureMap featureMapDepth)
-            features1
-            features2
-            quantumShots
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-    with
-    | Ok kernel -> kernel
-    | Error _ ->
-        // Defensive fallback (e.g. backend rejects the circuit): classical cosine kernel
-        let dotProduct =
-            Array.zip features1 features2 |> Array.sumBy (fun (a, b) -> cos (a - b))
+/// Classical cosine kernel, scaled to [0, 1].
+let classicalKernel (features1: float array) (features2: float array) : float =
+    let dotProduct =
+        Array.zip features1 features2 |> Array.sumBy (fun (a, b) -> cos (a - b))
 
-        (1.0 + dotProduct / float features1.Length) / 2.0 // Scale to [0, 1]
+    (1.0 + dotProduct / float features1.Length) / 2.0 // Scale to [0, 1]
+
+/// Use the quantum kernel matrix, or the classical cosine kernel when the
+/// backend rejects the batch (defensive fallback).
+let private kernelsOrClassical (rows: float array array) (columns: float array array) kernels =
+    match kernels with
+    | Ok(matrix: float[,]) -> matrix
+    | Error _ -> Array2D.init rows.Length columns.Length (fun i j -> classicalKernel rows.[i] columns.[j])
+
+/// Compute the quantum kernels K(x,y) = |<phi(x)|phi(y)>|^2 of every `rows`
+/// vector against every `columns` vector, indexed `[row, column]`, by building
+/// ZZ feature-map circuits and executing them as one batch on the quantum
+/// backend (real quantum kernel, not a classical approximation).
+let computeQuantumKernelsAsync (rows: float array array) (columns: float array array) =
+    task {
+        let! kernels =
+            QuantumKernels.computeKernelMatrixTrainTestAsync
+                backend
+                (ZZFeatureMap featureMapDepth)
+                columns
+                rows
+                quantumShots
+                CancellationToken.None
+
+        return kernelsOrClassical rows columns kernels
+    }
+
+/// Compute the symmetric quantum kernel matrix of a set of feature vectors
+/// (one batch, each unordered pair executed once).
+let computeQuantumKernelMatrixAsync (vectors: float array array) =
+    task {
+        let! kernels =
+            QuantumKernels.computeKernelMatrixAsync
+                backend
+                (ZZFeatureMap featureMapDepth)
+                vectors
+                quantumShots
+                CancellationToken.None
+
+        return kernelsOrClassical vectors vectors kernels
+    }
 
 // ==============================================================================
 // ADMET PREDICTION MODELS
 // ==============================================================================
 
-/// Predict BBB permeability using quantum kernel
-let predictBBB (desc: ADMETDescriptors) : string =
+/// Typical BBB+ profile in the encoded feature space
+let bbbPositiveProfile = [| 1.5; 2.0; 0.5; 1.0; 0.8; 1.2; 2.5; 1.0 |]
+
+/// Predict BBB permeability from the rules and the compound's quantum kernel
+/// similarity to the BBB+ profile
+let predictBBB (desc: ADMETDescriptors) (kernelScore: float) : string =
     // Rule-based with quantum-enhanced scoring
     let ruleBasedScore = if checkBBBPermeability desc then 0.7 else 0.3
-
-    // Quantum kernel contribution (simulated)
-    let features = encodeFeatures desc
-    let bbbPositiveProfile = [| 1.5; 2.0; 0.5; 1.0; 0.8; 1.2; 2.5; 1.0 |] // Typical BBB+ profile
-    let kernelScore = computeQuantumKernel features bbbPositiveProfile
 
     let combinedScore = 0.6 * ruleBasedScore + 0.4 * kernelScore
 
@@ -793,8 +816,9 @@ let computeOverallScore (pred: ADMETPrediction) : float =
 
     List.sum scores
 
-/// Generate full ADMET prediction
-let predictADMET (compoundId: string) (smiles: string) : ADMETPrediction =
+/// Generate full ADMET prediction. `bbbKernelScore` is the compound's quantum
+/// kernel similarity to the BBB+ profile.
+let predictADMET (compoundId: string) (smiles: string) (bbbKernelScore: float) : ADMETPrediction =
     let desc = calculateDescriptors smiles
 
     let lipinskiViol = checkLipinski desc
@@ -819,7 +843,7 @@ let predictADMET (compoundId: string) (smiles: string) : ADMETPrediction =
             Caco2Permeability = if desc.TPSA < 100.0 then "High" else "Low"
             PgpSubstrate = desc.MolecularWeight > 400.0 && desc.HBondDonors >= 3
             BCSClass = bcsClass
-            BBBPermeability = predictBBB desc
+            BBBPermeability = predictBBB desc bbbKernelScore
             PlasmaProteinBinding = if desc.LogP > 3.0 then "High" else "Medium"
             VdCategory = if desc.LogP > 3.0 then "High" else "Medium"
             CYP3A4Substrate = cyp3a4
@@ -861,9 +885,20 @@ let predictADMET (compoundId: string) (smiles: string) : ADMETPrediction =
 printfn "Processing %d drug candidates..." (List.length drugCandidates)
 printfn ""
 
+// Quantum kernel of every candidate against the BBB+ profile: one batch.
+let bbbKernelScores =
+    let candidateFeatures =
+        drugCandidates
+        |> List.map (fun (_, smiles) -> encodeFeatures (calculateDescriptors smiles))
+        |> List.toArray
+
+    computeQuantumKernelsAsync candidateFeatures [| bbbPositiveProfile |]
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
 let predictions =
     drugCandidates
-    |> List.map (fun (id, smiles) -> predictADMET id smiles)
+    |> List.mapi (fun i (id, smiles) -> predictADMET id smiles bbbKernelScores.[i, 0])
     |> List.sortByDescending (fun p -> p.OverallADMETScore)
 
 let displayPredictions =
@@ -971,15 +1006,20 @@ if not quiet then
 
     printfn ""
 
+    let kernelMatrix =
+        computeQuantumKernelMatrixAsync (featureVectors |> List.map snd |> List.toArray)
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
     // Matrix rows
-    for (id1, f1) in featureVectors do
+    featureVectors
+    |> List.iteri (fun i (id1, _) ->
         printf "%-14s" (if id1.Length > 12 then id1.[0..11] else id1)
 
-        for (_, f2) in featureVectors do
-            let kernel = computeQuantumKernel f1 f2
-            printf "%-12.3f" kernel
+        for j in 0 .. featureVectors.Length - 1 do
+            printf "%-12.3f" kernelMatrix.[i, j]
 
-        printfn ""
+        printfn "")
 
     printfn ""
 

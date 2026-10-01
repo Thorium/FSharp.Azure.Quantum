@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Business
 
 open System
+open System.Diagnostics
 open System.Numerics
 open System.Threading
 open System.Threading.Tasks
@@ -319,24 +320,13 @@ module RiskEngine =
     [<Literal>]
     let private MinValidMarketDataRows = 2
 
-    /// Execute the configured risk analysis (async, cancellable).
-    ///
-    /// Returns a `Result`: the quantum amplitude-estimation path can fail as a business
-    /// outcome (e.g. backend rejects the circuit), surfaced as `Error`; the classical
-    /// Monte Carlo path always yields `Ok`.
-    let executeAsync (config: RiskConfiguration) (cancellationToken: CancellationToken) : Task<QuantumResult<RiskReport>> =
+    /// The risk analysis under the one token that cancels it.
+    let private executeWithTokenAsync
+        (config: RiskConfiguration)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<RiskReport>> =
         task {
-            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
-
-            // A token given to the configuration (`cancellation_token`) cancels the analysis
-            // together with the caller's.
-            use linked =
-                match config.CancellationToken with
-                | Some token when token.CanBeCanceled && token <> cancellationToken ->
-                    CancellationTokenSource.CreateLinkedTokenSource(token, cancellationToken)
-                | _ -> null
-
-            let cancellationToken = if isNull linked then cancellationToken else linked.Token
+            let stopwatch = Stopwatch.StartNew()
 
             // An already-cancelled token cancels the analysis before any work (the classical
             // path has no other cancellation point).
@@ -523,6 +513,24 @@ module RiskEngine =
                                     Configuration = config
                                 }
         }
+
+    /// Execute the configured risk analysis (async, cancellable).
+    ///
+    /// Returns a `Result`: the quantum amplitude-estimation path can fail as a business
+    /// outcome (e.g. backend rejects the circuit), surfaced as `Error`; the classical
+    /// Monte Carlo path always yields `Ok`.
+    let executeAsync (config: RiskConfiguration) (cancellationToken: CancellationToken) : Task<QuantumResult<RiskReport>> =
+        // A token given to the configuration (`cancellation_token`) cancels the analysis
+        // together with the caller's.
+        match config.CancellationToken with
+        | Some token when token.CanBeCanceled && token <> cancellationToken ->
+            task {
+                use linked =
+                    CancellationTokenSource.CreateLinkedTokenSource(token, cancellationToken)
+
+                return! executeWithTokenAsync config linked.Token
+            }
+        | _ -> executeWithTokenAsync config cancellationToken
 
 /// Builder for the Quantum Risk Engine DSL
 type QuantumRiskEngineBuilder() =

@@ -101,24 +101,21 @@ module Retry =
         (attempt: int)
         : Task<Result<'T, QuantumError>> =
         task {
+            // Cancellation surfaces as OperationCanceledException here and from the delay alike
+            ct.ThrowIfCancellationRequested()
 
-            if ct.IsCancellationRequested then
-                return Error(QuantumError.OperationError("Retry", "Operation cancelled"))
-            else
-                // Execute operation
+            match! operation ct with
+            | Ok value -> return Ok value
 
-                match! operation ct with
-                | Ok value -> return Ok value
+            | Error error when isTransientError error && attempt < config.MaxAttempts ->
+                // Transient error and retries remaining - wait and retry
+                let delay = calculateDelay config attempt
+                do! Task.Delay(delay, ct)
+                return! retryLoop config operation ct (attempt + 1)
 
-                | Error error when isTransientError error && attempt < config.MaxAttempts ->
-                    // Transient error and retries remaining - wait and retry
-                    let delay = calculateDelay config attempt
-                    do! Task.Delay(delay, ct)
-                    return! retryLoop config operation ct (attempt + 1)
-
-                | Error error ->
-                    // Non-transient error or max attempts reached
-                    return Error error
+            | Error error ->
+                // Non-transient error or max attempts reached
+                return Error error
         }
 
     /// Execute task-based operation with retry logic

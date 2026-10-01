@@ -3317,12 +3317,14 @@ module ChemistryAdmissionTests =
     let ``Builder basis selects the computed integrals`` () : Task =
         task {
             let solve basisName =
-                QuantumChemistryBuilder.quantumChemistry {
-                    molecule (QuantumChemistryBuilder.h2 0.7414)
-                    basis basisName
-                    ansatz QuantumChemistryBuilder.UCCSD
-                }
-                |> fun problem -> QuantumChemistryBuilder.solveAsync problem CancellationToken.None
+                let problem =
+                    QuantumChemistryBuilder.quantumChemistry {
+                        molecule (QuantumChemistryBuilder.h2 0.7414)
+                        basis basisName
+                        ansatz QuantumChemistryBuilder.UCCSD
+                    }
+
+                QuantumChemistryBuilder.solveAsync problem CancellationToken.None
 
             match! solve "6-31g" with
             | Ok r ->

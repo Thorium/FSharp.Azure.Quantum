@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
+open System.Diagnostics
 open System.IO
 open System.Text.Json
 open System.Threading
@@ -40,7 +41,8 @@ open Microsoft.Extensions.Logging
 ///   }
 ///
 ///   // Find similar products
-///   let similar = matcher |> SimilaritySearch.findSimilar currentProduct 5
+///   let! similar =
+///       SimilaritySearch.findSimilarAsync currentProduct currentFeatures 5 matcher CancellationToken.None
 ///
 ///   // Advanced: Full configuration
 ///   let matcher = similaritySearch {
@@ -247,7 +249,8 @@ module SimilaritySearch =
         | Error e -> Task.FromResult(Error e)
         | Ok() ->
 
-            let startTime = DateTime.UtcNow
+            let createdAt = DateTime.UtcNow
+            let stopwatch = Stopwatch.StartNew()
             let numFeatures = snd problem.Items.[0] |> Array.length
 
             if problem.Verbose then
@@ -302,10 +305,8 @@ module SimilaritySearch =
                 return
                     kernelResult
                     |> Result.map (fun (kernelMatrix, quantumConfig) ->
-                        let endTime = DateTime.UtcNow
-
                         if problem.Verbose then
-                            logInfo problem.Logger (sprintf "[OK] Index built in %A" (endTime - startTime))
+                            logInfo problem.Logger (sprintf "[OK] Index built in %A" stopwatch.Elapsed)
 
                         {
                             Items = problem.Items
@@ -318,7 +319,7 @@ module SimilaritySearch =
                                     NumItems = problem.Items.Length
                                     NumFeatures = numFeatures
                                     Metric = problem.Metric
-                                    CreatedAt = startTime
+                                    CreatedAt = createdAt
                                     Note = problem.Note
                                 }
                         })
@@ -375,7 +376,7 @@ module SimilaritySearch =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<SearchResults<'T>>> =
 
-        let startTime = DateTime.UtcNow
+        let stopwatch = Stopwatch.StartNew()
 
         // Find query index if item is in index
         let queryIdx =
@@ -441,7 +442,7 @@ module SimilaritySearch =
                 {
                     Query = queryItem
                     Matches = matches
-                    SearchTime = DateTime.UtcNow - startTime
+                    SearchTime = stopwatch.Elapsed
                 }
         }
 

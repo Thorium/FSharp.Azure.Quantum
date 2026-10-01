@@ -196,83 +196,95 @@ if not quiet then
 
 /// Run a ground-state energy calculation for H2 at a given bond length and method.
 /// Returns the result as a Map suitable for structured output.
-let runGroundState (label: string) (distance: float) (method: GroundStateMethod) =
-    let h2 = Molecule.createH2 distance
-    let backend = LocalBackend() :> IQuantumBackend
+let runGroundStateAsync (label: string) (distance: float) (method: GroundStateMethod) =
+    task {
+        let h2 = Molecule.createH2 distance
+        let backend = LocalBackend() :> IQuantumBackend
 
-    let config =
-        {
-            Method = method
-            Backend = Some backend
-            MaxIterations = maxIterations
-            Tolerance = tolerance
-            InitialParameters = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-
-    if not quiet then
-        printfn ""
-        printfn "--- %s ---" label
-        printfn "Molecule: %s" h2.Name
-        printfn "Atoms: %d" h2.Atoms.Length
-        printfn "Bonds: %d" h2.Bonds.Length
-        printfn "Electrons: %d" (Molecule.countElectrons h2)
-        printfn "Bond length: %.4f A" distance
-        printfn "Method: %A" method
-        printfn "Running calculation..."
-
-    let result =
-        GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-    match result with
-    | Ok vqeResult ->
-        let eV = vqeResult.Energy * 27.2114
-        let error = abs (vqeResult.Energy - (-1.174))
+        let config =
+            {
+                Method = method
+                Backend = Some backend
+                MaxIterations = maxIterations
+                Tolerance = tolerance
+                InitialParameters = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
 
         if not quiet then
-            printfn "Ground state energy: %.6f Hartree" vqeResult.Energy
-            printfn "  Energy source: %A" vqeResult.Source
-            printfn "  Expected (experimental, complete basis): -1.174 Hartree"
-            printfn "  (STO-3G FCI, this basis's exact limit, at 0.74 A: -1.137 Hartree)"
-            printfn "  Error vs experiment: %.6f Hartree" error
-            printfn "  In electron volts: %.6f eV" eV
-            printfn "  Iterations: %d" vqeResult.Iterations
-            printfn "  Converged: %b" vqeResult.Converged
+            printfn ""
+            printfn "--- %s ---" label
+            printfn "Molecule: %s" h2.Name
+            printfn "Atoms: %d" h2.Atoms.Length
+            printfn "Bonds: %d" h2.Bonds.Length
+            printfn "Electrons: %d" (Molecule.countElectrons h2)
+            printfn "Bond length: %.4f A" distance
+            printfn "Method: %A" method
+            printfn "Running calculation..."
 
-        [
-            "Label", label
-            "BondLength_A", $"%.4f{distance}"
-            "Method", $"%A{method}"
-            "Energy_Hartree", $"%.6f{vqeResult.Energy}"
-            "Energy_eV", $"%.6f{eV}"
-            "Error_Hartree", $"%.6f{error}"
-            "Iterations", $"%d{vqeResult.Iterations}"
-            "Converged", $"%b{vqeResult.Converged}"
-            "Source", $"%A{vqeResult.Source}"
-        ]
-        |> Map.ofList
-        |> Some
-    | Error err ->
-        if not quiet then
-            printfn "Calculation failed: %s" err.Message
+        let! result = GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
 
-        None
+        match result with
+        | Ok vqeResult ->
+            let eV = vqeResult.Energy * 27.2114
+            let error = abs (vqeResult.Energy - (-1.174))
+
+            if not quiet then
+                printfn "Ground state energy: %.6f Hartree" vqeResult.Energy
+                printfn "  Energy source: %A" vqeResult.Source
+                printfn "  Expected (experimental, complete basis): -1.174 Hartree"
+                printfn "  (STO-3G FCI, this basis's exact limit, at 0.74 A: -1.137 Hartree)"
+                printfn "  Error vs experiment: %.6f Hartree" error
+                printfn "  In electron volts: %.6f eV" eV
+                printfn "  Iterations: %d" vqeResult.Iterations
+                printfn "  Converged: %b" vqeResult.Converged
+
+            return
+                [
+                    "Label", label
+                    "BondLength_A", $"%.4f{distance}"
+                    "Method", $"%A{method}"
+                    "Energy_Hartree", $"%.6f{vqeResult.Energy}"
+                    "Energy_eV", $"%.6f{eV}"
+                    "Error_Hartree", $"%.6f{error}"
+                    "Iterations", $"%d{vqeResult.Iterations}"
+                    "Converged", $"%b{vqeResult.Converged}"
+                    "Source", $"%A{vqeResult.Source}"
+                ]
+                |> Map.ofList
+                |> Some
+        | Error err ->
+            if not quiet then
+                printfn "Calculation failed: %s" err.Message
+
+            return None
+    }
 
 // Run the selected methods
 let directResults =
-    [
-        if runVQE then
-            runGroundState "VQE" bondLength GroundStateMethod.VQE
-        if runDFT then
-            runGroundState "Classical DFT" bondLength GroundStateMethod.ClassicalDFT
-        if runAuto then
-            runGroundState "Automatic" bondLength GroundStateMethod.Automatic
-    ]
-    |> List.choose id
+    let selectedMethods =
+        [
+            if runVQE then
+                "VQE", GroundStateMethod.VQE
+            if runDFT then
+                "Classical DFT", GroundStateMethod.ClassicalDFT
+            if runAuto then
+                "Automatic", GroundStateMethod.Automatic
+        ]
+
+    task {
+        let rows = ResizeArray()
+
+        for (label, method) in selectedMethods do
+            let! row = runGroundStateAsync label bondLength method
+            row |> Option.iter rows.Add
+
+        return List.ofSeq rows
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // ==============================================================================
 // PART 2: Builder API (Declarative)
@@ -371,9 +383,9 @@ if not quiet then
     printfn "================================================================"
     printfn "Scanning bond lengths: %A" scanLengths
 
-let scanResults =
-    scanLengths
-    |> List.choose (fun d ->
+/// VQE ground-state energy of H2 at one bond length, as a structured-output row.
+let scanBondLengthAsync (d: float) =
+    task {
         let h2Scan = Molecule.createH2 d
         let backend = LocalBackend() :> IQuantumBackend
 
@@ -389,10 +401,7 @@ let scanResults =
                 IntegralProvider = None
             }
 
-        let scanResult =
-            GroundStateEnergy.estimateEnergyAsync h2Scan scanConfig CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
+        let! scanResult = GroundStateEnergy.estimateEnergyAsync h2Scan scanConfig CancellationToken.None
 
         match scanResult with
         | Ok vqeResult ->
@@ -405,23 +414,38 @@ let scanResults =
                     (if vqeResult.Converged then "" else ", not converged")
                     vqeResult.Source
 
-            [
-                "Label", $"Scan_%.2f{d}"
-                "BondLength_A", $"%.4f{d}"
-                "Method", "VQE"
-                "Energy_Hartree", $"%.6f{vqeResult.Energy}"
-                "Energy_eV", sprintf "%.6f" (vqeResult.Energy * 27.2114)
-                "Iterations", $"%d{vqeResult.Iterations}"
-                "Converged", $"%b{vqeResult.Converged}"
-                "Source", $"%A{vqeResult.Source}"
-            ]
-            |> Map.ofList
-            |> Some
+            return
+                [
+                    "Label", $"Scan_%.2f{d}"
+                    "BondLength_A", $"%.4f{d}"
+                    "Method", "VQE"
+                    "Energy_Hartree", $"%.6f{vqeResult.Energy}"
+                    "Energy_eV", sprintf "%.6f" (vqeResult.Energy * 27.2114)
+                    "Iterations", $"%d{vqeResult.Iterations}"
+                    "Converged", $"%b{vqeResult.Converged}"
+                    "Source", $"%A{vqeResult.Source}"
+                ]
+                |> Map.ofList
+                |> Some
         | Error err ->
             if not quiet then
                 printfn "  Distance %.2f A: FAILED (%s)" d err.Message
 
-            None)
+            return None
+    }
+
+let scanResults =
+    task {
+        let rows = ResizeArray()
+
+        for d in scanLengths do
+            let! row = scanBondLengthAsync d
+            row |> Option.iter rows.Add
+
+        return List.ofSeq rows
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // ==============================================================================
 // PART 4: Energy Convergence During VQE Optimization

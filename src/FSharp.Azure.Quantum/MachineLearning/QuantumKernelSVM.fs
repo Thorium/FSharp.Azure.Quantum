@@ -15,6 +15,20 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open Microsoft.Extensions.Logging
 
+/// Steps over a Task<QuantumResult<_>> shared by the machine-learning and business modules.
+[<AutoOpen>]
+module internal QuantumResultTaskSteps =
+
+    /// The task's result with `f` applied to its error.
+    let mapErrorAsync
+        (f: QuantumError -> QuantumError)
+        (source: Task<QuantumResult<'a>>)
+        : Task<QuantumResult<'a>> =
+        task {
+            let! result = source
+            return Result.mapError f result
+        }
+
 module QuantumKernelSVM =
 
     // ========================================================================
@@ -419,8 +433,8 @@ module QuantumKernelSVM =
     // PREDICTION
     // ========================================================================
 
-    /// Helper to convert Result array to array Result
-    let private traverseResult (results: Result<'a, 'e> array) : Result<'a array, 'e> =
+    /// All the Ok values in order, or the first Error. Shared with MultiClassSVM.
+    let internal traverseResult (results: Result<'a, 'e> array) : Result<'a array, 'e> =
         match results |> Array.tryFind Result.isError with
         | Some(Error e) -> Error e
         | _ ->
@@ -517,6 +531,8 @@ module QuantumKernelSVM =
                 return Error(QuantumError.Other "Test data cannot be empty")
             elif testData.Length <> testLabels.Length then
                 return Error(QuantumError.ValidationError("Input", "Test data and labels must have same length"))
+            elif shots <= 0 then
+                return Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
             else
                 // One flat batch of sample × support-vector kernel circuits, so a sampling
                 // backend has MaxConcurrentSampledJobs in flight in total, not per sample
@@ -534,11 +550,17 @@ module QuantumKernelSVM =
                     kernelResults
                     |> traverseResult
                     |> Result.map (fun kernels ->
+                        // One chunk of kernels per sample. Without support vectors there is
+                        // nothing to chunk: every prediction is the sign of the bias.
+                        let predictions =
+                            if svCount = 0 then
+                                Array.replicate testData.Length (decide model [||])
+                            else
+                                kernels |> Array.chunkBySize svCount |> Array.map (decide model)
+
                         let correctCount =
-                            testLabels
-                            |> Array.mapi (fun i label ->
-                                (decide model (Array.sub kernels (i * svCount) svCount)).Label = label)
-                            |> Array.filter id
+                            Array.zip predictions testLabels
+                            |> Array.filter (fun (prediction, label) -> prediction.Label = label)
                             |> Array.length
 
                         float correctCount / float testData.Length)

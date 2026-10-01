@@ -22,6 +22,7 @@
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -86,31 +87,33 @@ let backend = LocalBackend() :> IQuantumBackend
 
 /// Calculate ground state energy of a molecule using VQE.
 /// Returns Ok (energy_hartree, iterations, elapsed_seconds) or Error message.
-let calculateVQEEnergy (backend: IQuantumBackend) (molecule: Molecule) : Result<float * int * float, string> =
-    let startTime = DateTime.Now
+let calculateVQEEnergyAsync
+    (backend: IQuantumBackend)
+    (molecule: Molecule)
+    : Task<Result<float * int * float, string>> =
+    task {
+        let startTime = DateTime.Now
 
-    let config =
-        {
-            Method = GroundStateMethod.VQE
-            Backend = Some backend
-            MaxIterations = 50
-            Tolerance = 1e-5
-            InitialParameters = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
+        let config =
+            {
+                Method = GroundStateMethod.VQE
+                Backend = Some backend
+                MaxIterations = 50
+                Tolerance = 1e-5
+                InitialParameters = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
 
-    try
-        let result =
-            GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
+        try
+            let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
-        let elapsed = (DateTime.Now - startTime).TotalSeconds
+            let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-        match result with
-        | Ok vqeResult -> Ok(vqeResult.Energy, vqeResult.Iterations, elapsed)
-        | Error err -> Error err.Message
-    with ex ->
-        Error ex.Message
+            match result with
+            | Ok vqeResult -> return Ok(vqeResult.Energy, vqeResult.Iterations, elapsed)
+            | Error err -> return Error err.Message
+        with ex ->
+            return Error ex.Message
+    }

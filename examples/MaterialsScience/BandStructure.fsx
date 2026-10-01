@@ -479,53 +479,63 @@ let createPH3 () : Molecule =
         Multiplicity = 1
     }
 
-let runVqe (label: string) (description: string) (molecule: Molecule) : Map<string, string> =
-    if not quiet then
-        printfn "  VQE: %s — %s" label molecule.Name
-
-    match calculateVQEEnergy backend molecule with
-    | Ok(energy, iterations, time) ->
+let runVqeAsync (label: string) (description: string) (molecule: Molecule) =
+    task {
         if not quiet then
-            printfn
-                "    Energy: %.6f Ha (%.3f eV), Iterations: %d, Time: %.2f s"
-                energy
-                (energy * hartreeToEV)
-                iterations
-                time
+            printfn "  VQE: %s — %s" label molecule.Name
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", $"%.6f{energy}"
-                "energy_eV", sprintf "%.3f" (energy * hartreeToEV)
-                "iterations", $"%d{iterations}"
-                "time_seconds", $"%.2f{time}"
-                "has_vqe_failure", "false"
-            ]
-    | Error msg ->
-        anyVqeFailure <- true
+        match! calculateVQEEnergyAsync backend molecule with
+        | Ok(energy, iterations, time) ->
+            if not quiet then
+                printfn
+                    "    Energy: %.6f Ha (%.3f eV), Iterations: %d, Time: %.2f s"
+                    energy
+                    (energy * hartreeToEV)
+                    iterations
+                    time
 
-        if not quiet then
-            eprintfn "    Error: %s" msg
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", $"%.6f{energy}"
+                        "energy_eV", sprintf "%.3f" (energy * hartreeToEV)
+                        "iterations", $"%d{iterations}"
+                        "time_seconds", $"%.2f{time}"
+                        "has_vqe_failure", "false"
+                    ]
+        | Error msg ->
+            anyVqeFailure <- true
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", "N/A"
-                "energy_eV", "N/A"
-                "iterations", "N/A"
-                "time_seconds", "N/A"
-                "has_vqe_failure", "true"
-            ]
+            if not quiet then
+                eprintfn "    Error: %s" msg
+
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", "N/A"
+                        "energy_eV", "N/A"
+                        "iterations", "N/A"
+                        "time_seconds", "N/A"
+                        "has_vqe_failure", "true"
+                    ]
+    }
 
 let vqeResults =
-    [
-        runVqe "SiH4 (Silane)" "Si CVD precursor, tetrahedral" (createSiH4 ())
-        runVqe "PH3 (Phosphine)" "n-type dopant precursor, pyramidal" (createPH3 ())
-        runVqe "H2 at Si-H bond length" "Surface passivation model, 1.48 A" (Molecule.createH2 1.48)
-    ]
+    task {
+        let! silane = runVqeAsync "SiH4 (Silane)" "Si CVD precursor, tetrahedral" (createSiH4 ())
+        let! phosphine = runVqeAsync "PH3 (Phosphine)" "n-type dopant precursor, pyramidal" (createPH3 ())
+
+        let! hydrogen =
+            runVqeAsync "H2 at Si-H bond length" "Surface passivation model, 1.48 A" (Molecule.createH2 1.48)
+
+        return [ silane; phosphine; hydrogen ]
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // ==============================================================================
 // COMPARISON TABLE (unconditional)

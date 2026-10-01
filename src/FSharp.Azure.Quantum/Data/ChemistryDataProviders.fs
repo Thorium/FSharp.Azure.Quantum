@@ -142,7 +142,7 @@ module ChemistryDataProviders =
     type IGeometryProviderAsync =
         /// Get 3D geometry asynchronously
         abstract TryGetGeometryAsync:
-            topology: MoleculeTopology -> cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeGeometry option>>
+            topology: MoleculeTopology * cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeGeometry option>>
 
     /// A "no-op" geometry provider that always returns None.
     /// Useful for topology-only workflows (drug discovery ML).
@@ -205,7 +205,7 @@ module ChemistryDataProviders =
         /// Human-readable description
         abstract Describe: unit -> string
         /// Load molecules asynchronously
-        abstract LoadAsync: query: DatasetQuery -> cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeDataset>>
+        abstract LoadAsync: query: DatasetQuery * cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeDataset>>
         /// List available names
         abstract ListNamesAsync: cancellationToken: CancellationToken -> Task<string list>
 
@@ -561,7 +561,7 @@ module ChemistryDataProviders =
             member _.Describe() =
                 $"XYZ file dataset provider (directory: {directory})"
 
-            member _.LoadAsync (query: DatasetQuery) (cancellationToken: CancellationToken) =
+            member _.LoadAsync(query: DatasetQuery, cancellationToken: CancellationToken) =
                 task {
                     match query with
                     | ByName name ->

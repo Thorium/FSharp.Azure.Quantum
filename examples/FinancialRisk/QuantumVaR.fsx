@@ -357,13 +357,13 @@ let liveDataEnabled =
 let yahooCacheDir = Path.Combine(__SOURCE_DIRECTORY__, "output", "yahoo-cache")
 let _ = Directory.CreateDirectory(yahooCacheDir) |> ignore
 
-let private tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option =
-    try
-        use httpClient = new HttpClient()
+let private tryFetchReturnSeriesAsync (symbols: string list) =
+    task {
+        try
+            use httpClient = new HttpClient()
+            let series = ResizeArray<ReturnSeries>()
 
-        let series =
-            symbols
-            |> List.map (fun symbol ->
+            for symbol in symbols do
                 let request: YahooHistoryRequest =
                     {
                         Symbol = symbol
@@ -376,19 +376,17 @@ let private tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option 
                         EndDate = None
                     }
 
-                match
-                    fetchYahooHistoryAsync httpClient request CancellationToken.None
-                    |> Async.AwaitTask
-                    |> Async.RunSynchronously
-                with
-                | Ok priceSeries -> calculateReturns priceSeries
-                | Error error ->
-                    raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}")))
-            |> List.toArray
+                let! fetched = fetchYahooHistoryAsync httpClient request CancellationToken.None
 
-        Some series
-    with _ ->
-        None
+                match fetched with
+                | Ok priceSeries -> series.Add(calculateReturns priceSeries)
+                | Error error ->
+                    raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}"))
+
+            return Some(series.ToArray())
+        with _ ->
+            return None
+    }
 
 // ==============================================================================
 // RETURN SERIES GENERATION
@@ -420,7 +418,11 @@ let returnSeries =
     if liveDataEnabled then
         let symbols = assets |> List.map (fun a -> a.Symbol)
 
-        match tryFetchReturnSeries symbols with
+        match
+            tryFetchReturnSeriesAsync symbols
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Some series ->
             if not quiet then
                 printfn "Using live Yahoo Finance data (cached at %s)" yahooCacheDir

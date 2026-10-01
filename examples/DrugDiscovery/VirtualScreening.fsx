@@ -128,26 +128,23 @@ let builtinCompounds =
         "CN1C=NC2=C1C(=O)N(C(=O)N2C)C", 1
     ]
 
-let builtinSmiles = builtinCompounds |> List.map fst
-
 /// Write the candidates to a temp file for the drugDiscovery builder:
-/// a SMILES,Label CSV when labels are known, otherwise a plain .smi list.
+/// a SMILES,Label CSV when every label is known, otherwise a plain .smi list.
 let prepareCandidateFile (compounds: (string * int option) list) : string =
-    if compounds |> List.forall (fun (_, label) -> label.IsSome) then
+    let labelled =
+        compounds
+        |> List.choose (fun (smiles, label) -> label |> Option.map (fun l -> $"{smiles},{l}"))
+
+    if labelled.Length = compounds.Length then
         let tempFile = Path.GetTempFileName() + ".csv"
-
-        let rows =
-            compounds
-            |> List.map (fun (smiles, label) -> $"{smiles},{label.Value}")
-
-        File.WriteAllText(tempFile, "SMILES,Label\n" + String.concat "\n" rows)
+        File.WriteAllText(tempFile, "SMILES,Label\n" + String.concat "\n" labelled)
         tempFile
     else
         let tempFile = Path.GetTempFileName() + ".smi"
         File.WriteAllText(tempFile, compounds |> List.map fst |> String.concat "\n")
         tempFile
 
-let smilesData, usingExternalInput =
+let candidates, usingExternalInput =
     match inputFile with
     | Some path ->
         let resolved = Data.resolveRelative scriptDir path
@@ -190,9 +187,9 @@ let smilesData, usingExternalInput =
         printfn "Using built-in compound library (use --input to load your own)"
         (builtinCompounds |> List.map (fun (smiles, label) -> smiles, Some label), false)
 
-let smilesFile = prepareCandidateFile smilesData
+let smilesFile = prepareCandidateFile candidates
 
-printfn "Compounds: %d" smilesData.Length
+printfn "Compounds: %d" candidates.Length
 printfn ""
 
 // Create local backend for simulation
@@ -458,7 +455,7 @@ let okCount = methodResults |> List.filter (fun r -> r.Status = "OK") |> List.le
 let errCount =
     methodResults |> List.filter (fun r -> r.Status = "ERROR") |> List.length
 
-printfn "Compounds screened: %d" smilesData.Length
+printfn "Compounds screened: %d" candidates.Length
 printfn "Methods run: %d (%d succeeded, %d failed)" methodResults.Length okCount errCount
 printfn ""
 
@@ -484,7 +481,7 @@ let resultToMap (r: MethodResult) : Map<string, string> =
             "Status", r.Status
             "MoleculesProcessed", string r.MoleculesProcessed
             "Message", r.Message
-            "InputCompounds", string smilesData.Length
+            "InputCompounds", string candidates.Length
             "Shots", string numShots
             "BatchSize", string batchSize
         ]
@@ -508,7 +505,7 @@ match csvFile with
                 r.MethodName
                 r.Status
                 string r.MoleculesProcessed
-                string smilesData.Length
+                string candidates.Length
                 r.Message.Replace('\n', ' ')
             ])
 

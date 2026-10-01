@@ -438,9 +438,8 @@ module BinaryClassificationBuilderTests =
 
             match! trainAsync problem CancellationToken.None with
             | Ok classifier ->
-                let! evaluation = evaluateAsync features [| 0; 1 |] classifier CancellationToken.None // wrong label count
-
-                match evaluation with
+                // wrong label count
+                match! evaluateAsync features [| 0; 1 |] classifier CancellationToken.None with
                 | Error(QuantumError.ValidationError _) -> ()
                 | _ -> failwith "Should return ValidationError for mismatched test data"
             | Error e -> failwith $"train should succeed, got error: {e}"

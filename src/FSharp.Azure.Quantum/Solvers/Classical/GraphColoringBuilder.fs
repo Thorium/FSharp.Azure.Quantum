@@ -571,7 +571,7 @@ module GraphColoring =
                         BackendName = quantumResult.BackendName
                         IsQuantum = quantumResult.BackendName <> QuantumGraphColoringSolver.NoCircuitBackendName
                     }
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return! Error(QuantumError.OperationError("Graph coloring solve", $"Failed: {ex.Message}"))
         }
 

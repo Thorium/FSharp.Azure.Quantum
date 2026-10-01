@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
@@ -22,7 +23,7 @@ open FSharp.Azure.Quantum.Core
 ///   // Algorithm Level (This module - for experts):
 ///   open FSharp.Azure.Quantum.Quantum
 ///   let backend = BackendAbstraction.createIonQBackend(...)
-///   let result = QuantumPortfolioSolver.solve backend assets constraints config
+///   let! result = QuantumPortfolioSolver.solveAsync backend assets constraints config CancellationToken.None
 ///
 /// RULE 1 COMPLIANCE:
 /// ✅ Requires IQuantumBackend parameter (explicit quantum execution)
@@ -755,7 +756,7 @@ module QuantumPortfolioSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<QuantumPortfolioSolution, QuantumError>> =
 
-        let startTime = DateTime.UtcNow
+        let stopwatch = Stopwatch.StartNew()
 
         // Validate inputs
         let numAssets = assets.Length
@@ -809,7 +810,7 @@ module QuantumPortfolioSolver =
                         else
                             let bestSolution = portfolioResults |> Array.minBy (fun sol -> sol.BestEnergy)
 
-                            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
                             Ok
                                 { bestSolution with

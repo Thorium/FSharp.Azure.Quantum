@@ -293,40 +293,45 @@ if shouldRun 1 then
                 |}
              >()
 
-        threats
-        |> Array.iteri (fun i traffic ->
-            match
-                AnomalyDetector.checkAsync traffic detector CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Ok result ->
-                threatResults.Add(
-                    {|
-                        Name = threatNames.[i]
-                        IsAnomaly = result.IsAnomaly
-                        Score = result.AnomalyScore
-                        Confidence = result.Confidence
-                    |}
-                )
+        task {
+            for i in 0 .. threats.Length - 1 do
+                let! check = AnomalyDetector.checkAsync threats.[i] detector CancellationToken.None
 
-                if not quiet then
-                    let status = if result.IsAnomaly then "THREAT" else "OK"
-                    printfn "%s: %s" threatNames.[i] status
-                    printfn "  Anomaly Score: %.2f (%.0f%% confidence)" result.AnomalyScore (result.Confidence * 100.0)
+                match check with
+                | Ok result ->
+                    threatResults.Add(
+                        {|
+                            Name = threatNames.[i]
+                            IsAnomaly = result.IsAnomaly
+                            Score = result.AnomalyScore
+                            Confidence = result.Confidence
+                        |}
+                    )
 
-                    if result.IsAnomaly then
+                    if not quiet then
+                        let status = if result.IsAnomaly then "THREAT" else "OK"
+                        printfn "%s: %s" threatNames.[i] status
+
                         printfn
-                            "  Action: %s"
-                            (if result.AnomalyScore > 0.8 then
-                                 "BLOCK IMMEDIATELY"
-                             else
-                                 "FLAG FOR INVESTIGATION")
+                            "  Anomaly Score: %.2f (%.0f%% confidence)"
+                            result.AnomalyScore
+                            (result.Confidence * 100.0)
 
-                    printfn ""
-            | Error err ->
-                if not quiet then
-                    printfn "%s: Check failed - %s\n" threatNames.[i] err.Message)
+                        if result.IsAnomaly then
+                            printfn
+                                "  Action: %s"
+                                (if result.AnomalyScore > 0.8 then
+                                     "BLOCK IMMEDIATELY"
+                                 else
+                                     "FLAG FOR INVESTIGATION")
+
+                        printfn ""
+                | Error err ->
+                    if not quiet then
+                        printfn "%s: Check failed - %s\n" threatNames.[i] err.Message
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
         // Detection rate: fraction of planted anomalies flagged as anomalous.
         let detectionRate =
@@ -344,19 +349,20 @@ if shouldRun 1 then
         let mutable falsePositives = 0
         let mutable normalsChecked = 0
 
-        heldOutNormals
-        |> Array.iter (fun traffic ->
-            match
-                AnomalyDetector.checkAsync traffic detector CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Ok result ->
-                normalsChecked <- normalsChecked + 1
+        task {
+            for traffic in heldOutNormals do
+                let! check = AnomalyDetector.checkAsync traffic detector CancellationToken.None
 
-                if result.IsAnomaly then
-                    falsePositives <- falsePositives + 1
-            | Error _ -> ())
+                match check with
+                | Ok result ->
+                    normalsChecked <- normalsChecked + 1
+
+                    if result.IsAnomaly then
+                        falsePositives <- falsePositives + 1
+                | Error _ -> ()
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
         let falsePositiveRate =
             if normalsChecked = 0 then
@@ -416,46 +422,51 @@ if shouldRun 2 then
             |}
          >()
 
-    for (sens, sensName) in sensLevels do
-        if not quiet then
-            printfn "Testing with %s sensitivity..." sensName
+    task {
+        for (sens, sensName) in sensLevels do
+            if not quiet then
+                printfn "Testing with %s sensitivity..." sensName
 
-        match
-            anomalyDetection {
-                trainOnNormalData normalTraffic
-                sensitivity sens
-                backend quantumBackend
-            }
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-        with
-        | Ok detector ->
-            let testTraffic =
-                Array.append (normalTraffic |> Array.take 10) (generateAnomalousTraffic ())
+            let! trained =
+                anomalyDetection {
+                    trainOnNormalData normalTraffic
+                    sensitivity sens
+                    backend quantumBackend
+                }
 
-            match
-                AnomalyDetector.checkBatchAsync testTraffic detector CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Ok batch ->
-                sensResults.Add(
-                    {|
-                        Level = sensName
-                        Anomalies = batch.AnomaliesDetected
-                        Rate = batch.AnomalyRate
-                    |}
-                )
+            match trained with
+            | Ok detector ->
+                let testTraffic =
+                    Array.append (normalTraffic |> Array.take 10) (generateAnomalousTraffic ())
 
-                if not quiet then
-                    printfn "  Checked %d samples" batch.TotalItems
-                    printfn "  Detected %d anomalies (%.1f%%)\n" batch.AnomaliesDetected (batch.AnomalyRate * 100.0)
+                let! checkedBatch = AnomalyDetector.checkBatchAsync testTraffic detector CancellationToken.None
+
+                match checkedBatch with
+                | Ok batch ->
+                    sensResults.Add(
+                        {|
+                            Level = sensName
+                            Anomalies = batch.AnomaliesDetected
+                            Rate = batch.AnomalyRate
+                        |}
+                    )
+
+                    if not quiet then
+                        printfn "  Checked %d samples" batch.TotalItems
+
+                        printfn
+                            "  Detected %d anomalies (%.1f%%)\n"
+                            batch.AnomaliesDetected
+                            (batch.AnomalyRate * 100.0)
+                | Error err ->
+                    if not quiet then
+                        printfn "  Batch check failed: %s\n" err.Message
             | Error err ->
                 if not quiet then
-                    printfn "  Batch check failed: %s\n" err.Message
-        | Error err ->
-            if not quiet then
-                printfn "  Training failed: %s\n" err.Message
+                    printfn "  Training failed: %s\n" err.Message
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
     results.Add(
         {|
@@ -532,44 +543,45 @@ if shouldRun 3 then
                 |}
              >()
 
-        monitoredSessions
-        |> Array.iter (fun (name, traffic) ->
-            match
-                AnomalyDetector.checkAsync traffic detector CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Ok result ->
-                monitorResults.Add(
-                    {|
-                        Name = name
-                        IsAnomaly = result.IsAnomaly
-                        Score = result.AnomalyScore
-                    |}
-                )
+        task {
+            for (name, traffic) in monitoredSessions do
+                let! check = AnomalyDetector.checkAsync traffic detector CancellationToken.None
 
-                if not quiet then
-                    printfn "[%s] %s" (DateTime.Now.ToString("HH:mm:ss")) name
+                match check with
+                | Ok result ->
+                    monitorResults.Add(
+                        {|
+                            Name = name
+                            IsAnomaly = result.IsAnomaly
+                            Score = result.AnomalyScore
+                        |}
+                    )
 
-                    if result.IsAnomaly then
-                        printfn "  SECURITY ALERT"
-                        printfn "  Threat Level: %.0f%%" (result.AnomalyScore * 100.0)
+                    if not quiet then
+                        printfn "[%s] %s" (DateTime.Now.ToString("HH:mm:ss")) name
 
-                        printfn
-                            "  Recommended Action: %s"
-                            (if result.AnomalyScore > 0.8 then
-                                 "BLOCK IP + ALERT SECURITY TEAM"
-                             elif result.AnomalyScore > 0.5 then
-                                 "FLAG + INCREASE MONITORING"
-                             else
-                                 "LOG FOR REVIEW")
-                    else
-                        printfn "  Normal traffic"
+                        if result.IsAnomaly then
+                            printfn "  SECURITY ALERT"
+                            printfn "  Threat Level: %.0f%%" (result.AnomalyScore * 100.0)
 
-                    printfn ""
-            | Error err ->
-                if not quiet then
-                    printfn "  Monitoring error: %s\n" err.Message)
+                            printfn
+                                "  Recommended Action: %s"
+                                (if result.AnomalyScore > 0.8 then
+                                     "BLOCK IP + ALERT SECURITY TEAM"
+                                 elif result.AnomalyScore > 0.5 then
+                                     "FLAG + INCREASE MONITORING"
+                                 else
+                                     "LOG FOR REVIEW")
+                        else
+                            printfn "  Normal traffic"
+
+                        printfn ""
+                | Error err ->
+                    if not quiet then
+                        printfn "  Monitoring error: %s\n" err.Message
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
         results.Add(
             {|

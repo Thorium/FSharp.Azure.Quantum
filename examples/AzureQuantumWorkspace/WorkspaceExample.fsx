@@ -16,7 +16,7 @@
 //
 // ============================================================================
 
-#r "nuget: Microsoft.Azure.Quantum.Client"
+#r "nuget: Azure.Identity, 1.21.0"
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD

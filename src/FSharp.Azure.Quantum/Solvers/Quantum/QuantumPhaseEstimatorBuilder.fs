@@ -297,7 +297,7 @@ module QuantumPhaseEstimator =
     /// Executes:
     ///   1. Validate problem configuration
     ///   2. Create QPEConfig from problem
-    ///   3. Execute QPE via backend (QPEBackendAdapter.executeWithBackend)
+    ///   3. Execute QPE via backend (QPE.executeWithShots)
     ///   4. Map result to PhaseEstimatorResult with eigenvalue
     ///
     /// Example:

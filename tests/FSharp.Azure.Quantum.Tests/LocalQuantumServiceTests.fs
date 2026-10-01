@@ -490,3 +490,55 @@ module LocalQuantumServiceTests =
             |> fun j -> j.InputData
 
         Assert.Contains("MEASURE 1 ro[1]", quil)
+
+    [<Fact>]
+    let ``Workspace quotas and provider status come from the service`` () : Task =
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
+
+            // One IonQ job, so that provider has utilization and a target
+            let backend = backendFor "ionq" service http (CloudBackendHelpers.JobBudget())
+            let! ran = backend.ExecuteToStateAsync bell CancellationToken.None
+            ran |> expectOk |> ignore
+
+            let workspace =
+                AzureQuantumWorkspace.createWithHttpClient
+                    seeded.SubscriptionId
+                    seeded.ResourceGroup
+                    seeded.WorkspaceName
+                    seeded.Location
+                    http
+
+            let! quotas = workspace.ListQuotasAsync CancellationToken.None
+            Assert.Equal(5, quotas.Length)
+
+            let ionq = quotas |> List.find (fun q -> q.Provider = "ionq")
+            Assert.Equal(Some(float shots), ionq.Used)
+            Assert.Equal(Some 1_000_000.0, ionq.Limit)
+            Assert.Equal(Some(1_000_000.0 - float shots), ionq.Remaining)
+            Assert.Equal(Some "Workspace", ionq.Scope)
+            Assert.Equal(Some "Monthly", ionq.Period)
+
+            let! rigetti = workspace.GetProviderQuotaAsync("rigetti", CancellationToken.None)
+            Assert.Equal(Some 0.0, rigetti |> Option.bind (fun q -> q.Used))
+
+            let! total = workspace.GetTotalQuotaAsync CancellationToken.None
+            Assert.Equal(Some 5_000_000.0, total.Limit)
+            Assert.Equal(Some(float shots), total.Used)
+
+            let! providers = workspace.ListProvidersAsync CancellationToken.None
+            Assert.Equal(5, providers.Length)
+
+            let ionqStatus = providers |> List.find (fun p -> p.ProviderId = "ionq")
+            Assert.Equal(Some "Available", ionqStatus.CurrentAvailability)
+            Assert.Equal(1, ionqStatus.TargetCount)
+            Assert.Equal(0, (providers |> List.find (fun p -> p.ProviderId = "iqm")).TargetCount)
+
+            // The workspace never disposes a client it was given
+            (workspace :> IDisposable).Dispose()
+            use second = AzureQuantumWorkspace.createWithHttpClient "s" "rg" "ws" "local" http
+            let! again = second.ListQuotasAsync CancellationToken.None
+            Assert.Equal(5, again.Length)
+        }
+        :> Task

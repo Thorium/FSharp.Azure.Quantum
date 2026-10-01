@@ -166,8 +166,8 @@ module OptionPricing =
     /// quantile rule drops the spread inside each bin (worst in the unbounded top bin), so
     /// E[S] and the call prices came out 0.4-1.7% low and Vega 1-2% low at 6 qubits; the
     /// conditional mean keeps E[S] exact and leaves only the convexity of the one bin that
-    /// holds the strike. The same z-grid serves every bumped market in calculateGreeks (a spot
-    /// bump rescales every level), so the finite differences compare like with like. The
+    /// holds the strike. The same z-grid serves every bumped market in calculateGreeksAsync (a
+    /// spot bump rescales every level), so the finite differences compare like with like. The
     /// state preparation and the payoff both read this one grid.
     let private priceGrid
         (optionType: OptionType)

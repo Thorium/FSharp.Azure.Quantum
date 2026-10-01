@@ -876,7 +876,7 @@ module FinancialData =
                     try
                         use req = new HttpRequestMessage(HttpMethod.Get, url)
                         req.Headers.UserAgent.ParseAdd YahooUserAgent
-                        let! resp = httpClient.SendAsync(req, cancellationToken)
+                        use! resp = httpClient.SendAsync(req, cancellationToken)
                         let! body = resp.Content.ReadAsStringAsync cancellationToken
 
                         if not resp.IsSuccessStatusCode then
@@ -891,7 +891,7 @@ module FinancialData =
                             | None -> ()
 
                             return parseYahooChartJson symbol body
-                    with ex ->
+                    with ex when not (ex :? OperationCanceledException) ->
                         return Error(QuantumError.BackendError("YahooFinance", ex.Message))
         }
 

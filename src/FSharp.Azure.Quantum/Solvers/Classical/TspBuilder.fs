@@ -173,7 +173,7 @@ module TSP =
                         TotalDistance = quantumResult.TourLength
                         IsValid = valid
                     }
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return! Error(QuantumError.OperationError("TSP solve", $"Failed: {ex.Message}"))
         }
 

@@ -300,7 +300,7 @@ module Knapsack =
                         BackendName = quantumResult.BackendName
                         IsQuantum = true
                     }
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return! Error(QuantumError.OperationError("Knapsack solve failed: ", $"Failed: {ex.Message}"))
         }
 
@@ -526,17 +526,18 @@ module Knapsack =
 
         findCombinations problem.Items problem.Capacity []
 
+    /// Every item that appears in at least one combination, once, in order of first appearance.
+    let private unionOf (combinations: Item list list) : Item list =
+        combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
+
     /// Classical fallback: union of all items across all exact combinations (no quantum backend).
     let internal findAllCapturedItemsClassical (problem: Problem) : Item list =
-        findAllExactCombinationsClassical problem
-        |> List.concat
-        |> List.distinctBy (fun item -> item.Id)
+        findAllExactCombinationsClassical problem |> unionOf
 
     /// Classical fallback: all exact combinations, their union and the combination count (no quantum backend).
     let internal findAllValidCombinationsClassical (problem: Problem) : Item list list * Item list * int =
         let combinations = findAllExactCombinationsClassical problem
-        let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
-        (combinations, allItems, List.length combinations)
+        (combinations, unionOf combinations, List.length combinations)
 
     /// Find ALL valid combinations that sum exactly to capacity using quantum QAOA.
     ///
@@ -629,7 +630,7 @@ module Knapsack =
         task {
             let! allCombinations = findAllExactCombinationsAsync problem backend cancellationToken
 
-            return allCombinations |> List.concat |> List.distinctBy (fun item -> item.Id)
+            return unionOf allCombinations
         }
 
     /// Find all valid combinations that sum exactly to capacity, with detailed results
@@ -660,10 +661,7 @@ module Knapsack =
         : Task<Item list list * Item list * int> =
         task {
             let! combinations = findAllExactCombinationsAsync problem backend cancellationToken
-            let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
-            let count = List.length combinations
-
-            return (combinations, allItems, count)
+            return (combinations, unionOf combinations, List.length combinations)
         }
 
     // ============================================================================
@@ -739,7 +737,7 @@ module Knapsack =
                             BackendName = backendName
                             IsQuantum = backend.IsSome
                         }
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return! Error(QuantumError.OperationError("Find all mode failed: ", $"Failed: {ex.Message}"))
             }
         else

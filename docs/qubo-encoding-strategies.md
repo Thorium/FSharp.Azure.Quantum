@@ -474,7 +474,7 @@ For large, sparse QUBO problems, the library provides a memory-efficient pipelin
 
 The sparse pipeline saves the memory of the QUBO matrix only. Running QAOA still needs one qubit per variable, and simulating it on `LocalBackend` needs a 2ⁿ-amplitude state vector, so local runs are limited by memory (at most 30 qubits). Larger problems need a hardware backend.
 
-The execution helpers live in `FSharp.Azure.Quantum.Core.QaoaExecutionHelpers`. The examples use the `...Async` variants (`executeQaoaCircuitAsync`, `executeFromQuboAsync`, `executeQaoaCircuitSparseAsync`, `executeQaoaWithOptimizationSparseAsync`, `executeQaoaWithGridSearchSparseAsync`), which take a `CancellationToken` as their last argument and return a `Task`; the synchronous forms remain as `[<Obsolete>]` wrappers.
+The execution helpers live in `FSharp.Azure.Quantum.Core.QaoaExecutionHelpers`. The examples use the `...Async` variants (`executeQaoaCircuitAsync`, `executeFromQuboAsync`, `executeQaoaCircuitSparseAsync`, `executeQaoaWithOptimizationSparseAsync`, `executeQaoaWithGridSearchSparseAsync`), which take a `CancellationToken` as their last argument and return a `Task`.
 
 ### Building a ProblemHamiltonian from Sparse QUBO
 

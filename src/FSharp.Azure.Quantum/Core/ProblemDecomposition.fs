@@ -157,28 +157,15 @@ module ProblemDecomposition =
         | RunDirect problem -> solveFn problem
 
         | RunDecomposed subProblems ->
-            task {
-                let mutable solutions: 'Solution list = []
-                let mutable failure: QuantumError option = None
-                let mutable remaining = subProblems
+            // Solve in order, stopping at the first error (quantumResultTask's `for` does both)
+            quantumResultTask {
+                let solutions = ResizeArray<'Solution>()
 
-                while failure.IsNone && not remaining.IsEmpty do
-                    let! result = solveFn remaining.Head
+                for subProblem in subProblems do
+                    let! solution = solveFn subProblem
+                    solutions.Add solution
 
-                    match result with
-                    | Ok solution -> solutions <- solution :: solutions
-                    | Error err -> failure <- Some err
-
-                    remaining <- remaining.Tail
-
-                match failure with
-                | Some err -> return Error err
-                | None ->
-                    return
-                        solutions
-                        |> List.rev // Restore original order
-                        |> recombineFn
-                        |> Ok
+                return recombineFn (List.ofSeq solutions)
             }
 
     // ========================================================================

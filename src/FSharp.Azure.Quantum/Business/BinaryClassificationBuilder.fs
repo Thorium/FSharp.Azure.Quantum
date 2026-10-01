@@ -294,23 +294,16 @@ module BinaryClassifier =
 
             quantumResultTask {
                 let! result =
-                    task {
-                        let! trained =
-                            VQC.trainAsync
-                                backend
-                                featureMap
-                                variationalForm
-                                initialParams
-                                trainFeatures
-                                labels
-                                trainConfig
-                                cancellationToken
-
-                        return
-                            trained
-                            |> Result.mapError (fun e ->
-                                QuantumError.ValidationError("Input", $"VQC training failed: {e}"))
-                    }
+                    VQC.trainAsync
+                        backend
+                        featureMap
+                        variationalForm
+                        initialParams
+                        trainFeatures
+                        labels
+                        trainConfig
+                        cancellationToken
+                    |> mapErrorAsync (fun e -> QuantumError.ValidationError("Input", $"VQC training failed: {e}"))
 
                 let endTime = DateTime.UtcNow
 
@@ -392,21 +385,8 @@ module BinaryClassifier =
 
         quantumResultTask {
             let! model =
-                task {
-                    let! trained =
-                        QuantumKernelSVM.trainAsync
-                            backend
-                            featureMap
-                            features
-                            labels
-                            svmConfig
-                            config.Shots
-                            cancellationToken
-
-                    return
-                        trained
-                        |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Hybrid training failed: {e}"))
-                }
+                QuantumKernelSVM.trainAsync backend featureMap features labels svmConfig config.Shots cancellationToken
+                |> mapErrorAsync (fun e -> QuantumError.ValidationError("Input", $"Hybrid training failed: {e}"))
 
             let endTime = DateTime.UtcNow
 

@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.LocalSimulator
 
 open System
+open System.Diagnostics
 open System.Numerics
 
 /// QAOA (Quantum Approximate Optimization Algorithm) Simulator Module
@@ -269,7 +270,7 @@ module QaoaSimulator =
                 Error
                     $"Parameters array length ({circuit.Parameters.Length}) must equal Depth * 2 ({circuit.Depth * 2})"
             else
-                let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+                let stopwatch = Stopwatch.StartNew()
 
                 // Extract gammas and betas from parameters array
                 let gammas =

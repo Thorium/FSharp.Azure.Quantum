@@ -58,46 +58,6 @@ module DrugDiscoverySolvers =
         : float[] -> float =
         QaoaExecutionHelpers.createObjectiveFunction backend qubo problemHam mixerHam numLayers shots
 
-    /// Execute QAOA with Nelder-Mead parameter optimization
-    let private executeQaoaWithOptimizationAsync
-        (backend: BackendAbstraction.IQuantumBackend)
-        (qubo: float[,])
-        (config: QaoaConfig)
-        (cancellationToken: CancellationToken)
-        : Task<Result<int[] * (float * float)[] * bool, QuantumError>> =
-        QaoaExecutionHelpers.executeQaoaWithOptimizationAsync backend qubo config cancellationToken
-
-    /// Execute QAOA with grid search (fallback when optimization disabled)
-    let private executeQaoaWithGridSearchAsync
-        (backend: BackendAbstraction.IQuantumBackend)
-        (qubo: float[,])
-        (config: QaoaConfig)
-        (cancellationToken: CancellationToken)
-        : Task<Result<int[] * (float * float)[], QuantumError>> =
-        // Sequential (maxConcurrency = 1) grid search, as before
-        QaoaExecutionHelpers.executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
-
-    /// Run QAOA with parameter optimization when enabled, else with grid search.
-    /// Returns: (bestBitstring, optimizedParameters, converged when optimized)
-    let private runQaoaAsync
-        (backend: BackendAbstraction.IQuantumBackend)
-        (qubo: float[,])
-        (config: QaoaConfig)
-        (cancellationToken: CancellationToken)
-        : Task<Result<int[] * (float * float)[] option * bool option, QuantumError>> =
-        quantumResultTask {
-            if config.EnableOptimization then
-                let! (bits, optParams, converged) =
-                    executeQaoaWithOptimizationAsync backend qubo config cancellationToken
-
-                return (bits, Some optParams, Some converged)
-            else
-                let! (bits, optParams) =
-                    executeQaoaWithGridSearchAsync backend qubo config cancellationToken
-
-                return (bits, Some optParams, None)
-        }
-
     // ================================================================================
     // MAXIMUM WEIGHT INDEPENDENT SET (MWIS)
     // ================================================================================
@@ -218,7 +178,7 @@ module DrugDiscoverySolvers =
                     let qubo = toQubo problem
 
                     let! (bits, optParams, converged) =
-                        runQaoaAsync backend qubo config cancellationToken
+                        QaoaExecutionHelpers.runQaoaAsync backend qubo config cancellationToken
 
                     // Apply constraint repair if enabled and solution is invalid
                     let finalBits, wasRepaired =
@@ -463,7 +423,7 @@ module DrugDiscoverySolvers =
                     let qubo = toQubo problem
 
                     let! (bits, optParams, converged) =
-                        runQaoaAsync backend qubo config cancellationToken
+                        QaoaExecutionHelpers.runQaoaAsync backend qubo config cancellationToken
 
                     let currentCount = bits |> Array.sum
 
@@ -742,7 +702,7 @@ module DrugDiscoverySolvers =
                     let qubo = toQubo problem
 
                     let! (bits, optParams, converged) =
-                        runQaoaAsync backend qubo config cancellationToken
+                        QaoaExecutionHelpers.runQaoaAsync backend qubo config cancellationToken
 
                     let currentCost =
                         problem.Items

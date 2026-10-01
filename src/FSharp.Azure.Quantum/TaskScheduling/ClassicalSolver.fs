@@ -122,7 +122,7 @@ module ClassicalSolver =
     /// It returns a ValidationError when a task fits in no window of a resource it requires.
     /// Priority does not change the result: every task starts at its own earliest
     /// feasible time, independently of the others.
-    /// For resource-constrained scheduling, use QuantumSolver.solveQuantum with IQuantumBackend.
+    /// For resource-constrained scheduling, use QuantumSolver.solveQuantumAsync with IQuantumBackend.
     ///
     /// Objective handling: the greedy schedule places every task at its earliest
     /// feasible start, which minimises each task's completion time simultaneously.

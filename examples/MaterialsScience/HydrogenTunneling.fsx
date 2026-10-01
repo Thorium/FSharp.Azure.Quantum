@@ -24,7 +24,7 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
-#load "../_common/SvgAnimation.fsx"
+#load "../_common/SvgAnimation.fs"
 
 open System
 open FSharp.Azure.Quantum.QuantumChemistry
@@ -341,59 +341,68 @@ let createFeHMolecule (bondLength: float) (multiplicity: int) : Molecule =
     }
 
 /// Run VQE and return result row
-let runVqe (label: string) (description: string) (molecule: Molecule) : Map<string, string> =
-    if not quiet then
-        printfn "  VQE: %s — %s" label molecule.Name
-
-    match calculateVQEEnergy backend molecule with
-    | Ok(energy, iterations, time) ->
+let runVqeAsync (label: string) (description: string) (molecule: Molecule) =
+    task {
         if not quiet then
-            printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
+            printfn "  VQE: %s — %s" label molecule.Name
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", $"%.6f{energy}"
-                "iterations", $"%d{iterations}"
-                "time_seconds", $"%.2f{time}"
-                "has_vqe_failure", "false"
-            ]
-    | Error msg ->
-        anyVqeFailure <- true
+        match! calculateVQEEnergyAsync backend molecule with
+        | Ok(energy, iterations, time) ->
+            if not quiet then
+                printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
 
-        if not quiet then
-            eprintfn "    Error: %s" msg
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", $"%.6f{energy}"
+                        "iterations", $"%d{iterations}"
+                        "time_seconds", $"%.2f{time}"
+                        "has_vqe_failure", "false"
+                    ]
+        | Error msg ->
+            anyVqeFailure <- true
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", "N/A"
-                "iterations", "N/A"
-                "time_seconds", "N/A"
-                "has_vqe_failure", "true"
-            ]
+            if not quiet then
+                eprintfn "    Error: %s" msg
 
-// FeH at different bond lengths (models interstitial potential landscape)
-let bondLengthResults =
-    [
-        (1.40, "Compressed (saddle point)")
-        (1.63, "Equilibrium (trap site)")
-        (2.00, "Extended (delocalized)")
-    ]
-    |> List.map (fun (bl, desc) ->
-        let label = $"FeH R=%.2f{bl} A"
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", "N/A"
+                        "iterations", "N/A"
+                        "time_seconds", "N/A"
+                        "has_vqe_failure", "true"
+                    ]
+    }
 
-        runVqe label desc (createFeHMolecule bl 4)
-        |> Map.add "bond_length_A" $"%.2f{bl}")
+// FeH at different bond lengths (models interstitial potential landscape),
+// then the spin state comparison at equilibrium
+let bondLengthResults, quartetResult, doubletResult =
+    let bondLengths =
+        [
+            (1.40, "Compressed (saddle point)")
+            (1.63, "Equilibrium (trap site)")
+            (2.00, "Extended (delocalized)")
+        ]
 
-// Spin state comparison at equilibrium
-let quartetResult =
-    runVqe "FeH Quartet (M=4)" "S=3/2, ferromagnetic" (createFeHMolecule 1.63 4)
+    task {
+        let bondLengthRows = ResizeArray()
 
-let doubletResult =
-    runVqe "FeH Doublet (M=2)" "S=1/2, reduced moment" (createFeHMolecule 1.63 2)
+        for (bl, desc) in bondLengths do
+            let label = $"FeH R=%.2f{bl} A"
+            let! row = runVqeAsync label desc (createFeHMolecule bl 4)
+            bondLengthRows.Add(row |> Map.add "bond_length_A" $"%.2f{bl}")
+
+        let! quartet = runVqeAsync "FeH Quartet (M=4)" "S=3/2, ferromagnetic" (createFeHMolecule 1.63 4)
+        let! doublet = runVqeAsync "FeH Doublet (M=2)" "S=1/2, reduced moment" (createFeHMolecule 1.63 2)
+        return List.ofSeq bondLengthRows, quartet, doublet
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 let spinResults = [ quartetResult; doubletResult ]
 

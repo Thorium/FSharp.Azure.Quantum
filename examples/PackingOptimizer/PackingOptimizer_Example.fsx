@@ -148,6 +148,7 @@ if runAll || exampleName = "shipping" then
         PackingOptimizer.packingOptimizer {
             containerCapacity 100.0
 
+            // Sizes pack into 2 bins (first-fit-decreasing), so the instance fits 16 qubits on the local simulator.
             item "Crate-A" 35.0
             item "Crate-B" 45.0
             item "Crate-C" 20.0
@@ -213,6 +214,7 @@ if runAll || exampleName = "storage" then
         PackingOptimizer.packingOptimizer {
             containerCapacity 500.0
 
+            // Sizes pack into 2 bins (first-fit-decreasing), so the instance fits 16 qubits on the local simulator.
             item "UserData" 180.0
             item "Logs" 120.0
             item "Analytics" 200.0

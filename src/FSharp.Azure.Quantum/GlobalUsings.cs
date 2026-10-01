@@ -17,7 +17,7 @@ global using static FSharp.Azure.Quantum.CSharpBuilders;
 global using static FSharp.Azure.Quantum.BuildersCSharpExtensions;
 
 // Extension methods for quantum backends (async/await support)
-// Examples: backend.ExecuteToStateTask(), backend.CheckSupportsOperation()
+// Examples: backend.ExecuteToStateAsync(circuit), backend.CheckSupportsOperation()
 global using static FSharp.Azure.Quantum.QuantumBackendCSharpExtensions;
 
 // Extension methods for model serialization (Task-based async)

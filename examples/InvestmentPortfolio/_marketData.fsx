@@ -15,8 +15,8 @@
 //   - hold-out return   = adjusted close at the end of the following year / buy price - 1
 //
 // The bundled file data/market-stats-2019-2023.json holds these derived figures
-// only (no daily prices). `computeFromYahoo` recomputes them for any symbols and
-// dates.
+// only (no daily prices). `computeFromYahooAsync` recomputes them for any symbols
+// and dates.
 //
 // Usage:
 //   #load "_marketData.fsx"
@@ -39,6 +39,7 @@ open System.Text.Encodings.Web
 open System.Text.Json
 open System.Text.RegularExpressions
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Data
 
@@ -495,85 +496,94 @@ module MarketData =
     /// Daily adjusted closes from 10 days before fromDate (the close the first window return
     /// starts from) to the end of the hold-out year after toDate, ascending. Bars without an
     /// adjusted close are left out.
-    let fetchAdjustedCloses
+    let fetchAdjustedClosesAsync
         (http: HttpClient)
         (cacheDir: string)
         (fromDate: DateTime)
         (toDate: DateTime)
         (symbol: string)
-        : Result<(DateTime * float) array, string> =
-        let request: FinancialData.YahooHistoryRequest =
-            {
-                Symbol = symbol
-                Range = FinancialData.YahooHistoryRange.Max
-                Interval = FinancialData.YahooHistoryInterval.OneDay
-                IncludeAdjustedClose = true
-                CacheDirectory = Some cacheDir
-                CacheTtl = TimeSpan.FromHours 6.0
-                StartDate = Some(fromDate.AddDays -10.0)
-                EndDate = Some(toDate.AddYears 1)
-            }
+        : Task<Result<(DateTime * float) array, string>> =
+        task {
+            let request: FinancialData.YahooHistoryRequest =
+                {
+                    Symbol = symbol
+                    Range = FinancialData.YahooHistoryRange.Max
+                    Interval = FinancialData.YahooHistoryInterval.OneDay
+                    IncludeAdjustedClose = true
+                    CacheDirectory = Some cacheDir
+                    CacheTtl = TimeSpan.FromHours 6.0
+                    StartDate = Some(fromDate.AddDays -10.0)
+                    EndDate = Some(toDate.AddYears 1)
+                }
 
-        match (FinancialData.fetchYahooHistoryAsync http request CancellationToken.None).GetAwaiter().GetResult() with
-        | Error e -> Error e.Message
-        | Ok series ->
-            let bars =
-                series.Prices
-                |> Array.choose (fun b ->
-                    b.AdjustedClose
-                    |> Option.filter (fun p -> p > 0.0)
-                    |> Option.map (fun p -> b.Date, p))
-                |> Array.distinctBy fst
-                |> Array.sortBy fst
+            match! FinancialData.fetchYahooHistoryAsync http request CancellationToken.None with
+            | Error e -> return Error e.Message
+            | Ok series ->
+                let bars =
+                    series.Prices
+                    |> Array.choose (fun b ->
+                        b.AdjustedClose
+                        |> Option.filter (fun p -> p > 0.0)
+                        |> Option.map (fun p -> b.Date, p))
+                    |> Array.distinctBy fst
+                    |> Array.sortBy fst
 
-            if bars.Length = 0 then
-                Error "the response has no adjusted closes"
-            else
-                Ok bars
+                if bars.Length = 0 then
+                    return Error "the response has no adjusted closes"
+                else
+                    return Ok bars
+        }
 
     /// Fetches every symbol (plus the regime proxy) and computes the figures. Symbols that fail to
     /// download or do not cover the whole window are dropped and returned with the reason.
-    let computeFromYahoo
+    let computeFromYahooAsync
         (log: string -> unit)
         (symbols: string list)
         (fromDate: DateTime)
         (toDate: DateTime)
         (regimeProxy: string option)
-        : Result<MarketStats * (string * string) list, string> =
-        Directory.CreateDirectory defaultCacheDirectory |> ignore
-        use http = new HttpClient(Timeout = TimeSpan.FromSeconds 60.0)
+        : Task<Result<MarketStats * (string * string) list, string>> =
+        task {
+            Directory.CreateDirectory defaultCacheDirectory |> ignore
+            use http = new HttpClient(Timeout = TimeSpan.FromSeconds 60.0)
 
-        let wanted =
-            symbols @ Option.toList regimeProxy
-            |> List.map (fun s -> s.Trim().ToUpperInvariant())
-            |> List.filter (fun s -> s <> "")
-            |> List.distinct
+            let wanted =
+                symbols @ Option.toList regimeProxy
+                |> List.map (fun s -> s.Trim().ToUpperInvariant())
+                |> List.filter (fun s -> s <> "")
+                |> List.distinct
 
-        log $"Fetching %d{wanted.Length} symbols from Yahoo Finance (cache: %s{defaultCacheDirectory}, 6 h)..."
+            log $"Fetching %d{wanted.Length} symbols from Yahoo Finance (cache: %s{defaultCacheDirectory}, 6 h)..."
 
-        let fetched =
-            wanted
-            |> List.map (fun s ->
-                match fetchAdjustedCloses http defaultCacheDirectory fromDate toDate s with
-                | Error e -> s, Error e
+            let fetchedSymbols = ResizeArray()
+
+            for s in wanted do
+                match! fetchAdjustedClosesAsync http defaultCacheDirectory fromDate toDate s with
+                | Error e -> fetchedSymbols.Add(s, Error e)
                 | Ok bars when not (coversWindow fromDate toDate bars) ->
-                    s,
-                    Error
-                        $"no data for the whole window (history %s{isoDate (fst bars.[0])}..%s{isoDate (fst bars.[bars.Length - 1])})"
-                | Ok bars -> s, Ok bars)
+                    fetchedSymbols.Add(
+                        s,
+                        Error
+                            $"no data for the whole window (history %s{isoDate (fst bars.[0])}..%s{isoDate (fst bars.[bars.Length - 1])})"
+                    )
+                | Ok bars -> fetchedSymbols.Add(s, Ok bars)
 
-        let dropped =
-            fetched
-            |> List.choose (fun (s, r) -> r |> Result.map (fun _ -> None) |> Result.defaultWith (fun e -> Some(s, e)))
+            let fetched = List.ofSeq fetchedSymbols
 
-        let kept =
-            fetched
-            |> List.choose (fun (s, r) -> r |> Result.map (fun bars -> Some(s, bars)) |> Result.defaultValue None)
+            let dropped =
+                fetched
+                |> List.choose (fun (s, r) ->
+                    r |> Result.map (fun _ -> None) |> Result.defaultWith (fun e -> Some(s, e)))
 
-        if kept.IsEmpty then
-            Error(dropped |> List.map (fun (s, e) -> $"%s{s}: %s{e}") |> String.concat "; ")
-        else
-            Ok(computeStats kept fromDate toDate regimeProxy, dropped)
+            let kept =
+                fetched
+                |> List.choose (fun (s, r) -> r |> Result.map (fun bars -> Some(s, bars)) |> Result.defaultValue None)
+
+            if kept.IsEmpty then
+                return Error(dropped |> List.map (fun (s, e) -> $"%s{s}: %s{e}") |> String.concat "; ")
+            else
+                return Ok(computeStats kept fromDate toDate regimeProxy, dropped)
+        }
 
     // --------------------------------------------------------------------------
     // Portfolio evaluation

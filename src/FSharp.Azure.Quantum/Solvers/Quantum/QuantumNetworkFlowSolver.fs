@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
@@ -34,7 +35,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// Example:
 ///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-///   match QuantumNetworkFlowSolver.solve backend problem config with
+///   match! QuantumNetworkFlowSolver.solveAsync backend problem config CancellationToken.None with
 ///   | Ok solution -> printfn "Total cost: %f" solution.TotalCost
 ///   | Error msg -> printfn "Error: %s" msg
 module QuantumNetworkFlowSolver =
@@ -406,7 +407,7 @@ module QuantumNetworkFlowSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<NetworkFlowSolution, QuantumError>> =
 
-        let startTime = DateTime.UtcNow
+        let stopwatch = Stopwatch.StartNew()
 
         // Validate inputs
         let numEdges = problem.Edges.Length
@@ -474,7 +475,7 @@ module QuantumNetworkFlowSolver =
                             let bestSolution =
                                 flowResults |> Array.minBy (fun sol -> (-sol.DemandSatisfied, sol.TotalCost))
 
-                            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
                             // Report completion
                             config.ProgressReporter

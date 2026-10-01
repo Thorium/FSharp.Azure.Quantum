@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
@@ -41,7 +42,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// Example:
 ///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-///   match QuantumMaxCutSolver.solve backend graph config with
+///   match! QuantumMaxCutSolver.solveAsync backend graph config CancellationToken.None with
 ///   | Ok solution -> printfn "Cut value: %f" solution.CutValue
 ///   | Error msg -> printfn "Error: %s" msg
 module QuantumMaxCutSolver =
@@ -263,7 +264,7 @@ module QuantumMaxCutSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<MaxCutSolution, QuantumError>> =
 
-        let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+        let stopwatch = Stopwatch.StartNew()
 
         try
             // Step 1: Validate problem size against backend

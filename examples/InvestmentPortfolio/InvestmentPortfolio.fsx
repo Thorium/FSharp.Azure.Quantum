@@ -283,7 +283,11 @@ let marketStats, liveUsed =
             printfn "%s" msg
 
     if liveDataEnabled && not needed.IsEmpty then
-        match MarketData.computeFromYahoo info needed windowFrom windowTo None with
+        match
+            MarketData.computeFromYahooAsync info needed windowFrom windowTo None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Ok(stats, dropped) ->
             for (s, reason) in dropped do
                 printfn "  Dropped %s: %s" s reason

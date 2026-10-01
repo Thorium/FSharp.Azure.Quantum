@@ -589,6 +589,43 @@ let ``evaluateAsync - should reject mismatched test data and labels`` () : Task 
             | Ok _ -> Assert.True(false, "Should have rejected mismatched lengths")
     }
 
+/// A model without support vectors: it needs no training and runs no kernel circuit.
+let private biasOnlyModel (bias: float) : SVMModel =
+    {
+        SupportVectorIndices = [||]
+        Alphas = [||]
+        Bias = bias
+        TrainData = [||]
+        TrainLabels = [||]
+        FeatureMap = AngleEncoding
+    }
+
+[<Theory>]
+[<InlineData(0)>]
+[<InlineData(-5)>]
+let ``evaluateAsync - should reject non-positive shots`` (shots: int) : Task =
+    task {
+        match! evaluateAsync backend (biasOnlyModel 0.25) [| [| 0.5; 0.5 |] |] [| 1 |] shots CancellationToken.None with
+        | Error err -> Assert.Contains("shots must be positive", err.Message)
+        | Ok _ -> Assert.True(false, "Should have rejected non-positive shots")
+    }
+
+[<Theory>]
+[<InlineData(0.25, 2)>]
+[<InlineData(-0.25, 1)>]
+let ``evaluateAsync - without support vectors every prediction is the sign of the bias``
+    (bias: float)
+    (expectedCorrect: int)
+    : Task =
+    task {
+        let testData = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |]; [| 0.5; 0.6 |] |]
+        let testLabels = [| 1; 0; 1 |]
+
+        match! evaluateAsync backend (biasOnlyModel bias) testData testLabels 100 CancellationToken.None with
+        | Error err -> Assert.True(false, $"evaluateAsync failed: %s{err.Message}")
+        | Ok accuracy -> Assert.Equal(float expectedCorrect / 3.0, accuracy, 10)
+    }
+
 // ============================================================================
 // Async Cancellation Tests
 // ============================================================================

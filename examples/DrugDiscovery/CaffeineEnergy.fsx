@@ -48,6 +48,7 @@
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
@@ -528,84 +529,86 @@ let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) 
 
 /// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
 /// Returns (Ok energy | Error message, elapsed seconds).
-let private computeEnergy
+let private computeEnergyAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
     (molecule: Molecule)
-    : Result<float, string> * float =
-    let startTime = DateTime.Now
-    let config = solverConfig backend maxIter tol
+    : Task<Result<float, string> * float> =
+    task {
+        let startTime = DateTime.Now
+        let config = solverConfig backend maxIter tol
 
-    let result =
-        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
+        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
-    let elapsed = (DateTime.Now - startTime).TotalSeconds
+        let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-    match result with
-    | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
-    | Error err ->
-        if not quiet then
-            eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        match result with
+        | Ok vqeResult -> return (Ok vqeResult.Energy, elapsed)
+        | Error err ->
+            if not quiet then
+                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+    }
 
 /// Compute the ground state energy profile for one fragment.
-let private computeFragment
+let private computeFragmentAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
     (idx: int)
     (total: int)
     (frag: DrugFragment)
-    : FragmentResult =
-    let electrons = Molecule.countElectrons frag.Molecule
+    : Task<FragmentResult> =
+    task {
+        let electrons = Molecule.countElectrons frag.Molecule
 
-    if not quiet then
-        printfn "  [%d/%d] %s (%s)" (idx + 1) total frag.Name frag.FunctionalGroup
-        printfn "         %s" frag.Description
-        printfn "         Atoms: %d  |  Electrons: %d" frag.Molecule.Atoms.Length electrons
+        if not quiet then
+            printfn "  [%d/%d] %s (%s)" (idx + 1) total frag.Name frag.FunctionalGroup
+            printfn "         %s" frag.Description
+            printfn "         Atoms: %d  |  Electrons: %d" frag.Molecule.Atoms.Length electrons
 
-    let mutable anyFailure = false
+        let mutable anyFailure = false
 
-    let (res, elapsed) = computeEnergy backend maxIter tol frag.Molecule
+        let! (res, elapsed) = computeEnergyAsync backend maxIter tol frag.Molecule
 
-    let energy =
-        match res with
-        | Ok e ->
-            if not quiet then
-                printfn "         E = %.6f Ha  (%.1fs)" e elapsed
+        let energy =
+            match res with
+            | Ok e ->
+                if not quiet then
+                    printfn "         E = %.6f Ha  (%.1fs)" e elapsed
 
-            e
-        | Error _ ->
-            anyFailure <- true
+                e
+            | Error _ ->
+                anyFailure <- true
 
-            if not quiet then
-                printfn "         E = FAILED  (%.1fs)" elapsed
+                if not quiet then
+                    printfn "         E = FAILED  (%.1fs)" elapsed
 
-            0.0
+                0.0
 
-    let energyPerElectron =
-        if anyFailure || electrons = 0 then
-            0.0
-        else
-            energy / float electrons
+        let energyPerElectron =
+            if anyFailure || electrons = 0 then
+                0.0
+            else
+                energy / float electrons
 
-    if not quiet then
-        if not anyFailure then
-            printfn "         E/electron = %.6f Ha" energyPerElectron
+        if not quiet then
+            if not anyFailure then
+                printfn "         E/electron = %.6f Ha" energyPerElectron
 
-        printfn ""
+            printfn ""
 
-    {
-        Fragment = frag
-        Energy = energy
-        EnergyPerElectron = energyPerElectron
-        Electrons = electrons
-        ComputeTimeSeconds = elapsed
-        HasVqeFailure = anyFailure
+        return
+            {
+                Fragment = frag
+                Energy = energy
+                EnergyPerElectron = energyPerElectron
+                Electrons = electrons
+                ComputeTimeSeconds = elapsed
+                HasVqeFailure = anyFailure
+            }
     }
 
 // --- Run all fragments ---
@@ -615,8 +618,17 @@ if not quiet then
     printfn ""
 
 let results =
-    fragments
-    |> List.mapi (fun i frag -> computeFragment backend maxIterations tolerance i fragments.Length frag)
+    task {
+        let computed = ResizeArray()
+
+        for (i, frag) in List.indexed fragments do
+            let! result = computeFragmentAsync backend maxIterations tolerance i fragments.Length frag
+            computed.Add result
+
+        return List.ofSeq computed
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Sort: most negative energy per electron first (most stable per electron).
 // Failed fragments sink to bottom.

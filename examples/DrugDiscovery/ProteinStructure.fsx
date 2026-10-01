@@ -711,106 +711,107 @@ if not quiet then
 
 let backend = LocalBackend() :> IQuantumBackend
 
-for ligand in pdb.Ligands do
-    let site = analyzeBindingSite pdb ligand bindingSiteCutoff
-    let fragment = extractQuantumFragment site ligand maxFragmentAtoms
+task {
+    for ligand in pdb.Ligands do
+        let site = analyzeBindingSite pdb ligand bindingSiteCutoff
+        let fragment = extractQuantumFragment site ligand maxFragmentAtoms
 
-    let elementCounts = fragment |> List.countBy fst |> List.sortBy fst
+        let elementCounts = fragment |> List.countBy fst |> List.sortBy fst
 
-    if not quiet then
-        printfn "Fragment for %s:" ligand.Name
-        printfn "  Total atoms: %d" (List.length fragment)
-
-        for (element, count) in elementCounts do
-            printfn "    %s: %d" element count
-
-    if List.length fragment >= minFragmentAtoms then
         if not quiet then
-            printfn "  Status: Running VQE on fragment..."
-            printfn ""
+            printfn "Fragment for %s:" ligand.Name
+            printfn "  Total atoms: %d" (List.length fragment)
 
-        // Build molecule from extracted fragment
-        let fragmentMolecule: Molecule =
-            {
-                Name = $"%s{ligand.Name}-BindingSiteFragment"
-                Atoms = fragment |> List.map (fun (elem, pos) -> { Element = elem; Position = pos })
-                Bonds = [] // Bonds inferred from geometry by the VQE framework
-                Charge = 0
-                Multiplicity = 1
-            }
+            for (element, count) in elementCounts do
+                printfn "    %s: %d" element count
 
-        let config =
-            {
-                Method = GroundStateMethod.VQE
-                Backend = Some backend
-                MaxIterations = maxIterations
-                Tolerance = tolerance
-                InitialParameters = None
-                ProgressReporter = None
-                ErrorMitigation = None
-                IntegralProvider = None
-            }
-
-        let startTime = DateTime.Now
-
-        let result =
-            GroundStateEnergy.estimateEnergyAsync fragmentMolecule config CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-
-        let elapsed = (DateTime.Now - startTime).TotalSeconds
-
-        match result with
-        | Ok vqeResult ->
+        if List.length fragment >= minFragmentAtoms then
             if not quiet then
-                printfn "  VQE Result:"
-                printfn "    Fragment energy: %.6f Hartree" vqeResult.Energy
-                printfn "    Computation time: %.2f s" elapsed
-                printfn "    Backend: %s" backend.Name
+                printfn "  Status: Running VQE on fragment..."
+                printfn ""
+
+            // Build molecule from extracted fragment
+            let fragmentMolecule: Molecule =
+                {
+                    Name = $"%s{ligand.Name}-BindingSiteFragment"
+                    Atoms = fragment |> List.map (fun (elem, pos) -> { Element = elem; Position = pos })
+                    Bonds = [] // Bonds inferred from geometry by the VQE framework
+                    Charge = 0
+                    Multiplicity = 1
+                }
+
+            let config =
+                {
+                    Method = GroundStateMethod.VQE
+                    Backend = Some backend
+                    MaxIterations = maxIterations
+                    Tolerance = tolerance
+                    InitialParameters = None
+                    ProgressReporter = None
+                    ErrorMitigation = None
+                    IntegralProvider = None
+                }
+
+            let startTime = DateTime.Now
+
+            let! result = GroundStateEnergy.estimateEnergyAsync fragmentMolecule config CancellationToken.None
+
+            let elapsed = (DateTime.Now - startTime).TotalSeconds
+
+            match result with
+            | Ok vqeResult ->
+                if not quiet then
+                    printfn "  VQE Result:"
+                    printfn "    Fragment energy: %.6f Hartree" vqeResult.Energy
+                    printfn "    Computation time: %.2f s" elapsed
+                    printfn "    Backend: %s" backend.Name
+                    printfn ""
+
+                results.Add(
+                    [
+                        "type", "vqe_fragment"
+                        "ligand_id", ligand.Name
+                        "fragment_atoms", string (List.length fragment)
+                        "energy_hartree", $"%.6f{vqeResult.Energy}"
+                        "computation_time_s", $"%.2f{elapsed}"
+                        "max_iterations", string maxIterations
+                        "tolerance", $"%.1e{tolerance}"
+                        "backend", backend.Name
+                    ]
+                    |> Map.ofList
+                )
+
+            | Error err ->
+                if not quiet then
+                    printfn "  VQE Warning: %s" err.Message
+                    printfn ""
+
+                results.Add(
+                    [
+                        "type", "vqe_error"
+                        "ligand_id", ligand.Name
+                        "fragment_atoms", string (List.length fragment)
+                        "error", err.Message
+                    ]
+                    |> Map.ofList
+                )
+        else
+            if not quiet then
+                printfn "  Status: Fragment too small (%d atoms, need >= %d)" (List.length fragment) minFragmentAtoms
                 printfn ""
 
             results.Add(
                 [
-                    "type", "vqe_fragment"
+                    "type", "fragment_too_small"
                     "ligand_id", ligand.Name
                     "fragment_atoms", string (List.length fragment)
-                    "energy_hartree", $"%.6f{vqeResult.Energy}"
-                    "computation_time_s", $"%.2f{elapsed}"
-                    "max_iterations", string maxIterations
-                    "tolerance", $"%.1e{tolerance}"
-                    "backend", backend.Name
+                    "min_required", string minFragmentAtoms
                 ]
                 |> Map.ofList
             )
-
-        | Error err ->
-            if not quiet then
-                printfn "  VQE Warning: %s" err.Message
-                printfn ""
-
-            results.Add(
-                [
-                    "type", "vqe_error"
-                    "ligand_id", ligand.Name
-                    "fragment_atoms", string (List.length fragment)
-                    "error", err.Message
-                ]
-                |> Map.ofList
-            )
-    else
-        if not quiet then
-            printfn "  Status: Fragment too small (%d atoms, need >= %d)" (List.length fragment) minFragmentAtoms
-            printfn ""
-
-        results.Add(
-            [
-                "type", "fragment_too_small"
-                "ligand_id", ligand.Name
-                "fragment_atoms", string (List.length fragment)
-                "min_required", string minFragmentAtoms
-            ]
-            |> Map.ofList
-        )
+}
+|> Async.AwaitTask
+|> Async.RunSynchronously
 
 // ==============================================================================
 // DRUG DISCOVERY CONTEXT

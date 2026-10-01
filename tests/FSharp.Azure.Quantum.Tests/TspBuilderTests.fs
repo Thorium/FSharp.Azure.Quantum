@@ -58,6 +58,20 @@ module TspBuilderTests =
         :> Task
 
     [<Fact>]
+    let ``TSP.solveAsync propagates cancellation instead of returning Error`` () : Task =
+        task {
+            let problem =
+                TSP.createProblem [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
+
+            let! _ =
+                Assert.ThrowsAnyAsync<System.OperationCanceledException>(fun () ->
+                    TSP.solveAsync problem None (CancellationToken true) :> Task)
+
+            ()
+        }
+        :> Task
+
+    [<Fact>]
     let ``TSP.solve should handle 3 cities triangle`` () : Task =
         task {
             // Arrange - Triangle shape (within LocalBackend 16-qubit limit)

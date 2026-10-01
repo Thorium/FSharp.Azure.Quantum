@@ -256,7 +256,7 @@ module Portfolio =
                         Risk = quantumResult.Risk
                         IsValid = valid
                     }
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return! Error(QuantumError.OperationError("Portfolio solve failed: ", $"Failed: {ex.Message}"))
         }
 

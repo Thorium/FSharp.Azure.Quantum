@@ -535,6 +535,27 @@ module QaoaExecutionHelpers =
                 maxConcurrency
                 cancellationToken
 
+    /// Execute QAOA the way the configuration asks: Nelder-Mead parameter optimization when
+    /// config.EnableOptimization, else a sequential (maxConcurrency = 1) grid search.
+    /// Returns: (bestBitstring, parameters, converged), converged being None after a grid search.
+    let runQaoaAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (qubo: float[,])
+        (config: QaoaSolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[] * (float * float)[] option * bool option, QuantumError>> =
+        task {
+            if config.EnableOptimization then
+                let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
+
+                return
+                    optimized
+                    |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
+            else
+                let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
+                return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+        }
+
     // ================================================================================
     // SPARSE QUBO EXECUTION (Task 1 — memory-efficient path)
     // ================================================================================

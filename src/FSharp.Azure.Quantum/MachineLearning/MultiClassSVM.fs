@@ -47,20 +47,6 @@ module MultiClassSVM =
         }
 
     // ========================================================================
-    // HELPER FUNCTIONS
-    // ========================================================================
-
-    /// Helper to convert Result array to array Result
-    let private traverseResult (results: Result<'a, 'e> array) : Result<'a array, 'e> =
-        let folder state item =
-            match state, item with
-            | Ok acc, Ok value -> Ok(Array.append acc [| value |])
-            | Error e, _ -> Error e
-            | _, Error e -> Error e
-
-        Array.fold folder (Ok [||]) results
-
-    // ========================================================================
     // TRAINING (One-vs-Rest Strategy)
     // ========================================================================
 
@@ -118,7 +104,7 @@ module MultiClassSVM =
             elif numClasses = 2 then
                 Task.FromResult(Error(QuantumError.Other "For binary classification, use QuantumKernelSVM.trainAsync directly"))
             else
-                task {
+                quantumResultTask {
                     if config.Verbose then
                         logInfo config.Logger "Training One-vs-Rest multi-class SVM..."
                         logInfo config.Logger ($"  Classes: %d{numClasses} (%A{uniqueClasses})")
@@ -126,12 +112,8 @@ module MultiClassSVM =
                     // Train one binary classifier per class, one after another; the first
                     // failing classifier's error is the result
                     let binaryModels = ResizeArray<QuantumKernelSVM.SVMModel>(numClasses)
-                    let mutable failure = None
-                    let mutable classIndex = 0
 
-                    while failure.IsNone && classIndex < numClasses do
-                        let classLabel = uniqueClasses.[classIndex]
-
+                    for classLabel in uniqueClasses do
                         if config.Verbose then
                             logInfo config.Logger ($"  Training classifier for class %d{classLabel} vs rest...")
 
@@ -139,7 +121,7 @@ module MultiClassSVM =
                         let binaryLabels = createBinaryLabels trainLabels classLabel
 
                         // Train binary SVM
-                        match!
+                        let! binaryModel =
                             QuantumKernelSVM.trainAsync
                                 backend
                                 featureMap
@@ -148,32 +130,23 @@ module MultiClassSVM =
                                 config
                                 shots
                                 cancellationToken
-                        with
-                        | Ok binaryModel -> binaryModels.Add binaryModel
-                        | Error e ->
-                            failure <-
-                                Some(
-                                    QuantumError.OperationError(
-                                        "MultiClassSVM training",
-                                        $"Failed to train classifier for class {classLabel}: {e.Message}"
-                                    )
-                                )
+                            |> mapErrorAsync (fun e ->
+                                QuantumError.OperationError(
+                                    "MultiClassSVM training",
+                                    $"Failed to train classifier for class {classLabel}: {e.Message}"
+                                ))
 
-                        classIndex <- classIndex + 1
+                        binaryModels.Add binaryModel
 
-                    match failure with
-                    | Some e -> return Error e
-                    | None ->
-                        if config.Verbose then
-                            logInfo config.Logger "Multi-class training complete!"
+                    if config.Verbose then
+                        logInfo config.Logger "Multi-class training complete!"
 
-                        return
-                            Ok
-                                {
-                                    BinaryModels = binaryModels.ToArray()
-                                    ClassLabels = uniqueClasses
-                                    NumClasses = numClasses
-                                }
+                    return
+                        {
+                            BinaryModels = binaryModels.ToArray()
+                            ClassLabels = uniqueClasses
+                            NumClasses = numClasses
+                        }
                 }
 
     // ========================================================================
@@ -217,7 +190,7 @@ module MultiClassSVM =
 
                 return
                     binaryPredictions
-                    |> traverseResult
+                    |> QuantumKernelSVM.traverseResult
                     |> Result.map (fun predictions ->
                         // Extract decision values
                         let decisionValues = predictions |> Array.map (fun pred -> pred.DecisionValue)

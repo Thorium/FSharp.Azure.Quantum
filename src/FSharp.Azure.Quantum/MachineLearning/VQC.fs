@@ -1448,7 +1448,7 @@ module VQC =
                         }
                 }
             else
-                task {
+                quantumResultTask {
                     if config.Verbose then
                         let log = logInfo config.Logger
                         log "Starting VQC multi-class training (one-vs-rest)..."
@@ -1459,10 +1459,8 @@ module VQC =
                     // Train one binary classifier per class, one after another; the first
                     // failing classifier's error is the result
                     let classifierList = ResizeArray<TrainingResult>(numClasses)
-                    let mutable failure = None
-                    let mutable i = 0
 
-                    while failure.IsNone && i < numClasses do
+                    for i in 0 .. numClasses - 1 do
                         let classLabel = classLabels.[i]
 
                         if config.Verbose then
@@ -1473,7 +1471,7 @@ module VQC =
                             trainLabels |> Array.map (fun label -> if label = classLabel then 1 else 0)
 
                         // Train binary classifier
-                        match!
+                        let! result =
                             trainAsync
                                 backend
                                 featureMap
@@ -1483,87 +1481,69 @@ module VQC =
                                 binaryLabels
                                 config
                                 cancellationToken
-                        with
-                        | Error e ->
-                            failure <-
-                                Some(
-                                    QuantumError.ValidationError(
-                                        "Input",
-                                        $"Classifier for class {classLabel} failed: {e}"
-                                    )
-                                )
-                        | Ok result ->
-                            if config.Verbose then
-                                logInfo config.Logger $"  Class {classLabel} accuracy: {result.TrainAccuracy:F4}"
-                                logInfo config.Logger ""
+                            |> mapErrorAsync (fun e ->
+                                QuantumError.ValidationError("Input", $"Classifier for class {classLabel} failed: {e}"))
 
-                            classifierList.Add result
+                        if config.Verbose then
+                            logInfo config.Logger $"  Class {classLabel} accuracy: {result.TrainAccuracy:F4}"
+                            logInfo config.Logger ""
 
-                        i <- i + 1
+                        classifierList.Add result
 
-                    match failure with
-                    | Some e -> return Error e
-                    | None ->
-                        let classifiers = classifierList.ToArray()
+                    let classifiers = classifierList.ToArray()
 
-                        // Compute overall training accuracy using one-vs-rest prediction, one
-                        // sample and one classifier after another; the first failing
-                        // prediction's error is the result
-                        let! correctCountResult =
-                            quantumResultTask {
-                                let correctCount = ref 0
+                    // Compute overall training accuracy using one-vs-rest prediction, one
+                    // sample and one classifier after another; the first failing
+                    // prediction's error is the result
+                    let! correctCount =
+                        quantumResultTask {
+                            let mutable correctCount = 0
 
-                                for sampleIndex in 0 .. trainFeatures.Length - 1 do
-                                    // Get scores from all classifiers
-                                    let scores = ResizeArray<float>(classifiers.Length)
+                            for sampleIndex in 0 .. trainFeatures.Length - 1 do
+                                // Get scores from all classifiers
+                                let scores = ResizeArray<float>(classifiers.Length)
 
-                                    for classifier in classifiers do
-                                        let! pred =
-                                            predictAsync
-                                                backend
-                                                featureMap
-                                                variationalForm
-                                                classifier.Parameters
-                                                trainFeatures.[sampleIndex]
-                                                config.Shots
-                                                cancellationToken
+                                for classifier in classifiers do
+                                    let! pred =
+                                        predictAsync
+                                            backend
+                                            featureMap
+                                            variationalForm
+                                            classifier.Parameters
+                                            trainFeatures.[sampleIndex]
+                                            config.Shots
+                                            cancellationToken
 
-                                        scores.Add pred.Probability
+                                    scores.Add pred.Probability
 
-                                    // Predicted class is the one with highest score
-                                    let predictedClassIdx =
-                                        scores |> Seq.mapi (fun idx s -> (idx, s)) |> Seq.maxBy snd |> fst
+                                // Predicted class is the one with highest score
+                                let predictedClassIdx =
+                                    scores |> Seq.mapi (fun idx s -> (idx, s)) |> Seq.maxBy snd |> fst
 
-                                    if classLabels.[predictedClassIdx] = trainLabels.[sampleIndex] then
-                                        correctCount.Value <- correctCount.Value + 1
+                                if classLabels.[predictedClassIdx] = trainLabels.[sampleIndex] then
+                                    correctCount <- correctCount + 1
 
-                                return correctCount.Value
-                            }
+                            return correctCount
+                        }
+                        |> mapErrorAsync (fun err ->
+                            QuantumError.ValidationError(
+                                "Training",
+                                $"Prediction failed during multi-class accuracy computation: {err}"
+                            ))
 
-                        match correctCountResult with
-                        | Error err ->
-                            return
-                                Error(
-                                    QuantumError.ValidationError(
-                                        "Training",
-                                        $"Prediction failed during multi-class accuracy computation: {err}"
-                                    )
-                                )
-                        | Ok correctCount ->
-                            let accuracy = float correctCount / float trainFeatures.Length
+                    let accuracy = float correctCount / float trainFeatures.Length
 
-                            if config.Verbose then
-                                logInfo config.Logger "Multi-class training complete!"
-                                logInfo config.Logger $"  Overall accuracy: {accuracy:F4}"
+                    if config.Verbose then
+                        logInfo config.Logger "Multi-class training complete!"
+                        logInfo config.Logger $"  Overall accuracy: {accuracy:F4}"
 
-                            return
-                                Ok
-                                    {
-                                        Classifiers = classifiers
-                                        ClassLabels = classLabels
-                                        TrainAccuracy = accuracy
-                                        NumClasses = numClasses
-                                    }
+                    return
+                        {
+                            Classifiers = classifiers
+                            ClassLabels = classLabels
+                            TrainAccuracy = accuracy
+                            NumClasses = numClasses
+                        }
                 }
 
     /// Turns the score of every one-vs-rest classifier into a multi-class prediction

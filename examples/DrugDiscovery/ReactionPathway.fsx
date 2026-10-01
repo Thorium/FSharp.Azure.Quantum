@@ -49,6 +49,7 @@
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
@@ -1105,29 +1106,28 @@ let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) 
 
 /// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
 /// Returns (Ok energy | Error message, elapsed seconds).
-let private computeEnergy
+let private computeEnergyAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
     (molecule: Molecule)
-    : Result<float, string> * float =
-    let startTime = DateTime.Now
-    let config = solverConfig backend maxIter tol
+    : Task<Result<float, string> * float> =
+    task {
+        let startTime = DateTime.Now
+        let config = solverConfig backend maxIter tol
 
-    let result =
-        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
+        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
-    let elapsed = (DateTime.Now - startTime).TotalSeconds
+        let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-    match result with
-    | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
-    | Error err ->
-        if not quiet then
-            eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        match result with
+        | Ok vqeResult -> return (Ok vqeResult.Energy, elapsed)
+        | Error err ->
+            if not quiet then
+                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+    }
 
 /// Interpret an activation energy barrier for metabolic context.
 let private assessBarrier (eaKcal: float) : string =
@@ -1154,87 +1154,89 @@ let private formatHalfLife (k: float) : string =
         "N/A"
 
 /// Compute the full energy profile for one metabolic pathway.
-let private computePathway
+let private computePathwayAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
     (idx: int)
     (total: int)
     (pathway: MetabolicPathway)
-    : PathwayResult =
-    if not quiet then
-        printfn "  [%d/%d] %s (%s)" (idx + 1) total pathway.Name pathway.Enzyme
-        printfn "         %s" pathway.Description
+    : Task<PathwayResult> =
+    task {
+        if not quiet then
+            printfn "  [%d/%d] %s (%s)" (idx + 1) total pathway.Name pathway.Enzyme
+            printfn "         %s" pathway.Description
 
-    let startTime = DateTime.Now
-    let mutable anyFailure = false
+        let startTime = DateTime.Now
+        let mutable anyFailure = false
 
-    /// Unwrap a VQE result, logging failures and tracking error state.
-    let unwrapEnergy (label: string) (name: string) (res: Result<float, string>, elapsed: float) : float * float =
-        match res with
-        | Ok e ->
-            if not quiet then
-                printfn "         %-8s %-20s  E = %10.6f Ha  (%.1fs)" label name e elapsed
+        /// Unwrap a VQE result, logging failures and tracking error state.
+        let unwrapEnergy (label: string) (name: string) (res: Result<float, string>, elapsed: float) : float * float =
+            match res with
+            | Ok e ->
+                if not quiet then
+                    printfn "         %-8s %-20s  E = %10.6f Ha  (%.1fs)" label name e elapsed
 
-            (e, elapsed)
-        | Error _ ->
-            anyFailure <- true
+                (e, elapsed)
+            | Error _ ->
+                anyFailure <- true
 
-            if not quiet then
-                printfn "         %-8s %-20s  E = FAILED         (%.1fs)" label name elapsed
+                if not quiet then
+                    printfn "         %-8s %-20s  E = FAILED         (%.1fs)" label name elapsed
 
-            (0.0, elapsed)
+                (0.0, elapsed)
 
-    // Reactant energy = sum of separated species
-    let reactantEnergy =
-        pathway.Reactants
-        |> List.sumBy (fun mol ->
-            let (e, _) =
-                unwrapEnergy "reactant" mol.Name (computeEnergy backend maxIter tol mol)
+        // Reactant energy = sum of separated species
+        let mutable reactantEnergy = 0.0
 
-            e)
+        for mol in pathway.Reactants do
+            let! reactant = computeEnergyAsync backend maxIter tol mol
+            let (e, _) = unwrapEnergy "reactant" mol.Name reactant
+            reactantEnergy <- reactantEnergy + e
 
-    let (tsE, _) =
-        unwrapEnergy "TS" pathway.TransitionState.Name (computeEnergy backend maxIter tol pathway.TransitionState)
+        let! transitionState = computeEnergyAsync backend maxIter tol pathway.TransitionState
+        let (tsE, _) = unwrapEnergy "TS" pathway.TransitionState.Name transitionState
 
-    let (prodE, _) =
-        unwrapEnergy "product" pathway.Product.Name (computeEnergy backend maxIter tol pathway.Product)
+        let! product = computeEnergyAsync backend maxIter tol pathway.Product
+        let (prodE, _) = unwrapEnergy "product" pathway.Product.Name product
 
-    let totalTime = (DateTime.Now - startTime).TotalSeconds
+        let totalTime = (DateTime.Now - startTime).TotalSeconds
 
-    // Activation energy
-    let eaHartree = tsE - reactantEnergy
-    let eaKcal = eaHartree * hartreeToKcalMol
+        // Activation energy
+        let eaHartree = tsE - reactantEnergy
+        let eaKcal = eaHartree * hartreeToKcalMol
 
-    // Reaction energy
-    let dEKcal = (prodE - reactantEnergy) * hartreeToKcalMol
+        // Reaction energy
+        let dEKcal = (prodE - reactantEnergy) * hartreeToKcalMol
 
-    // Rate constant via Eyring equation: k = (kB*T/h) * exp(-Ea/(R*T))
-    let eaJoules = eaHartree * hartreeToKJMol * 1000.0 // Hartree -> kJ/mol -> J/mol
-    let kBT_h = kB * temperature / hPlanck
-    let rateK = kBT_h * exp (-eaJoules / (gasR * temperature))
+        // Rate constant via Eyring equation: k = (kB*T/h) * exp(-Ea/(R*T))
+        let eaJoules = eaHartree * hartreeToKJMol * 1000.0 // Hartree -> kJ/mol -> J/mol
+        let kBT_h = kB * temperature / hPlanck
+        let rateK = kBT_h * exp (-eaJoules / (gasR * temperature))
 
-    if not quiet then
-        if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure - energies are unreliable)"
-        else
-            printfn "         => Ea = %.2f kcal/mol  |  dE = %.2f kcal/mol  |  k = %.2e /s" eaKcal dEKcal rateK
+        if not quiet then
+            if anyFailure then
+                printfn "         => INCOMPLETE (VQE failure - energies are unreliable)"
+            else
+                printfn "         => Ea = %.2f kcal/mol  |  dE = %.2f kcal/mol  |  k = %.2e /s" eaKcal dEKcal rateK
 
-        printfn ""
+            printfn ""
 
-    {
-        Pathway = pathway
-        ReactantEnergy = reactantEnergy
-        TsEnergy = tsE
-        ProductEnergy = prodE
-        ActivationEnergyHartree = eaHartree
-        ActivationEnergyKcal = eaKcal
-        ReactionEnergyKcal = dEKcal
-        RateConstant = rateK
-        HalfLife = formatHalfLife rateK
-        BarrierAssessment = if anyFailure then "VQE FAILED" else assessBarrier eaKcal
-        ComputeTimeSeconds = totalTime
-        HasVqeFailure = anyFailure
+        return
+            {
+                Pathway = pathway
+                ReactantEnergy = reactantEnergy
+                TsEnergy = tsE
+                ProductEnergy = prodE
+                ActivationEnergyHartree = eaHartree
+                ActivationEnergyKcal = eaKcal
+                ReactionEnergyKcal = dEKcal
+                RateConstant = rateK
+                HalfLife = formatHalfLife rateK
+                BarrierAssessment = if anyFailure then "VQE FAILED" else assessBarrier eaKcal
+                ComputeTimeSeconds = totalTime
+                HasVqeFailure = anyFailure
+            }
     }
 
 // --- Run all pathways ---
@@ -1244,8 +1246,17 @@ if not quiet then
     printfn ""
 
 let results =
-    pathways
-    |> List.mapi (fun i pathway -> computePathway backend maxIterations tolerance i pathways.Length pathway)
+    task {
+        let computed = ResizeArray()
+
+        for (i, pathway) in List.indexed pathways do
+            let! result = computePathwayAsync backend maxIterations tolerance i pathways.Length pathway
+            computed.Add result
+
+        return List.ofSeq computed
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Sort by activation energy ascending (lowest positive barrier = fastest pathway).
 // Failed pathways sink to bottom; negative Ea flagged as illustrative.

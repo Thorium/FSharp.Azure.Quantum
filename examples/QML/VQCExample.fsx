@@ -311,42 +311,46 @@ if shouldRun 4 then
 
     match trainResult with
     | Some(Ok result) ->
-        testData
-        |> Array.iteri (fun i sample ->
-            match
-                VQC.predictAsync
-                    quantumBackend
-                    featureMap
-                    variationalForm
-                    result.Parameters
-                    sample
-                    config.Shots
-                    CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Ok pred ->
-                let mark = if pred.Label = testLabels.[i] then "correct" else "wrong"
+        task {
+            for i in 0 .. testData.Length - 1 do
+                let sample = testData.[i]
 
-                pr
-                    "Sample %d: %s  -> predicted %d (prob %s)  actual %d  [%s]"
-                    (i + 1)
-                    (fmtArr sample)
-                    pred.Label
-                    (fmt pred.Probability)
-                    testLabels.[i]
-                    mark
+                let! predicted =
+                    VQC.predictAsync
+                        quantumBackend
+                        featureMap
+                        variationalForm
+                        result.Parameters
+                        sample
+                        config.Shots
+                        CancellationToken.None
 
-                csvRows <-
-                    [
-                        sprintf "4_predict_%d" (i + 1)
-                        string pred.Label
-                        fmt pred.Probability
-                        string testLabels.[i]
+                match predicted with
+                | Ok pred ->
+                    let mark = if pred.Label = testLabels.[i] then "correct" else "wrong"
+
+                    pr
+                        "Sample %d: %s  -> predicted %d (prob %s)  actual %d  [%s]"
+                        (i + 1)
+                        (fmtArr sample)
+                        pred.Label
+                        (fmt pred.Probability)
+                        testLabels.[i]
                         mark
-                    ]
-                    :: csvRows
-            | Error err -> pr "Sample %d: prediction failed — %s" (i + 1) err.Message)
+
+                    csvRows <-
+                        [
+                            sprintf "4_predict_%d" (i + 1)
+                            string pred.Label
+                            fmt pred.Probability
+                            string testLabels.[i]
+                            mark
+                        ]
+                        :: csvRows
+                | Error err -> pr "Sample %d: prediction failed — %s" (i + 1) err.Message
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     | Some(Error _) -> pr "(skipped — training failed)"
     | None -> ()
 
@@ -360,29 +364,36 @@ if shouldRun 5 then
 
     match trainResult with
     | Some(Ok result) ->
-        let showEval label data labels =
-            match
-                VQC.evaluateAsync
-                    quantumBackend
-                    featureMap
-                    variationalForm
-                    result.Parameters
-                    data
-                    labels
-                    config.Shots
-                    CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Ok acc ->
-                pr "%s accuracy: %s (%.1f%%)" label (fmt acc) (acc * 100.0)
-                acc
-            | Error err ->
-                pr "%s evaluation failed: %s" label err.Message
-                0.0
+        let showEvalAsync label data labels =
+            task {
+                let! evaluated =
+                    VQC.evaluateAsync
+                        quantumBackend
+                        featureMap
+                        variationalForm
+                        result.Parameters
+                        data
+                        labels
+                        config.Shots
+                        CancellationToken.None
 
-        let trainAcc = showEval "Training set" trainData trainLabels
-        let testAcc = showEval "Test set" testData testLabels
+                match evaluated with
+                | Ok acc ->
+                    pr "%s accuracy: %s (%.1f%%)" label (fmt acc) (acc * 100.0)
+                    return acc
+                | Error err ->
+                    pr "%s evaluation failed: %s" label err.Message
+                    return 0.0
+            }
+
+        let trainAcc, testAcc =
+            task {
+                let! trainAcc = showEvalAsync "Training set" trainData trainLabels
+                let! testAcc = showEvalAsync "Test set" testData testLabels
+                return trainAcc, testAcc
+            }
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         jsonResults <-
             ("5_evaluation",

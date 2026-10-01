@@ -81,6 +81,7 @@
 #load "../_common/ChemistryIntegrals.fs"
 
 open System
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -351,110 +352,141 @@ type RouteResult =
         ComputeTimeSeconds: float
     }
 
-let private computeRoute (index: int) (route: SynthesisRoute) : RouteResult =
-    if not quiet then
-        printfn "  [%d/%d] %s" (index + 1) routes.Length route.Name
-        printfn "         %s" route.Description
+let private computeRouteAsync (index: int) (route: SynthesisRoute) : Task<RouteResult> =
+    task {
+        if not quiet then
+            printfn "  [%d/%d] %s" (index + 1) routes.Length route.Name
+            printfn "         %s" route.Description
 
-    let energyOf (role: string) (molecule: Molecule) =
-        let result = energies.Energy molecule
+        let energyOf (role: string) (molecule: Molecule) =
+            task {
+                let! result = energies.EnergyAsync molecule
+
+                if not quiet then
+                    match result with
+                    | Ok e ->
+                        printfn
+                            "         %-8s %-32s E = %14.6f Ha  (%s)  [%s]%s"
+                            role
+                            molecule.Name
+                            e.Energy
+                            (if e.Reused then "cached" else $"%5.1f{e.Seconds}s")
+                            (ChemistryIntegrals.describeSource e.Source)
+                            (if e.Converged then "" else " not converged")
+                    | Error msg -> printfn "         %-8s %-32s E = FAILED  (%s)" role molecule.Name msg
+
+                return result
+            }
+
+        let energiesOf (role: string) (molecules: Molecule list) =
+            task {
+                let results = ResizeArray()
+
+                for molecule in molecules do
+                    let! result = energyOf role molecule
+                    results.Add result
+
+                return List.ofSeq results
+            }
+
+        let! reactants = energiesOf "reactant" route.Reactants
+
+        // The TS runs only when its FCIDUMP exists; a missing file means "no TS", not a failure.
+        let ts = transitionState route
+
+        let! tsEnergy =
+            task {
+                match ChemistryIntegrals.tryFcidump maxVqeQubits integralDirectory ts with
+                | Some _ ->
+                    let! energy = energyOf "TS" ts
+                    return Some energy
+                | None -> return None
+            }
+
+        let! products = energiesOf "product" route.Products
+        let all = reactants @ products @ Option.toList tsEnergy
+
+        let failures =
+            all
+            |> List.choose (function
+                | Error msg -> Some msg
+                | Ok _ -> None)
+
+        let computed =
+            all
+            |> List.choose (function
+                | Ok e -> Some e
+                | Error _ -> None)
+
+        let total (results: Result<ChemistryIntegrals.SpeciesEnergy, string> list) =
+            results
+            |> List.sumBy (function
+                | Ok e -> e.Energy
+                | Error _ -> 0.0)
+
+        let reactantsComplete =
+            reactants
+            |> List.forall (function
+                | Ok _ -> true
+                | Error _ -> false)
+
+        let productsComplete =
+            products
+            |> List.forall (function
+                | Ok _ -> true
+                | Error _ -> false)
+
+        let reactionEnergy =
+            if reactantsComplete && productsComplete then
+                Some(total products - total reactants)
+            else
+                None
+
+        let activationEnergy =
+            match tsEnergy with
+            | None -> Error $"no TS ({ChemistryIntegrals.fcidumpFileName ts} not found)"
+            | Some(Error msg) -> Error $"TS failed: {msg}"
+            | Some(Ok _) when not reactantsComplete -> Error "a reactant failed"
+            | Some(Ok e) -> Ok(e.Energy - total reactants)
 
         if not quiet then
-            match result with
-            | Ok e ->
-                printfn
-                    "         %-8s %-32s E = %14.6f Ha  (%s)  [%s]%s"
-                    role
-                    molecule.Name
-                    e.Energy
-                    (if e.Reused then "cached" else $"%5.1f{e.Seconds}s")
-                    (ChemistryIntegrals.describeSource e.Source)
-                    (if e.Converged then "" else " not converged")
-            | Error msg -> printfn "         %-8s %-32s E = FAILED  (%s)" role molecule.Name msg
+            match activationEnergy with
+            | Ok ea -> printfn "         => Ea = %.6f Ha = %.1f kcal/mol" ea (ea * hartreeToKcalMol)
+            | Error why -> printfn "         => Ea: %s" why
 
-        result
+            match reactionEnergy with
+            | Some dE -> printfn "         => dE = %.6f Ha = %.1f kcal/mol" dE (dE * hartreeToKcalMol)
+            | None -> printfn "         => INCOMPLETE (a species failed VQE: no reaction energy)"
 
-    let reactants = route.Reactants |> List.map (energyOf "reactant")
+            printfn ""
 
-    // The TS runs only when its FCIDUMP exists; a missing file means "no TS", not a failure.
-    let ts = transitionState route
-
-    let tsEnergy =
-        match ChemistryIntegrals.tryFcidump maxVqeQubits integralDirectory ts with
-        | Some _ -> Some(energyOf "TS" ts)
-        | None -> None
-
-    let products = route.Products |> List.map (energyOf "product")
-    let all = reactants @ products @ Option.toList tsEnergy
-
-    let failures =
-        all
-        |> List.choose (function
-            | Error msg -> Some msg
-            | Ok _ -> None)
-
-    let computed =
-        all
-        |> List.choose (function
-            | Ok e -> Some e
-            | Error _ -> None)
-
-    let total (results: Result<ChemistryIntegrals.SpeciesEnergy, string> list) =
-        results
-        |> List.sumBy (function
-            | Ok e -> e.Energy
-            | Error _ -> 0.0)
-
-    let reactantsComplete =
-        reactants
-        |> List.forall (function
-            | Ok _ -> true
-            | Error _ -> false)
-
-    let productsComplete =
-        products
-        |> List.forall (function
-            | Ok _ -> true
-            | Error _ -> false)
-
-    let reactionEnergy =
-        if reactantsComplete && productsComplete then
-            Some(total products - total reactants)
-        else
-            None
-
-    let activationEnergy =
-        match tsEnergy with
-        | None -> Error $"no TS ({ChemistryIntegrals.fcidumpFileName ts} not found)"
-        | Some(Error msg) -> Error $"TS failed: {msg}"
-        | Some(Ok _) when not reactantsComplete -> Error "a reactant failed"
-        | Some(Ok e) -> Ok(e.Energy - total reactants)
-
-    if not quiet then
-        match activationEnergy with
-        | Ok ea -> printfn "         => Ea = %.6f Ha = %.1f kcal/mol" ea (ea * hartreeToKcalMol)
-        | Error why -> printfn "         => Ea: %s" why
-
-        match reactionEnergy with
-        | Some dE -> printfn "         => dE = %.6f Ha = %.1f kcal/mol" dE (dE * hartreeToKcalMol)
-        | None -> printfn "         => INCOMPLETE (a species failed VQE: no reaction energy)"
-
-        printfn ""
-
-    {
-        Route = route
-        ReactionEnergy = reactionEnergy
-        ActivationEnergy = activationEnergy
-        Sources = computed |> List.map (fun e -> e.Source) |> List.distinct
-        Failures = failures
-        ComputeTimeSeconds = computed |> List.sumBy (fun e -> if e.Reused then 0.0 else e.Seconds)
+        return
+            {
+                Route = route
+                ReactionEnergy = reactionEnergy
+                ActivationEnergy = activationEnergy
+                Sources = computed |> List.map (fun e -> e.Source) |> List.distinct
+                Failures = failures
+                ComputeTimeSeconds = computed |> List.sumBy (fun e -> if e.Reused then 0.0 else e.Seconds)
+            }
     }
 
 if not quiet then
     printfn "Computing activation and reaction energies..."
     printfn ""
 
-let results = routes |> List.mapi computeRoute
+let results =
+    task {
+        let computed = ResizeArray()
+
+        for (index, route) in List.indexed routes do
+            let! result = computeRouteAsync index route
+            computed.Add result
+
+        return List.ofSeq computed
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Routes with an activation energy first (lowest barrier first), then the rest by
 // reaction energy (most exothermic first); incomplete routes last.

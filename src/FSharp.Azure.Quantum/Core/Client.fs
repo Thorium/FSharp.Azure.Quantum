@@ -47,6 +47,16 @@ module Client =
                 (workspacePath subscriptionId resourceGroup workspaceName)
                 jobId
 
+        /// Workspace quotas (AzureQuantumWorkspace.ListQuotasAsync)
+        let quotasPath subscriptionId resourceGroup workspaceName =
+            sprintf "%s/quotas?api-version=2022-09-12-preview" (workspacePath subscriptionId resourceGroup workspaceName)
+
+        /// Provider and target availability (AzureQuantumWorkspace.ListProvidersAsync)
+        let providerStatusPath subscriptionId resourceGroup workspaceName =
+            sprintf
+                "%s/providerStatus?api-version=2022-09-12-preview"
+                (workspacePath subscriptionId resourceGroup workspaceName)
+
         let fullUrl location path = dataPlaneHost location + path
 
     /// Quantum client configuration
@@ -510,8 +520,9 @@ module Client =
                                         // Parse ISO 8601 duration format (PT1.5S)
                                         try
                                             Some(System.Xml.XmlConvert.ToTimeSpan(durationStr))
-                                        with :? FormatException ->
-                                            None)
+                                        with
+                                        | :? FormatException
+                                        | :? OverflowException -> None)
 
                                 // Download the result payload from blob storage. The SAS query
                                 // string is the credential: suppress the workspace bearer token,
@@ -597,54 +608,48 @@ module Client =
             (ct: CancellationToken)
             : Task<Result<QuantumJob, QuantumError>> =
             task {
+                // Cancellation surfaces as OperationCanceledException here and from the delay alike
+                ct.ThrowIfCancellationRequested()
 
-                if ct.IsCancellationRequested then
-                    return Error(QuantumError.OperationError("Job polling", "Operation cancelled"))
+                // Check timeout
+                let elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds
+
+                if elapsed > float timeoutMs then
+                    return
+                        Error(
+                            QuantumError.AzureError(
+                                AzureQuantumError.Timeout($"Job %s{jobId} timed out after %d{timeoutMs}ms")
+                            )
+                        )
                 else
-                    // Check timeout
-                    let elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds
+                    // Poll job status
+                    this.Log(LogLevel.Debug, "Polling job {JobId} status (delay: {Delay}ms)", jobId, currentDelay)
 
-                    if elapsed > float timeoutMs then
-                        return
-                            Error(
-                                QuantumError.AzureError(
-                                    AzureQuantumError.Timeout($"Job %s{jobId} timed out after %d{timeoutMs}ms")
-                                )
-                            )
-                    else
-                        // Poll job status
-                        this.Log(LogLevel.Debug, "Polling job {JobId} status (delay: {Delay}ms)", jobId, currentDelay)
+                    match! this.GetJobStatusAsync(jobId, ct) with
+                    | Ok job when QuantumClient.isTerminalState job.Status ->
+                        // Job completed (success, failure, or cancelled)
+                        this.Log(LogLevel.Information, "Job {JobId} completed with status {Status}", jobId, job.Status)
 
-                        match! this.GetJobStatusAsync(jobId, ct) with
-                        | Ok job when QuantumClient.isTerminalState job.Status ->
-                            // Job completed (success, failure, or cancelled)
-                            this.Log(
-                                LogLevel.Information,
-                                "Job {JobId} completed with status {Status}",
-                                jobId,
-                                job.Status
-                            )
+                        return Ok job
 
-                            return Ok job
+                    | Ok job ->
+                        // Job still running - wait and poll again
+                        this.Log(
+                            LogLevel.Debug,
+                            "Job {JobId} still in progress (status: {Status}), waiting {Delay}ms",
+                            jobId,
+                            job.Status,
+                            currentDelay
+                        )
 
-                        | Ok job ->
-                            // Job still running - wait and poll again
-                            this.Log(
-                                LogLevel.Debug,
-                                "Job {JobId} still in progress (status: {Status}), waiting {Delay}ms",
-                                jobId,
-                                job.Status,
-                                currentDelay
-                            )
+                        do! Task.Delay(currentDelay, ct)
+                        let nextDelay = min (currentDelay * 2) maxDelay
+                        return! this.pollForCompletion jobId startTime nextDelay maxDelay timeoutMs ct
 
-                            do! Task.Delay(currentDelay, ct)
-                            let nextDelay = min (currentDelay * 2) maxDelay
-                            return! this.pollForCompletion jobId startTime nextDelay maxDelay timeoutMs ct
-
-                        | Error err ->
-                            // Error getting status
-                            this.Log(LogLevel.Error, "Error polling job {JobId}: {Error}", jobId, err)
-                            return Error err
+                    | Error err ->
+                        // Error getting status
+                        this.Log(LogLevel.Error, "Error polling job {JobId}: {Error}", jobId, err)
+                        return Error err
             }
 
         /// Wait for job completion with exponential backoff polling

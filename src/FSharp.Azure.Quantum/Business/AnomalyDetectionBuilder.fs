@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
+open System.Diagnostics
 open System.IO
 open System.Text.Json
 open System.Threading
@@ -41,8 +42,8 @@ open Microsoft.Extensions.Logging
 ///   }
 ///
 ///   // Check new items
-///   let result = detector |> AnomalyDetector.check suspiciousTransaction
-///   if result.IsAnomaly && result.Score > 0.8 then
+///   let! result = AnomalyDetector.checkAsync suspiciousTransaction detector CancellationToken.None
+///   if result.IsAnomaly && result.AnomalyScore > 0.8 then
 ///       blockImmediately()
 ///
 ///   // Advanced: Full configuration
@@ -396,7 +397,8 @@ module AnomalyDetector =
         | Error e -> Task.FromResult(Error e)
         | Ok() ->
 
-            let startTime = DateTime.UtcNow
+            let createdAt = DateTime.UtcNow
+            let stopwatch = Stopwatch.StartNew()
             let numFeatures = problem.NormalData.[0].Length
 
             let backend =
@@ -472,7 +474,7 @@ module AnomalyDetector =
                         FeatureMap = featureMap
                     }
 
-                let endTime = DateTime.UtcNow
+                let trainingTime = stopwatch.Elapsed
 
                 let detector =
                     {
@@ -483,10 +485,10 @@ module AnomalyDetector =
                         Metadata =
                             {
                                 Sensitivity = problem.Sensitivity
-                                TrainingTime = endTime - startTime
+                                TrainingTime = trainingTime
                                 NumFeatures = numFeatures
                                 NumNormalSamples = problem.NormalData.Length
-                                CreatedAt = startTime
+                                CreatedAt = createdAt
                                 Note = problem.Note
                             }
                         FeatureMap = featureMap
@@ -497,7 +499,7 @@ module AnomalyDetector =
                     }
 
                 if problem.Verbose then
-                    logInfo problem.Logger $"[OK] Training complete in {endTime - startTime}"
+                    logInfo problem.Logger $"[OK] Training complete in {trainingTime}"
 
                 // Save if requested
                 match problem.SavePath with
@@ -549,11 +551,11 @@ module AnomalyDetector =
 
         let trainData = detector.Model.TrainData
 
+        let mutable crossKernelSum = 0.0
+
         quantumResultTask {
             // Kernel between the sample and every training point, one after another;
             // the first failing kernel's error is the result
-            let crossKernelSum = ref 0.0
-
             for x in trainData do
                 let! k =
                     QuantumKernels.computeKernelAsync
@@ -564,9 +566,9 @@ module AnomalyDetector =
                         shots
                         cancellationToken
 
-                crossKernelSum.Value <- crossKernelSum.Value + k
+                crossKernelSum <- crossKernelSum + k
 
-            let meanCross = crossKernelSum.Value / float trainData.Length
+            let meanCross = crossKernelSum / float trainData.Length
 
             // k(x,x) = 1 for fidelity kernels: |⟨φ(x)|φ(x)⟩|² = 1
             let distance = sqrt (max 0.0 (1.0 - 2.0 * meanCross + detector.KernelMean))

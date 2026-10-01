@@ -929,7 +929,8 @@ module OpenQasmImport =
             with
             | :? FileNotFoundException -> return Error $"File not found: {filePath}"
             | :? IOException as ex -> return Error $"I/O error reading file: {ex.Message}"
-            | ex -> return Error $"Unexpected error reading file: {ex.Message}"
+            | ex when not (ex :? OperationCanceledException) ->
+                return Error $"Unexpected error reading file: {ex.Message}"
         }
 
     /// <summary>

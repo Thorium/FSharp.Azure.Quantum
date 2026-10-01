@@ -289,43 +289,45 @@ if shouldRun 1 then
                 |}
              >()
 
-        for (name, features) in testCustomers do
-            match
-                PredictiveModel.predictCategoryAsync features model None None CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Error err ->
-                if not quiet then
-                    printfn "%s: Prediction failed: %A" name err
-            | Ok pred ->
-                predictions.Add(
-                    {|
-                        Name = name
-                        Category = pred.Category
-                        Confidence = pred.Confidence
-                    |}
-                )
+        task {
+            for (name, features) in testCustomers do
+                let! predicted = PredictiveModel.predictCategoryAsync features model None None CancellationToken.None
 
-                if not quiet then
-                    printfn "%s:" name
-                    printfn "  Predicted churn category: %d" pred.Category
-                    printfn "  Confidence: %.2f%%" (pred.Confidence * 100.0)
+                match predicted with
+                | Error err ->
+                    if not quiet then
+                        printfn "%s: Prediction failed: %A" name err
+                | Ok pred ->
+                    predictions.Add(
+                        {|
+                            Name = name
+                            Category = pred.Category
+                            Confidence = pred.Confidence
+                        |}
+                    )
 
-                    match pred.Category with
-                    | 0 -> printfn "  Status: Customer will stay - no action needed"
-                    | 1 ->
-                        printfn "  Status: HIGH RISK - Will churn in 30 days!"
-                        printfn "  Action: Immediate retention offer (discount, personal call)"
-                    | 2 ->
-                        printfn "  Status: MEDIUM RISK - Will churn in 60 days"
-                        printfn "  Action: Send satisfaction survey, address pain points"
-                    | 3 ->
-                        printfn "  Status: LOW RISK - Will churn in 90 days"
-                        printfn "  Action: Monitor engagement, proactive check-in"
-                    | _ -> ()
+                    if not quiet then
+                        printfn "%s:" name
+                        printfn "  Predicted churn category: %d" pred.Category
+                        printfn "  Confidence: %.2f%%" (pred.Confidence * 100.0)
 
-                    printfn ""
+                        match pred.Category with
+                        | 0 -> printfn "  Status: Customer will stay - no action needed"
+                        | 1 ->
+                            printfn "  Status: HIGH RISK - Will churn in 30 days!"
+                            printfn "  Action: Immediate retention offer (discount, personal call)"
+                        | 2 ->
+                            printfn "  Status: MEDIUM RISK - Will churn in 60 days"
+                            printfn "  Action: Send satisfaction survey, address pain points"
+                        | 3 ->
+                            printfn "  Status: LOW RISK - Will churn in 90 days"
+                            printfn "  Action: Monitor engagement, proactive check-in"
+                        | _ -> ()
+
+                        printfn ""
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
         results.Add(
             {|
@@ -569,27 +571,29 @@ if shouldRun 3 then
 
         let revPredictions = ResizeArray<{| Name: string; PredictedLTV: float |}>()
 
-        for (name, features, action) in testCases do
-            match
-                PredictiveModel.predictAsync features model None None CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Error err ->
-                if not quiet then
-                    printfn "%s: Prediction failed: %A" name err
-            | Ok pred ->
-                revPredictions.Add(
-                    {|
-                        Name = name
-                        PredictedLTV = pred.Value
-                    |}
-                )
+        task {
+            for (name, features, action) in testCases do
+                let! predicted = PredictiveModel.predictAsync features model None None CancellationToken.None
 
-                if not quiet then
-                    printfn "%s:" name
-                    printfn "  Predicted 12-month LTV: $%.2f" pred.Value
-                    printfn "  Action: %s\n" action
+                match predicted with
+                | Error err ->
+                    if not quiet then
+                        printfn "%s: Prediction failed: %A" name err
+                | Ok pred ->
+                    revPredictions.Add(
+                        {|
+                            Name = name
+                            PredictedLTV = pred.Value
+                        |}
+                    )
+
+                    if not quiet then
+                        printfn "%s:" name
+                        printfn "  Predicted 12-month LTV: $%.2f" pred.Value
+                        printfn "  Action: %s\n" action
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
         results.Add(
             {|
@@ -627,30 +631,32 @@ if shouldRun 4 then
             |> Async.RunSynchronously
 
     /// Production-ready churn assessment function
-    let assessCustomerChurn (customerFeatures: float array) (model: PredictiveModel.Model) =
-        match
-            PredictiveModel.predictCategoryAsync customerFeatures model None None CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-        with
-        | Error _ -> None
-        | Ok prediction ->
-            let riskLevel, actionPriority, recommendedAction =
-                match prediction.Category with
-                | 0 -> ("No Risk", "None", "Maintain relationship, monitor satisfaction")
-                | 1 -> ("Critical", "Immediate", "Personal outreach, retention offer, escalate to manager")
-                | 2 -> ("High", "This Week", "Satisfaction survey, address issues, re-engagement campaign")
-                | 3 -> ("Medium", "This Month", "Proactive check-in, usage tips, value reminder")
-                | _ -> ("Unknown", "Review", "Manual review required")
+    let assessCustomerChurnAsync (customerFeatures: float array) (model: PredictiveModel.Model) =
+        task {
+            let! predicted =
+                PredictiveModel.predictCategoryAsync customerFeatures model None None CancellationToken.None
 
-            Some
-                {|
-                    ChurnRisk = riskLevel
-                    ChurnCategory = prediction.Category
-                    Confidence = prediction.Confidence
-                    ActionPriority = actionPriority
-                    RecommendedAction = recommendedAction
-                |}
+            match predicted with
+            | Error _ -> return None
+            | Ok prediction ->
+                let riskLevel, actionPriority, recommendedAction =
+                    match prediction.Category with
+                    | 0 -> ("No Risk", "None", "Maintain relationship, monitor satisfaction")
+                    | 1 -> ("Critical", "Immediate", "Personal outreach, retention offer, escalate to manager")
+                    | 2 -> ("High", "This Week", "Satisfaction survey, address issues, re-engagement campaign")
+                    | 3 -> ("Medium", "This Month", "Proactive check-in, usage tips, value reminder")
+                    | _ -> ("Unknown", "Review", "Manual review required")
+
+                return
+                    Some
+                        {|
+                            ChurnRisk = riskLevel
+                            ChurnCategory = prediction.Category
+                            Confidence = prediction.Confidence
+                            ActionPriority = actionPriority
+                            RecommendedAction = recommendedAction
+                        |}
+        }
 
     match modelForProduction with
     | Error err ->
@@ -676,8 +682,17 @@ if shouldRun 4 then
             |]
 
         let assessments =
-            batchCustomers
-            |> Array.choose (fun features -> assessCustomerChurn features model)
+            task {
+                let assessed = ResizeArray()
+
+                for features in batchCustomers do
+                    let! assessment = assessCustomerChurnAsync features model
+                    assessment |> Option.iter assessed.Add
+
+                return assessed.ToArray()
+            }
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         if not quiet then
             printfn "=== Churn Risk Assessment Report ===\n"

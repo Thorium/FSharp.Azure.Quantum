@@ -39,7 +39,7 @@ module QuboEncodingTests =
         match toQubo problem with
         | Error err -> Assert.Fail($"toQubo failed: {err}")
         | Ok qubo ->
-            // 1 item, B = ceil(3/5) = 1 bin → 1*1 + 1 = 2 variables
+            // 1 item, B = 1 bin (first-fit-decreasing) → 1*1 + 1 = 2 variables
             Assert.Equal(2, qubo.GetLength(0))
 
     [<Fact>]
@@ -53,7 +53,7 @@ module QuboEncodingTests =
         match toQubo problem with
         | Error err -> Assert.Fail($"toQubo failed: {err}")
         | Ok qubo ->
-            // 2 items, B = ceil(7/5) = 2 → 2*2 + 2 = 6 variables
+            // 2 items, B = 2 bins (first-fit-decreasing: 4 and 3 do not share a 5-bin) → 2*2 + 2 = 6 variables
             Assert.Equal(6, qubo.GetLength(0))
 
     [<Fact>]
@@ -187,7 +187,7 @@ module QubitEstimationTests =
                 Items = [ { Id = "A"; Size = 3.0 }; { Id = "B"; Size = 4.0 } ]
                 BinCapacity = 5.0
             }
-        // B = ceil(7/5) = 2, n = 2 → 2*2 + 2 = 6
+        // B = 2 (first-fit-decreasing: 4 and 3 do not share a 5-bin), n = 2 → 2*2 + 2 = 6
         Assert.Equal(6, estimateQubits problem)
 
     [<Fact>]
@@ -197,7 +197,7 @@ module QubitEstimationTests =
                 Items = [ { Id = "A"; Size = 1.0 } ]
                 BinCapacity = 10.0
             }
-        // B = ceil(1/10) = 1, n = 1 → 1*1 + 1 = 2
+        // B = 1 (first-fit-decreasing), n = 1 → 1*1 + 1 = 2
         Assert.Equal(2, estimateQubits problem)
 
     [<Fact>]
@@ -207,7 +207,7 @@ module QubitEstimationTests =
                 Items = [ { Id = "A"; Size = 5.0 }; { Id = "B"; Size = 5.0 }; { Id = "C"; Size = 5.0 } ]
                 BinCapacity = 5.0
             }
-        // B = ceil(15/5) = 3, n = 3 → 3*3 + 3 = 12
+        // B = 3 (first-fit-decreasing: three full bins), n = 3 → 3*3 + 3 = 12
         Assert.Equal(12, estimateQubits problem)
 
 // ============================================================================

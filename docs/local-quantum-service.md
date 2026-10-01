@@ -60,6 +60,8 @@ Swap in `RigettiCloudBackend(http, service.WorkspaceUrl, "rigetti.sim.qvm", 1000
 | `DELETE {workspace}/jobs/{id}`, `POST .../cancel` | Cancels a job that has not yet reported a final status. |
 | `GET {workspace}/jobs` | Lists jobs with `nextLink` paging. |
 | `POST {workspace}/storage/sasUri` | Hands out SAS URIs for the local blob store (`inputDataUri` pointing there is also accepted). |
+| `GET {workspace}/quotas` | One monthly workspace quota per provider; `utilization` is the shots of the jobs accepted so far. |
+| `GET {workspace}/providerStatus` | Every emulated provider `Available`; its targets are the ones jobs have been submitted to. |
 
 Programs are decoded from the formats the library emits, and results are written in the shapes the library's parsers read:
 
@@ -155,4 +157,4 @@ let ``Bell state through IonQ returns only 00 and 11`` () =
 
 - **Your own HTTP pipeline**: `service.Credential` is a `TokenCredential` that hands out the dummy token without contacting Azure AD.
 
-The client from `CreateHttpClient` refuses every host other than the service and `*.quantum.azure.com` (which it routes to the service), so a misconfigured URL fails instead of reaching Azure. `AzureQuantumWorkspace.QuantumWorkspace` (quotas and provider status through the Microsoft SDK) is not emulated.
+The client from `CreateHttpClient` refuses every host other than the service and `*.quantum.azure.com` (which it routes to the service), so a misconfigured URL fails instead of reaching Azure. `AzureQuantumWorkspace.QuantumWorkspace` (quotas and provider status) works against the service too: give it the client from `CreateHttpClient`.

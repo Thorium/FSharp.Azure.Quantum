@@ -270,40 +270,42 @@ if not quiet then
 
 let mutable anyFailure = false
 
-let results =
-    levels
-    |> List.map (fun level ->
+/// Run the risk engine at one confidence level.
+let private runLevelAsync (level: LevelInfo) =
+    task {
         if not quiet then
             printfn "  Running %.1f%% confidence..." (level.Confidence * 100.0)
 
-        let outcome =
-            try
-                RiskEngine.executeAsync
-                    {
-                        MarketDataPath = None
-                        ConfidenceLevel = level.Confidence
-                        SimulationPaths = simulationPaths
-                        UseAmplitudeEstimation = true
-                        UseErrorMitigation = true
-                        Metrics =
-                            [
-                                RiskMetric.ValueAtRisk
-                                RiskMetric.ConditionalVaR
-                                RiskMetric.ExpectedShortfall
-                                RiskMetric.Volatility
-                            ]
-                        NumQubits = numQubits
-                        GroverIterations = groverIterations
-                        Shots = shots
-                        Backend = Some backend
-                        CancellationToken = None
-                    }
-                    CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-                |> Result.mapError (fun err -> err.Message)
-            with ex ->
-                Error ex.Message
+        let! outcome =
+            task {
+                try
+                    let! executed =
+                        RiskEngine.executeAsync
+                            {
+                                MarketDataPath = None
+                                ConfidenceLevel = level.Confidence
+                                SimulationPaths = simulationPaths
+                                UseAmplitudeEstimation = true
+                                UseErrorMitigation = true
+                                Metrics =
+                                    [
+                                        RiskMetric.ValueAtRisk
+                                        RiskMetric.ConditionalVaR
+                                        RiskMetric.ExpectedShortfall
+                                        RiskMetric.Volatility
+                                    ]
+                                NumQubits = numQubits
+                                GroverIterations = groverIterations
+                                Shots = shots
+                                Backend = Some backend
+                                CancellationToken = None
+                            }
+                            CancellationToken.None
+
+                    return executed |> Result.mapError (fun err -> err.Message)
+                with ex ->
+                    return Error ex.Message
+            }
 
         match outcome with
         | Ok report ->
@@ -312,32 +314,48 @@ let results =
                 | ValueSome x -> Some x
                 | ValueNone -> None
 
-            {
-                Level = level
-                Method = report.Method
-                VaR = toOption report.VaR
-                CVaR = toOption report.CVaR
-                ExpectedShortfall = toOption report.ExpectedShortfall
-                Volatility = toOption report.Volatility
-                ExecutionTimeMs = report.ExecutionTimeMs
-                HasQuantumFailure = false
-            }
+            return
+                {
+                    Level = level
+                    Method = report.Method
+                    VaR = toOption report.VaR
+                    CVaR = toOption report.CVaR
+                    ExpectedShortfall = toOption report.ExpectedShortfall
+                    Volatility = toOption report.Volatility
+                    ExecutionTimeMs = report.ExecutionTimeMs
+                    HasQuantumFailure = false
+                }
         | Error message ->
             anyFailure <- true
 
             if not quiet then
                 eprintfn "  FAILED at %.1f%%: %s" (level.Confidence * 100.0) message
 
-            {
-                Level = level
-                Method = "Error"
-                VaR = None
-                CVaR = None
-                ExpectedShortfall = None
-                Volatility = None
-                ExecutionTimeMs = 0.0
-                HasQuantumFailure = true
-            })
+            return
+                {
+                    Level = level
+                    Method = "Error"
+                    VaR = None
+                    CVaR = None
+                    ExpectedShortfall = None
+                    Volatility = None
+                    ExecutionTimeMs = 0.0
+                    HasQuantumFailure = true
+                }
+    }
+
+let results =
+    task {
+        let levelResults = ResizeArray()
+
+        for level in levels do
+            let! levelResult = runLevelAsync level
+            levelResults.Add levelResult
+
+        return List.ofSeq levelResults
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 if not quiet then
     printfn ""

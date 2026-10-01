@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
@@ -22,7 +23,7 @@ open FSharp.Azure.Quantum.Core
 ///   // Algorithm Level (This module - for experts):
 ///   open FSharp.Azure.Quantum.Quantum
 ///   let backend = BackendAbstraction.createIonQBackend(...)
-///   let result = QuantumTspSolver.solve backend distances config
+///   let! result = QuantumTspSolver.solveAsync backend distances config CancellationToken.None
 ///
 /// RULE 1 COMPLIANCE:
 /// ✅ Requires IQuantumBackend parameter (explicit quantum execution)
@@ -44,8 +45,8 @@ open FSharp.Azure.Quantum.Core
 ///
 /// Example:
 ///   let backend = LocalBackend() :> IQuantumBackend
-///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-///   match QuantumTspSolver.solve backend distances config with
+///   let config = QuantumTspSolver.defaultConfig
+///   match! QuantumTspSolver.solveAsync backend distances config CancellationToken.None with
 ///   | Ok result -> printfn "Tour length: %f" result.TourLength
 ///   | Error msg -> printfn "Error: %s" msg
 module QuantumTspSolver =
@@ -142,7 +143,7 @@ module QuantumTspSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<QuantumTspSolution, QuantumError>> =
         task {
-            let startTime = DateTime.UtcNow
+            let stopwatch = Stopwatch.StartNew()
 
             // Validate inputs
             let numCities = distances.GetLength 0
@@ -343,7 +344,7 @@ module QuantumTspSolver =
                             // Best tour (shortest)
                             let (bestTour, bestLength, _) = tourFrequencies.[0]
 
-                            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
                             return
                                 Ok

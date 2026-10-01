@@ -130,7 +130,7 @@ module HHLModelSerialization =
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
 
                 return Ok()
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to save HHL model: {ex.Message}"))
         }
 
@@ -185,7 +185,7 @@ module HHLModelSerialization =
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializableHHLModel>(json)
                     return Ok model
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to load HHL model: {ex.Message}"))
         }
 

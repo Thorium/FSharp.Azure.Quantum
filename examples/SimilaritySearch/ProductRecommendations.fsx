@@ -33,6 +33,7 @@
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.SimilaritySearch
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -407,37 +408,51 @@ let index = indexResult |> Result.defaultWith (fun _ -> failwith "unreachable")
 // QUERY EACH PRODUCT
 // ==============================================================================
 
-let queryProduct (product: Product) : RecommendationResult =
-    match
-        SimilaritySearch.findSimilarAsync product (extractFeatures product) topN index CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-    with
-    | Ok searchResults ->
-        let matches =
-            searchResults.Matches
-            |> Array.map (fun m -> (m.Item, m.Similarity, m.Rank))
-            |> Array.toList
+let queryProductAsync (product: Product) : Task<RecommendationResult> =
+    task {
+        let! found =
+            SimilaritySearch.findSimilarAsync product (extractFeatures product) topN index CancellationToken.None
 
-        if not quiet then
-            printfn "  %s (%s, $%.2f) -> %d matches" product.Name product.Category product.Price matches.Length
+        match found with
+        | Ok searchResults ->
+            let matches =
+                searchResults.Matches
+                |> Array.map (fun m -> (m.Item, m.Similarity, m.Rank))
+                |> Array.toList
 
-        {
-            QueryProduct = product
-            Matches = matches
-            HasQuantumFailure = false
-        }
-    | Error err ->
-        if not quiet then
-            eprintfn "  %s: search failed: %s" product.Id err.Message
+            if not quiet then
+                printfn "  %s (%s, $%.2f) -> %d matches" product.Name product.Category product.Price matches.Length
 
-        {
-            QueryProduct = product
-            Matches = []
-            HasQuantumFailure = true
-        }
+            return
+                {
+                    QueryProduct = product
+                    Matches = matches
+                    HasQuantumFailure = false
+                }
+        | Error err ->
+            if not quiet then
+                eprintfn "  %s: search failed: %s" product.Id err.Message
 
-let results = queryProducts |> Array.toList |> List.map queryProduct
+            return
+                {
+                    QueryProduct = product
+                    Matches = []
+                    HasQuantumFailure = true
+                }
+    }
+
+let results =
+    task {
+        let queried = ResizeArray()
+
+        for product in queryProducts do
+            let! result = queryProductAsync product
+            queried.Add result
+
+        return List.ofSeq queried
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // ==============================================================================
 // RANKED COMPARISON TABLE

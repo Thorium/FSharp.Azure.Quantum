@@ -183,61 +183,59 @@ let quantumBackend = Some(LocalBackendFactory.createUnified ())
 
 /// Find optimal Kasino capture using Knapsack optimization.
 /// Knapsack.solveAsync internally uses QAOA via IQuantumBackend.
-let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: string) =
-    // The capture target is the card's HAND value (Ace = 14), while table
-    // cards contribute their table values.
-    let target = handValue handCard.Rank
-
-    if not quiet then
-        printfn "  Hand Card:   %s = %g (capture target)" handCard.DisplayName target
-        printfn "  Table Cards: %s" (displayCards tableCards)
-        printfn "  Strategy:    %s" strategy
-
-    let items = tableCards |> List.map (fun c -> (c.DisplayName, c.Value, c.Value))
-
-    let problem = Knapsack.createProblem items target
-
-    match
-        Knapsack.solveAsync problem quantumBackend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-    with
-    | Ok solution ->
-        let capturedCards =
-            solution.SelectedItems
-            |> List.choose (fun item -> tableCards |> List.tryFind (fun c -> c.DisplayName = item.Id))
-
-        let result =
-            {
-                HandCard = handCard
-                CapturedCards = capturedCards
-                TotalValue = solution.TotalValue
-                CardCount = capturedCards.Length
-                Strategy = strategy
-                IsExactMatch = abs (solution.TotalValue - target) < 1e-9
-            }
+let findOptimalCaptureAsync (handCard: Card) (tableCards: Card list) (strategy: string) =
+    task {
+        // The capture target is the card's HAND value (Ace = 14), while table
+        // cards contribute their table values.
+        let target = handValue handCard.Rank
 
         if not quiet then
-            if result.IsExactMatch then
-                printfn "  Captured:    %s" (displayCards capturedCards)
-                printfn "  Total Value: %g / %g" result.TotalValue target
-                printfn "  Cards:       %d" result.CardCount
-                printfn "  EXACT MATCH - Perfect capture!"
-            else
-                // Kasino captures must sum exactly — a lesser subset is not a
-                // legal capture, so the card would be placed on the table.
-                printfn "  Best subset: %s (= %g of %g)" (displayCards capturedCards) result.TotalValue target
-                printfn "  No exact match - the card is placed on the table."
+            printfn "  Hand Card:   %s = %g (capture target)" handCard.DisplayName target
+            printfn "  Table Cards: %s" (displayCards tableCards)
+            printfn "  Strategy:    %s" strategy
 
-            printfn ""
+        let items = tableCards |> List.map (fun c -> (c.DisplayName, c.Value, c.Value))
 
-        Some result
+        let problem = Knapsack.createProblem items target
 
-    | Error err ->
-        if not quiet then
-            printfn "  Solver error: %s" err.Message
+        match! Knapsack.solveAsync problem quantumBackend CancellationToken.None with
+        | Ok solution ->
+            let capturedCards =
+                solution.SelectedItems
+                |> List.choose (fun item -> tableCards |> List.tryFind (fun c -> c.DisplayName = item.Id))
 
-        None
+            let result =
+                {
+                    HandCard = handCard
+                    CapturedCards = capturedCards
+                    TotalValue = solution.TotalValue
+                    CardCount = capturedCards.Length
+                    Strategy = strategy
+                    IsExactMatch = abs (solution.TotalValue - target) < 1e-9
+                }
+
+            if not quiet then
+                if result.IsExactMatch then
+                    printfn "  Captured:    %s" (displayCards capturedCards)
+                    printfn "  Total Value: %g / %g" result.TotalValue target
+                    printfn "  Cards:       %d" result.CardCount
+                    printfn "  EXACT MATCH - Perfect capture!"
+                else
+                    // Kasino captures must sum exactly — a lesser subset is not a
+                    // legal capture, so the card would be placed on the table.
+                    printfn "  Best subset: %s (= %g of %g)" (displayCards capturedCards) result.TotalValue target
+                    printfn "  No exact match - the card is placed on the table."
+
+                printfn ""
+
+            return Some result
+
+        | Error err ->
+            if not quiet then
+                printfn "  Solver error: %s" err.Message
+
+            return None
+    }
 
 // ==============================================================================
 // RESULT ROW BUILDER
@@ -266,72 +264,83 @@ let printHeader title =
         printfn "%s" title
         printfn "%s" (String.replicate (String.length title) "-")
 
-/// Scenario 1: Simple capture — King vs small table
-let runSimple () =
-    printHeader "Scenario 1: Simple Capture (King vs Small Table)"
-    let hand = card King
-    let table = [ card (Number 2); card (Number 5); card (Number 8); card Jack ]
+/// Result rows of one capture search (none when the solver failed).
+let captureRowsAsync (scenario: string) (hand: Card) (table: Card list) (strategy: string) =
+    task {
+        let! capture = findOptimalCaptureAsync hand table strategy
+        return capture |> Option.map (resultRow scenario) |> Option.toList
+    }
 
-    findOptimalCapture hand table "Maximize value"
-    |> Option.map (resultRow "simple")
+/// Scenario 1: Simple capture — King vs small table
+let runSimpleAsync () =
+    task {
+        printHeader "Scenario 1: Simple Capture (King vs Small Table)"
+        let hand = card King
+        let table = [ card (Number 2); card (Number 5); card (Number 8); card Jack ]
+
+        return! captureRowsAsync "simple" hand table "Maximize value"
+    }
 
 /// Scenario 2: Complex capture — multiple optimal paths exist
-let runComplex () =
-    printHeader "Scenario 2: Complex Capture (Multiple Solutions)"
+let runComplexAsync () =
+    task {
+        printHeader "Scenario 2: Complex Capture (Multiple Solutions)"
 
-    if not quiet then
-        printfn "  Multiple subsets sum to 10: [4,6], [3,7], [1,2,3,4], ..."
-        printfn ""
+        if not quiet then
+            printfn "  Multiple subsets sum to 10: [4,6], [3,7], [1,2,3,4], ..."
+            printfn ""
 
-    let hand = card (Number 10)
-    let table = [ 1..7 ] |> List.map (Number >> card)
+        let hand = card (Number 10)
+        let table = [ 1..7 ] |> List.map (Number >> card)
 
-    findOptimalCapture hand table "Maximize value"
-    |> Option.map (resultRow "complex")
+        return! captureRowsAsync "complex" hand table "Maximize value"
+    }
 
 /// Scenario 3: Strategy comparison — same hand, same table, two perspectives
-let runStrategy () =
-    printHeader "Scenario 3: Strategy Comparison"
-    let hand = card Queen
-    let table = [ card (Number 5); card (Number 7); card (Number 10); card (Number 3) ]
+let runStrategyAsync () =
+    task {
+        printHeader "Scenario 3: Strategy Comparison"
+        let hand = card Queen
+        let table = [ card (Number 5); card (Number 7); card (Number 10); card (Number 3) ]
 
-    if not quiet then
-        printfn "  Strategy A: Maximize captured value"
+        if not quiet then
+            printfn "  Strategy A: Maximize captured value"
 
-    let a =
-        findOptimalCapture hand table "Maximize value"
-        |> Option.map (resultRow "strategy-maximize")
+        let! a = captureRowsAsync "strategy-maximize" hand table "Maximize value"
 
-    if not quiet then
-        printfn "  Strategy B: Same problem (minimize cards left for opponent)"
+        if not quiet then
+            printfn "  Strategy B: Same problem (minimize cards left for opponent)"
 
-    let b =
-        findOptimalCapture hand table "Minimize cards"
-        |> Option.map (resultRow "strategy-minimize")
+        let! b = captureRowsAsync "strategy-minimize" hand table "Minimize cards"
 
-    [ a; b ] |> List.choose id
+        return a @ b
+    }
 
 /// Scenario 4: Multi-turn game sequence
-let runSequence () =
-    printHeader "Scenario 4: Multi-Turn Game Sequence"
+let runSequenceAsync () =
+    task {
+        printHeader "Scenario 4: Multi-Turn Game Sequence"
 
-    let turns =
-        [
-            (card Ace, [ card King; card Ace ], "Turn 1: Ace (hand value 14) captures King + Ace (13 + 1)")
-            (card (Number 7),
-             [ card (Number 2); card (Number 5); card (Number 3); card (Number 4) ],
-             "Turn 2: Multiple options")
-            (card Queen, [ card (Number 5); card (Number 7); card (Number 10) ], "Turn 3: Strategic capture")
-        ]
+        let turns =
+            [
+                (card Ace, [ card King; card Ace ], "Turn 1: Ace (hand value 14) captures King + Ace (13 + 1)")
+                (card (Number 7),
+                 [ card (Number 2); card (Number 5); card (Number 3); card (Number 4) ],
+                 "Turn 2: Multiple options")
+                (card Queen, [ card (Number 5); card (Number 7); card (Number 10) ], "Turn 3: Strategic capture")
+            ]
 
-    turns
-    |> List.mapi (fun i (hand, table, desc) ->
-        if not quiet then
-            printfn "  %s" desc
+        let rows = ResizeArray()
 
-        findOptimalCapture hand table "Maximize value"
-        |> Option.map (resultRow (sprintf "sequence-turn%d" (i + 1))))
-    |> List.choose id
+        for (i, (hand, table, desc)) in List.indexed turns do
+            if not quiet then
+                printfn "  %s" desc
+
+            let! turnRows = captureRowsAsync (sprintf "sequence-turn%d" (i + 1)) hand table "Maximize value"
+            rows.AddRange turnRows
+
+        return List.ofSeq rows
+    }
 
 // ==============================================================================
 // MAIN EXECUTION
@@ -344,20 +353,24 @@ if not quiet then
 
 let allResults = ResizeArray<Map<string, string>>()
 
-match exampleName.ToLowerInvariant() with
-| "all" ->
-    runSimple () |> Option.iter allResults.Add
-    runComplex () |> Option.iter allResults.Add
-    runStrategy () |> List.iter allResults.Add
-    runSequence () |> List.iter allResults.Add
+let scenarios =
+    match exampleName.ToLowerInvariant() with
+    | "all" -> [ runSimpleAsync; runComplexAsync; runStrategyAsync; runSequenceAsync ]
+    | "simple" -> [ runSimpleAsync ]
+    | "complex" -> [ runComplexAsync ]
+    | "strategy" -> [ runStrategyAsync ]
+    | "sequence" -> [ runSequenceAsync ]
+    | other ->
+        eprintfn "Unknown example: '%s'. Use: simple|complex|strategy|sequence|all" other
+        exit 1
 
-| "simple" -> runSimple () |> Option.iter allResults.Add
-| "complex" -> runComplex () |> Option.iter allResults.Add
-| "strategy" -> runStrategy () |> List.iter allResults.Add
-| "sequence" -> runSequence () |> List.iter allResults.Add
-| other ->
-    eprintfn "Unknown example: '%s'. Use: simple|complex|strategy|sequence|all" other
-    exit 1
+task {
+    for runScenarioAsync in scenarios do
+        let! rows = runScenarioAsync ()
+        allResults.AddRange rows
+}
+|> Async.AwaitTask
+|> Async.RunSynchronously
 
 if not quiet then
     printfn "======================================"

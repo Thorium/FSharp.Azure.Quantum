@@ -457,6 +457,7 @@ task {
 Start each run as a task on the thread pool and await them together; give each run its own backend instance:
 
 ```fsharp
+open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 
@@ -479,7 +480,7 @@ task {
 
 Each run holds its own state vector, so memory grows with the number of parallel runs.
 
-> **Async alternative:** The quantum solvers also have `solveAsync` variants (for example `QuantumMaxCutSolver.solveAsync`). See [Backend Switching](backend-switching) for more patterns.
+See [Backend Switching](backend-switching) for more task patterns.
 
 ---
 

@@ -144,7 +144,7 @@ module ModelSerialization =
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
 
                 return Ok()
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to save model: {ex.Message}"))
         }
 
@@ -368,7 +368,7 @@ module ModelSerialization =
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
 
                 return Ok()
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to save multi-class model: {ex.Message}"))
         }
 
@@ -440,7 +440,7 @@ module ModelSerialization =
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializableVQCModel>(json)
                     return validateVQCModel filePath model
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to load model: {ex.Message}"))
         }
 
@@ -472,7 +472,7 @@ module ModelSerialization =
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
                     return validateMultiClassVQCModel filePath model
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to load multi-class model: {ex.Message}"))
         }
 
@@ -990,7 +990,7 @@ module ModelSerialization =
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
 
                 return Ok()
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to save portfolio solution: {ex.Message}"))
         }
 
@@ -1022,7 +1022,7 @@ module ModelSerialization =
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializablePortfolioSolution>(json)
                     return Ok model
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to load portfolio solution: {ex.Message}"))
         }
 

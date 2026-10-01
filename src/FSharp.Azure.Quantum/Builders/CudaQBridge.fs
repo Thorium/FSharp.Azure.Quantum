@@ -122,41 +122,39 @@ module CudaQBridge =
             use proc = new System.Diagnostics.Process(StartInfo = psi)
 
             try
-                if not (proc.Start()) then
-                    return Error "failed to start python"
-                else
-                    // Drain both pipes concurrently: reading stdout-then-stderr sequentially can
-                    // deadlock if the child fills the stderr buffer while we block on stdout.
-                    let stdoutTask = proc.StandardOutput.ReadToEndAsync cancellationToken
-                    let stderrTask = proc.StandardError.ReadToEndAsync cancellationToken
-                    do! proc.WaitForExitAsync cancellationToken
-                    let! stdout = stdoutTask
-                    let! stderr = stderrTask
-
-                    if proc.ExitCode = 0 then
-                        return Ok stdout
+                try
+                    if not (proc.Start()) then
+                        return Error "failed to start python"
                     else
-                        return
-                            Error(
-                                if System.String.IsNullOrWhiteSpace stderr then
-                                    $"python exited with code {proc.ExitCode}"
-                                else
-                                    stderr
-                            )
-            with ex ->
-                // Don't leak the child process on cancellation or a failed read.
-                let _ =
-                    try
-                        (if not proc.HasExited then
-                             proc.Kill true)
-                    with
-                    // No process was ever started, or it exited between the check and the kill.
-                    | :? System.InvalidOperationException
-                    | :? System.ComponentModel.Win32Exception -> ()
+                        // Drain both pipes concurrently: reading stdout-then-stderr sequentially can
+                        // deadlock if the child fills the stderr buffer while we block on stdout.
+                        let stdoutTask = proc.StandardOutput.ReadToEndAsync cancellationToken
+                        let stderrTask = proc.StandardError.ReadToEndAsync cancellationToken
+                        do! proc.WaitForExitAsync cancellationToken
+                        let! stdout = stdoutTask
+                        let! stderr = stderrTask
 
-                match ex with
-                | :? System.OperationCanceledException -> return Error "python run was cancelled"
-                | _ -> return Error $"could not launch python (is it on PATH?): {ex.Message}"
+                        if proc.ExitCode = 0 then
+                            return Ok stdout
+                        else
+                            return
+                                Error(
+                                    if System.String.IsNullOrWhiteSpace stderr then
+                                        $"python exited with code {proc.ExitCode}"
+                                    else
+                                        stderr
+                                )
+                with ex when not (ex :? System.OperationCanceledException) ->
+                    return Error $"could not launch python (is it on PATH?): {ex.Message}"
+            finally
+                // Don't leak the child process on cancellation or a failed read.
+                try
+                    (if not proc.HasExited then
+                         proc.Kill true)
+                with
+                // No process was ever started, or it exited between the check and the kill.
+                | :? System.InvalidOperationException
+                | :? System.ComponentModel.Win32Exception -> ()
         }
 
     /// Whether a `python` with `cudaq` importable is available on this machine.

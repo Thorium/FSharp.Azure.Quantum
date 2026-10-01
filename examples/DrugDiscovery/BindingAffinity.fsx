@@ -54,6 +54,7 @@
 #load "../_common/ChemistryIntegrals.fs"
 
 open System
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -274,73 +275,89 @@ type BindingResult =
         Failures: string list
     }
 
-let private computeSystem (index: int) (system: BindingSystem) : BindingResult =
-    if not quiet then
-        printfn "  [%d/%d] %s (%s)" (index + 1) systems.Length system.Name system.InteractionType
-        printfn "         %s" system.Description
+let private computeSystemAsync (index: int) (system: BindingSystem) : Task<BindingResult> =
+    task {
+        if not quiet then
+            printfn "  [%d/%d] %s (%s)" (index + 1) systems.Length system.Name system.InteractionType
+            printfn "         %s" system.Description
 
-    let energyOf (role: string) (molecule: Molecule) =
-        let result = energies.Energy molecule
+        let energyOf (role: string) (molecule: Molecule) =
+            task {
+                let! result = energies.EnergyAsync molecule
+
+                if not quiet then
+                    match result with
+                    | Ok e ->
+                        printfn
+                            "         %-9s %-32s E = %14.6f Ha  [%s]%s"
+                            role
+                            molecule.Name
+                            e.Energy
+                            (ChemistryIntegrals.describeSource e.Source)
+                            (if e.Converged then "" else " not converged")
+                    | Error msg -> printfn "         %-9s %-32s E = FAILED  (%s)" role molecule.Name msg
+
+                return result
+            }
+
+        let! donor = energyOf "donor" system.Donor
+        let! acceptor = energyOf "acceptor" system.Acceptor
+        let! complex = energyOf "complex" system.Complex
+        let all = [ donor; acceptor; complex ]
+
+        let failures =
+            all
+            |> List.choose (function
+                | Error msg -> Some msg
+                | Ok _ -> None)
+
+        let computed =
+            all
+            |> List.choose (function
+                | Ok e -> Some e
+                | Error _ -> None)
+
+        let bindingEnergy =
+            match donor, acceptor, complex with
+            | Ok d, Ok a, Ok c -> Some(c.Energy - d.Energy - a.Energy)
+            | _ -> None
 
         if not quiet then
-            match result with
-            | Ok e ->
+            match bindingEnergy with
+            | Some dE ->
                 printfn
-                    "         %-9s %-32s E = %14.6f Ha  [%s]%s"
-                    role
-                    molecule.Name
-                    e.Energy
-                    (ChemistryIntegrals.describeSource e.Source)
-                    (if e.Converged then "" else " not converged")
-            | Error msg -> printfn "         %-9s %-32s E = FAILED  (%s)" role molecule.Name msg
+                    "         => dE = %.2f kcal/mol  |  Kd ~ %s"
+                    (dE * hartreeToKcalMol)
+                    (estimateKd (dE * hartreeToKcalMol))
+            | None -> printfn "         => INCOMPLETE (a species failed VQE: no interaction energy)"
 
-        result
+            printfn ""
 
-    let donor = energyOf "donor" system.Donor
-    let acceptor = energyOf "acceptor" system.Acceptor
-    let complex = energyOf "complex" system.Complex
-    let all = [ donor; acceptor; complex ]
-
-    let failures =
-        all
-        |> List.choose (function
-            | Error msg -> Some msg
-            | Ok _ -> None)
-
-    let computed =
-        all
-        |> List.choose (function
-            | Ok e -> Some e
-            | Error _ -> None)
-
-    let bindingEnergy =
-        match donor, acceptor, complex with
-        | Ok d, Ok a, Ok c -> Some(c.Energy - d.Energy - a.Energy)
-        | _ -> None
-
-    if not quiet then
-        match bindingEnergy with
-        | Some dE ->
-            printfn
-                "         => dE = %.2f kcal/mol  |  Kd ~ %s"
-                (dE * hartreeToKcalMol)
-                (estimateKd (dE * hartreeToKcalMol))
-        | None -> printfn "         => INCOMPLETE (a species failed VQE: no interaction energy)"
-
-        printfn ""
-
-    {
-        System = system
-        BindingEnergy = bindingEnergy
-        Sources = computed |> List.map (fun e -> e.Source) |> List.distinct
-        Failures = failures
+        return
+            {
+                System = system
+                BindingEnergy = bindingEnergy
+                Sources = computed |> List.map (fun e -> e.Source) |> List.distinct
+                Failures = failures
+            }
     }
 
 if not quiet then
     printfn "Computing interaction energies..."
     printfn ""
 
-let results = systems |> List.mapi computeSystem
+let results =
+    task {
+        let computed = ResizeArray()
+
+        for (index, system) in List.indexed systems do
+            let! result = computeSystemAsync index system
+            computed.Add result
+
+        return List.ofSeq computed
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Strongest binder first; incomplete systems last.
 let ranked =

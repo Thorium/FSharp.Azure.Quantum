@@ -78,7 +78,11 @@ let outPath =
     | Some p -> Path.GetFullPath p
     | None -> Path.Combine(__SOURCE_DIRECTORY__, $"market-stats-%d{fromDate.Year}-%d{toDate.Year}.json")
 
-match MarketData.computeFromYahoo (printfn "%s") symbols fromDate toDate proxy with
+match
+    MarketData.computeFromYahooAsync (printfn "%s") symbols fromDate toDate proxy
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Error e ->
     eprintfn "ERROR: %s" e
     exit 1

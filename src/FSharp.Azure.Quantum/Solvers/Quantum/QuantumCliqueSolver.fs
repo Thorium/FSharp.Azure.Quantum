@@ -342,23 +342,7 @@ module QuantumCliqueSolver =
                     match toQubo subProblem with
                     | Error err -> return Error err
                     | Ok qubo ->
-                        let! result =
-                            if config.EnableOptimization then
-                                task {
-                                    let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
-
-                                    return
-                                        optimized
-                                        |> Result.map (fun (bits, optParams, converged) ->
-                                            (bits, Some optParams, Some converged))
-                                }
-                            else
-                                task {
-                                    // Sequential (maxConcurrency = 1) grid search, as before
-                                    let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
-
-                                    return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
-                                }
+                        let! result = runQaoaAsync backend qubo config cancellationToken
 
                         match result with
                         | Error err -> return Error err

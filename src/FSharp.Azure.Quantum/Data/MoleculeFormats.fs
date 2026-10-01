@@ -882,7 +882,7 @@ module MoleculeFormats =
                     else
                         let! content = File.ReadAllTextAsync(path, cancellationToken)
                         return parseAll content
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.OperationError("SdfRead", ex.Message))
             }
 

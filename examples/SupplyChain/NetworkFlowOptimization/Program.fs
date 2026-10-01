@@ -391,7 +391,7 @@ module private Picture =
         let resultFrame = 1 + stages.Length
         let frames = resultFrame + 3
         let from k = Array.init frames (fun f -> f >= k)
-        // 2.8 s a step plus a second to read it, as SvgAnimation.fsx gives step pictures.
+        // 2.8 s a step plus a second to read it, as SvgAnimation.fs gives step pictures.
         let durationS = 3.8 * float frames
 
         let pic =

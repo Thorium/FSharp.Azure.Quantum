@@ -629,8 +629,8 @@ module Primitives =
         task {
             let! results =
                 circuits
-                |> List.map (fun c -> fun () -> sampleAsync backend c shots cancellationToken)
-                |> List.toArray
+                |> Array.ofList
+                |> Array.map (fun c () -> sampleAsync backend c shots cancellationToken)
                 |> JobThrottle.throttled (JobThrottle.maxConcurrency backend) cancellationToken
 
             return List.ofArray results
@@ -648,8 +648,8 @@ module Primitives =
         task {
             let! results =
                 circuits
-                |> List.map (fun c -> fun () -> observeAsync backend c hamiltonian cancellationToken)
-                |> List.toArray
+                |> Array.ofList
+                |> Array.map (fun c () -> observeAsync backend c hamiltonian cancellationToken)
                 |> JobThrottle.throttled (JobThrottle.maxConcurrency backend) cancellationToken
 
             return List.ofArray results

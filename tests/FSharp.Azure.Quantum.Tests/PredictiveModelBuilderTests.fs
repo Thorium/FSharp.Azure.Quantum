@@ -514,10 +514,7 @@ module PredictiveModelBuilderTests =
 
             match! trainAsync problem CancellationToken.None with
             | Ok model ->
-                let! evaluation =
-                    evaluateRegressionAsync features targets model CancellationToken.None
-
-                match evaluation with
+                match! evaluateRegressionAsync features targets model CancellationToken.None with
                 | Ok metrics ->
                     Assert.True(Double.IsFinite metrics.RSquared, $"R^2 should be finite, got {metrics.RSquared}")
                     Assert.True(metrics.MAE >= 0.0, $"MAE should be non-negative, got {metrics.MAE}")
@@ -540,10 +537,7 @@ module PredictiveModelBuilderTests =
             | Ok model ->
                 let features, targets = makeRegressionData ()
 
-                let! evaluation =
-                    evaluateRegressionAsync features targets model CancellationToken.None
-
-                match evaluation with
+                match! evaluateRegressionAsync features targets model CancellationToken.None with
                 | Error(QuantumError.Other msg) -> Assert.Contains("evaluateMultiClass", msg)
                 | other -> failwith $"Expected error directing to evaluateMultiClass, got {other}"
             | Error e -> failwith $"train should succeed, got error: {e}"
@@ -590,10 +584,7 @@ module PredictiveModelBuilderTests =
 
             match! trainAsync problem CancellationToken.None with
             | Ok model ->
-                let! evaluation =
-                    evaluateMultiClassAsync [| [| 1.0; 1.0 |] |] [| 0 |] model CancellationToken.None
-
-                match evaluation with
+                match! evaluateMultiClassAsync [| [| 1.0; 1.0 |] |] [| 0 |] model CancellationToken.None with
                 | Error(QuantumError.Other msg) -> Assert.Contains("evaluateRegression", msg)
                 | other -> failwith $"Expected error directing to evaluateRegression, got {other}"
             | Error e -> failwith $"train should succeed, got error: {e}"

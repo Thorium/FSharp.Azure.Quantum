@@ -301,7 +301,14 @@ let marketStats, liveUsed =
 
     if liveDataEnabled then
         match
-            MarketData.computeFromYahoo info (selectedSpecs |> List.map (fun s -> s.Symbol)) windowFrom windowTo None
+            MarketData.computeFromYahooAsync
+                info
+                (selectedSpecs |> List.map (fun s -> s.Symbol))
+                windowFrom
+                windowTo
+                None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
         with
         | Ok(stats, dropped) ->
             for (s, reason) in dropped do
@@ -405,7 +412,7 @@ let solved =
         | None ->
             QuantumPortfolioSolver.solveAsync backend assets constraints config System.Threading.CancellationToken.None
 
-    run.GetAwaiter().GetResult()
+    run |> Async.AwaitTask |> Async.RunSynchronously
 
 let sortedResults =
     match solved with

@@ -1231,3 +1231,71 @@ module ModelSerializationTests =
                 cleanupTestFile testFile
         }
         :> Task
+
+    // ========================================================================
+    // CANCELLATION — a cancelled token cancels the task; it is not an Error result
+    // ========================================================================
+
+    let private assertCancelled (run: unit -> Task<'T>) : Task =
+        Assert.ThrowsAnyAsync<System.OperationCanceledException>(fun () -> run () :> Task) :> Task
+
+    [<Fact>]
+    let ``Async model loaders propagate cancellation instead of returning Error`` () =
+        task {
+            let testFile = "test_cancelled_model_load.json"
+            let cancelled = CancellationToken true
+
+            try
+                File.WriteAllText(testFile, "{}")
+
+                do! assertCancelled (fun () -> ModelSerialization.loadVQCModelAsync testFile cancelled)
+                do! assertCancelled (fun () -> ModelSerialization.loadVQCMultiClassModelAsync testFile cancelled)
+                do! assertCancelled (fun () -> ModelSerialization.loadPortfolioSolutionAsync testFile cancelled)
+                do! assertCancelled (fun () -> HHLModelSerialization.loadHHLModelAsync testFile cancelled)
+                do! assertCancelled (fun () -> SVMModelSerialization.loadSVMModelAsync testFile cancelled)
+                do! assertCancelled (fun () -> SVMModelSerialization.loadMultiClassSVMModelAsync testFile cancelled)
+
+                do!
+                    assertCancelled (fun () ->
+                        FSharp.Azure.Quantum.Business.PredictiveModel.loadAsync testFile cancelled)
+            finally
+                cleanupTestFile testFile
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Async model savers propagate cancellation instead of returning Error`` () =
+        task {
+            let testFile = "test_cancelled_model_save.json"
+            let cancelled = CancellationToken true
+
+            let svmModel: QuantumKernelSVM.SVMModel =
+                {
+                    SupportVectorIndices = [| 0 |]
+                    Alphas = [| 1.0 |]
+                    Bias = 0.0
+                    TrainData = [| [| 0.1; 0.2 |] |]
+                    TrainLabels = [| 1 |]
+                    FeatureMap = AngleEncoding
+                }
+
+            try
+                do! assertCancelled (fun () -> SVMModelSerialization.saveSVMModelAsync testFile svmModel None cancelled)
+
+                do!
+                    assertCancelled (fun () ->
+                        ModelSerialization.saveVQCModelAsync
+                            testFile
+                            [| 0.1; 0.2 |]
+                            0.5
+                            2
+                            "ZZFeatureMap"
+                            2
+                            "RealAmplitudes"
+                            2
+                            None
+                            cancelled)
+            finally
+                cleanupTestFile testFile
+        }
+        :> Task

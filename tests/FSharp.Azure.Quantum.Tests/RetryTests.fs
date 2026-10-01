@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System.Net
+open System
 open System.Threading
 open System.Threading.Tasks
 open Xunit
@@ -305,8 +306,10 @@ module RetryTests =
             do! cts.CancelAsync()
             let operation (_ct: CancellationToken) = task { return Ok 1 }
 
-            match! executeWithRetryAsync config operation cts.Token with
-            | Error(QuantumError.OperationError(_, msg)) -> Assert.Contains("cancelled", msg.ToLower())
-            | _ -> failwith "Expected cancellation error"
+            let! _ =
+                Assert.ThrowsAnyAsync<OperationCanceledException>(fun () ->
+                    executeWithRetryAsync config operation cts.Token :> Task)
+
+            ()
         }
         :> Task

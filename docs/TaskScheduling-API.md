@@ -88,16 +88,14 @@ let problem : SchedulingProblem<unit, unit> = scheduling {
 // Solve on the local simulator (2 tasks x 6 time slots = 12 qubits)
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-match
-    solveQuantumAsync backend problem CancellationToken.None
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
-with
-| Ok solution ->
-    printfn "Makespan: %.1f minutes" solution.Makespan.TotalMinutes
-    exportGanttChart solution "schedule.txt"
-| Error err ->
-    printfn "Failed: %s" err.Message
+task {
+    match! solveQuantumAsync backend problem CancellationToken.None with
+    | Ok solution ->
+        printfn "Makespan: %.1f minutes" solution.Makespan.TotalMinutes
+        exportGanttChart solution "schedule.txt"
+    | Error err ->
+        printfn "Failed: %s" err.Message
+}
 ```
 
 `open FSharp.Azure.Quantum` brings the builders, `solveQuantumAsync`, `exportGanttChart` and the time helpers into scope; `open FSharp.Azure.Quantum.TaskScheduling` brings the types (`ScheduledTask`, `SchedulingProblem`, `Solution`, the `Objective` cases, `Dependency`).
@@ -410,28 +408,26 @@ val solveQuantumAsync :
 **Example:**
 
 ```fsharp
-match
-    solveQuantumAsync backend problem CancellationToken.None
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
-with
-| Ok solution ->
-    printfn "Makespan: %.1f minutes" solution.Makespan.TotalMinutes
-    printfn "Total Cost: $%.2f" solution.TotalCost
-    printfn "Valid: %b" solution.IsValid
+task {
+    match! solveQuantumAsync backend problem CancellationToken.None with
+    | Ok solution ->
+        printfn "Makespan: %.1f minutes" solution.Makespan.TotalMinutes
+        printfn "Total Cost: $%.2f" solution.TotalCost
+        printfn "Valid: %b" solution.IsValid
 
-    printfn "\nTask Assignments:"
-    solution.Assignments
-    |> List.sortBy (fun a -> a.StartTime)
-    |> List.iter (fun a ->
-        printfn "  %s: [%.1f - %.1f]" a.TaskId a.StartTime.TotalMinutes a.EndTime.TotalMinutes)
+        printfn "\nTask Assignments:"
+        solution.Assignments
+        |> List.sortBy (fun a -> a.StartTime)
+        |> List.iter (fun a ->
+            printfn "  %s: [%.1f - %.1f]" a.TaskId a.StartTime.TotalMinutes a.EndTime.TotalMinutes)
 
-    if not (List.isEmpty solution.DeadlineViolations) then
-        printfn "\nDeadline Violations:"
-        solution.DeadlineViolations |> List.iter (printfn "  - %s")
+        if not (List.isEmpty solution.DeadlineViolations) then
+            printfn "\nDeadline Violations:"
+            solution.DeadlineViolations |> List.iter (printfn "  - %s")
 
-| Error err ->
-    printfn "Scheduling failed: %s" err.Message
+    | Error err ->
+        printfn "Scheduling failed: %s" err.Message
+}
 ```
 
 **Validation Checks** (the same for both solvers):
@@ -493,16 +489,14 @@ val exportGanttChart : solution:Solution -> filePath:string -> unit
 **Example:**
 
 ```fsharp
-match
-    solveQuantumAsync backend problem CancellationToken.None
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
-with
-| Ok solution ->
-    exportGanttChart solution "my-schedule.txt"
-    printfn "Gantt chart saved!"
-| Error err ->
-    printfn "Failed: %s" err.Message
+task {
+    match! solveQuantumAsync backend problem CancellationToken.None with
+    | Ok solution ->
+        exportGanttChart solution "my-schedule.txt"
+        printfn "Gantt chart saved!"
+    | Error err ->
+        printfn "Failed: %s" err.Message
+}
 ```
 
 **Example Output File** (the powerplant schedule from Example 4):
@@ -653,18 +647,16 @@ let deadlineProblem : SchedulingProblem<unit, unit> = scheduling {
     timeHorizon (hours 3.0)
 }
 
-match
-    solveQuantumAsync backend deadlineProblem CancellationToken.None
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
-with
-| Ok solution ->
-    if solution.IsValid then
-        printfn "✅ All deadlines met!"
-    else
-        printfn "⚠️ Deadline violations: %A" solution.DeadlineViolations  // ["Delivery"]
-| Error err ->
-    printfn "Failed: %s" err.Message
+task {
+    match! solveQuantumAsync backend deadlineProblem CancellationToken.None with
+    | Ok solution ->
+        if solution.IsValid then
+            printfn "✅ All deadlines met!"
+        else
+            printfn "⚠️ Deadline violations: %A" solution.DeadlineViolations  // ["Delivery"]
+    | Error err ->
+        printfn "Failed: %s" err.Message
+}
 ```
 
 ---

@@ -212,7 +212,7 @@ module Batching =
                     allBatchResults.Add batchResult
 
                 // Flatten batch results into single list
-                return allBatchResults |> Seq.collect id |> List.ofSeq
+                return allBatchResults |> List.ofSeq |> List.concat
         }
 
     // ============================================================================

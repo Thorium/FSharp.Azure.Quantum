@@ -667,3 +667,21 @@ cx q[0],q[1];
     let ``parseFromFile with non-existent file should fail`` () =
         let result = OpenQasmImport.parseFromFile "non_existent_file.qasm"
         Assert.True(result.IsError, "Should fail for non-existent file")
+
+    [<Fact>]
+    let ``parseFromFileAsync propagates cancellation instead of returning Error`` () =
+        task {
+            let tempFile = System.IO.Path.GetTempFileName()
+
+            try
+                let! _ =
+                    Assert.ThrowsAnyAsync<System.OperationCanceledException>(fun () ->
+                        OpenQasmImport.parseFromFileAsync tempFile (System.Threading.CancellationToken true)
+                        :> System.Threading.Tasks.Task)
+
+                ()
+            finally
+                if System.IO.File.Exists(tempFile) then
+                    System.IO.File.Delete(tempFile)
+        }
+        :> System.Threading.Tasks.Task

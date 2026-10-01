@@ -311,30 +311,38 @@ if not quiet then
 /// depth=2 for ZZ feature map
 let featureMap = FeatureMapType.ZZFeatureMap 2
 
-/// Compute quantum kernel similarity between two feature vectors
-let computeQuantumSimilarity (x1: float array) (x2: float array) : float =
-    let data = [| x1; x2 |]
+/// Average quantum-kernel similarity of every candidate to the known actives, from
+/// one actives × candidates kernel matrix: a single batch of circuits instead of
+/// one blocking circuit per (candidate, active) pair. A failed matrix scores every
+/// candidate 0.0.
+let averageQuantumSimilaritiesAsync (actives: float array array) (candidates: float array array) =
+    task {
+        let! kernel =
+            QuantumKernels.computeKernelMatrixTrainTestAsync
+                backend
+                featureMap
+                actives
+                candidates
+                quantumShots
+                CancellationToken.None
 
-    match
-        QuantumKernels.computeKernelMatrixAsync backend featureMap data quantumShots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-    with
-    | Ok matrix -> matrix.[0, 1]
-    | Error _ -> 0.0
+        return
+            match kernel with
+            | Ok m ->
+                // m.[candidate, active]
+                Array.init candidates.Length (fun j ->
+                    Array.init actives.Length (fun i -> m.[j, i]) |> Array.average)
+            | Error _ -> Array.create candidates.Length 0.0
+    }
 
-/// Compute average quantum similarity to all known actives
-let computeAverageQuantumSimilarity (candidateVec: float array) =
-    activeFeatures
-    |> Array.map (fun activeVec -> computeQuantumSimilarity candidateVec activeVec)
-    |> Array.average
+let quantumSimilarities =
+    averageQuantumSimilaritiesAsync activeFeatures candidateFeatures
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 let quantumResults =
     candidateData
-    |> List.mapi (fun i (mol, desc, _) ->
-        let features = candidateFeatures.[i]
-        let avgSim = computeAverageQuantumSimilarity features
-        (i, mol.Smiles, desc, avgSim))
+    |> List.mapi (fun i (mol, desc, _) -> (i, mol.Smiles, desc, quantumSimilarities.[i]))
     |> List.sortByDescending (fun (_, _, _, sim) -> sim)
 
 if not quiet then

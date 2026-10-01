@@ -40,7 +40,7 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
-#load "../_common/SvgAnimation.fsx"
+#load "../_common/SvgAnimation.fs"
 
 open System
 open System.IO

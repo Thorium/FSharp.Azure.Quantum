@@ -266,7 +266,7 @@ module NetworkFlow =
                     QuantumNetworkFlowSolver.solveWithShotsAsync actualBackend quantumProblem 1000 cancellationToken
 
                 return fromQuantumSolution quantumResult
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return! Error(QuantumError.OperationError("Network Flow solve failed: ", $"Failed: {ex.Message}"))
         }
 

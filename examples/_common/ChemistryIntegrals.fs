@@ -6,6 +6,7 @@ open System.Globalization
 open System.IO
 open System.Text.RegularExpressions
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.QuantumChemistry
 
@@ -155,50 +156,59 @@ module ChemistryIntegrals =
         (backend: IQuantumBackend, maxIterations: int, tolerance: float, maxQubits: int, directory: string option) =
         let cache = Dictionary<string, Result<SpeciesEnergy, string>>()
 
-        member _.Energy(molecule: Molecule) : Result<SpeciesEnergy, string> =
-            match cache.TryGetValue molecule.Name with
-            | true, cached -> cached |> Result.map (fun e -> { e with Reused = true })
-            | _ ->
-                let started = DateTime.Now
+        member _.EnergyAsync(molecule: Molecule) : Task<Result<SpeciesEnergy, string>> =
+            task {
+                match cache.TryGetValue molecule.Name with
+                | true, cached -> return cached |> Result.map (fun e -> { e with Reused = true })
+                | _ ->
+                    let started = DateTime.Now
 
-                let result =
-                    providerFor maxQubits directory molecule
-                    |> Result.bind (fun provider ->
-                        // Without a provider the library's own Hamiltonian (STO-3G for H/He,
-                        // empirical otherwise) uses 2 qubits per atom.
-                        let qubits = 2 * molecule.Atoms.Length
+                    let provider =
+                        providerFor maxQubits directory molecule
+                        |> Result.bind (fun provider ->
+                            // Without a provider the library's own Hamiltonian (STO-3G for H/He,
+                            // empirical otherwise) uses 2 qubits per atom.
+                            let qubits = 2 * molecule.Atoms.Length
 
-                        if provider.IsNone && qubits > maxQubits then
-                            Error
-                                $"{molecule.Name}: the library Hamiltonian needs {qubits} qubits; the example caps VQE at {maxQubits}"
-                        else
-                            Ok provider)
-                    |> Result.bind (fun provider ->
-                        let config =
+                            if provider.IsNone && qubits > maxQubits then
+                                Error
+                                    $"{molecule.Name}: the library Hamiltonian needs {qubits} qubits; the example caps VQE at {maxQubits}"
+                            else
+                                Ok provider)
+
+                    let! estimated =
+                        task {
+                            match provider with
+                            | Error message -> return Error message
+                            | Ok provider ->
+                                let config =
+                                    {
+                                        Method = GroundStateMethod.VQE
+                                        Backend = Some backend
+                                        MaxIterations = maxIterations
+                                        Tolerance = tolerance
+                                        InitialParameters = None
+                                        ProgressReporter = None
+                                        ErrorMitigation = None
+                                        IntegralProvider = provider
+                                    }
+
+                                let! vqe = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+                                return vqe |> Result.mapError (fun err -> err.Message)
+                        }
+
+                    let result =
+                        estimated
+                        |> Result.map (fun r ->
                             {
-                                Method = GroundStateMethod.VQE
-                                Backend = Some backend
-                                MaxIterations = maxIterations
-                                Tolerance = tolerance
-                                InitialParameters = None
-                                ProgressReporter = None
-                                ErrorMitigation = None
-                                IntegralProvider = provider
-                            }
+                                Energy = r.Energy
+                                Source = r.Source
+                                Converged = r.Converged
+                                Iterations = r.Iterations
+                                Seconds = (DateTime.Now - started).TotalSeconds
+                                Reused = false
+                            })
 
-                        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
-                        |> Async.AwaitTask
-                        |> Async.RunSynchronously
-                        |> Result.mapError (fun err -> err.Message))
-                    |> Result.map (fun r ->
-                        {
-                            Energy = r.Energy
-                            Source = r.Source
-                            Converged = r.Converged
-                            Iterations = r.Iterations
-                            Seconds = (DateTime.Now - started).TotalSeconds
-                            Reused = false
-                        })
-
-                cache.[molecule.Name] <- result
-                result
+                    cache.[molecule.Name] <- result
+                    return result
+            }

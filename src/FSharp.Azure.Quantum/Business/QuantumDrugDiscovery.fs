@@ -172,7 +172,7 @@ module internal ProviderDataLoader =
     /// Load molecules from an async provider and convert to MolecularDataset.
     let loadFromProviderAsync (provider: IMoleculeDatasetProviderAsync) (cancellationToken: CancellationToken) =
         task {
-            let! result = provider.LoadAsync DatasetQuery.All cancellationToken
+            let! result = provider.LoadAsync(DatasetQuery.All, cancellationToken)
             return result |> Result.map toMolecularDataset
         }
 
@@ -314,15 +314,8 @@ type QuantumDrugDiscoveryBuilder() =
 
         quantumResultTask {
             let! model =
-                task {
-                    let! trained =
-                        QuantumKernelSVM.trainAsync backend featureMap trainData trainLabels config shots cancellationToken
-
-                    return
-                        trained
-                        |> Result.mapError (fun e ->
-                            QuantumError.OperationError("Training", $"Training Failed: {e.Message}"))
-                }
+                QuantumKernelSVM.trainAsync backend featureMap trainData trainLabels config shots cancellationToken
+                |> mapErrorAsync (fun e -> QuantumError.OperationError("Training", $"Training Failed: {e.Message}"))
 
             // Genuinely score the whole candidate pool with the trained model: the SVM
             // decision value is the screening score (signed distance from the hyperplane).
@@ -388,23 +381,17 @@ type QuantumDrugDiscoveryBuilder() =
         quantumResultTask {
             // Train VQC model
             let! result =
-                task {
-                    let! trained =
-                        VQC.trainAsync
-                            backend
-                            mappedFeatureMap
-                            variationalForm
-                            initialParams
-                            trainData
-                            trainLabels
-                            vqcConfig
-                            cancellationToken
-
-                    return
-                        trained
-                        |> Result.mapError (fun e ->
-                            QuantumError.OperationError("VQCTraining", $"VQC Training Failed: {e.Message}"))
-                }
+                VQC.trainAsync
+                    backend
+                    mappedFeatureMap
+                    variationalForm
+                    initialParams
+                    trainData
+                    trainLabels
+                    vqcConfig
+                    cancellationToken
+                |> mapErrorAsync (fun e ->
+                    QuantumError.OperationError("VQCTraining", $"VQC Training Failed: {e.Message}"))
 
             // Genuinely classify the whole candidate pool with the trained circuit: the
             // active-class probability is the screening score.

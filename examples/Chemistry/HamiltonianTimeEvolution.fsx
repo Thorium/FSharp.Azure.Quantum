@@ -52,7 +52,7 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
-#load "../_common/SvgAnimation.fsx"
+#load "../_common/SvgAnimation.fs"
 
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.LocalSimulator

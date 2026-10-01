@@ -359,29 +359,30 @@ if shouldRun 2 then
                 |}
              >()
 
-        testTransactions
-        |> Array.iteri (fun i tx ->
-            match
-                BinaryClassifier.predictAsync tx classifier CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
-            with
-            | Ok pred ->
-                let status = if pred.IsPositive then "FRAUD" else "OK"
+        task {
+            for i in 0 .. testTransactions.Length - 1 do
+                let! predicted = BinaryClassifier.predictAsync testTransactions.[i] classifier CancellationToken.None
 
-                if not quiet then
-                    printfn "Transaction #%d: %s (%.0f%% confidence)" (i + 1) status (pred.Confidence * 100.0)
+                match predicted with
+                | Ok pred ->
+                    let status = if pred.IsPositive then "FRAUD" else "OK"
 
-                batchResults.Add(
-                    {|
-                        Index = i + 1
-                        Status = status
-                        Confidence = pred.Confidence * 100.0
-                    |}
-                )
-            | Error err ->
-                if not quiet then
-                    printfn "Transaction #%d: Error: %s" (i + 1) err.Message)
+                    if not quiet then
+                        printfn "Transaction #%d: %s (%.0f%% confidence)" (i + 1) status (pred.Confidence * 100.0)
+
+                    batchResults.Add(
+                        {|
+                            Index = i + 1
+                            Status = status
+                            Confidence = pred.Confidence * 100.0
+                        |}
+                    )
+                | Error err ->
+                    if not quiet then
+                        printfn "Transaction #%d: Error: %s" (i + 1) err.Message
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
         results.Add(
             {|

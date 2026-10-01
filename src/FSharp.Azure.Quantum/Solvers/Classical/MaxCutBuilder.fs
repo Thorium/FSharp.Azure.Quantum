@@ -295,7 +295,7 @@ module MaxCut =
                         BackendName = quantumResult.BackendName
                         IsQuantum = true
                     }
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return! Error(QuantumError.OperationError("MaxCut solve failed: ", $"Failed: {ex.Message}"))
         }
 

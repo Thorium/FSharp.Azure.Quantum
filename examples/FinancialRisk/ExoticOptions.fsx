@@ -732,9 +732,9 @@ if not quiet then
 
 let mutable anyQuantumFailure = false
 
-let optionResults =
-    selectedOptions
-    |> List.map (fun spec ->
+/// Price one option and its Greeks.
+let private priceSpecAsync (spec: ExoticOptionSpec) =
+    task {
         let key = specKey spec
 
         let name =
@@ -748,20 +748,14 @@ let optionResults =
             | LookbackSpec _ -> "Lookback"
 
         // Price
-        let priceResult =
-            priceOption spec market backend |> Async.AwaitTask |> Async.RunSynchronously
+        let! priceResult = priceOption spec market backend
 
         match priceResult with
         | Ok pr ->
             // Greeks
-            let deltaR =
-                calculateDelta market spec backend |> Async.AwaitTask |> Async.RunSynchronously
-
-            let vegaR =
-                calculateVega market spec backend |> Async.AwaitTask |> Async.RunSynchronously
-
-            let thetaR =
-                calculateTheta market spec backend |> Async.AwaitTask |> Async.RunSynchronously
+            let! deltaR = calculateDelta market spec backend
+            let! vegaR = calculateVega market spec backend
+            let! thetaR = calculateTheta market spec backend
             let delta = deltaR |> Result.defaultValue nan
             let vega = vegaR |> Result.defaultValue nan
             let theta = thetaR |> Result.defaultValue nan
@@ -775,34 +769,50 @@ let optionResults =
                     vega
                     theta
 
-            {
-                Key = key
-                Name = name
-                OptionType = optType
-                Price = pr.Price
-                StdError = pr.StandardError
-                Delta = delta
-                Vega = vega
-                Theta = theta
-                HasQuantumFailure = false
-            }
+            return
+                {
+                    Key = key
+                    Name = name
+                    OptionType = optType
+                    Price = pr.Price
+                    StdError = pr.StandardError
+                    Delta = delta
+                    Vega = vega
+                    Theta = theta
+                    HasQuantumFailure = false
+                }
         | Error err ->
             anyQuantumFailure <- true
 
             if not quiet then
                 printfn "  [FAIL] %-35s  Error: %A" name err
 
-            {
-                Key = key
-                Name = name
-                OptionType = optType
-                Price = nan
-                StdError = nan
-                Delta = nan
-                Vega = nan
-                Theta = nan
-                HasQuantumFailure = true
-            })
+            return
+                {
+                    Key = key
+                    Name = name
+                    OptionType = optType
+                    Price = nan
+                    StdError = nan
+                    Delta = nan
+                    Vega = nan
+                    Theta = nan
+                    HasQuantumFailure = true
+                }
+    }
+
+let optionResults =
+    task {
+        let priced = ResizeArray()
+
+        for spec in selectedOptions do
+            let! optionResult = priceSpecAsync spec
+            priced.Add optionResult
+
+        return List.ofSeq priced
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 if not quiet then
     printfn ""

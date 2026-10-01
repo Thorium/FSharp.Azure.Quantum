@@ -55,6 +55,7 @@
 #load "../_common/ChemistryIntegrals.fs"
 
 open System
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -243,78 +244,105 @@ type CoupleResult =
         Failures: string list
     }
 
-let private computeCouple (index: int) (couple: RedoxCouple) : CoupleResult =
-    if not quiet then
-        printfn "  [%d/%d] %s — %s" (index + 1) couples.Length couple.Name couple.Biology
-        printfn "         %s" couple.Description
+let private computeCoupleAsync (index: int) (couple: RedoxCouple) : Task<CoupleResult> =
+    task {
+        if not quiet then
+            printfn "  [%d/%d] %s — %s" (index + 1) couples.Length couple.Name couple.Biology
+            printfn "         %s" couple.Description
 
-    let energyOf (role: string) (molecule: Molecule) =
-        let result = energies.Energy molecule
+        let energyOf (role: string) (molecule: Molecule) =
+            task {
+                let! result = energies.EnergyAsync molecule
+
+                if not quiet then
+                    match result with
+                    | Ok e ->
+                        printfn
+                            "         %-9s %-32s E = %14.6f Ha  [%s]%s"
+                            role
+                            molecule.Name
+                            e.Energy
+                            (ChemistryIntegrals.describeSource e.Source)
+                            (if e.Converged then "" else " not converged")
+                    | Error msg -> printfn "         %-9s %-32s E = FAILED  (%s)" role molecule.Name msg
+
+                return result
+            }
+
+        let energiesOf (role: string) (molecules: Molecule list) =
+            task {
+                let results = ResizeArray()
+
+                for molecule in molecules do
+                    let! result = energyOf role molecule
+                    results.Add result
+
+                return List.ofSeq results
+            }
+
+        let! oxidizedSpecies = energiesOf "oxidized" couple.Oxidized
+        let! reductant = energyOf "reductant" hydrogen
+        let oxidized = oxidizedSpecies @ [ reductant ]
+
+        let! reduced = energiesOf "reduced" couple.Reduced
+        let all = oxidized @ reduced
+
+        let failures =
+            all
+            |> List.choose (function
+                | Error msg -> Some msg
+                | Ok _ -> None)
+
+        let computed =
+            all
+            |> List.choose (function
+                | Ok e -> Some e
+                | Error _ -> None)
+
+        let total (results: Result<ChemistryIntegrals.SpeciesEnergy, string> list) =
+            results
+            |> List.sumBy (function
+                | Ok e -> e.Energy
+                | Error _ -> 0.0)
+
+        let reductionEnergy =
+            if failures.IsEmpty then
+                Some(total reduced - total oxidized)
+            else
+                None
 
         if not quiet then
-            match result with
-            | Ok e ->
-                printfn
-                    "         %-9s %-32s E = %14.6f Ha  [%s]%s"
-                    role
-                    molecule.Name
-                    e.Energy
-                    (ChemistryIntegrals.describeSource e.Source)
-                    (if e.Converged then "" else " not converged")
-            | Error msg -> printfn "         %-9s %-32s E = FAILED  (%s)" role molecule.Name msg
+            match reductionEnergy with
+            | Some dE -> printfn "         => dE_red = %.6f Ha = %.1f kcal/mol" dE (dE * hartreeToKcalMol)
+            | None -> printfn "         => INCOMPLETE (a species failed VQE: no reduction energy)"
 
-        result
+            printfn ""
 
-    let oxidized =
-        (couple.Oxidized |> List.map (energyOf "oxidized"))
-        @ [ energyOf "reductant" hydrogen ]
-
-    let reduced = couple.Reduced |> List.map (energyOf "reduced")
-    let all = oxidized @ reduced
-
-    let failures =
-        all
-        |> List.choose (function
-            | Error msg -> Some msg
-            | Ok _ -> None)
-
-    let computed =
-        all
-        |> List.choose (function
-            | Ok e -> Some e
-            | Error _ -> None)
-
-    let total (results: Result<ChemistryIntegrals.SpeciesEnergy, string> list) =
-        results
-        |> List.sumBy (function
-            | Ok e -> e.Energy
-            | Error _ -> 0.0)
-
-    let reductionEnergy =
-        if failures.IsEmpty then
-            Some(total reduced - total oxidized)
-        else
-            None
-
-    if not quiet then
-        match reductionEnergy with
-        | Some dE -> printfn "         => dE_red = %.6f Ha = %.1f kcal/mol" dE (dE * hartreeToKcalMol)
-        | None -> printfn "         => INCOMPLETE (a species failed VQE: no reduction energy)"
-
-        printfn ""
-
-    {
-        Couple = couple
-        ReductionEnergy = reductionEnergy
-        Sources = computed |> List.map (fun e -> e.Source) |> List.distinct
-        Failures = failures
+        return
+            {
+                Couple = couple
+                ReductionEnergy = reductionEnergy
+                Sources = computed |> List.map (fun e -> e.Source) |> List.distinct
+                Failures = failures
+            }
     }
 
 if not quiet then
     printfn "Computing reduction energies..."
     printfn ""
 
-let results = couples |> List.mapi computeCouple
+let results =
+    task {
+        let computed = ResizeArray()
+
+        for (index, couple) in List.indexed couples do
+            let! result = computeCoupleAsync index couple
+            computed.Add result
+
+        return List.ofSeq computed
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Weakest oxidant first (least negative dE_red), as the chain orders its carriers.
 let ranked =

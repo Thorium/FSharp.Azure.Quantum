@@ -332,39 +332,43 @@ let createH2MottModel (separation_A: float) : Molecule =
     }
 
 /// Run VQE for a molecule and return result row
-let runVqe (label: string) (description: string) (molecule: Molecule) : Map<string, string> =
-    if not quiet then
-        printfn "  VQE: %s — %s" label molecule.Name
-
-    match calculateVQEEnergy backend molecule with
-    | Ok(energy, iterations, time) ->
+let runVqeAsync (label: string) (description: string) (molecule: Molecule) =
+    task {
         if not quiet then
-            printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
+            printfn "  VQE: %s — %s" label molecule.Name
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", $"%.6f{energy}"
-                "iterations", $"%d{iterations}"
-                "time_seconds", $"%.2f{time}"
-                "has_vqe_failure", "false"
-            ]
-    | Error msg ->
-        anyVqeFailure <- true
+        match! calculateVQEEnergyAsync backend molecule with
+        | Ok(energy, iterations, time) ->
+            if not quiet then
+                printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
 
-        if not quiet then
-            eprintfn "    Error: %s" msg
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", $"%.6f{energy}"
+                        "iterations", $"%d{iterations}"
+                        "time_seconds", $"%.2f{time}"
+                        "has_vqe_failure", "false"
+                    ]
+        | Error msg ->
+            anyVqeFailure <- true
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", "N/A"
-                "iterations", "N/A"
-                "time_seconds", "N/A"
-                "has_vqe_failure", "true"
-            ]
+            if not quiet then
+                eprintfn "    Error: %s" msg
+
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", "N/A"
+                        "iterations", "N/A"
+                        "time_seconds", "N/A"
+                        "has_vqe_failure", "true"
+                    ]
+    }
 
 // VQE: H2 dissociation as Mott transition model
 let separations =
@@ -376,12 +380,19 @@ let separations =
     ]
 
 let vqeResults =
-    separations
-    |> List.map (fun (sep, regime) ->
-        let model = createH2MottModel sep
-        let label = $"H2 R=%.2f{sep} A (%s{regime})"
-        let result = runVqe label regime model
-        result |> Map.add "separation_A" $"%.2f{sep}" |> Map.add "regime" regime)
+    task {
+        let rows = ResizeArray()
+
+        for (sep, regime) in separations do
+            let model = createH2MottModel sep
+            let label = $"H2 R=%.2f{sep} A (%s{regime})"
+            let! result = runVqeAsync label regime model
+            rows.Add(result |> Map.add "separation_A" $"%.2f{sep}" |> Map.add "regime" regime)
+
+        return List.ofSeq rows
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // ==============================================================================
 // COMPARISON TABLE (unconditional)

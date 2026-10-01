@@ -384,6 +384,46 @@ module QuantumRiskEngineTests =
         }
         :> Task
 
+    [<Fact>]
+    let ``executeAsync is cancelled by the configuration's token as well as by the caller's`` () =
+        task {
+            use configured = new CancellationTokenSource()
+            use callers = new CancellationTokenSource()
+
+            let config =
+                { defaultConfig with
+                    Metrics = [ ValueAtRisk ]
+                    SimulationPaths = 1000
+                    CancellationToken = Some configured.Token
+                }
+
+            // Neither token cancelled: the two are linked and the analysis runs
+            let! report = RiskEngine.executeAsync config callers.Token
+            Assert.True(Result.isOk report, $"Expected Ok but got {report}")
+
+            // The configuration's token alone cancels it
+            do! configured.CancelAsync()
+
+            let! _ =
+                Assert.ThrowsAnyAsync<OperationCanceledException>(fun () ->
+                    RiskEngine.executeAsync config callers.Token :> Task)
+
+            // And so does the caller's token alone
+            do! callers.CancelAsync()
+
+            let! _ =
+                Assert.ThrowsAnyAsync<OperationCanceledException>(fun () ->
+                    RiskEngine.executeAsync
+                        { config with
+                            CancellationToken = Some CancellationToken.None
+                        }
+                        callers.Token
+                    :> Task)
+
+            ()
+        }
+        :> Task
+
     // ========================================================================
     // HIGHER CONFIDENCE LEVEL TESTS
     // ========================================================================
@@ -550,6 +590,7 @@ module QuantumRiskEngineTests =
             let! report2 = run config
             Assert.Equal(report1.VaR, report2.VaR)
             Assert.Equal(report1.Volatility, report2.Volatility)
+            Assert.Equal(report1.Method, report2.Method)
         }
         :> Task
 

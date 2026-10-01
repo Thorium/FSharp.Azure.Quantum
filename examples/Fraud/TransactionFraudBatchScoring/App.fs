@@ -64,25 +64,34 @@ module App =
         else
             float (ys |> Array.sumBy id) / float ys.Length
 
-    /// Score each row once, in order; the model may run on a shot-sampling backend,
+    /// Predict each row once, in order; the model may run on a shot-sampling backend,
     /// so the loop awaits every prediction instead of blocking per sample.
+    let private predictAll (model: BinaryClassifier.Classifier) (toVector: 'row -> float array) (rows: 'row seq) =
+        task {
+            let predictions = ResizeArray()
+
+            for row in rows do
+                let! prediction = BinaryClassifier.predictAsync (toVector row) model CancellationToken.None
+                predictions.Add((row, prediction))
+
+            return predictions.ToArray()
+        }
+
+    /// (confidence, label) per row; a failed prediction scores 0.0.
     let private scoreRows
         (model: BinaryClassifier.Classifier)
         (xs: float array array)
         (ys: int array)
         : Task<(float * int) array> =
         task {
-            let scores = Array.zeroCreate xs.Length
+            let! predictions = predictAll model fst (Array.zip xs ys)
 
-            for i in 0 .. xs.Length - 1 do
-                let! p = BinaryClassifier.predictAsync xs.[i] model CancellationToken.None
-
-                scores.[i] <-
+            return
+                predictions
+                |> Array.map (fun ((_, y), p) ->
                     match p with
-                    | Ok p -> p.Confidence, ys.[i]
-                    | Error _ -> 0.0, ys.[i]
-
-            return scores
+                    | Ok p -> p.Confidence, y
+                    | Error _ -> 0.0, y)
         }
 
     let runAsync (argv: string array) : Task<int> =
@@ -196,20 +205,11 @@ module App =
                             match trained, scoreRowsOpt with
                             | Ok model, Some scoreRows ->
                                 // One prediction per row feeds both the CSV and the PSI check.
-                                let predictions = ResizeArray()
-
-                                for t in scoreRows do
-                                    let! p =
-                                        BinaryClassifier.predictAsync
-                                            (Transaction.toVector t)
-                                            model
-                                            CancellationToken.None
-
-                                    predictions.Add((t, p))
+                                let! predictions = predictAll model Transaction.toVector scoreRows
 
                                 let rows =
                                     predictions
-                                    |> Seq.map (fun (t, p) ->
+                                    |> Array.map (fun (t, p) ->
                                         match p with
                                         | Error _ -> [ t.TransactionId; "0"; "0.0"; "ALLOW" ]
                                         | Ok p ->
@@ -218,17 +218,16 @@ module App =
                                                 |> Recommendation.toString
 
                                             [ t.TransactionId; string p.Label; $"%.6f{p.Confidence}"; recText ])
-                                    |> List.ofSeq
+                                    |> List.ofArray
 
                                 let expected = trainScores |> Array.map fst
 
                                 let actual =
                                     predictions
-                                    |> Seq.choose (fun (_, p) ->
+                                    |> Array.choose (fun (_, p) ->
                                         match p with
                                         | Ok p -> Some p.Confidence
                                         | Error _ -> None)
-                                    |> Array.ofSeq
 
                                 return rows, Metrics.psi expected actual 10
                             | _ -> return [], 0.0

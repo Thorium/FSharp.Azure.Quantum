@@ -6,7 +6,7 @@
 /// also gets `readS` (1 s) more on every frame to read it. It plays in any
 /// browser, including as an image in a README on GitHub.
 ///
-///     #load "../_common/SvgAnimation.fsx"
+///     #load "../_common/SvgAnimation.fs"
 ///     open SvgAnimation
 ///     let pic = Picture(760.0, 420.0, frames = 12, durationS = 18.0, title = "…")
 ///     pic.Rect(40.0, 60.0, 30.0, 0.0, fill = colour 0, animate = [ "height", heights; "y", tops ])

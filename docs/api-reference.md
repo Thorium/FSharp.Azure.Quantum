@@ -977,7 +977,7 @@ var portfolioProblem = PortfolioProblem(assets, budget: 10000.0);
 var correlatedProblem = PortfolioProblem(assets, budget: 10000.0, covariance: new double[,] { { 0.0225 } });
 ```
 
-`CSharpBuilders` also has entry points for the business and advanced builders (`CoverageProblemAsync`, `PairingProblemAsync`, `PackingProblemAsync`, `FactorInteger`, `SolveTreeSearch`, `PriceEuropeanCallAsync`, ...), and `QuantumBackendCSharpExtensions` adds Task-returning helpers such as `backend.ExecuteToStateTask(circuit)`. All live in `Builders/BuildersCSharpExtensions.fs`. See `examples/CSharpConsumer` for a complete C# project.
+`CSharpBuilders` also has entry points for the business and advanced builders (`CoverageProblemAsync`, `PairingProblemAsync`, `PackingProblemAsync`, `FactorInteger`, `SolveTreeSearch`, `PriceEuropeanCallAsync`, ...), and `QuantumBackendCSharpExtensions` adds Task-returning helpers such as `backend.ExecuteToStateAsync(circuit)` (the cancellation token is optional). All live in `Builders/BuildersCSharpExtensions.fs`. See `examples/CSharpConsumer` for a complete C# project.
 
 ---
 

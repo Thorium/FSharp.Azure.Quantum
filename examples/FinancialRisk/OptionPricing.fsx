@@ -80,6 +80,7 @@ References:
 *)
 
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
+#r "nuget: MathNet.Numerics, 5.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -429,66 +430,68 @@ if not quiet then
     printfn "European Call Options at Different Strikes:"
     printfn "  (Spot = $%.2f)\n" spotPrice
 
-for (strike, description) in strikes do
-    let strikeResult =
-        OptionPricing.priceEuropeanCallAsync
-            spotPrice
-            strike
-            riskFreeRate
-            volatility
-            timeToExpiry
-            numQubits
-            groverIterations
-            shots
-            backend
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
+task {
+    for (strike, description) in strikes do
+        let! strikeResult =
+            OptionPricing.priceEuropeanCallAsync
+                spotPrice
+                strike
+                riskFreeRate
+                volatility
+                timeToExpiry
+                numQubits
+                groverIterations
+                shots
+                backend
+                CancellationToken.None
 
-    match strikeResult with
-    | Ok price ->
-        if not quiet then
-            printfn "  Strike $%.2f (%s):" strike description
-            printfn "    Price: $%.4f ± $%.4f" price.Price price.ConfidenceInterval
+        match strikeResult with
+        | Ok price ->
+            if not quiet then
+                printfn "  Strike $%.2f (%s):" strike description
+                printfn "    Price: $%.4f ± $%.4f" price.Price price.ConfidenceInterval
 
-        resultRows.Add(
-            [
-                "example", $"Moneyness %s{description}"
-                "spot", $"%.2f{spotPrice}"
-                "strike", $"%.2f{strike}"
-                "rate", $"%.4f{riskFreeRate}"
-                "volatility", $"%.4f{volatility}"
-                "expiry", $"%.1f{timeToExpiry}"
-                "price", $"%.4f{price.Price}"
-                "confidence_interval", $"%.4f{price.ConfidenceInterval}"
-                "qubits", $"%d{price.QubitsUsed}"
-                "method", price.Method
-                "speedup", $"%.1f{price.Speedup}"
-                "error", ""
-            ]
-            |> Map.ofList
-        )
-    | Error err ->
-        if not quiet then
-            printfn "  Strike $%.2f: Error %A" strike err
+            resultRows.Add(
+                [
+                    "example", $"Moneyness %s{description}"
+                    "spot", $"%.2f{spotPrice}"
+                    "strike", $"%.2f{strike}"
+                    "rate", $"%.4f{riskFreeRate}"
+                    "volatility", $"%.4f{volatility}"
+                    "expiry", $"%.1f{timeToExpiry}"
+                    "price", $"%.4f{price.Price}"
+                    "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+                    "qubits", $"%d{price.QubitsUsed}"
+                    "method", price.Method
+                    "speedup", $"%.1f{price.Speedup}"
+                    "error", ""
+                ]
+                |> Map.ofList
+            )
+        | Error err ->
+            if not quiet then
+                printfn "  Strike $%.2f: Error %A" strike err
 
-        resultRows.Add(
-            [
-                "example", $"Moneyness %s{description}"
-                "spot", $"%.2f{spotPrice}"
-                "strike", $"%.2f{strike}"
-                "rate", $"%.4f{riskFreeRate}"
-                "volatility", $"%.4f{volatility}"
-                "expiry", $"%.1f{timeToExpiry}"
-                "price", ""
-                "confidence_interval", ""
-                "qubits", ""
-                "method", ""
-                "speedup", ""
-                "error", $"%A{err}"
-            ]
-            |> Map.ofList
-        )
+            resultRows.Add(
+                [
+                    "example", $"Moneyness %s{description}"
+                    "spot", $"%.2f{spotPrice}"
+                    "strike", $"%.2f{strike}"
+                    "rate", $"%.4f{riskFreeRate}"
+                    "volatility", $"%.4f{volatility}"
+                    "expiry", $"%.1f{timeToExpiry}"
+                    "price", ""
+                    "confidence_interval", ""
+                    "qubits", ""
+                    "method", ""
+                    "speedup", ""
+                    "error", $"%A{err}"
+                ]
+                |> Map.ofList
+            )
+}
+|> Async.AwaitTask
+|> Async.RunSynchronously
 
 if not quiet then
     printfn ""
@@ -507,47 +510,49 @@ if not quiet then
     printfn "Impact of Volatility on ATM Call Option:"
     printfn "  (Spot = Strike = $%.2f)\n" spotPrice
 
-for vol in volatilities do
-    let volResult =
-        OptionPricing.priceEuropeanCallAsync
-            spotPrice
-            spotPrice
-            riskFreeRate
-            vol
-            timeToExpiry
-            numQubits
-            groverIterations
-            shots
-            backend
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
+task {
+    for vol in volatilities do
+        let! volResult =
+            OptionPricing.priceEuropeanCallAsync
+                spotPrice
+                spotPrice
+                riskFreeRate
+                vol
+                timeToExpiry
+                numQubits
+                groverIterations
+                shots
+                backend
+                CancellationToken.None
 
-    match volResult with
-    | Ok price ->
-        if not quiet then
-            printfn "  Volatility %2.0f%%: $%.4f" (vol * 100.0) price.Price
+        match volResult with
+        | Ok price ->
+            if not quiet then
+                printfn "  Volatility %2.0f%%: $%.4f" (vol * 100.0) price.Price
 
-        resultRows.Add(
-            [
-                "example", sprintf "Volatility %.0f%%" (vol * 100.0)
-                "spot", $"%.2f{spotPrice}"
-                "strike", $"%.2f{spotPrice}"
-                "rate", $"%.4f{riskFreeRate}"
-                "volatility", $"%.4f{vol}"
-                "expiry", $"%.1f{timeToExpiry}"
-                "price", $"%.4f{price.Price}"
-                "confidence_interval", $"%.4f{price.ConfidenceInterval}"
-                "qubits", $"%d{price.QubitsUsed}"
-                "method", price.Method
-                "speedup", $"%.1f{price.Speedup}"
-                "error", ""
-            ]
-            |> Map.ofList
-        )
-    | Error err ->
-        if not quiet then
-            printfn "  Volatility %2.0f%%: Error" (vol * 100.0)
+            resultRows.Add(
+                [
+                    "example", sprintf "Volatility %.0f%%" (vol * 100.0)
+                    "spot", $"%.2f{spotPrice}"
+                    "strike", $"%.2f{spotPrice}"
+                    "rate", $"%.4f{riskFreeRate}"
+                    "volatility", $"%.4f{vol}"
+                    "expiry", $"%.1f{timeToExpiry}"
+                    "price", $"%.4f{price.Price}"
+                    "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+                    "qubits", $"%d{price.QubitsUsed}"
+                    "method", price.Method
+                    "speedup", $"%.1f{price.Speedup}"
+                    "error", ""
+                ]
+                |> Map.ofList
+            )
+        | Error err ->
+            if not quiet then
+                printfn "  Volatility %2.0f%%: Error" (vol * 100.0)
+}
+|> Async.AwaitTask
+|> Async.RunSynchronously
 
 if not quiet then
     printfn ""

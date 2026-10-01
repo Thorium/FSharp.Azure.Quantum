@@ -577,7 +577,7 @@ module QuantumMonteCarlo =
         : Result<float[], QuantumError> =
         runForProbabilities backend statePrep |> Result.map fst
 
-    /// Result of estimateBoundedExpectation.
+    /// Result of estimateBoundedExpectationAsync.
     type BoundedExpectationResult =
         {
             /// Maximum-likelihood amplitude estimate of E[f(X)]

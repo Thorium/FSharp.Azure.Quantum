@@ -1023,17 +1023,14 @@ type CSharpBuilders private () =
 /// C# extensions for IQuantumBackend to enable Task-based async/await.
 /// </summary>
 /// <remarks>
-/// These extensions convert F# Async to C# Task for idiomatic async/await usage.
-///
 /// Example (C#):
 /// <code>
 /// var backend = BackendAbstraction.CreateFromWorkspace(workspace, "ionq.simulator");
-/// var result = await backend.ExecuteAsyncTask(circuit, 1000);
+/// var result = await backend.ExecuteToStateAsync(circuit);
 ///
 /// if (result.IsOk())
 /// {
-///     var execResult = result.GetOkValue();
-///     Console.WriteLine($"Shots: {execResult.NumShots}");
+///     var state = result.GetOkValue();
 /// }
 /// else
 /// {
@@ -1045,52 +1042,28 @@ type CSharpBuilders private () =
 module QuantumBackendCSharpExtensions =
 
     /// <summary>
-    /// Execute a quantum circuit asynchronously using C# Task (enables async/await).
-    /// </summary>
-    /// <param name="backend">The quantum backend</param>
-    /// <param name="circuit">Circuit to execute (ICircuit interface)</param>
-    /// <param name="numShots">Number of measurement shots</param>
-    /// <returns>Task with execution result or error message</returns>
-    /// <remarks>
-    /// This method converts F# Async to C# Task for idiomatic async/await usage.
-    /// For F# code, use ExecuteAsync directly.
-    ///
-    /// The returned Result can be checked using extension methods:
-    /// - result.IsOk() - Returns true if execution succeeded
-    /// - result.IsError() - Returns true if execution failed
-    /// - result.GetOkValue() - Gets execution result (throws if error)
-    /// - result.GetErrorValue() - Gets error message (throws if ok)
-    /// - result.GetOkValueOrDefault(defaultValue) - Gets value or default
-    /// </remarks>
-    /// <example>
-    /// C# async/await usage:
-    /// <code>
-    /// var backend = BackendAbstraction.CreateLocalBackend();
-    /// var result = await backend.ExecuteAsyncTask(circuit, 1000);
-    ///
-    /// if (result.IsOk())
-    /// {
-    ///     var execResult = result.GetOkValue();
-    ///     Console.WriteLine($"Backend: {execResult.BackendName}");
-    ///     Console.WriteLine($"Shots: {execResult.NumShots}");
-    ///
-    ///     // Process measurements (int[][])
-    ///     foreach (var measurement in execResult.Measurements)
-    ///     {
-    ///         Console.WriteLine(string.Join("", measurement));
-    ///     }
-    /// }
-    /// </code>
-    /// </example>
-    /// <summary>
-    /// Execute circuit and get quantum state (C# Task wrapper for ExecuteToState).
+    /// Execute circuit and get quantum state, the cancellation token being optional
+    /// (the interface's own ExecuteToStateAsync requires one).
     /// </summary>
     /// <param name="backend">The quantum backend</param>
     /// <param name="circuit">The circuit to execute</param>
+    /// <param name="cancellationToken">Cancels the execution</param>
     /// <returns>Task with Result containing quantum state or error</returns>
+    /// <remarks>
+    /// The returned Result can be checked using extension methods:
+    /// - result.IsOk() - Returns true if execution succeeded
+    /// - result.IsError() - Returns true if execution failed
+    /// - result.GetOkValue() - Gets the quantum state (throws if error)
+    /// - result.GetErrorValue() - Gets the error (throws if ok)
+    /// - result.GetOkValueOrDefault(defaultValue) - Gets value or default
+    /// </remarks>
     [<Extension>]
-    let ExecuteToStateTask (backend: IQuantumBackend) (circuit: ICircuit) : Task<Result<QuantumState, QuantumError>> =
-        backend.ExecuteToStateAsync circuit CancellationToken.None
+    let ExecuteToStateAsync
+        (backend: IQuantumBackend)
+        (circuit: ICircuit)
+        ([<Optional>] cancellationToken: CancellationToken)
+        : Task<Result<QuantumState, QuantumError>> =
+        backend.ExecuteToStateAsync circuit cancellationToken
 
     /// <summary>
     /// Get backend name (C# property helper).
@@ -1128,7 +1101,7 @@ module ModelSerializationCSharpExtensions =
     /// Save VQC model asynchronously using C# Task (enables async/await).
     /// </summary>
     [<Extension>]
-    let SaveVQCModelTask
+    let SaveVQCModelAsync
         (filePath: string)
         (parameters: float array)
         (finalLoss: float)
@@ -1138,6 +1111,7 @@ module ModelSerializationCSharpExtensions =
         (variationalFormType: string)
         (variationalFormDepth: int)
         (note: string option)
+        ([<Optional>] cancellationToken: CancellationToken)
         : Task<Result<unit, string>> =
         task {
             let! result =
@@ -1151,7 +1125,7 @@ module ModelSerializationCSharpExtensions =
                     variationalFormType
                     variationalFormDepth
                     note
-                    CancellationToken.None
+                    cancellationToken
 
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
@@ -1171,22 +1145,32 @@ module QuantumChemistryCSharpExtensions =
     /// Load molecule from XYZ file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let FromXYZTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
-        Molecule.fromXyzFileAsync filePath CancellationToken.None
+    let FromXYZAsync
+        (filePath: string)
+        ([<Optional>] cancellationToken: CancellationToken)
+        : Task<Result<Molecule, QuantumError>> =
+        Molecule.fromXyzFileAsync filePath cancellationToken
 
     /// <summary>
     /// Save molecule to XYZ file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let SaveXYZTask (filePath: string) (molecule: Molecule) : Task<Result<unit, QuantumError>> =
-        Molecule.saveToXyzFileAsync filePath molecule CancellationToken.None
+    let SaveXYZAsync
+        (filePath: string)
+        (molecule: Molecule)
+        ([<Optional>] cancellationToken: CancellationToken)
+        : Task<Result<unit, QuantumError>> =
+        Molecule.saveToXyzFileAsync filePath molecule cancellationToken
 
     /// <summary>
     /// Load molecule from FCIDump file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let FromFCIDumpTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
-        Molecule.fromFciDumpFileAsync filePath CancellationToken.None
+    let FromFCIDumpAsync
+        (filePath: string)
+        ([<Optional>] cancellationToken: CancellationToken)
+        : Task<Result<Molecule, QuantumError>> =
+        Molecule.fromFciDumpFileAsync filePath cancellationToken
 
 // ============================================================================
 // SVM MODEL SERIALIZATION EXTENSIONS - Task-based Async for C#
@@ -1203,14 +1187,14 @@ module SVMModelSerializationCSharpExtensions =
     /// Save SVM model asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let SaveSVMModelTask
+    let SaveSVMModelAsync
         (filePath: string)
         (model: QuantumKernelSVM.SVMModel)
         (note: string option)
+        ([<Optional>] cancellationToken: CancellationToken)
         : Task<Result<unit, string>> =
         task {
-            let! result =
-                SVMModelSerialization.saveSVMModelAsync filePath model note CancellationToken.None
+            let! result = SVMModelSerialization.saveSVMModelAsync filePath model note cancellationToken
 
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
@@ -1219,9 +1203,12 @@ module SVMModelSerializationCSharpExtensions =
     /// Load SVM model asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let LoadSVMModelTask (filePath: string) : Task<Result<QuantumKernelSVM.SVMModel, string>> =
+    let LoadSVMModelAsync
+        (filePath: string)
+        ([<Optional>] cancellationToken: CancellationToken)
+        : Task<Result<QuantumKernelSVM.SVMModel, string>> =
         task {
-            let! result = SVMModelSerialization.loadSVMModelAsync filePath CancellationToken.None
+            let! result = SVMModelSerialization.loadSVMModelAsync filePath cancellationToken
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
 
@@ -1229,14 +1216,15 @@ module SVMModelSerializationCSharpExtensions =
     /// Save multi-class SVM model asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let SaveMultiClassSVMModelTask
+    let SaveMultiClassSVMModelAsync
         (filePath: string)
         (model: MultiClassSVM.MultiClassModel)
         (note: string option)
+        ([<Optional>] cancellationToken: CancellationToken)
         : Task<Result<unit, string>> =
         task {
             let! result =
-                SVMModelSerialization.saveMultiClassSVMModelAsync filePath model note CancellationToken.None
+                SVMModelSerialization.saveMultiClassSVMModelAsync filePath model note cancellationToken
 
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
@@ -1245,10 +1233,12 @@ module SVMModelSerializationCSharpExtensions =
     /// Load multi-class SVM model asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let LoadMultiClassSVMModelTask (filePath: string) : Task<Result<MultiClassSVM.MultiClassModel, string>> =
+    let LoadMultiClassSVMModelAsync
+        (filePath: string)
+        ([<Optional>] cancellationToken: CancellationToken)
+        : Task<Result<MultiClassSVM.MultiClassModel, string>> =
         task {
-            let! result =
-                SVMModelSerialization.loadMultiClassSVMModelAsync filePath CancellationToken.None
+            let! result = SVMModelSerialization.loadMultiClassSVMModelAsync filePath cancellationToken
 
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
@@ -1261,15 +1251,16 @@ module SVMModelSerializationCSharpExtensions =
 /// C# extensions for OptionPricing to enable Task-based async/await.
 /// </summary>
 /// <remarks>
-/// These extensions convert F# Async to C# Task for idiomatic async/await usage.
+/// Each prices with 6 qubits, 5 Grover iterations and 1000 shots; CSharpBuilders has the
+/// overloads that take those three.
 ///
 /// Example usage (C#):
 /// <code>
 /// using FSharp.Azure.Quantum;
 /// using static FSharp.Azure.Quantum.CSharpBuilders;
 ///
-/// // Simple: Use default LocalBackend (quantum simulation)
-/// var result = await OptionPricingExtensions.PriceEuropeanCallTask(100.0, 105.0, 0.05, 0.2, 1.0, null);
+/// // Simple: local simulation
+/// var result = await OptionPricingExtensions.PriceEuropeanPutAsync(100.0, 105.0, 0.05, 0.2, 1.0, localBackend);
 ///
 /// if (result.IsOk())
 /// {
@@ -1282,7 +1273,7 @@ module SVMModelSerializationCSharpExtensions =
 ///
 /// // Advanced: Use IonQ cloud backend
 /// var ionqBackend = BackendAbstraction.CreateIonQBackend(...);
-/// var cloudResult = await OptionPricingExtensions.PriceEuropeanCallTask(100.0, 105.0, 0.05, 0.2, 1.0, ionqBackend);
+/// var cloudResult = await OptionPricingExtensions.PriceEuropeanPutAsync(100.0, 105.0, 0.05, 0.2, 1.0, ionqBackend, cancellationToken);
 /// </code>
 /// </remarks>
 [<Extension>]
@@ -1297,6 +1288,7 @@ module OptionPricingExtensions =
     /// <param name="volatility">Volatility of underlying asset (annualized, σ)</param>
     /// <param name="timeToExpiry">Time to expiry in years (T)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <param name="cancellationToken">Cancels the pricing</param>
     /// <returns>Task with option price result or error</returns>
     /// <remarks>
     /// **RULE1 COMPLIANCE**: Backend parameter is REQUIRED (not optional).
@@ -1306,13 +1298,14 @@ module OptionPricingExtensions =
     /// Uses Quantum Monte Carlo for quadratic speedup over classical methods.
     /// </remarks>
     [<Extension>]
-    let PriceEuropeanPutTask
+    let PriceEuropeanPutAsync
         (spotPrice: float)
         (strikePrice: float)
         (riskFreeRate: float)
         (volatility: float)
         (timeToExpiry: float)
         (backend: Core.BackendAbstraction.IQuantumBackend)
+        ([<Optional>] cancellationToken: CancellationToken)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
 
         OptionPricing.priceEuropeanPutAsync
@@ -1325,7 +1318,7 @@ module OptionPricingExtensions =
             5
             1000
             backend
-            CancellationToken.None
+            cancellationToken
 
     /// <summary>
     /// Price Asian call option asynchronously using C# Task (enables async/await).
@@ -1337,6 +1330,7 @@ module OptionPricingExtensions =
     /// <param name="timeToExpiry">Time to expiry in years (T)</param>
     /// <param name="timeSteps">Number of time steps for path averaging</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <param name="cancellationToken">Cancels the pricing</param>
     /// <returns>Task with option price result or error</returns>
     /// <remarks>
     /// **RULE1 COMPLIANCE**: Backend parameter is REQUIRED (not optional).
@@ -1347,7 +1341,7 @@ module OptionPricingExtensions =
     /// Uses Quantum Monte Carlo for quadratic speedup.
     /// </remarks>
     [<Extension>]
-    let PriceAsianCallTask
+    let PriceAsianCallAsync
         (spotPrice: float)
         (strikePrice: float)
         (riskFreeRate: float)
@@ -1355,6 +1349,7 @@ module OptionPricingExtensions =
         (timeToExpiry: float)
         (timeSteps: int)
         (backend: Core.BackendAbstraction.IQuantumBackend)
+        ([<Optional>] cancellationToken: CancellationToken)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
 
         OptionPricing.priceAsianCallAsync
@@ -1368,7 +1363,7 @@ module OptionPricingExtensions =
             5
             1000
             backend
-            CancellationToken.None
+            cancellationToken
 
     /// <summary>
     /// Price Asian put option asynchronously using C# Task (enables async/await).
@@ -1380,6 +1375,7 @@ module OptionPricingExtensions =
     /// <param name="timeToExpiry">Time to expiry in years (T)</param>
     /// <param name="timeSteps">Number of time steps for path averaging</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <param name="cancellationToken">Cancels the pricing</param>
     /// <returns>Task with option price result or error</returns>
     /// <remarks>
     /// **RULE1 COMPLIANCE**: Backend parameter is REQUIRED (not optional).
@@ -1390,7 +1386,7 @@ module OptionPricingExtensions =
     /// Uses Quantum Monte Carlo for quadratic speedup.
     /// </remarks>
     [<Extension>]
-    let PriceAsianPutTask
+    let PriceAsianPutAsync
         (spotPrice: float)
         (strikePrice: float)
         (riskFreeRate: float)
@@ -1398,6 +1394,7 @@ module OptionPricingExtensions =
         (timeToExpiry: float)
         (timeSteps: int)
         (backend: Core.BackendAbstraction.IQuantumBackend)
+        ([<Optional>] cancellationToken: CancellationToken)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
 
         OptionPricing.priceAsianPutAsync
@@ -1411,4 +1408,4 @@ module OptionPricingExtensions =
             5
             1000
             backend
-            CancellationToken.None
+            cancellationToken

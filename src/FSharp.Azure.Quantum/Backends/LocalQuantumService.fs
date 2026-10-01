@@ -934,11 +934,19 @@ type internal LocalServiceReply =
 ///   POST   {workspace}/jobs/{id}/cancel   cancel (200)
 ///   GET    {workspace}/jobs               list ({"value": [...], "nextLink": ...})
 ///   POST   {workspace}/storage/sasUri     SAS URI for a container/blob in the local blob store
+///   GET    {workspace}/quotas             one quota per provider; utilization = shots accepted so far
+///   GET    {workspace}/providerStatus     every provider Available; targets = those jobs have used
 ///   GET/PUT {base}/blobs/{container}/{blob}?...sig=...   SAS blob download/upload (no bearer token)
 type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener: HttpListener, baseUri: Uri) =
 
     static let workspacePrefix =
         @"(?:/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Quantum/workspaces/[^/]+)?"
+
+    static let quotasRoute =
+        Regex($@"^{workspacePrefix}/quotas/?$", RegexOptions.IgnoreCase ||| RegexOptions.Compiled)
+
+    static let providerStatusRoute =
+        Regex($@"^{workspacePrefix}/providerStatus/?$", RegexOptions.IgnoreCase ||| RegexOptions.Compiled)
 
     static let jobsRoute =
         Regex(
@@ -1438,6 +1446,73 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         not options.RequireAuthentication
         || String.Equals(authorization, $"Bearer {options.AccessToken}", StringComparison.Ordinal)
 
+    /// Every provider the service emulates, with the jobs accepted for it so far.
+    let providersWithJobs () =
+        let accepted = jobs.Values |> Seq.sortBy (fun job -> job.Sequence) |> Seq.toList
+
+        [ for provider in
+              [ LocalQuantumServiceFormats.IonQ
+                LocalQuantumServiceFormats.Rigetti
+                LocalQuantumServiceFormats.Quantinuum
+                LocalQuantumServiceFormats.Iqm
+                LocalQuantumServiceFormats.AtomComputing ] do
+              let id = LocalQuantumServiceFormats.providerId provider
+              id, accepted |> List.filter (fun job -> job.ProviderId = id) ]
+
+    /// GET {workspace}/quotas: one monthly workspace quota per provider, in the shape of the
+    /// Azure Quantum data plane. Utilization counts the shots of the jobs accepted so far.
+    let quotas () : LocalServiceReply =
+        reply
+            200
+            (writeJson (fun w ->
+                w.WriteStartObject()
+                w.WriteStartArray "value"
+
+                for providerId, accepted in providersWithJobs () do
+                    w.WriteStartObject()
+                    w.WriteString("dimension", "shots")
+                    w.WriteString("scope", "Workspace")
+                    w.WriteString("providerId", providerId)
+                    w.WriteNumber("utilization", accepted |> List.sumBy (fun job -> float job.Shots))
+                    w.WriteNumber("holds", 0.0)
+                    w.WriteNumber("limit", 1_000_000.0)
+                    w.WriteString("period", "Monthly")
+                    w.WriteEndObject()
+
+                w.WriteEndArray()
+                w.WriteNull "nextLink"
+                w.WriteEndObject()))
+
+    /// GET {workspace}/providerStatus: every emulated provider is Available; its targets are
+    /// the distinct target ids jobs have been submitted to.
+    let providerStatus () : LocalServiceReply =
+        reply
+            200
+            (writeJson (fun w ->
+                w.WriteStartObject()
+                w.WriteStartArray "value"
+
+                for providerId, accepted in providersWithJobs () do
+                    w.WriteStartObject()
+                    w.WriteString("id", providerId)
+                    w.WriteString("currentAvailability", "Available")
+                    w.WriteStartArray "targets"
+
+                    for target in accepted |> List.map (fun job -> job.Target) |> List.distinct do
+                        w.WriteStartObject()
+                        w.WriteString("id", target)
+                        w.WriteString("currentAvailability", "Available")
+                        w.WriteNumber("averageQueueTime", 0)
+                        w.WriteString("statusPage", baseText)
+                        w.WriteEndObject()
+
+                    w.WriteEndArray()
+                    w.WriteEndObject()
+
+                w.WriteEndArray()
+                w.WriteNull "nextLink"
+                w.WriteEndObject()))
+
     let route (httpMethod: string) (url: Uri) (authorization: string) (bodyBytes: byte[]) : LocalServiceReply =
         let path = url.AbsolutePath
         let hasBearer = not (String.IsNullOrEmpty authorization)
@@ -1452,6 +1527,16 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                 sasUri body
             else
                 errorReply 405 "MethodNotAllowed" $"{httpMethod} is not supported on storage/sasUri"
+        elif quotasRoute.IsMatch path then
+            if httpMethod = "GET" then
+                quotas ()
+            else
+                errorReply 405 "MethodNotAllowed" $"{httpMethod} is not supported on quotas"
+        elif providerStatusRoute.IsMatch path then
+            if httpMethod = "GET" then
+                providerStatus ()
+            else
+                errorReply 405 "MethodNotAllowed" $"{httpMethod} is not supported on providerStatus"
         else
             let m = jobsRoute.Match path
 

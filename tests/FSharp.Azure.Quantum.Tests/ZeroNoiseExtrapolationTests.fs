@@ -545,33 +545,3 @@ module ZeroNoiseExtrapolationTests =
             | Error err -> Assert.Fail($"Benchmark failed: %s{err}")
         }
         :> Task
-
-    [<Fact>]
-    let ``Benchmark slow executor runs once per noise level`` () : Task =
-        task {
-            // Arrange: Simulate slow executor
-            let circuit = CircuitBuilder.empty 1
-            let config = ZeroNoiseExtrapolation.defaultIonQConfig
-
-            let slowExecutor (_: CircuitBuilder.Circuit) =
-                task {
-                    do! Task.Delay 10 // 10ms per execution
-                    return Ok 0.85
-                }
-
-            // Act: Measure the wall-clock time; the 3 circuits run one after another
-            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
-            let! result = ZeroNoiseExtrapolation.mitigateAsync circuit config slowExecutor CancellationToken.None
-            stopwatch.Stop()
-
-            // Assert: The run completes; timing is only reported, never asserted
-            match result with
-            | Ok _ ->
-                let elapsed = stopwatch.ElapsedMilliseconds
-                // The 3 noise levels execute sequentially, so expect roughly 3 * 10ms = 30ms
-                // (plus scheduling overhead)
-
-                printfn "✓ Benchmark: %d ms for 3 sequential executions of 10 ms" elapsed
-            | Error err -> Assert.Fail($"Benchmark failed: %s{err}")
-        }
-        :> Task

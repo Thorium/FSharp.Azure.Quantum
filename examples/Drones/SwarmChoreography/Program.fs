@@ -2138,8 +2138,6 @@ type Metrics =
 // MAIN PROGRAM
 // =============================================================================
 
-#nowarn "44"
-
 module Program =
 
     [<EntryPoint>]

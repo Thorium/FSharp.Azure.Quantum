@@ -5,7 +5,7 @@ open System.Globalization
 open System.IO
 open System.Text
 
-/// Animated SVG for this project: the part of examples/_common/SvgAnimation.fsx
+/// Animated SVG for this project: the part of examples/_common/SvgAnimation.fs
 /// it draws with (a compiled project cannot load that script), in the same
 /// look, plus dotted lines whose dots run continuously along them. A picture
 /// is a fixed page whose elements show, hide or resize over `frames` steps;

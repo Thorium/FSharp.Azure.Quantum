@@ -56,6 +56,7 @@
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
@@ -559,33 +560,32 @@ let private describeSource = ChemistryIntegrals.describeSource
 
 /// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
 /// Returns (Ok (energy, source, converged) | Error message, elapsed seconds).
-let private computeEnergy
+let private computeEnergyAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
     (provider: IntegralProvider option)
     (molecule: Molecule)
-    : Result<float * EnergySource * bool, string> * float =
-    let startTime = DateTime.Now
-    let config = solverConfig backend maxIter tol provider
+    : Task<Result<float * EnergySource * bool, string> * float> =
+    task {
+        let startTime = DateTime.Now
+        let config = solverConfig backend maxIter tol provider
 
-    let result =
-        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
+        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
-    let elapsed = (DateTime.Now - startTime).TotalSeconds
+        let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-    match result with
-    | Ok vqeResult -> (Ok(vqeResult.Energy, vqeResult.Source, vqeResult.Converged), elapsed)
-    | Error err ->
-        if not quiet then
-            eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        match result with
+        | Ok vqeResult -> return (Ok(vqeResult.Energy, vqeResult.Source, vqeResult.Converged), elapsed)
+        | Error err ->
+            if not quiet then
+                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+    }
 
 /// Compute BDE for one bond system: E(stretched) - E(equilibrium).
-let private computeSystem
+let private computeSystemAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
@@ -593,111 +593,117 @@ let private computeSystem
     (idx: int)
     (total: int)
     (sys: BondSystem)
-    : BdeResult =
-    let electrons = Molecule.countElectrons sys.EquilibriumMolecule
-
-    if not quiet then
-        printfn "  [%d/%d] %s (%s, %.2f A)" (idx + 1) total sys.Name sys.BondType sys.BondLengthAngstrom
-        printfn "         %s" sys.Description
-        printfn "         Atoms: %d  |  Electrons: %d" sys.EquilibriumMolecule.Atoms.Length electrons
-
-    let startTime = DateTime.Now
-    let stretchedMol = sys.MakeStretched stretch
-
-    let skipReasons =
-        [ sys.EquilibriumMolecule; stretchedMol ]
-        |> List.choose (fun m ->
-            match integralsFor m with
-            | Error reason -> Some reason
-            | Ok _ -> None)
-
-    if not skipReasons.IsEmpty then
-        let reason = String.concat "; " skipReasons
+    : Task<BdeResult> =
+    task {
+        let electrons = Molecule.countElectrons sys.EquilibriumMolecule
 
         if not quiet then
-            printfn "         => SKIPPED: no molecular integrals (%s)" reason
-            printfn ""
+            printfn "  [%d/%d] %s (%s, %.2f A)" (idx + 1) total sys.Name sys.BondType sys.BondLengthAngstrom
+            printfn "         %s" sys.Description
+            printfn "         Atoms: %d  |  Electrons: %d" sys.EquilibriumMolecule.Atoms.Length electrons
 
-        {
-            System = sys
-            EquilibriumEnergy = nan
-            StretchedEnergy = nan
-            BdeHartree = nan
-            BdeKcalMol = nan
-            BdeEv = nan
-            StretchFactor = stretch
-            Electrons = electrons
-            ComputeTimeSeconds = 0.0
-            HasVqeFailure = false
-            Skipped = Some reason
-            Sources = []
-        }
-    else
+        let startTime = DateTime.Now
+        let stretchedMol = sys.MakeStretched stretch
 
-        let mutable anyFailure = false
-        let sources = Collections.Generic.List<EnergySource>()
+        let skipReasons =
+            [ sys.EquilibriumMolecule; stretchedMol ]
+            |> List.choose (fun m ->
+                match integralsFor m with
+                | Error reason -> Some reason
+                | Ok _ -> None)
 
-        /// Run VQE on one geometry, logging the result and tracking failures.
-        let energyOf (label: string) (molecule: Molecule) : float =
-            let provider = (integralsFor molecule) |> Result.defaultValue None
+        if not skipReasons.IsEmpty then
+            let reason = String.concat "; " skipReasons
 
-            match computeEnergy backend maxIter tol provider molecule with
-            | Ok(e, source, converged), elapsed ->
-                sources.Add source
+            if not quiet then
+                printfn "         => SKIPPED: no molecular integrals (%s)" reason
+                printfn ""
 
-                if not quiet then
-                    printfn
-                        "         %-12s %-22s  E = %10.6f Ha  (%.1fs)  [%s]%s"
-                        label
-                        molecule.Name
-                        e
-                        elapsed
-                        (describeSource source)
-                        (if converged then
-                             ""
-                         else
-                             $" not converged in {maxIter} iterations")
+            return
+                {
+                    System = sys
+                    EquilibriumEnergy = nan
+                    StretchedEnergy = nan
+                    BdeHartree = nan
+                    BdeKcalMol = nan
+                    BdeEv = nan
+                    StretchFactor = stretch
+                    Electrons = electrons
+                    ComputeTimeSeconds = 0.0
+                    HasVqeFailure = false
+                    Skipped = Some reason
+                    Sources = []
+                }
+        else
 
-                e
-            | Error _, elapsed ->
-                anyFailure <- true
+            let sources = Collections.Generic.List<EnergySource>()
 
-                if not quiet then
-                    printfn "         %-12s %-22s  E = FAILED         (%.1fs)" label molecule.Name elapsed
+            /// Run VQE on one geometry, logging the result; None when VQE failed.
+            let energyOf (label: string) (molecule: Molecule) : Task<float option> =
+                task {
+                    let provider = (integralsFor molecule) |> Result.defaultValue None
 
-                nan
+                    match! computeEnergyAsync backend maxIter tol provider molecule with
+                    | Ok(e, source, converged), elapsed ->
+                        sources.Add source
 
-        let eqE = energyOf "equilibrium" sys.EquilibriumMolecule
-        let strE = energyOf "stretched" stretchedMol
-        let totalTime = (DateTime.Now - startTime).TotalSeconds
+                        if not quiet then
+                            printfn
+                                "         %-12s %-22s  E = %10.6f Ha  (%.1fs)  [%s]%s"
+                                label
+                                molecule.Name
+                                e
+                                elapsed
+                                (describeSource source)
+                                (if converged then
+                                     ""
+                                 else
+                                     $" not converged in {maxIter} iterations")
 
-        // BDE = E(stretched) - E(equilibrium)
-        let bdeHartree = strE - eqE
-        let bdeKcal = bdeHartree * hartreeToKcalMol
-        let bdeEv = bdeHartree * hartreeToEv
+                        return Some e
+                    | Error _, elapsed ->
+                        if not quiet then
+                            printfn "         %-12s %-22s  E = FAILED         (%.1fs)" label molecule.Name elapsed
 
-        if not quiet then
-            if anyFailure then
-                printfn "         => INCOMPLETE (VQE failure, no BDE)"
-            else
-                printfn "         => BDE = %.4f Ha = %.2f kcal/mol" bdeHartree bdeKcal
+                        return None
+                }
 
-            printfn ""
+            let! equilibrium = energyOf "equilibrium" sys.EquilibriumMolecule
+            let! stretched = energyOf "stretched" stretchedMol
+            let anyFailure = Option.isNone equilibrium || Option.isNone stretched
+            let eqE = equilibrium |> Option.defaultValue nan
+            let strE = stretched |> Option.defaultValue nan
+            let totalTime = (DateTime.Now - startTime).TotalSeconds
 
-        {
-            System = sys
-            EquilibriumEnergy = eqE
-            StretchedEnergy = strE
-            BdeHartree = bdeHartree
-            BdeKcalMol = bdeKcal
-            BdeEv = bdeEv
-            StretchFactor = stretch
-            Electrons = electrons
-            ComputeTimeSeconds = totalTime
-            HasVqeFailure = anyFailure
-            Skipped = None
-            Sources = sources |> Seq.distinct |> List.ofSeq
-        }
+            // BDE = E(stretched) - E(equilibrium)
+            let bdeHartree = strE - eqE
+            let bdeKcal = bdeHartree * hartreeToKcalMol
+            let bdeEv = bdeHartree * hartreeToEv
+
+            if not quiet then
+                if anyFailure then
+                    printfn "         => INCOMPLETE (VQE failure, no BDE)"
+                else
+                    printfn "         => BDE = %.4f Ha = %.2f kcal/mol" bdeHartree bdeKcal
+
+                printfn ""
+
+            return
+                {
+                    System = sys
+                    EquilibriumEnergy = eqE
+                    StretchedEnergy = strE
+                    BdeHartree = bdeHartree
+                    BdeKcalMol = bdeKcal
+                    BdeEv = bdeEv
+                    StretchFactor = stretch
+                    Electrons = electrons
+                    ComputeTimeSeconds = totalTime
+                    HasVqeFailure = anyFailure
+                    Skipped = None
+                    Sources = sources |> Seq.distinct |> List.ofSeq
+                }
+    }
 
 // --- Run all systems ---
 
@@ -706,8 +712,17 @@ if not quiet then
     printfn ""
 
 let results =
-    systems
-    |> List.mapi (fun i sys -> computeSystem backend maxIterations tolerance stretchFactor i systems.Length sys)
+    task {
+        let computed = ResizeArray()
+
+        for (i, sys) in List.indexed systems do
+            let! result = computeSystemAsync backend maxIterations tolerance stretchFactor i systems.Length sys
+            computed.Add result
+
+        return List.ofSeq computed
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 /// True when both energies were computed.
 let private isComplete (r: BdeResult) = not r.HasVqeFailure && r.Skipped.IsNone

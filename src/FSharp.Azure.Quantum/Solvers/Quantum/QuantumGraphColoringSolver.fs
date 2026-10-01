@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
@@ -43,7 +44,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// Example:
 ///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; NumColors = 3; InitialParameters = (0.5, 0.5) }
-///   match QuantumGraphColoringSolver.solve backend problem config with
+///   match! QuantumGraphColoringSolver.solveAsync backend problem config CancellationToken.None with
 ///   | Ok solution -> printfn "Used %d colors" solution.ColorsUsed
 ///   | Error msg -> printfn "Error: %s" msg
 module QuantumGraphColoringSolver =
@@ -728,7 +729,7 @@ module QuantumGraphColoringSolver =
         (problem: GraphColoringProblem)
         (preferences: ColoringPreferences)
         (penaltyWeight: float)
-        (stopwatch: System.Diagnostics.Stopwatch)
+        (stopwatch: Stopwatch)
         : Result<GraphColoringSolution, QuantumError> =
         match validateEncoding problem preferences with
         | Error err -> Error err
@@ -768,7 +769,7 @@ module QuantumGraphColoringSolver =
         : Task<Result<GraphColoringSolution, QuantumError>> =
         task {
 
-            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+            let stopwatch = Stopwatch.StartNew()
 
             try
                 // Step 1: Validate problem inputs
@@ -830,7 +831,7 @@ module QuantumGraphColoringSolver =
                                         ElapsedMs = elapsedMs
                                     }
 
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return
                     Error(
                         QuantumError.OperationError(

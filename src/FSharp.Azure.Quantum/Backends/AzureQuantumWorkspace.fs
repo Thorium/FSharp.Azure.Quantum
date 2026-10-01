@@ -3,68 +3,16 @@ namespace FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 
 open System
-open System.Collections.Generic
+open System.Net.Http
+open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
 open Azure.Identity
-open Azure.Quantum.Jobs
 
-/// Azure Quantum Workspace Integration
+/// Azure Quantum Workspace Integration: quota and provider-status queries over the
+/// workspace REST data plane — the same host and api-version Client.fs uses for job CRUD,
+/// so no Azure Quantum SDK package is needed (Azure.Identity supplies the credential).
 module AzureQuantumWorkspace =
-
-    // ========================================================================
-    // HELPER: Async Enumerable to List
-    // ========================================================================
-
-    /// Convert IAsyncEnumerable to list as a Task
-    ///
-    /// Properly handles disposal in both success and error cases.
-    /// If both enumeration and disposal fail, preserves the original exception.
-    let private asyncEnumerableToList
-        (enumerable: IAsyncEnumerable<'T>)
-        (cancellationToken: CancellationToken)
-        : Task<'T list> =
-        task {
-            let results = ResizeArray<'T>()
-            let enumerator = enumerable.GetAsyncEnumerator cancellationToken
-            let mutable enumerationException: exn option = None
-
-            try
-                let mutable moveNext = true
-
-                while moveNext do
-                    let! next = enumerator.MoveNextAsync().AsTask()
-                    moveNext <- next
-
-                    if moveNext then
-                        results.Add enumerator.Current
-
-            with ex when not (ex :? OperationCanceledException) ->
-                // Store the enumeration exception
-                enumerationException <- Some ex
-
-            // Always dispose, even if enumeration failed
-            try
-                do! enumerator.DisposeAsync().AsTask()
-            with disposeEx ->
-                // If we had an enumeration exception, preserve it
-                // Otherwise, throw the disposal exception
-                match enumerationException with
-                | Some originalEx ->
-                    // Log disposal error but throw original exception
-                    System.Diagnostics.Debug.WriteLine(
-                        $"Warning: Disposal failed after enumeration error: {disposeEx.Message}"
-                    )
-                | None ->
-                    // No enumeration error, so disposal error is the primary issue
-                    raise disposeEx
-
-            // If we had an enumeration exception, throw it now
-            return
-                match enumerationException with
-                | Some ex -> raise ex
-                | None -> results |> Seq.toList
-        }
 
     // ========================================================================
     // TYPES
@@ -76,7 +24,13 @@ module AzureQuantumWorkspace =
             ResourceGroupName: string
             WorkspaceName: string
             Location: string
+            /// Credential for the bearer token; None = DefaultAzureCredential.
+            /// Not used when HttpClient is given.
             Credential: Azure.Core.TokenCredential option
+            /// An already authenticated client, e.g. from LocalQuantumService.CreateHttpClient();
+            /// None = Authentication.createAuthenticatedClient over Credential, owned and
+            /// disposed by the workspace.
+            HttpClient: HttpClient option
         }
 
     type QuotaInfo =
@@ -97,22 +51,119 @@ module AzureQuantumWorkspace =
         }
 
     // ========================================================================
+    // RESPONSE PARSING
+    // ========================================================================
+
+    let private tryString (name: string) (element: JsonElement) : string option =
+        match element.TryGetProperty name with
+        | true, value when value.ValueKind = JsonValueKind.String -> Some(value.GetString())
+        | _ -> None
+
+    let private tryNumber (name: string) (element: JsonElement) : float option =
+        match element.TryGetProperty name with
+        | true, value when value.ValueKind = JsonValueKind.Number -> Some(value.GetDouble())
+        | _ -> None
+
+    /// One entry of GET {workspace}/quotas: dimension, scope, providerId, utilization,
+    /// holds, limit, period.
+    let private readQuota (quota: JsonElement) : QuotaInfo =
+        let limit = tryNumber "limit" quota
+        let used = tryNumber "utilization" quota
+
+        {
+            Provider = tryString "providerId" quota |> Option.defaultValue ""
+            Limit = limit
+            Used = used
+            Remaining =
+                match limit, used with
+                | Some l, Some u -> Some(l - u)
+                | _ -> None
+            Scope = tryString "scope" quota
+            Period = tryString "period" quota
+        }
+
+    /// One entry of GET {workspace}/providerStatus: id, currentAvailability, targets.
+    let private readProviderStatus (provider: JsonElement) : ProviderStatus =
+        {
+            ProviderId = tryString "id" provider |> Option.defaultValue ""
+            CurrentAvailability = tryString "currentAvailability" provider
+            TargetCount =
+                match provider.TryGetProperty "targets" with
+                | true, targets when targets.ValueKind = JsonValueKind.Array -> targets.GetArrayLength()
+                | _ -> 0
+        }
+
+    /// One page of a `{ "value": [...], "nextLink": ... }` collection: its items and the
+    /// link to the next page, if any.
+    let private getPageAsync
+        (httpClient: HttpClient)
+        (read: JsonElement -> 'T)
+        (cancellationToken: CancellationToken)
+        (url: string)
+        : Task<'T list * string option> =
+        task {
+            use request = new HttpRequestMessage(HttpMethod.Get, url)
+            use! response = httpClient.SendAsync(request, cancellationToken)
+            let! body = response.Content.ReadAsStringAsync cancellationToken
+
+            if not response.IsSuccessStatusCode then
+                raise (
+                    HttpRequestException(
+                        $"Azure Quantum workspace API returned {int response.StatusCode} for {url}: {body}",
+                        null,
+                        response.StatusCode
+                    )
+                )
+
+            use document = JsonDocument.Parse body
+            let root = document.RootElement
+
+            let items =
+                match root.TryGetProperty "value" with
+                | true, value when value.ValueKind = JsonValueKind.Array ->
+                    value.EnumerateArray() |> Seq.map read |> List.ofSeq
+                | _ -> []
+
+            let next =
+                tryString "nextLink" root |> Option.filter (String.IsNullOrWhiteSpace >> not)
+
+            return items, next
+        }
+
+    /// Every item of a paged collection, following `nextLink` to the end.
+    let private getPagesAsync
+        (httpClient: HttpClient)
+        (read: JsonElement -> 'T)
+        (cancellationToken: CancellationToken)
+        (firstUrl: string)
+        : Task<'T list> =
+        let rec collect url pages =
+            task {
+                let! items, next = getPageAsync httpClient read cancellationToken url
+
+                match next with
+                | Some link -> return! collect link (items :: pages)
+                | None -> return List.concat (List.rev (items :: pages))
+            }
+
+        collect firstUrl []
+
+    // ========================================================================
     // WORKSPACE CLIENT
     // ========================================================================
 
     type QuantumWorkspace(config: WorkspaceConfig) =
 
-        let credential =
-            defaultArg config.Credential (DefaultAzureCredential() :> Azure.Core.TokenCredential)
+        // A caller-supplied client is used as is; otherwise the workspace builds one over the
+        // credential (the default one when none is given) and owns both.
+        let httpClient, ownsClient, credential =
+            match config.HttpClient with
+            | Some client -> client, false, None
+            | None ->
+                let credential =
+                    defaultArg config.Credential (DefaultAzureCredential() :> Azure.Core.TokenCredential)
 
-        let client =
-            QuantumJobClient(
-                config.SubscriptionId,
-                config.ResourceGroupName,
-                config.WorkspaceName,
-                config.Location,
-                credential
-            )
+                Authentication.createAuthenticatedClient credential, true, Some credential
 
         let mutable disposed = false
 
@@ -120,48 +171,17 @@ module AzureQuantumWorkspace =
             if disposed then
                 raise (ObjectDisposedException(nameof QuantumWorkspace))
 
+        let workspaceUrl path =
+            Client.Endpoints.fullUrl config.Location path
+
         member _.Config = config
 
         member _.ListQuotasAsync(cancellationToken: CancellationToken) : Task<QuotaInfo list> =
             throwIfDisposed ()
 
-            task {
-                let quotasEnumerable = client.GetQuotasAsync cancellationToken
-                let! quotasList = asyncEnumerableToList quotasEnumerable cancellationToken
-
-                return
-                    quotasList
-                    |> List.map (fun q ->
-                        let limit = if q.Limit.HasValue then Some(float q.Limit.Value) else None
-
-                        let used =
-                            if q.Utilization.HasValue then
-                                Some(float q.Utilization.Value)
-                            else
-                                None
-
-                        let remaining =
-                            match limit, used with
-                            | Some l, Some u -> Some(l - u)
-                            | _ -> None
-
-                        {
-                            Provider = q.ProviderId
-                            Limit = limit
-                            Used = used
-                            Remaining = remaining
-                            Scope =
-                                if q.Scope.HasValue then
-                                    Some(q.Scope.Value.ToString())
-                                else
-                                    None
-                            Period =
-                                if q.Period.HasValue then
-                                    Some(q.Period.Value.ToString())
-                                else
-                                    None
-                        })
-            }
+            Client.Endpoints.quotasPath config.SubscriptionId config.ResourceGroupName config.WorkspaceName
+            |> workspaceUrl
+            |> getPagesAsync httpClient readQuota cancellationToken
 
         member this.GetTotalQuotaAsync(cancellationToken: CancellationToken) : Task<QuotaInfo> =
             throwIfDisposed ()
@@ -210,27 +230,9 @@ module AzureQuantumWorkspace =
         member _.ListProvidersAsync(cancellationToken: CancellationToken) : Task<ProviderStatus list> =
             throwIfDisposed ()
 
-            task {
-                let providersEnumerable = client.GetProviderStatusAsync cancellationToken
-                let! providersList = asyncEnumerableToList providersEnumerable cancellationToken
-
-                return
-                    providersList
-                    |> List.map (fun p ->
-                        {
-                            ProviderId = p.Id
-                            CurrentAvailability =
-                                if p.CurrentAvailability.HasValue then
-                                    Some(p.CurrentAvailability.Value.ToString())
-                                else
-                                    None
-                            TargetCount = p.Targets |> Seq.length
-                        })
-            }
-
-        member _.InnerClient =
-            throwIfDisposed ()
-            client
+            Client.Endpoints.providerStatusPath config.SubscriptionId config.ResourceGroupName config.WorkspaceName
+            |> workspaceUrl
+            |> getPagesAsync httpClient readProviderStatus cancellationToken
 
         // ========================================================================
         // IDISPOSABLE IMPLEMENTATION
@@ -240,11 +242,14 @@ module AzureQuantumWorkspace =
         member private this.Dispose(disposing: bool) =
             if not disposed then
                 if disposing then
-                    // Dispose managed resources
-                    // Note: Azure.Quantum.Jobs.QuantumJobClient does not implement IDisposable
-                    // Some credentials (like DefaultAzureCredential) may implement IDisposable
-                    match box credential with
-                    | :? IDisposable as disposable -> disposable.Dispose()
+                    // Dispose managed resources: the client the workspace created (its handler
+                    // chain owns the token manager) and the credential it created or was given.
+                    // A client supplied by the caller stays the caller's to dispose.
+                    if ownsClient then
+                        httpClient.Dispose()
+
+                    match credential |> Option.map box with
+                    | Some(:? IDisposable as disposable) -> disposable.Dispose()
                     | _ -> ()
 
                 disposed <- true
@@ -271,6 +276,7 @@ module AzureQuantumWorkspace =
                 WorkspaceName = workspaceName
                 Location = location
                 Credential = None
+                HttpClient = None
             }
 
     let createWithCredential subscriptionId resourceGroup workspaceName location credential =
@@ -281,6 +287,20 @@ module AzureQuantumWorkspace =
                 WorkspaceName = workspaceName
                 Location = location
                 Credential = Some credential
+                HttpClient = None
+            }
+
+    /// A workspace client over an already authenticated HttpClient (for example the one
+    /// LocalQuantumService.CreateHttpClient returns). The caller keeps ownership of the client.
+    let createWithHttpClient subscriptionId resourceGroup workspaceName location (httpClient: HttpClient) =
+        create
+            {
+                SubscriptionId = subscriptionId
+                ResourceGroupName = resourceGroup
+                WorkspaceName = workspaceName
+                Location = location
+                Credential = None
+                HttpClient = Some httpClient
             }
 
     let createFromEnvironment () : QuantumResult<QuantumWorkspace> =
@@ -302,5 +322,5 @@ module AzureQuantumWorkspace =
             | _, Error msg, _, _
             | _, _, Error msg, _
             | _, _, _, Error msg -> Error msg
-        with ex when not (ex :? OperationCanceledException) ->
+        with ex ->
             Error(QuantumError.OperationError("Workspace creation", $"Failed: {ex.Message}"))

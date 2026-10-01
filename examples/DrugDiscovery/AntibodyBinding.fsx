@@ -51,6 +51,7 @@
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
@@ -632,29 +633,28 @@ let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) 
 
 /// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
 /// Returns (Ok energy | Error message, elapsed seconds).
-let private computeEnergy
+let private computeEnergyAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
     (molecule: Molecule)
-    : Result<float, string> * float =
-    let startTime = DateTime.Now
-    let config = solverConfig backend maxIter tol
+    : Task<Result<float, string> * float> =
+    task {
+        let startTime = DateTime.Now
+        let config = solverConfig backend maxIter tol
 
-    let result =
-        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
+        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
-    let elapsed = (DateTime.Now - startTime).TotalSeconds
+        let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-    match result with
-    | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
-    | Error err ->
-        if not quiet then
-            eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        match result with
+        | Ok vqeResult -> return (Ok vqeResult.Energy, elapsed)
+        | Error err ->
+            if not quiet then
+                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+    }
 
 /// Build a complex molecule from antibody + antigen fragments.
 let private buildComplex (contact: ContactSystem) : Molecule =
@@ -701,7 +701,7 @@ let private estimateKd (dEKcal: float) (tempK: float) : float * string =
         (infinity, "N/A (unfavorable)")
 
 /// Compute the full binding energy profile for one contact type.
-let private computeContact
+let private computeContactAsync
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
@@ -709,80 +709,80 @@ let private computeContact
     (idx: int)
     (total: int)
     (contact: ContactSystem)
-    : ContactResult =
-    if not quiet then
-        printfn "  [%d/%d] %s (%s, %s)" (idx + 1) total contact.Name contact.ContactType contact.CdrRegion
-        printfn "         %s" contact.Description
+    : Task<ContactResult> =
+    task {
+        if not quiet then
+            printfn "  [%d/%d] %s (%s, %s)" (idx + 1) total contact.Name contact.ContactType contact.CdrRegion
+            printfn "         %s" contact.Description
 
-    let startTime = DateTime.Now
-    let mutable anyFailure = false
+        let startTime = DateTime.Now
+        let mutable anyFailure = false
 
-    /// Unwrap a VQE result, logging failures and tracking error state.
-    let unwrapEnergy (label: string) (name: string) (res: Result<float, string>, elapsed: float) : float * float =
-        match res with
-        | Ok e ->
-            if not quiet then
-                printfn "         %-10s %-22s  E = %10.6f Ha  (%.1fs)" label name e elapsed
+        /// Unwrap a VQE result, logging failures and tracking error state.
+        let unwrapEnergy (label: string) (name: string) (res: Result<float, string>, elapsed: float) : float * float =
+            match res with
+            | Ok e ->
+                if not quiet then
+                    printfn "         %-10s %-22s  E = %10.6f Ha  (%.1fs)" label name e elapsed
 
-            (e, elapsed)
-        | Error _ ->
-            anyFailure <- true
+                (e, elapsed)
+            | Error _ ->
+                anyFailure <- true
 
-            if not quiet then
-                printfn "         %-10s %-22s  E = FAILED         (%.1fs)" label name elapsed
+                if not quiet then
+                    printfn "         %-10s %-22s  E = FAILED         (%.1fs)" label name elapsed
 
-            (0.0, elapsed)
+                (0.0, elapsed)
 
-    let (abEnergy, _) =
-        unwrapEnergy
-            "antibody"
-            contact.AntibodyFragment.Name
-            (computeEnergy backend maxIter tol contact.AntibodyFragment)
+        let! antibody = computeEnergyAsync backend maxIter tol contact.AntibodyFragment
+        let (abEnergy, _) = unwrapEnergy "antibody" contact.AntibodyFragment.Name antibody
 
-    let (agEnergy, _) =
-        unwrapEnergy "antigen" contact.AntigenFragment.Name (computeEnergy backend maxIter tol contact.AntigenFragment)
+        let! antigen = computeEnergyAsync backend maxIter tol contact.AntigenFragment
+        let (agEnergy, _) = unwrapEnergy "antigen" contact.AntigenFragment.Name antigen
 
-    let complex = buildComplex contact
+        let complex = buildComplex contact
 
-    let (complexE, _) =
-        unwrapEnergy "complex" complex.Name (computeEnergy backend maxIter tol complex)
+        let! complexResult = computeEnergyAsync backend maxIter tol complex
+        let (complexE, _) = unwrapEnergy "complex" complex.Name complexResult
 
-    let totalTime = (DateTime.Now - startTime).TotalSeconds
+        let totalTime = (DateTime.Now - startTime).TotalSeconds
 
-    // Binding energy: E_complex - E_antibody - E_antigen
-    let dEHartree = complexE - abEnergy - agEnergy
-    let dEKcal = dEHartree * hartreeToKcalMol
-    let dEKJ = dEHartree * hartreeToKJMol
+        // Binding energy: E_complex - E_antibody - E_antigen
+        let dEHartree = complexE - abEnergy - agEnergy
+        let dEKcal = dEHartree * hartreeToKcalMol
+        let dEKJ = dEHartree * hartreeToKJMol
 
-    let interp = if anyFailure then "VQE FAILED" else interpretContact dEKcal
+        let interp = if anyFailure then "VQE FAILED" else interpretContact dEKcal
 
-    let (kd, kdStr) =
-        if anyFailure then
-            (infinity, "N/A (VQE failed)")
-        else
-            estimateKd dEKcal temp
+        let (kd, kdStr) =
+            if anyFailure then
+                (infinity, "N/A (VQE failed)")
+            else
+                estimateKd dEKcal temp
 
-    if not quiet then
-        if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure - energies are unreliable)"
-        else
-            printfn "         => dE = %.2f kcal/mol  |  Kd ~ %s" dEKcal kdStr
+        if not quiet then
+            if anyFailure then
+                printfn "         => INCOMPLETE (VQE failure - energies are unreliable)"
+            else
+                printfn "         => dE = %.2f kcal/mol  |  Kd ~ %s" dEKcal kdStr
 
-        printfn ""
+            printfn ""
 
-    {
-        Contact = contact
-        AntibodyEnergy = abEnergy
-        AntigenEnergy = agEnergy
-        ComplexEnergy = complexE
-        BindingEnergyHartree = dEHartree
-        BindingEnergyKcal = dEKcal
-        BindingEnergyKJ = dEKJ
-        EstimatedKd = kd
-        KdStr = kdStr
-        Interpretation = interp
-        ComputeTimeSeconds = totalTime
-        HasVqeFailure = anyFailure
+        return
+            {
+                Contact = contact
+                AntibodyEnergy = abEnergy
+                AntigenEnergy = agEnergy
+                ComplexEnergy = complexE
+                BindingEnergyHartree = dEHartree
+                BindingEnergyKcal = dEKcal
+                BindingEnergyKJ = dEKJ
+                EstimatedKd = kd
+                KdStr = kdStr
+                Interpretation = interp
+                ComputeTimeSeconds = totalTime
+                HasVqeFailure = anyFailure
+            }
     }
 
 // --- Run all contacts ---
@@ -792,8 +792,17 @@ if not quiet then
     printfn ""
 
 let results =
-    contacts
-    |> List.mapi (fun i contact -> computeContact backend maxIterations tolerance temperature i contacts.Length contact)
+    task {
+        let computed = ResizeArray()
+
+        for (i, contact) in List.indexed contacts do
+            let! result = computeContactAsync backend maxIterations tolerance temperature i contacts.Length contact
+            computed.Add result
+
+        return List.ofSeq computed
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Sort: most negative binding energy first (strongest contact).
 // Failed contacts sink to bottom.

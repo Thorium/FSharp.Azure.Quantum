@@ -356,48 +356,53 @@ let createFe2Dimer (multiplicity: int) : Molecule =
         Multiplicity = multiplicity
     }
 
-let runVqe (label: string) (description: string) (molecule: Molecule) : Map<string, string> =
-    if not quiet then
-        printfn "  VQE: %s — %s" label molecule.Name
-
-    match calculateVQEEnergy backend molecule with
-    | Ok(energy, iterations, time) ->
+let runVqeAsync (label: string) (description: string) (molecule: Molecule) =
+    task {
         if not quiet then
-            printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
+            printfn "  VQE: %s — %s" label molecule.Name
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", $"%.6f{energy}"
-                "iterations", $"%d{iterations}"
-                "time_seconds", $"%.2f{time}"
-                "has_vqe_failure", "false"
-            ]
-    | Error msg ->
-        anyVqeFailure <- true
+        match! calculateVQEEnergyAsync backend molecule with
+        | Ok(energy, iterations, time) ->
+            if not quiet then
+                printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
 
-        if not quiet then
-            eprintfn "    Error: %s" msg
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", $"%.6f{energy}"
+                        "iterations", $"%d{iterations}"
+                        "time_seconds", $"%.2f{time}"
+                        "has_vqe_failure", "false"
+                    ]
+        | Error msg ->
+            anyVqeFailure <- true
 
-        Map.ofList
-            [
-                "molecule", molecule.Name
-                "label", label
-                "energy_hartree", "N/A"
-                "iterations", "N/A"
-                "time_seconds", "N/A"
-                "has_vqe_failure", "true"
-            ]
+            if not quiet then
+                eprintfn "    Error: %s" msg
 
-let highSpinResult =
-    runVqe "Fe2 Septet (M=7)" "S=3, ferromagnetic" (createFe2Dimer 7)
+            return
+                Map.ofList
+                    [
+                        "molecule", molecule.Name
+                        "label", label
+                        "energy_hartree", "N/A"
+                        "iterations", "N/A"
+                        "time_seconds", "N/A"
+                        "has_vqe_failure", "true"
+                    ]
+    }
 
-let lowSpinResult =
-    runVqe "Fe2 Singlet (M=1)" "S=0, antiferromagnetic" (createFe2Dimer 1)
-
-let tripletResult =
-    runVqe "Fe2 Triplet (M=3)" "S=1, intermediate" (createFe2Dimer 3)
+let highSpinResult, lowSpinResult, tripletResult =
+    task {
+        let! highSpin = runVqeAsync "Fe2 Septet (M=7)" "S=3, ferromagnetic" (createFe2Dimer 7)
+        let! lowSpin = runVqeAsync "Fe2 Singlet (M=1)" "S=0, antiferromagnetic" (createFe2Dimer 1)
+        let! triplet = runVqeAsync "Fe2 Triplet (M=3)" "S=1, intermediate" (createFe2Dimer 3)
+        return highSpin, lowSpin, triplet
+    }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 let vqeResults = [ highSpinResult; lowSpinResult; tripletResult ]
 
