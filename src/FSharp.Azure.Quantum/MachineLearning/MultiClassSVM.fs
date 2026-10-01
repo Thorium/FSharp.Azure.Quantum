@@ -102,7 +102,9 @@ module MultiClassSVM =
                     Error(QuantumError.ValidationError("Input", $"Need at least 2 classes, found {numClasses}"))
                 )
             elif numClasses = 2 then
-                Task.FromResult(Error(QuantumError.Other "For binary classification, use QuantumKernelSVM.trainAsync directly"))
+                Task.FromResult(
+                    Error(QuantumError.Other "For binary classification, use QuantumKernelSVM.trainAsync directly")
+                )
             else
                 quantumResultTask {
                     if config.Verbose then

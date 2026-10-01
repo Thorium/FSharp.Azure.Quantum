@@ -372,6 +372,96 @@ module GraphOptimization =
     let private DefaultNumColors = 4
 
     // ========================================================================
+    // TSP TOUR STEPS
+    // ========================================================================
+
+    /// Node ids in QUBO index order.
+    let private orderedNodeIds (graph: Graph<'TNode, 'TEdge>) : string list =
+        graph.Nodes |> Map.toList |> List.map fst
+
+    /// The cheapest edge that allows each tour step source → target between two distinct
+    /// nodes of the graph, keyed by (source index, target index) and oriented along the step.
+    /// An undirected edge of an undirected graph allows both directions; a directed edge, or
+    /// any edge of a directed graph, allows only its own direction.
+    let private tourStepEdges (graph: Graph<'TNode, 'TEdge>) : Map<int * int, Edge<'TEdge>> =
+        let indexOf =
+            orderedNodeIds graph |> List.mapi (fun index id -> id, index) |> Map.ofList
+
+        graph.Edges
+        |> List.collect (fun e ->
+            match Map.tryFind e.Source indexOf, Map.tryFind e.Target indexOf with
+            | Some source, Some target when source <> target ->
+                if graph.Directed || e.Directed then
+                    [ (source, target), e ]
+                else
+                    [
+                        (source, target), e
+                        (target, source),
+                        { e with
+                            Source = e.Target
+                            Target = e.Source
+                        }
+                    ]
+            | _ -> [])
+        |> List.fold
+            (fun steps (key, e) ->
+                match Map.tryFind key steps with
+                | Some existing when existing.Weight <= e.Weight -> steps
+                | _ -> Map.add key e steps)
+            Map.empty
+
+    /// Cost of every tour step between distinct nodes, and the constraint penalty λ of the
+    /// TSP QUBO.
+    ///
+    /// A step costs the weight of its cheapest edge, shifted so that no step costs less than
+    /// zero (a closed tour has exactly n steps, so a shift moves every tour by the same amount).
+    /// A step that no edge allows costs (n + 1) times the largest edge cost, which is more
+    /// than a whole tour over existing edges can cost.
+    ///
+    /// λ is twice the largest step cost. Placing an unvisited city into an empty time slot
+    /// removes 2λ of penalty and adds at most two steps, and dropping a surplus placement
+    /// (a second city in a slot, a second slot for a city) never adds cost, so with λ above
+    /// the largest step cost every minimum of the QUBO is a permutation matrix, whatever
+    /// the scale of the weights.
+    let private tourStepCosts
+        (numNodes: int)
+        (stepEdges: Map<int * int, Edge<'TEdge>>)
+        : Map<int * int, float> * float =
+        let weights = stepEdges |> Map.toList |> List.map (fun (_, e) -> e.Weight)
+
+        let shift =
+            match weights with
+            | [] -> 0.0
+            | _ -> -(min 0.0 (List.min weights))
+
+        let largestEdgeCost =
+            match weights with
+            | [] -> 0.0
+            | _ -> List.max weights + shift
+
+        let scale = if largestEdgeCost > 0.0 then largestEdgeCost else 1.0
+        let missingStepCost = float (numNodes + 1) * scale
+
+        let costs =
+            [
+                for source in 0 .. numNodes - 1 do
+                    for target in 0 .. numNodes - 1 do
+                        if source <> target then
+                            match Map.tryFind (source, target) stepEdges with
+                            | Some e -> yield (source, target), e.Weight + shift
+                            | None -> yield (source, target), missingStepCost
+            ]
+            |> Map.ofList
+
+        let largestStepCost =
+            if stepEdges.Count < numNodes * (numNodes - 1) then
+                missingStepCost
+            else
+                scale
+
+        costs, 2.0 * largestStepCost
+
+    // ========================================================================
     // FR-7: QUBO ENCODING (Idiomatic Functional)
     // ========================================================================
 
@@ -393,13 +483,21 @@ module GraphOptimization =
     /// <para>Formula: Σ_{c1&lt;c2} x_{i,c1} * x_{i,c2} + Σ_{(u,v)∈E} Σ_c x_{u,c} * x_{v,c}</para>
     ///
     /// <para><b>Traveling Salesman Problem (MinimizeTotalWeight):</b></para>
-    /// <para>Variables: x_{i,t} = 1 if city i is visited at time t (n² variables)</para>
-    /// <para>Constraints:</para>
+    /// <para>Variables: x_{i,t} = 1 if city i is visited at time t (n² variables, index i·n + t,
+    /// cities in node-id order)</para>
+    /// <para>Constraints (always enforced, penalty λ each):</para>
     /// <list type="bullet">
     ///   <item>Each city visited exactly once: Σ_t x_{i,t} = 1</item>
     ///   <item>Each time slot has one city: Σ_i x_{i,t} = 1</item>
     /// </list>
-    /// <para>Objective: Minimize Σ_{(i,j)∈E} Σ_t d_{i,j} * x_{i,t} * x_{j,t+1}</para>
+    /// <para>Objective: Minimize Σ_t Σ_{u≠v} c(u,v) * x_{u,t} * x_{v,(t+1) mod n}: a closed tour,
+    /// every step charged in the direction it is taken, the step from the last slot back to
+    /// the first included.</para>
+    /// <para>c(u,v) is the weight of the cheapest edge that allows the step u → v. An undirected
+    /// edge allows both directions; a directed edge (or any edge of a directed graph) allows only
+    /// source → target. A step that no edge allows costs more than any tour over existing edges.</para>
+    /// <para>λ is twice the largest step cost, so the minimum is a permutation matrix (a tour)
+    /// at any scale of the weights, and among tours the shortest one.</para>
     ///
     /// <para><b>MaxCut (MaximizeCut):</b></para>
     /// <para>Variables: x_i = 1 if node i is in partition 1, else 0</para>
@@ -501,18 +599,21 @@ module GraphOptimization =
                 quboWithOneHot
 
         | MinimizeTotalWeight ->
-            // TSP: one-hot time encoding
+            // TSP: one-hot time encoding of a closed tour
             // Variables: x_{i,t} = 1 if city i visited at time t
-            // Two main constraints:
+            // Two constraints, each with penalty λ:
             //   1. Each city visited exactly once: Σ_t x_{i,t} = 1
             //   2. Each time slot has one city: Σ_i x_{i,t} = 1
-            // Objective: Minimize Σ_{i,j,t} d_{i,j} * x_{i,t} * x_{j,t+1}
+            // Objective: Minimize Σ_t Σ_{u≠v} c(u,v) * x_{u,t} * x_{v,(t+1) mod n}
 
             let numVars = numNodes * numNodes
             let baseQubo = emptyQubo numVars
 
             // Helper: Get variable index for city i at time t
             let varIndex i t = i * numNodes + t
+
+            // Step costs c(u,v) and the penalty λ that keeps every minimum a permutation matrix
+            let stepCosts, penalty = tourStepCosts numNodes (tourStepEdges problem.Graph)
 
             // Helper: Generate one-hot constraint terms (exactly one variable = 1)
             // For each outer index, penalize having multiple inner indices selected
@@ -529,7 +630,7 @@ module GraphOptimization =
                 [ 0 .. outerRange - 1 ]
                 |> List.collect (fun outer ->
                     let groupVars = [ for inner in 0 .. innerRange - 1 -> varFn outer inner ]
-                    Qubo.oneHotConstraint groupVars DefaultPenalty |> Map.toList)
+                    Qubo.oneHotConstraint groupVars penalty |> Map.toList)
 
             // Constraint 1: Each city i must be visited exactly once
             let constraint1Terms = oneHotConstraintTerms numNodes numNodes varIndex
@@ -538,21 +639,19 @@ module GraphOptimization =
             let constraint2Terms =
                 oneHotConstraintTerms numNodes numNodes (fun t i -> varIndex i t)
 
-            // Distance objective: Σ_{i,j,t} d_{i,j} * x_{i,t} * x_{j,t+1}
-            // For each edge (i->j) with distance d, add terms for consecutive time slots
+            // Distance objective: every step u → v is charged for every pair of consecutive
+            // time slots, the last slot being followed by the first (the tour is closed).
+            // The step v → u is a separate entry of stepCosts with its own cost.
             let distanceTerms =
-                problem.Graph.Edges
-                |> List.collect (fun edge ->
-                    match Map.tryFind edge.Source nodeIndexMap, Map.tryFind edge.Target nodeIndexMap with
-                    | Some srcIdx, Some tgtIdx ->
-                        [ 0 .. numNodes - 2 ] // Time slots 0 to n-2
-                        |> List.map (fun t ->
-                            let v1 = varIndex srcIdx t
-                            let v2 = varIndex tgtIdx (t + 1)
-                            // Canonical ordering for QUBO
-                            let (i, j) = if v1 < v2 then (v1, v2) else (v2, v1)
-                            ((i, j), edge.Weight))
-                    | _ -> [])
+                [
+                    for KeyValue((source, target), cost) in stepCosts do
+                        if cost <> 0.0 then
+                            for t in 0 .. numNodes - 1 do
+                                let v1 = varIndex source t
+                                let v2 = varIndex target ((t + 1) % numNodes)
+                                // Canonical ordering for QUBO
+                                yield ((min v1 v2, max v1 v2), cost)
+                ]
 
             // Combine all terms
             let allTerms = constraint1Terms @ constraint2Terms @ distanceTerms
@@ -717,6 +816,44 @@ module GraphOptimization =
         }
 
     /// <summary>
+    /// The closed tour a TSP (MinimizeTotalWeight) QUBO assignment encodes: node ids in time-slot order.
+    /// </summary>
+    ///
+    /// <param name="problem">The graph optimization problem the QUBO was built from</param>
+    /// <param name="quboSolution">Binary variable assignments, x_{i,t} at index i·n + t</param>
+    /// <returns>
+    /// Some tour only when the assignment is a permutation matrix: every time slot holds exactly
+    /// one city and every city holds exactly one slot. Any other assignment is not a tour and
+    /// gives None; nothing is repaired or filled in.
+    /// </returns>
+    let tryDecodeTour
+        (problem: GraphOptimizationProblem<'TNode, 'TEdge>)
+        (quboSolution: int list)
+        : string list option =
+        let nodeIds = orderedNodeIds problem.Graph |> List.toArray
+        let n = nodeIds.Length
+        let bits = List.toArray quboSolution
+
+        if bits.Length <> n * n then
+            None
+        else
+            let cities =
+                Array.init n (fun t ->
+                    [
+                        for i in 0 .. n - 1 do
+                            if bits.[i * n + t] = 1 then
+                                i
+                    ])
+                |> Array.choose (function
+                    | [ city ] -> Some city
+                    | _ -> None)
+
+            if cities.Length = n && (Array.distinct cities).Length = n then
+                Some [ for city in cities -> nodeIds.[city] ]
+            else
+                None
+
+    /// <summary>
     /// Decode a QUBO solution (binary variable assignments) back to a graph optimization solution.
     /// </summary>
     ///
@@ -731,7 +868,10 @@ module GraphOptimization =
     ///
     /// <para><b>TSP:</b></para>
     /// <para>Decodes one-hot time encoding: x_{i,t} = 1 means city i visited at time t</para>
-    /// <para>Reconstructs tour edges from time sequence (coming soon)</para>
+    /// <para>A permutation matrix (see tryDecodeTour) gives the edges of the closed tour in
+    /// time-slot order, each oriented in the direction of travel, the edge from the last city
+    /// back to the first included. The solution is infeasible, without edges, when the bits
+    /// are not a permutation matrix, and infeasible when a step of the tour has no edge.</para>
     ///
     /// <para><b>MaxCut:</b></para>
     /// <para>Decodes binary partition: x_i = 1 means node i is in partition 1, else partition 0</para>
@@ -779,36 +919,26 @@ module GraphOptimization =
         | MinimizeTotalWeight ->
             // Decode TSP tour from one-hot time encoding
             // Variables: x_{i,t} = 1 if city i visited at time t
-            // For each time slot t, find which city i has x_{i,t} = 1
-            let numNodes = nodeIds.Length
+            match tryDecodeTour problem quboSolution with
+            | None -> emptySolution problem.Graph
+            | Some tour ->
+                let indexOf = nodeIds |> List.mapi (fun index id -> id, index) |> Map.ofList
+                let order = tour |> List.map (fun id -> Map.find id indexOf) |> List.toArray
+                let stepEdges = tourStepEdges problem.Graph
 
-            // Helper: Get variable index for city i at time t
-            let varIndex i t = i * numNodes + t
+                // The steps of the closed tour: consecutive time slots, the last slot being
+                // followed by the first. A single city has no step.
+                let steps =
+                    if order.Length < 2 then
+                        []
+                    else
+                        [ for t in 0 .. order.Length - 1 -> order.[t], order.[(t + 1) % order.Length] ]
 
-            // Decode tour: For each time slot, find the city visited
-            let tourCities =
-                [ 0 .. numNodes - 1 ]
-                |> List.choose (fun t ->
-                    // Find city i where x_{i,t} = 1
-                    nodeIds
-                    |> List.tryFindIndex (fun nodeId ->
-                        let i = List.findIndex ((=) nodeId) nodeIds
-                        let vIdx = varIndex i t
-                        vIdx < bits.Length && bits.[vIdx] = 1)
-                    |> Option.map (fun cityIdx -> nodeIds.[cityIdx]))
+                let tourEdges = steps |> List.choose (fun step -> Map.tryFind step stepEdges)
 
-            // Extract tour edges from consecutive cities in tour
-            let tourEdges =
-                if tourCities.Length >= 2 then
-                    tourCities
-                    |> List.pairwise
-                    |> List.choose (fun (src, tgt) ->
-                        // Find edge in graph
-                        problem.Graph.Edges |> List.tryFind (fun e -> e.Source = src && e.Target = tgt))
-                else
-                    []
-
-            createSolution problem.Graph None (Some tourEdges)
+                { createSolution problem.Graph None (Some tourEdges) with
+                    IsFeasible = tourEdges.Length = steps.Length
+                }
 
         | MaximizeCut ->
             // Decode partition

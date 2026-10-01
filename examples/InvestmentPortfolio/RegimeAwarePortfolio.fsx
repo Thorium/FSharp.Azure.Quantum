@@ -459,7 +459,10 @@ module RegimeAwareOptimizer =
         (qBackend: IQuantumBackend)
         (stockList: StockInfo list)
         (recent: StockInfo -> float * float)
-        : System.Threading.Tasks.Task<Result<PortfolioSolver.Allocation list * float * float * float * float * string, string>> =
+        : System.Threading.Tasks.Task<
+              Result<PortfolioSolver.Allocation list * float * float * float * float * string, string>
+           >
+        =
 
         let solverAssets = stockList |> List.map (toSolverAsset recent)
 

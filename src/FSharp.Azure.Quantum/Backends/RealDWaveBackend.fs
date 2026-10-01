@@ -608,7 +608,10 @@ module RealDWaveBackend =
                         | Error e -> Error(QuantumError.BackendError("D-Wave Submit", e))
                         | Ok jobId ->
                             let pollResult =
-                                client.PollJobAsync(jobId, ising.Offset, CancellationToken.None).GetAwaiter().GetResult()
+                                client
+                                    .PollJobAsync(jobId, ising.Offset, CancellationToken.None)
+                                    .GetAwaiter()
+                                    .GetResult()
 
                             match pollResult with
                             | Error e -> Error(QuantumError.BackendError("D-Wave Poll", e))

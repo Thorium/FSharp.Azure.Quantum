@@ -406,8 +406,7 @@ module OptionPricing =
 
             match config.Backend with
             | ValueSome b ->
-                let ct =
-                    defaultArg config.CancellationToken CancellationToken.None
+                let ct = defaultArg config.CancellationToken CancellationToken.None
 
                 priceAsync config.OptionType config.Market config.NumQubits config.GroverIterations config.Shots b ct
             | ValueNone ->

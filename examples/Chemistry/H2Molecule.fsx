@@ -12,7 +12,8 @@
 //   - Lightweight quantum chemistry without heavy dependencies
 //   - Custom VQE implementations and experimentation
 //   - Multi-backend support (Local, IonQ, Rigetti, Azure)
-//   - Small molecules (< 10 qubits): H2, H2O, LiH, NH3
+//   - Small molecules (2 qubits per spatial orbital, 20 qubits by default): H2 out of the
+//     box; H2O, LiH, NH3 with integral files (FCIDUMP)
 //   - Pure F# implementation, no Q# required
 //
 // WHEN TO USE Microsoft.Quantum.Chemistry INSTEAD:
@@ -224,9 +225,7 @@ let runGroundStateAsync (label: string) (distance: float) (method: GroundStateMe
             printfn "Method: %A" method
             printfn "Running calculation..."
 
-        let! result = GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
-
-        match result with
+        match! GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None with
         | Ok vqeResult ->
             let eV = vqeResult.Energy * 27.2114
             let error = abs (vqeResult.Energy - (-1.174))
@@ -401,9 +400,7 @@ let scanBondLengthAsync (d: float) =
                 IntegralProvider = None
             }
 
-        let! scanResult = GroundStateEnergy.estimateEnergyAsync h2Scan scanConfig CancellationToken.None
-
-        match scanResult with
+        match! GroundStateEnergy.estimateEnergyAsync h2Scan scanConfig CancellationToken.None with
         | Ok vqeResult ->
             if not quiet then
                 printfn

@@ -24,7 +24,7 @@
 //
 // CURRENT LIMITATIONS (NISQ era):
 // - Full protein simulation impossible (~1000s of atoms)
-// - Must extract minimal binding site fragment (10-20 atoms)
+// - Must extract a minimal binding site fragment (2 qubits per atom in this model)
 // - Fragment Molecular Orbital (FMO) approach required
 //
 // Usage:
@@ -140,8 +140,8 @@ Cli.exitIfHelp
         }
         {
             Cli.OptionSpec.Name = "max-fragment"
-            Description = "Maximum atoms in quantum fragment (default: 20)"
-            Default = Some "20"
+            Description = "Maximum atoms in quantum fragment, 2 qubits each (default: 6 = 12 qubits)"
+            Default = Some "6"
         }
         {
             Cli.OptionSpec.Name = "max-iterations"
@@ -173,7 +173,7 @@ Cli.exitIfHelp
 
 let quiet = Cli.hasFlag "quiet" args
 let bindingSiteCutoff = Cli.getFloatOr "cutoff" 5.0 args
-let maxFragmentAtoms = Cli.getIntOr "max-fragment" 20 args
+let maxFragmentAtoms = Cli.getIntOr "max-fragment" 6 args
 let maxIterations = Cli.getIntOr "max-iterations" 50 args
 let tolerance = Cli.getFloatOr "tolerance" 1e-4 args
 
@@ -754,7 +754,8 @@ task {
 
             let startTime = DateTime.Now
 
-            let! result = GroundStateEnergy.estimateEnergyAsync fragmentMolecule config CancellationToken.None
+            let! result =
+                GroundStateEnergy.estimateEnergyAsync fragmentMolecule config CancellationToken.None
 
             let elapsed = (DateTime.Now - startTime).TotalSeconds
 

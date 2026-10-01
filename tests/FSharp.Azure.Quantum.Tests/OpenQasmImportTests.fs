@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.CircuitBuilder
+open System.IO
 
 /// TKT-97: OpenQASM 2.0 Import Tests
 /// Following TDD approach with comprehensive coverage for parsing OpenQASM circuits
@@ -638,7 +639,7 @@ cx q[0];
     [<Fact>]
     let ``parseFromFile should load and parse file`` () =
         // Create temp file
-        let tempFile = System.IO.Path.GetTempFileName() + ".qasm"
+        let tempFile = Path.GetTempFileName() + ".qasm"
 
         let qasm =
             """
@@ -649,7 +650,7 @@ h q[0];
 cx q[0],q[1];
 """
 
-        System.IO.File.WriteAllText(tempFile, qasm)
+        File.WriteAllText(tempFile, qasm)
 
         try
             let result = OpenQasmImport.parseFromFile tempFile
@@ -660,8 +661,8 @@ cx q[0],q[1];
                 Assert.Equal(2, circuit.Gates.Length)
             | Error msg -> Assert.True(false, $"File parse failed: {msg}")
         finally
-            if System.IO.File.Exists(tempFile) then
-                System.IO.File.Delete(tempFile)
+            if File.Exists(tempFile) then
+                File.Delete(tempFile)
 
     [<Fact>]
     let ``parseFromFile with non-existent file should fail`` () =
@@ -671,7 +672,7 @@ cx q[0],q[1];
     [<Fact>]
     let ``parseFromFileAsync propagates cancellation instead of returning Error`` () =
         task {
-            let tempFile = System.IO.Path.GetTempFileName()
+            let tempFile = Path.GetTempFileName()
 
             try
                 let! _ =
@@ -681,7 +682,7 @@ cx q[0],q[1];
 
                 ()
             finally
-                if System.IO.File.Exists(tempFile) then
-                    System.IO.File.Delete(tempFile)
+                if File.Exists(tempFile) then
+                    File.Delete(tempFile)
         }
         :> System.Threading.Tasks.Task

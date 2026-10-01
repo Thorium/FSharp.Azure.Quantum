@@ -16,8 +16,19 @@ module InputHandler =
     /// Returns cursor position updates as we navigate for live board rendering
     let getPlayerMoveWithCursor (board: Board) (renderBoard: Position option -> unit) : PlayerInput option =
         try
-            let mutable cursorRow = board.Config.Size / 2
-            let mutable cursorCol = board.Config.Size / 2
+            // The cursor starts on the last move played (the opponent's), or on the centre of
+            // an empty board.
+            let start =
+                match board.MoveHistory with
+                | lastMove :: _ -> lastMove
+                | [] ->
+                    {
+                        Row = board.Config.Size / 2
+                        Col = board.Config.Size / 2
+                    }
+
+            let mutable cursorRow = start.Row
+            let mutable cursorCol = start.Col
             let mutable quit = false
             let mutable confirmed = false
             let mutable useTyping = false

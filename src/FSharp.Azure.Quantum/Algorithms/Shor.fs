@@ -743,6 +743,7 @@ module Shor =
                                 Base = a
                                 PhaseEstimate = phaseResult.EstimatedPhase
                                 Attempts = tries
+                                QubitsUsed = totalQubits
                             }
                     | _ when tries < maxAttempts -> attempt run shots (next + 1) (tries + 1)
                     | _ ->

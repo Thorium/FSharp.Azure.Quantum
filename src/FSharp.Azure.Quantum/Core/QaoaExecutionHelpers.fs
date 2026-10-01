@@ -19,6 +19,137 @@ open FSharp.Azure.Quantum.LocalSimulator
 module QaoaExecutionHelpers =
 
     // ================================================================================
+    // SPLITTING A PROBLEM WIDER THAN THE BACKEND
+    // ================================================================================
+
+    /// When a solver may split a problem that is wider than the backend into several
+    /// circuits that fit (see QuboSplitting). A split trades qubits for circuit runs: the
+    /// answer needs many runs where an unsplit problem needs one.
+    [<RequireQualifiedAccess>]
+    type SplitPolicy =
+        /// Never split. A problem wider than the backend is sent as one circuit and the
+        /// backend accepts or refuses it.
+        | Never
+
+        /// Split on simulators, where a run costs time only. On a backend that submits every
+        /// circuit as a job (cloud hardware and cloud simulators, IShotSamplingBackend) the
+        /// problem is sent as one circuit, so the number of billed jobs never multiplies
+        /// without being asked for. The default.
+        | OnSimulators
+
+        /// Split on every backend. On a billed backend every piece is a billed job: set
+        /// MaxFixedVariables and MaxShareRuns to what the budget allows and give the backend
+        /// a JobBudget.
+        | Always
+
+    /// How a solver splits a problem that is wider than the backend. Part of
+    /// QaoaSolverConfig (Splitting) and of the MaxCut and Knapsack configurations.
+    type SplitSettings =
+        {
+            /// When splitting is allowed (default SplitPolicy.OnSimulators)
+            Policy: SplitPolicy
+
+            /// Widest circuit, in qubits; ValueNone takes the backend's own limit. A problem wider
+            /// than this is split even when the backend could run it, and a value above the
+            /// backend's limit is cut down to it. Narrower pieces run faster and need more of
+            /// them: on the local simulator a 12-qubit piece takes about a second to optimise and
+            /// a 20-qubit piece minutes.
+            MaxPieceQubits: int voption
+
+            /// Most QUBO variables fixed to cut a sparse QUBO into pieces (conditioning). A
+            /// piece runs once per assignment of the fixed variables it is coupled to, so one
+            /// that touches all of the default 8 runs 256 times. A QUBO that needs more is not
+            /// split. Values below 0 count as 0 and values above 20 as 20.
+            MaxFixedVariables: int
+
+            /// Most circuit runs of a block split (shares): one run per block and share of the
+            /// capacity. A problem that needs more is not split. Default 256.
+            MaxShareRuns: int
+
+            /// Most items in a block of a block split, one qubit each (default 12); never more
+            /// than the widest piece.
+            MaxBlockItems: int
+        }
+
+    /// Default split settings: split on simulators only, pieces as wide as the backend runs,
+    /// at most 8 fixed variables, at most 256 block runs, blocks of at most 12 items.
+    let defaultSplitSettings: SplitSettings =
+        {
+            Policy = SplitPolicy.OnSimulators
+            MaxPieceQubits = ValueNone
+            MaxFixedVariables = 8
+            MaxShareRuns = 256
+            MaxBlockItems = 12
+        }
+
+    /// How a solution was put together when its problem was split. Solutions carry it as
+    /// Split; None means the problem ran as one circuit.
+    [<Struct>]
+    type SplitReport =
+        {
+            /// Circuit runs made in place of the single run (each run optimises or sets the
+            /// angles and samples once). Conditioning: one per piece and assignment of the fixed
+            /// variables that piece is coupled to
+            Runs: int
+
+            /// Number of QUBO variables that were fixed to cut the problem (conditioning); 0
+            /// for a block split
+            FixedVariables: int
+
+            /// Blocks the items were cut into (block split); 0 for conditioning
+            Blocks: int
+
+            /// Widest circuit among the runs, in qubits
+            WidestPieceQubits: int
+        }
+
+    /// The report of a solution joined from independently solved parts (connected
+    /// components), each with its own report or None: runs, fixed variables and blocks add
+    /// up, and the widest piece is the widest of any part. None when no part was split.
+    let combineSplitReports (reports: SplitReport option list) : SplitReport option =
+        match List.choose id reports with
+        | [] -> None
+        | split ->
+            Some
+                {
+                    Runs = split |> List.sumBy (fun report -> report.Runs)
+                    FixedVariables = split |> List.sumBy (fun report -> report.FixedVariables)
+                    Blocks = split |> List.sumBy (fun report -> report.Blocks)
+                    WidestPieceQubits = split |> List.map (fun report -> report.WidestPieceQubits) |> List.max
+                }
+
+    /// The widest piece a split may use on this backend, or ValueNone when the problem runs as
+    /// one circuit: the policy forbids a split on this backend, or the problem fits. The
+    /// widest circuit is the smaller of what the backend runs
+    /// (UnifiedBackend.getRunnableQubits) and settings.MaxPieceQubits, and never below one
+    /// qubit; with neither, nothing is split.
+    let splitPieceQubits
+        (settings: SplitSettings)
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemQubits: int)
+        : int voption =
+        let allowed =
+            match settings.Policy with
+            | SplitPolicy.Never -> false
+            | SplitPolicy.Always -> true
+            | SplitPolicy.OnSimulators ->
+                match backend with
+                | :? BackendAbstraction.IShotSamplingBackend -> false
+                | _ -> true
+
+        let asked = settings.MaxPieceQubits |> ValueOption.filter (fun piece -> piece >= 1)
+
+        let widest =
+            match BackendAbstraction.UnifiedBackend.getRunnableQubits backend, asked with
+            | Some limit, ValueSome piece -> ValueSome(max 1 (min piece limit))
+            | Some limit, ValueNone -> ValueSome(max 1 limit)
+            | None, piece -> piece
+
+        match widest with
+        | ValueSome piece when allowed && problemQubits > piece -> ValueSome piece
+        | _ -> ValueNone
+
+    // ================================================================================
     // UNIFIED QAOA CONFIGURATION (Decision 7)
     // ================================================================================
 
@@ -31,7 +162,8 @@ module QaoaExecutionHelpers =
             /// Number of QAOA layers (p parameter). Higher p = better solutions but slower.
             NumLayers: int
 
-            /// Number of shots for optimization phase (lower = faster)
+            /// Shots per evaluation in the optimization phase. Used only when the backend returns
+            /// samples; a state-vector backend scores the angles by the exact expected energy.
             OptimizationShots: int
 
             /// Number of shots for final execution (higher = better sampling)
@@ -46,6 +178,10 @@ module QaoaExecutionHelpers =
 
             /// Maximum optimization iterations for Nelder-Mead
             MaxOptimizationIterations: int
+
+            /// When and how a problem wider than the backend is split into circuits that fit.
+            /// Default: on simulators only (see SplitSettings).
+            Splitting: SplitSettings
         }
 
     /// Default QAOA configuration (balanced speed/quality)
@@ -60,6 +196,7 @@ module QaoaExecutionHelpers =
             // MaxOptimizationIterations was honored — smaller values here would
             // silently cut optimization quality for existing callers.
             MaxOptimizationIterations = 1000
+            Splitting = defaultSplitSettings
         }
 
     /// Fast configuration (for quick prototyping / grid search only)
@@ -73,6 +210,7 @@ module QaoaExecutionHelpers =
             // Unused while EnableOptimization = false; kept low deliberately so
             // turning optimization on in a copied fast config stays fast.
             MaxOptimizationIterations = 100
+            Splitting = defaultSplitSettings
         }
 
     /// High-quality configuration (for production workloads)
@@ -85,6 +223,7 @@ module QaoaExecutionHelpers =
             EnableConstraintRepair = true
             // Not lower than the pre-fix hardcoded 1000 (see defaultConfig note)
             MaxOptimizationIterations = 1000
+            Splitting = defaultSplitSettings
         }
 
     // ================================================================================
@@ -118,6 +257,73 @@ module QaoaExecutionHelpers =
     /// For new solvers that build QUBO as Map<int*int, float>, use Qubo.toDenseArray directly.
     let quboMapToArray (quboMatrix: GraphOptimization.QuboMatrix) : float[,] =
         Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
+
+    // ================================================================================
+    // SAMPLE STATISTICS
+    // ================================================================================
+
+    /// How the returned solution stood among the samples of the final sampling run.
+    /// HitRate estimates the per-shot probability p of the returned solution; it says nothing
+    /// about solutions that were never sampled, and with fewer than about 3 hits it is only
+    /// an upper bound.
+    [<Struct>]
+    type SampleStatistics =
+        {
+            /// Samples drawn in the final sampling run
+            Shots: int
+
+            /// Qubits measured per sample
+            Qubits: int
+
+            /// Samples that decode to the returned solution; 0 when only classical repair produced it
+            Hits: int
+
+            /// Samples that passed the solver's classical validity check, before any repair
+            Valid: int
+        }
+
+        /// Fraction of samples that decode to the returned solution
+        member this.HitRate =
+            if this.Shots > 0 then
+                float this.Hits / float this.Shots
+            else
+                0.0
+
+        /// Fraction of samples that passed the solver's classical validity check
+        member this.ValidRate =
+            if this.Shots > 0 then
+                float this.Valid / float this.Shots
+            else
+                0.0
+
+        /// Per-shot probability of one given bitstring under uniform random sampling: 1 / 2^Qubits.
+        /// A HitRate near this value means the circuit did not favour the returned solution.
+        member this.UniformRate = 2.0 ** -(float this.Qubits)
+
+        /// Shots that return this solution at least once with the given confidence (0 < confidence < 1)
+        /// at the observed HitRate; ValueNone when it was never sampled.
+        member this.ShotsFor(confidence: float) : int voption =
+            if this.Hits <= 0 || confidence <= 0.0 || confidence >= 1.0 then
+                ValueNone
+            elif this.Hits >= this.Shots then
+                ValueSome 1
+            else
+                ValueSome(int (ceil (log (1.0 - confidence) / log (1.0 - this.HitRate))))
+
+    /// Statistics of a sampling run: isValid is the solver's classical validity check and
+    /// isReturned recognises the samples that decode to the solution the solver returns.
+    let sampleStatistics
+        (numQubits: int)
+        (isValid: int[] -> bool)
+        (isReturned: int[] -> bool)
+        (samples: int[][])
+        : SampleStatistics =
+        {
+            Shots = samples.Length
+            Qubits = numQubits
+            Hits = samples |> Array.sumBy (fun sample -> if isReturned sample then 1 else 0)
+            Valid = samples |> Array.sumBy (fun sample -> if isValid sample then 1 else 0)
+        }
 
     // ================================================================================
     // SHARED QAOA EXECUTION FUNCTIONS (Debt 6 extraction)
@@ -377,18 +583,19 @@ module QaoaExecutionHelpers =
         flatObjective (evaluateParameters backend problemHam mixerHam energyOf energies shots) numLayers
 
     /// Nelder-Mead over the expected energy from the ramp start, then FinalShots samples at the
-    /// optimum; returns the lowest-energy sample, the parameters and whether the optimizer converged.
+    /// optimum; returns every sample, the parameters, whether the optimizer converged and its
+    /// iteration count.
     /// The Nelder-Mead evaluations run one after another on the calling thread (each simplex step
     /// depends on the previous evaluation) and check the token before each circuit; the final
     /// sampling is awaited.
-    let private optimizeAndSampleAsync
+    let private optimizeAndSampleAllAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problemHam: QaoaCircuit.ProblemHamiltonian)
         (mixerHam: QaoaCircuit.MixerHamiltonian)
         (energyOf: int[] -> float)
         (config: QaoaSolverConfig)
         (cancellationToken: CancellationToken)
-        : Task<Result<int[] * (float * float)[] * bool, QuantumError>> =
+        : Task<Result<int[][] * (float * float)[] * bool * int, QuantumError>> =
         task {
             let energies = lazy (basisEnergies problemHam.NumQubits energyOf)
 
@@ -427,13 +634,32 @@ module QaoaExecutionHelpers =
             return
                 finalResult
                 |> Result.map (fun measurements ->
-                    (measurements |> Array.minBy energyOf, optimizedParams, optimResult.Converged))
+                    (measurements, optimizedParams, optimResult.Converged, optimResult.Iterations))
+        }
+
+    /// optimizeAndSampleAllAsync reduced to the lowest-energy sample.
+    let private optimizeAndSampleAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (config: QaoaSolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[] * (float * float)[] * bool, QuantumError>> =
+        task {
+            let! run =
+                optimizeAndSampleAllAsync backend problemHam mixerHam energyOf config cancellationToken
+
+            return
+                run
+                |> Result.map (fun (samples, parameters, converged, _) ->
+                    (samples |> Array.minBy energyOf, parameters, converged))
         }
 
     /// Grid search over (γ, β) by expected energy, then FinalShots samples at the best grid
-    /// point; returns the lowest-energy sample and the parameters. At most maxConcurrency
-    /// grid points are in flight.
-    let private gridSearchAndSampleAsync
+    /// point; returns every sample and the parameters. At most maxConcurrency grid points
+    /// are in flight.
+    let private gridSearchAndSampleAllAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problemHam: QaoaCircuit.ProblemHamiltonian)
         (mixerHam: QaoaCircuit.MixerHamiltonian)
@@ -441,7 +667,7 @@ module QaoaExecutionHelpers =
         (config: QaoaSolverConfig)
         (maxConcurrency: int)
         (cancellationToken: CancellationToken)
-        : Task<Result<int[] * (float * float)[], QuantumError>> =
+        : Task<Result<int[][] * (float * float)[], QuantumError>> =
         task {
             let energies = lazy (basisEnergies problemHam.NumQubits energyOf)
             let parameterSets = gridParameterSets config.NumLayers
@@ -477,9 +703,26 @@ module QaoaExecutionHelpers =
                 let! finalResult =
                     executeQaoaCircuitAsync backend problemHam mixerHam bestParams config.FinalShots cancellationToken
 
-                return
-                    finalResult
-                    |> Result.map (fun measurements -> (measurements |> Array.minBy energyOf, bestParams))
+                return finalResult |> Result.map (fun measurements -> (measurements, bestParams))
+        }
+
+    /// gridSearchAndSampleAllAsync reduced to the lowest-energy sample.
+    let private gridSearchAndSampleAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (config: QaoaSolverConfig)
+        (maxConcurrency: int)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[] * (float * float)[], QuantumError>> =
+        task {
+            let! run =
+                gridSearchAndSampleAllAsync backend problemHam mixerHam energyOf config maxConcurrency cancellationToken
+
+            return
+                run
+                |> Result.map (fun (samples, parameters) -> (samples |> Array.minBy energyOf, parameters))
         }
 
     /// Execute QAOA with Nelder-Mead parameter optimization asynchronously.
@@ -535,9 +778,70 @@ module QaoaExecutionHelpers =
                 maxConcurrency
                 cancellationToken
 
+    /// A finished QAOA run.
+    type QaoaRun =
+        {
+            /// Every sample of the final sampling run
+            Samples: int[][]
+
+            /// The lowest-energy sample
+            Best: int[]
+
+            /// The (γ, β) angles the final run used
+            Parameters: (float * float)[]
+
+            /// Whether the optimizer converged; None after a grid search
+            Converged: bool option
+
+            /// Optimizer iterations used; ValueNone after a grid search
+            Iterations: int voption
+        }
+
     /// Execute QAOA the way the configuration asks: Nelder-Mead parameter optimization when
     /// config.EnableOptimization, else a sequential (maxConcurrency = 1) grid search.
-    /// Returns: (bestBitstring, parameters, converged), converged being None after a grid search.
+    /// Returns every final sample along with the lowest-energy one.
+    let runQaoaSampledAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (qubo: float[,])
+        (config: QaoaSolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<QaoaRun, QuantumError>> =
+        match validateConfig config with
+        | Error err -> Task.FromResult(Error err)
+        | Ok() ->
+            task {
+                let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
+                let mixerHam = QaoaCircuit.MixerHamiltonian.create (Array2D.length1 qubo)
+                let energyOf = denseEnergy qubo
+
+                let toRun converged iterations (samples: int[][]) parameters =
+                    {
+                        Samples = samples
+                        Best = samples |> Array.minBy energyOf
+                        Parameters = parameters
+                        Converged = converged
+                        Iterations = iterations
+                    }
+
+                if config.EnableOptimization then
+                    let! optimized =
+                        optimizeAndSampleAllAsync backend problemHam mixerHam energyOf config cancellationToken
+
+                    return
+                        optimized
+                        |> Result.map (fun (samples, parameters, converged, iterations) ->
+                            toRun (Some converged) (ValueSome iterations) samples parameters)
+                else
+                    let! searched =
+                        gridSearchAndSampleAllAsync backend problemHam mixerHam energyOf config 1 cancellationToken
+
+                    return
+                        searched
+                        |> Result.map (fun (samples, parameters) -> toRun None ValueNone samples parameters)
+            }
+
+    /// runQaoaSampledAsync reduced to (bestBitstring, parameters, converged), converged being
+    /// None after a grid search.
     let runQaoaAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
@@ -545,15 +849,8 @@ module QaoaExecutionHelpers =
         (cancellationToken: CancellationToken)
         : Task<Result<int[] * (float * float)[] option * bool option, QuantumError>> =
         task {
-            if config.EnableOptimization then
-                let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
-
-                return
-                    optimized
-                    |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-            else
-                let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
-                return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+            let! run = runQaoaSampledAsync backend qubo config cancellationToken
+            return run |> Result.map (fun run -> (run.Best, Some run.Parameters, run.Converged))
         }
 
     // ================================================================================

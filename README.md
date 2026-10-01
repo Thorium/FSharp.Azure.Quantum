@@ -95,7 +95,7 @@ flowchart TD
 
 **Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with opt-in classical routing (via `HybridSolver` / `QuantumAdvisor`) for small problems where quantum offers no advantage. Quantum solvers never fall back to classical silently — see [Design Philosophy](#design-philosophy).
 
-**Current Version:** 1.4.15 (core) / 0.4.15 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
+**Current Version:** 1.5.1 (core) / 0.5.1 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
 
 **Current Features:**
 - Multiple Backends: LocalBackend (simulation), NoisyLocalBackend (density-matrix noise), Azure Quantum (IonQ, Rigetti, Quantinuum, Atom Computing, IQM), D-Wave quantum annealers (1200-5640 qubits), AWS Braket (separate plugin)
@@ -301,11 +301,13 @@ let problem = TSP.createProblem cities
 task {
     match! TSP.solveAsync problem None CancellationToken.None with
     | Ok tour ->
-        printfn "Optimal route: %s" (String.concat " → " tour.Cities)
+        printfn "Route: %s" (String.concat " → " tour.Cities)
         printfn "Total distance: %.2f" tour.TotalDistance
     | Error err -> printfn "Error: %s" err.Message
 }
 ```
+
+Four cities are 16 qubits (cities²). The default configuration optimises two QAOA layers, which takes a minute or two on the local simulator. A measurement counts as a route only when it places every city in exactly one time slot; at four cities that is about 4% of the shots. The result is the shortest route among those measurements, which is not guaranteed to be the optimum, and an `Error` when no shot is a valid route. No route is built classically.
 
 ### Portfolio Optimization
 
@@ -605,7 +607,7 @@ let rsaProblem = QuantumArithmeticOps.quantumArithmetic {
     operands 5 3                                // base = 5, exponent = 3
     operation QuantumArithmeticOps.ModularExponentiate
     modulus 33                                  // RSA modulus
-    qubits 12
+    qubits 6                                    // register; the circuit takes 2·6 + 5 = 17 qubits
 }
 ```
 
@@ -628,7 +630,7 @@ open FSharp.Azure.Quantum
 let shorsProblem = QuantumPeriodFinder.periodFinder {
     number 15                   // Composite to factor
     chosenBase 7                // Coprime base
-    precision 12                // QPE precision bits
+    precision 12                // QPE precision bits requested; N = 15 runs with 8 on the default 20-qubit budget
     maxAttempts 10              // Probabilistic retries
 }
 
@@ -765,7 +767,7 @@ var addResult = ExecuteArithmetic(add);
 var rsa = ModularExponentiate(baseValue: 5, exponent: 3, modulus: 33);
 var rsaResult = ExecuteArithmetic(rsa);
 
-// Period Finder (Shor's): the factory returns a Result; unwrap before executing
+// Period Finder (Shor's): the factory returns a Result; unwrap before executing. N = 15 runs with 8 counting qubits on the default 20-qubit budget
 var shors = FactorInteger(15, precision: 12);
 if (shors.IsOk)
 {
@@ -1083,7 +1085,7 @@ task {
 - Quantum optimization: Quadratic speedup with Grover search (theoretical)
 
 **Optimization Goals:**
-- `MinimizeCost`: Uses Weighted Graph Coloring oracle (QAOA bin packing when resources have capacities)
+- `MinimizeCost`: Uses Weighted Graph Coloring oracle (when resources have capacities: QAOA on a task-resource assignment QUBO with each resource's own capacity, the hard constraints and the costs)
 - `MaximizeSatisfaction`: Uses Max-SAT oracle for constraint satisfaction
 - `Balanced`: Combines both cost and satisfaction criteria
 
@@ -2746,9 +2748,9 @@ drop-in alternative to the fixed-mixer `MaxCut.solveAsync` — same `Solution` t
 |--------------|---------------|----------------------------------------|
 | **Graph Coloring** | nodes × colors | e.g. 6 nodes × 3 colors = 18 |
 | **MaxCut** | one per vertex | up to 20 vertices |
-| **Knapsack** | one per item | up to 20 items |
+| **Knapsack** | one per item + ⌈log₂(capacity + 1)⌉ slack bits (capacity in whole weight units) | e.g. 15 items with capacity 31 |
 | **TSP** | cities² | 4 cities = 16 |
-| **Portfolio** | one per asset | up to 20 assets |
+| **Portfolio** | one per asset (+ slack bits when lots limit the number of holdings) | up to 20 assets |
 | **Network Flow** | one per route | up to 20 routes |
 | **Task Scheduling** | tasks × time slots | e.g. 3 tasks × 6 slots = 18 |
 
@@ -3019,7 +3021,7 @@ let encrypted =
         operands 5 3           // message=5, exponent=3
         operation ModularExponentiate
         modulus 33             // RSA modulus
-        qubits 8
+        qubits 6               // register; the circuit takes 2·6 + 5 = 17 qubits
     }
     |> Result.bind execute
 

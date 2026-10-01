@@ -2,7 +2,7 @@
 // Investment Portfolio - Small Quantum Test
 // ==============================================================================
 // Direct quantum portfolio optimization using QuantumPortfolioSolver with a
-// minimal asset set that fits within LocalSimulator constraints (<10 qubits).
+// minimal asset set (3 qubits by default).
 // QUBO encoding + QAOA execution for mean-variance portfolio problems.
 // One qubit per asset; the local simulator run is capped at 16 assets.
 //

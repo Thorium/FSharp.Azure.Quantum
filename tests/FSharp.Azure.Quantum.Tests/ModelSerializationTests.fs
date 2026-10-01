@@ -1241,12 +1241,13 @@ module ModelSerializationTests =
 
     [<Fact>]
     let ``Async model loaders propagate cancellation instead of returning Error`` () =
+        let testFile = "test_cancelled_model_load.json"
+
         task {
-            let testFile = "test_cancelled_model_load.json"
             let cancelled = CancellationToken true
 
             try
-                File.WriteAllText(testFile, "{}")
+                do! File.WriteAllTextAsync(testFile, "{}")
 
                 do! assertCancelled (fun () -> ModelSerialization.loadVQCModelAsync testFile cancelled)
                 do! assertCancelled (fun () -> ModelSerialization.loadVQCMultiClassModelAsync testFile cancelled)

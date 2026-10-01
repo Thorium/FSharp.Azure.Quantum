@@ -192,8 +192,9 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
                              Double.Parse(parts.[2].Trim(), CultureInfo.InvariantCulture),
                              Double.Parse(parts.[3].Trim(), CultureInfo.InvariantCulture))
                     }
-            with :? FormatException | :? OverflowException ->
-                None
+            with
+            | :? FormatException
+            | :? OverflowException -> None
         else
             None
 
@@ -284,8 +285,9 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
                             Category = category
                             Reference = reference
                         }
-                with :? FormatException | :? OverflowException ->
-                    None
+                with
+                | :? FormatException
+                | :? OverflowException -> None
             else
                 None
 

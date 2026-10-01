@@ -824,10 +824,10 @@ The quantum advantage is exponential in theory, but it needs a fault-tolerant qu
 
 ### Hardware Requirements
 
-| Key Size | Logical qubits (2n+3, Beauregard circuit) | Available Today? |
+| Key Size | Logical qubits (2n + 4, Beauregard circuit) | Available Today? |
 |----------|-------------------------------------------|------------------|
-| 4-bit (N = 15) | ~11, plus precision qubits | ✅ Yes on LocalBackend; the cloud backends accept the circuit, but today's noise swamps a circuit this deep |
-| 100-bit | ~200 | ❌ No |
+| 4-bit (N = 15) | 12, plus the counting qubits | ✅ Yes on LocalBackend; the cloud backends accept the circuit, but today's noise swamps a circuit this deep |
+| 100-bit | ~204, plus the counting qubits | ❌ No |
 | 2048-bit (standard) | ~4,100 logical, many more physical | ❌ No (needs fault tolerance) |
 | 4096-bit (high-security) | ~8,200 logical | ❌ No |
 
@@ -1029,7 +1029,7 @@ QPE with n counting qubits resolves φ to 1/2^n using n controlled-U^(2^k) appli
 | **Constraint Solver** | CSP (Sudoku, scheduling) | Quadratic (query count) | log₂(states) ≤ 16 | ✅ Toy problems |
 | **Pattern Matcher** | Config and hyperparameter search | Quadratic (query count) | log₂(items) ≤ 16 | ✅ Up to 2^16 items |
 | **Quantum Arithmetic** | Crypto demos, research | None (slower than CPU) | up to 2n + 5 | ✅ Small registers |
-| **Period Finder** | Factorization, education | Exponential | precision + register | ✅ N ≤ 10000 |
+| **Period Finder** | Factorization, education | Exponential | counting + 2·register + 4 | ✅ N = 15 and N = 21 within the default 20-qubit circuit budget |
 | **Phase Estimator** | QPE research, education | Depends on U | precision + target | ✅ Up to 20 bits |
 
 ### Selection Criteria

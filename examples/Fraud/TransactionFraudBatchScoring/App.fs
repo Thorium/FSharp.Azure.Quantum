@@ -71,7 +71,9 @@ module App =
             let predictions = ResizeArray()
 
             for row in rows do
-                let! prediction = BinaryClassifier.predictAsync (toVector row) model CancellationToken.None
+                let! prediction =
+                    BinaryClassifier.predictAsync (toVector row) model CancellationToken.None
+
                 predictions.Add((row, prediction))
 
             return predictions.ToArray()

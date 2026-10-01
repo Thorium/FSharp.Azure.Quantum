@@ -63,7 +63,7 @@ let strategies : EncodingStrategy list = [
 - Pros: Scalable, well-understood
 - Cons: Indirect distance encoding
 
-`ProblemTransformer` has no node-based encoder of its own; the node-based TSP QUBO is built by `GraphOptimization.toQubo` for a problem with the `MinimizeTotalWeight` objective.
+`ProblemTransformer` has no node-based encoder of its own; the node-based TSP QUBO is built by `GraphOptimization.toQubo` for a problem with the `MinimizeTotalWeight` objective. It charges every step of the closed tour (slot t to slot t+1, and the last slot back to the first) in the direction it is taken: an undirected edge allows both directions, a directed edge only its own, and a step without an edge costs more than any tour over existing edges. The constraint penalty is twice the largest step cost, so the minimum is a permutation matrix at any weight scale. `GraphOptimization.tryDecodeTour` reads the tour from an assignment and returns `None` unless it is a permutation matrix.
 
 **Recommended for**: TSP with 20+ cities
 
@@ -142,7 +142,7 @@ let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance risk
 
 **Recommended for**: All portfolio optimization problems
 
-`QuantumPortfolioSolver.toQubo` uses this encoding for the discretised problem in which selecting asset i buys one lot of weight s (1/n, kept within [MinHolding, MaxHolding] / Budget): returns sμ and risk weight λs², so xᵀQx = −μᵀw + λ wᵀΣw with w = s·x. An asset priced above one lot gets a diagonal penalty that keeps it out of the minimum. With 1/n lots the minimum is the discretised mean-variance optimum; larger lots also limit a selection to ⌊1/s⌋ assets, which the solver enforces on the samples rather than in the QUBO. Without a covariance it uses Σ = diag(σᵢ²), i.e. independent assets.
+`QuantumPortfolioSolver.toQubo` uses this encoding for the discretised problem in which selecting asset i buys one lot of weight s (1/n, kept within [MinHolding, MaxHolding] / Budget): returns sμ and risk weight λs², so xᵀQx = −μᵀw + λ wᵀΣw with w = s·x. An asset priced above one lot gets a diagonal penalty that keeps it out of the minimum. With 1/n lots the minimum is the discretised mean-variance optimum. Larger lots also limit a selection to k = ⌊1/s⌋ assets; when fewer assets fit than are affordable, the QUBO adds A·(Σx + slack − k)² with slack bits that reach exactly 0..k (`Qubo.boundedSlackWeights`) and A twice the largest change a single asset can make to the energy, so the minimum is the best selection of at most k assets. Without a covariance it uses Σ = diag(σᵢ²), i.e. independent assets.
 
 ---
 

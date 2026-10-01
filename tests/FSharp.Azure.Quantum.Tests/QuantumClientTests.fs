@@ -213,8 +213,10 @@ let ``WaitForCompletionAsync should poll until job succeeds`` () : Task =
 
         let client = QuantumClient(config)
 
+        // The timeout is far above the three short polls: under a loaded test host the
+        // continuations can be late, and this test is about the status sequence, not timing.
         let! result =
-            client.WaitForCompletionAsync("job-poll-1", initialDelayMs = 10, maxDelayMs = 50, timeoutMs = 5000)
+            client.WaitForCompletionAsync("job-poll-1", initialDelayMs = 10, maxDelayMs = 50, timeoutMs = 120_000)
 
         match result with
         | Ok job ->
@@ -250,7 +252,7 @@ let ``WaitForCompletionAsync should return error when job fails`` () : Task =
         let client = QuantumClient(config)
 
         let! result =
-            client.WaitForCompletionAsync("job-fail-1", initialDelayMs = 10, maxDelayMs = 50, timeoutMs = 5000)
+            client.WaitForCompletionAsync("job-fail-1", initialDelayMs = 10, maxDelayMs = 50, timeoutMs = 120_000)
 
         match result with
         | Ok job ->

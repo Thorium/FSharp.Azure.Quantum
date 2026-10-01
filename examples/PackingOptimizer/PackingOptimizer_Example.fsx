@@ -148,7 +148,8 @@ if runAll || exampleName = "shipping" then
         PackingOptimizer.packingOptimizer {
             containerCapacity 100.0
 
-            // Sizes pack into 2 bins (first-fit-decreasing), so the instance fits 16 qubits on the local simulator.
+            // Sizes fill 2 bins exactly (first-fit-decreasing), so no slack qubits are needed:
+            // 6 items x 2 bins + 2 bin qubits = 14 qubits on the local simulator.
             item "Crate-A" 35.0
             item "Crate-B" 45.0
             item "Crate-C" 20.0
@@ -182,11 +183,14 @@ if runAll || exampleName = "servers" then
         PackingOptimizer.packingOptimizer {
             containerCapacity 8.0
 
+            // Sizes fill 2 VMs exactly, so no slack qubits are needed: 5 x 2 + 2 = 12 qubits.
+            // Spare room costs slack qubits per bin: with Worker 3.0 and Monitoring 1.0 a used
+            // VM holds 4..8 GB in half-GB steps, 4 slack qubits per VM, 20 qubits in total.
             item "WebAPI" 2.5
             item "Database" 4.0
             item "Cache" 1.5
-            item "Worker" 3.0
-            item "Monitoring" 1.0
+            item "Worker" 4.0
+            item "Monitoring" 4.0
 
             backend quantumBackend
             shots cliShots
@@ -214,14 +218,15 @@ if runAll || exampleName = "storage" then
         PackingOptimizer.packingOptimizer {
             containerCapacity 500.0
 
-            // Sizes pack into 2 bins (first-fit-decreasing), so the instance fits 16 qubits on the local simulator.
+            // Sizes fill 2 volumes exactly (first-fit-decreasing), so no slack qubits are needed:
+            // 7 items x 2 bins + 2 bin qubits = 16 qubits on the local simulator.
             item "UserData" 180.0
             item "Logs" 120.0
-            item "Analytics" 200.0
+            item "Analytics" 220.0
             item "Backups" 100.0
             item "MediaAssets" 280.0
-            item "Configs" 30.0
-            item "Temp" 50.0
+            item "Configs" 40.0
+            item "Temp" 60.0
 
             backend quantumBackend
             shots cliShots

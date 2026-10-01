@@ -629,8 +629,277 @@ module PortfolioCovarianceTests =
                     Assert.Equal(3000.0, a.Value, 6)
 
                 Assert.True(solution.TotalValue <= constraints.Budget)
-                // 32 selections and thousands of samples: the best feasible one is always seen.
+                // 32 selections (128 circuit bitstrings with the two slack bits) and thousands
+                // of samples: the best feasible one is always seen.
                 Assert.Equal(feasibleBest, solution.BestEnergy, 12)
+
+                // Statistics are in circuit qubits: 5 assets + 2 slack bits.
+                Assert.Equal(Some 7, solution.Sampling |> Option.map (fun stats -> stats.Qubits))
+        }
+        :> Task
+
+    let private eightAssets =
+        [
+            asset "A" 0.12 0.20 150.0
+            asset "B" 0.10 0.15 80.0
+            asset "C" 0.15 0.35 300.0
+            asset "D" 0.07 0.08 50.0
+            asset "E" 0.20 0.50 500.0
+            asset "F" 0.09 0.25 40.0
+            asset "G" 0.14 0.22 120.0
+            asset "H" 0.05 0.30 60.0
+        ]
+
+    let private constantCorrelation (rho: float) (assets: PortfolioTypes.Asset list) =
+        let a = List.toArray assets
+
+        Array2D.init a.Length a.Length (fun i j ->
+            if i = j then
+                a.[i].Risk * a.[i].Risk
+            else
+                rho * a.[i].Risk * a.[j].Risk)
+
+    /// Brute force over every bitstring of toQubo: the asset parts of the minimum-energy
+    /// bitstrings are exactly the feasible selections (the empty one included) with the lowest
+    /// mean-variance energy, and the minimum energy differs from that energy only by the
+    /// constant the holding-count term drops. Returns the QUBO width and those selections.
+    let private holdingLimitGroundStates (problem: QuantumPortfolioSolver.PortfolioProblem) : int * int[][] =
+        match QuantumPortfolioSolver.toQubo problem with
+        | Error err -> failwith err.Message
+        | Ok qubo ->
+            let n = problem.Assets.Length
+            let total = qubo.NumVariables
+            Assert.True(total <= 16, $"{total} qubits")
+            Assert.Equal(n + (QuantumPortfolioSolver.holdingSlackWeights problem).Length, total)
+
+            let states = Array.init (1 <<< total) (bitsOf total)
+            let energies = states |> Array.map (quboEnergy qubo)
+            let minEnergy = Array.min energies
+
+            let feasible =
+                Array.init (1 <<< n) (bitsOf n)
+                |> Array.filter (QuantumPortfolioSolver.isFeasibleSelection problem)
+
+            let best =
+                feasible
+                |> Array.map (QuantumPortfolioSolver.meanVarianceEnergy problem)
+                |> Array.min
+
+            let optima =
+                feasible
+                |> Array.filter (fun bits -> QuantumPortfolioSolver.meanVarianceEnergy problem bits <= best + 1e-12)
+                |> Array.sort
+
+            let ground =
+                Array.zip states energies
+                |> Array.filter (fun (_, e) -> e <= minEnergy + 1e-9)
+                |> Array.map (fun (bits, _) -> bits.[0 .. n - 1])
+                |> Array.distinct
+                |> Array.sort
+
+            Assert.Equal<int[][]>(optima, ground)
+
+            // Every selection that holds too many assets lies above every feasible one that
+            // has its slack bits set to match.
+            let limit = QuantumPortfolioSolver.maxHoldings problem
+            let constant = minEnergy - best
+
+            for (bits, e) in Array.zip states energies do
+                let selection = bits.[0 .. n - 1]
+                let direct = QuantumPortfolioSolver.meanVarianceEnergy problem selection + constant
+
+                if Array.sum selection > limit then
+                    Assert.True(e > direct + 1e-9, $"%A{bits}: {e} is not above {direct}")
+                else
+                    Assert.True(e >= direct - 1e-9, $"%A{bits}: {e} is below {direct}")
+
+            total, optima
+
+    [<Fact>]
+    let ``holding limit: the QUBO minimum is the best selection that fits the budget`` () =
+        let half: PortfolioSolver.Constraints =
+            {
+                Budget = 10000.0
+                MinHolding = 5000.0
+                MaxHolding = 10000.0
+            }
+
+        let third: PortfolioSolver.Constraints =
+            {
+                Budget = 10000.0
+                MinHolding = 10000.0 / 3.0
+                MaxHolding = 10000.0 / 3.0
+            }
+
+        let quarter: PortfolioSolver.Constraints =
+            {
+                Budget = 10000.0
+                MinHolding = 2500.0
+                MaxHolding = 2500.0
+            }
+
+        // 5 assets, 2 fit: slack weights [1; 1].
+        let fiveHalf = problemOf fiveAssets half 0.5 None
+        Assert.Equal(2, QuantumPortfolioSolver.maxHoldings fiveHalf)
+        Assert.Equal<int list>([ 1; 1 ], QuantumPortfolioSolver.holdingSlackWeights fiveHalf)
+        let qubits, optima = holdingLimitGroundStates fiveHalf
+        Assert.Equal(7, qubits)
+        Assert.All(optima, (fun bits -> Assert.InRange(Array.sum bits, 1, 2)))
+
+        // 8 assets, 2 fit and 3 fit: 8 + 2 slack bits.
+        let eightHalf = problemOf eightAssets half 0.5 None
+        let qubits, optima = holdingLimitGroundStates eightHalf
+        Assert.Equal(10, qubits)
+        Assert.Equal<int[][]>([| [| 0; 0; 0; 0; 1; 0; 1; 0 |] |], optima)
+
+        let eightThird = problemOf eightAssets third 0.5 None
+        Assert.Equal(3, QuantumPortfolioSolver.maxHoldings eightThird)
+        Assert.Equal<int list>([ 1; 2 ], QuantumPortfolioSolver.holdingSlackWeights eightThird)
+        let qubits, optima = holdingLimitGroundStates eightThird
+        Assert.Equal(10, qubits)
+        Assert.Equal<int[][]>([| [| 0; 0; 1; 0; 1; 0; 1; 0 |] |], optima)
+
+        // Correlated assets with a strong risk aversion, 4 fit: 8 + 3 slack bits.
+        let correlated =
+            problemOf eightAssets quarter 25.0 (Some(constantCorrelation 0.6 eightAssets))
+
+        let qubits, _ = holdingLimitGroundStates correlated
+        Assert.Equal(11, qubits)
+
+    [<Fact>]
+    let ``holding limit: an unaffordable asset takes no part in the count`` () =
+        // One lot is 5000: BRKA is out of reach, 2 of the other 4 fit.
+        let assets =
+            [
+                asset "BRKA" 0.30 0.15 600000.0
+                asset "B" 0.10 0.15 80.0
+                asset "C" 0.15 0.35 300.0
+                asset "D" 0.07 0.08 50.0
+                asset "E" 0.20 0.50 500.0
+            ]
+
+        let constraints: PortfolioSolver.Constraints =
+            {
+                Budget = 10000.0
+                MinHolding = 5000.0
+                MaxHolding = 10000.0
+            }
+
+        let problem = problemOf assets constraints 0.5 None
+        let qubits, optima = holdingLimitGroundStates problem
+        Assert.Equal(7, qubits)
+        Assert.All(optima, (fun bits -> Assert.Equal(0, bits.[0])))
+
+        // The circuit drops BRKA and keeps the two slack bits.
+        match QuantumPortfolioSolver.toQubo problem with
+        | Error err -> Assert.Fail(err.Message)
+        | Ok qubo ->
+            let circuitMatrix, kept = QuantumPortfolioSolver.circuitQubo problem qubo
+            Assert.Equal<int[]>([| 1; 2; 3; 4 |], kept)
+            Assert.Equal(6, Array2D.length1 circuitMatrix)
+
+            let circuitEnergy (bits: int[]) =
+                QaoaExecutionHelpers.evaluateQubo circuitMatrix bits
+
+            // Circuit bits (B, C, D, E, slack, slack) carry the energy of the full bitstring
+            // with BRKA left out.
+            for index in 0..63 do
+                let bits = bitsOf 6 index
+                Assert.Equal(quboEnergy qubo (Array.append [| 0 |] bits), circuitEnergy bits, 12)
+
+    [<Fact>]
+    let ``no holding limit: the QUBO has one variable per asset and equals the mean-variance energy`` () =
+        let plain: PortfolioSolver.Constraints =
+            {
+                Budget = 10000.0
+                MinHolding = 0.0
+                MaxHolding = 10000.0
+            }
+
+        let cases =
+            [
+                problemOf fiveAssets plain 0.5 None
+                problemOf eightAssets plain 0.5 None
+                problemOf eightAssets plain 25.0 (Some(constantCorrelation 0.6 eightAssets))
+                // Lots of exactly 1/n: all n assets fit.
+                problemOf
+                    fiveAssets
+                    {
+                        Budget = 10000.0
+                        MinHolding = 2000.0
+                        MaxHolding = 2000.0
+                    }
+                    0.5
+                    None
+            ]
+
+        for problem in cases do
+            let n = problem.Assets.Length
+            Assert.Equal(n, QuantumPortfolioSolver.maxHoldings problem)
+            Assert.Empty(QuantumPortfolioSolver.holdingSlackWeights problem)
+
+            match QuantumPortfolioSolver.toQubo problem with
+            | Error err -> Assert.Fail(err.Message)
+            | Ok qubo ->
+                Assert.Equal(n, qubo.NumVariables)
+
+                for index in 0 .. (1 <<< n) - 1 do
+                    let bits = bitsOf n index
+                    Assert.Equal(QuantumPortfolioSolver.meanVarianceEnergy problem bits, quboEnergy qubo bits, 12)
+
+            holdingLimitGroundStates problem |> ignore
+
+    [<Fact>]
+    let ``assets that all lower the utility: the QUBO minimum is empty and the solver returns a non-empty selection``
+        ()
+        =
+        task {
+            let risky =
+                [
+                    asset "A" 0.05 0.90 100.0
+                    asset "B" 0.04 0.80 100.0
+                    asset "C" 0.06 1.10 100.0
+                    asset "D" 0.03 0.70 100.0
+                ]
+
+            let half: PortfolioSolver.Constraints =
+                {
+                    Budget = 10000.0
+                    MinHolding = 5000.0
+                    MaxHolding = 10000.0
+                }
+
+            let problem = problemOf risky half 0.5 None
+
+            // Every non-empty selection has a positive energy, so the minimum is empty.
+            let _, optima = holdingLimitGroundStates problem
+            Assert.Equal<int[][]>([| [| 0; 0; 0; 0 |] |], optima)
+
+            let bestNonEmpty =
+                Array.init 16 (bitsOf 4)
+                |> Array.filter (fun bits ->
+                    Array.sum bits > 0 && QuantumPortfolioSolver.isFeasibleSelection problem bits)
+                |> Array.map (QuantumPortfolioSolver.meanVarianceEnergy problem)
+                |> Array.min
+
+            Assert.True(bestNonEmpty > 0.0)
+
+            let! result =
+                QuantumPortfolioSolver.solveAsync
+                    (localBackend ())
+                    risky
+                    half
+                    QuantumPortfolioSolver.defaultConfig
+                    CancellationToken.None
+
+            match result with
+            | Ok solution ->
+                Assert.InRange(solution.Allocations.Length, 1, 2)
+                Assert.True(solution.BestEnergy >= bestNonEmpty - 1e-12)
+                Assert.True(solution.TotalValue <= half.Budget)
+            // Samples that are all empty or all over the limit leave no portfolio to return.
+            | Error(QuantumError.OperationError(operation, _)) -> Assert.Equal("DecodeSolution", operation)
+            | Error err -> Assert.Fail(err.Message)
         }
         :> Task
 

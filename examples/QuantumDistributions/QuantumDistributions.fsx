@@ -165,7 +165,7 @@ let runNormal () =
     match sample StandardNormal with
     | Ok result ->
         if not quiet then
-            printfn "  Standard Normal N(0,1) sample: %.4f  (%d qubits)" result.Value result.QuantumBitsUsed
+            printfn "  Standard Normal N(0,1) sample: %.4f  (%d random bits)" result.Value result.QuantumBitsUsed
     | Error msg ->
         if not quiet then
             printfn "  Error: %s" msg

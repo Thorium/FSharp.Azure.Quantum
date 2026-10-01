@@ -506,17 +506,19 @@ let private computeEnergyAsync
         let startTime = DateTime.Now
         let config = solverConfig backend maxIter tol
 
-        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+        let! result =
+            GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
         let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-        match result with
-        | Ok vqeResult -> return (Ok vqeResult.Energy, elapsed)
-        | Error err ->
-            if not quiet then
-                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        return
+            match result with
+            | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
+            | Error err ->
+                if not quiet then
+                    eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+                (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
     }
 
 /// Screen one catalyst: compute catalyst energy, complex energy, derive binding energy.
@@ -567,42 +569,43 @@ let private screenCatalystAsync
             }
 
         let! (complexRes, complexTime) = computeEnergyAsync backend maxIter tol complex
-        let complexEnergy = complexRes |> Result.defaultValue 0.0
 
-        let anyFailure =
-            not substrateOk || Result.isError catRes || Result.isError complexRes
+        let runTail () =
+            let complexEnergy = complexRes |> Result.defaultValue 0.0
 
-        if not quiet then
-            match complexRes with
-            | Ok e -> printfn "         E_cpx = %.6f Ha  (%.1fs)" e complexTime
-            | Error _ -> printfn "         E_cpx = FAILED  (%.1fs)" complexTime
+            let anyFailure =
+                not substrateOk || Result.isError catRes || Result.isError complexRes
 
-        // Binding energy
-        let bindingHartree =
-            if anyFailure then
-                0.0
-            else
-                complexEnergy - catEnergy - substrateEnergy
+            if not quiet then
+                match complexRes with
+                | Ok e -> printfn "         E_cpx = %.6f Ha  (%.1fs)" e complexTime
+                | Error _ -> printfn "         E_cpx = FAILED  (%.1fs)" complexTime
 
-        let bindingKcal = bindingHartree * hartreeToKcalMol
+            // Binding energy
+            let bindingHartree =
+                if anyFailure then
+                    0.0
+                else
+                    complexEnergy - catEnergy - substrateEnergy
 
-        // Estimated barrier reduction
-        let reduction =
-            if anyFailure then 0.0
-            elif bindingKcal < -50.0 then 15.0
-            elif bindingKcal < -20.0 then 12.0
-            elif bindingKcal < -5.0 then 8.0
-            else 0.0
+            let bindingKcal = bindingHartree * hartreeToKcalMol
 
-        let barrier = uncatalyzedBarrier - reduction
+            // Estimated barrier reduction
+            let reduction =
+                if anyFailure then 0.0
+                elif bindingKcal < -50.0 then 15.0
+                elif bindingKcal < -20.0 then 12.0
+                elif bindingKcal < -5.0 then 8.0
+                else 0.0
 
-        if not quiet then
-            if not anyFailure then
-                printfn "         E_bind = %.4f Ha (%.1f kcal/mol)" bindingHartree bindingKcal
+            let barrier = uncatalyzedBarrier - reduction
 
-            printfn ""
+            if not quiet then
+                if not anyFailure then
+                    printfn "         E_bind = %.4f Ha (%.1f kcal/mol)" bindingHartree bindingKcal
 
-        return
+                printfn ""
+
             {
                 Catalyst = catInfo
                 CatalystEnergy = catEnergy
@@ -615,6 +618,8 @@ let private screenCatalystAsync
                 ComputeTimeSeconds = catTime + complexTime
                 HasVqeFailure = anyFailure
             }
+
+        return runTail ()
     }
 
 // --- Compute substrate energy once ---

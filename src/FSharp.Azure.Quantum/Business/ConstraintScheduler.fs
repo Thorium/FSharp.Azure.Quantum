@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Business
 open System
 open System.Threading
 open System.Threading.Tasks
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.GroverSearch
@@ -26,8 +27,9 @@ open FSharp.Azure.Quantum.Quantum
 /// Uses Grover's algorithm with Max-SAT (constraint satisfaction) and
 /// Weighted Graph Coloring (cost optimization) for quadratic speedup
 /// over classical constraint solvers. Also supports QAOA-based
-/// approximate optimization via SAT and Bin Packing formulations
-/// for problems with capacity constraints or larger search spaces.
+/// approximate optimization: a weighted MAX-SAT formulation, and for
+/// resources with capacities a QUBO over task-resource assignments that
+/// carries each resource's own capacity, the hard constraints and the costs.
 ///
 /// **Example:**
 /// ```fsharp
@@ -195,23 +197,44 @@ module ConstraintScheduler =
     let private createResourceIndex (resources: Resource list) : Map<ResourceId, int> =
         resources |> List.mapi (fun i res -> (res.Id, i)) |> Map.ofList
 
-    /// Check if hard constraint is satisfied by assignment
-    let private isSatisfied (assignments: Map<TaskId, ResourceId>) (constraint': HardConstraint) : bool =
+    /// Check if a hard constraint is satisfied, given every resource each task is assigned to.
+    /// A task with no assignment satisfies Conflict and RequiresResource.
+    let private isSatisfied (resourcesOf: Map<TaskId, ResourceId list>) (constraint': HardConstraint) : bool =
+        let assigned (task: TaskId) =
+            Map.tryFind task resourcesOf |> Option.defaultValue []
+
         match constraint' with
         | Conflict(task1, task2) ->
-            match Map.tryFind task1 assignments, Map.tryFind task2 assignments with
-            | Some res1, Some res2 -> res1 <> res2 // Different resources
-            | _ -> true // Not both assigned yet
+            // No resource carries both tasks
+            let resources2 = assigned task2
+            assigned task1 |> List.forall (fun res -> not (List.contains res resources2))
 
         | RequiresResource(task, resource) ->
-            match Map.tryFind task assignments with
-            | Some res -> res = resource
-            | None -> true // Not assigned yet
+            match assigned task with
+            | [] -> true
+            | resources -> List.contains resource resources
 
         | Precedence(before, after) ->
             // For scheduling slots, this would check ordering
             // Simplified: just check both exist
-            Map.containsKey before assignments && Map.containsKey after assignments
+            not ((assigned before).IsEmpty || (assigned after).IsEmpty)
+
+    /// Tasks of the problem that are not assigned to exactly one resource.
+    let private misassignedTasks (problem: SchedulingProblem) (assignments: Assignment list) : TaskId list =
+        let counts = assignments |> List.countBy (fun a -> a.Task) |> Map.ofList
+
+        problem.Tasks |> List.filter (fun task -> Map.tryFind task counts <> Some 1)
+
+    /// Resources that carry more assignments than their capacity.
+    let private overloadedResources (problem: SchedulingProblem) (assignments: Assignment list) : ResourceId list =
+        let loads = assignments |> List.countBy (fun a -> a.Resource) |> Map.ofList
+
+        problem.Resources
+        |> List.filter (fun res ->
+            match res.Capacity with
+            | Some capacity -> (Map.tryFind res.Id loads |> Option.defaultValue 0) > capacity
+            | None -> false)
+        |> List.map (fun res -> res.Id)
 
     /// Calculate cost of assignments
     let private calculateCost (assignments: Assignment list) : float =
@@ -235,15 +258,22 @@ module ConstraintScheduler =
             | Some res1, Some res2 -> res1 <> res2
             | _ -> false
 
-    /// Create Schedule from assignment list
-    let private createSchedule (problem: SchedulingProblem) (assignments: Assignment list) : Schedule =
+    /// Create Schedule from assignment list.
+    /// IsFeasible holds exactly when every task is assigned to exactly one resource, no
+    /// resource carries more tasks than its capacity, every hard constraint is satisfied and
+    /// the total cost is within MaxBudget when one is set.
+    let internal createSchedule (problem: SchedulingProblem) (assignments: Assignment list) : Schedule =
         let assignmentMap =
             assignments |> List.map (fun a -> a.Task, a.Resource) |> Map.ofList
 
+        let resourcesOf =
+            assignments
+            |> List.groupBy (fun a -> a.Task)
+            |> List.map (fun (task, group) -> task, group |> List.map (fun a -> a.Resource))
+            |> Map.ofList
+
         let hardSatisfied =
-            problem.HardConstraints
-            |> List.filter (isSatisfied assignmentMap)
-            |> List.length
+            problem.HardConstraints |> List.filter (isSatisfied resourcesOf) |> List.length
 
         let softSatisfied =
             problem.SoftConstraints
@@ -252,20 +282,12 @@ module ConstraintScheduler =
 
         let totalCost = calculateCost assignments
 
-        // Check if feasible (all hard constraints satisfied AND all tasks assigned)
-        let allTasksScheduled =
-            problem.Tasks |> List.forall (fun t -> Map.containsKey t assignmentMap)
-
-        let isFeasible = hardSatisfied = problem.HardConstraints.Length && allTasksScheduled
-
-        // IMPORTANT: For RequiresResource constraint, ensure the specific resource ID matches
-        // The isSatisfied check only verifies the constraint itself, but for the scheduler
-        // to report feasibility correctly, we double-check hard constraints here.
-        let actuallyFeasible =
-            if isFeasible then
-                problem.HardConstraints |> List.forall (isSatisfied assignmentMap)
-            else
-                false
+        let isFeasible =
+            hardSatisfied = problem.HardConstraints.Length
+            && (misassignedTasks problem assignments).IsEmpty
+            && (overloadedResources problem assignments).IsEmpty
+            && problem.MaxBudget
+               |> Option.forall (fun budget -> totalCost <= budget + 1e-9 * max 1.0 (abs budget))
 
         {
             Assignments = assignments
@@ -274,7 +296,7 @@ module ConstraintScheduler =
             TotalHardConstraints = problem.HardConstraints.Length
             SoftConstraintsSatisfied = softSatisfied
             TotalSoftConstraints = problem.SoftConstraints.Length
-            IsFeasible = actuallyFeasible
+            IsFeasible = isFeasible
         }
 
     /// Decode Max-SAT bitstring solution to Schedule
@@ -571,8 +593,12 @@ module ConstraintScheduler =
     // ========================================================================
 
     /// Convert scheduling problem to QuantumSatSolver.Problem for QAOA optimization.
-    /// Same encoding as toMaxSat but targets QuantumSatSolver types.
-    let private toQaoaSatProblem (problem: SchedulingProblem) : QuantumSatSolver.Problem =
+    /// Same clauses as toMaxSat, as weighted MAX-SAT: a hard-constraint clause weighs 1 and a
+    /// structural clause (each task on exactly one resource) weighs more than all hard-constraint
+    /// clauses together. Breaking one structural clause then costs more than any set of hard
+    /// constraints, so every optimum assigns each task to exactly one resource and, among those
+    /// assignments, satisfies as many hard constraints as possible.
+    let internal toQaoaSatProblem (problem: SchedulingProblem) : QuantumSatSolver.Problem =
         let taskIdx = createTaskIndex problem.Tasks
         let resIdx = createResourceIndex problem.Resources
 
@@ -581,7 +607,7 @@ module ConstraintScheduler =
         let numVars = problem.Tasks.Length * numResources
 
         // 1. Structural: each task assigned to exactly one resource
-        let structuralClauses =
+        let structuralClauses (weight: float) : QuantumSatSolver.Clause list =
             problem.Tasks
             |> List.collect (fun task ->
                 let t = taskIdx.[task]
@@ -594,7 +620,7 @@ module ConstraintScheduler =
                             |> List.mapi (fun r _ ->
                                 let varId = t * numResources + r
                                 ({ Variable = varId; IsNegated = false }: QuantumSatSolver.Literal))
-                        Weight = 1.0
+                        Weight = weight
                     }
 
                 // At most one resource (pairwise mutex)
@@ -614,7 +640,7 @@ module ConstraintScheduler =
                                                 ({ Variable = v1; IsNegated = true }: QuantumSatSolver.Literal)
                                                 ({ Variable = v2; IsNegated = true }: QuantumSatSolver.Literal)
                                             ]
-                                        Weight = 1.0
+                                        Weight = weight
                                     }
                                     : QuantumSatSolver.Clause
                                 )
@@ -663,9 +689,11 @@ module ConstraintScheduler =
                     | _ -> []
                 | Precedence _ -> [])
 
+        let structuralWeight = (constraintClauses |> List.sumBy (fun c -> c.Weight)) + 1.0
+
         {
             NumVariables = numVars
-            Clauses = structuralClauses @ constraintClauses
+            Clauses = structuralClauses structuralWeight @ constraintClauses
         }
 
     /// Decode a QuantumSatSolver.Solution back to a Schedule.
@@ -695,59 +723,163 @@ module ConstraintScheduler =
 
         createSchedule problem assignments
 
-    /// Convert scheduling problem to QuantumBinPackingSolver.Problem.
-    /// Tasks are "items" (unit size) and resources with Capacity are "bins".
-    /// Resources without Capacity get a default capacity equal to total task count.
-    let private toQaoaBinPackingProblem (problem: SchedulingProblem) : QuantumBinPackingSolver.Problem =
-        let items =
-            problem.Tasks
-            |> List.map (fun taskId -> ({ Id = taskId; Size = 1.0 }: QuantumBinPackingSolver.Item))
+    // ------------------------------------------------------------------------
+    // Capacity QUBO: each task on one resource, each resource within its own capacity
+    // ------------------------------------------------------------------------
 
-        // Use the max capacity of any resource, or task count as default
-        let binCapacity =
-            problem.Resources
-            |> List.choose (fun r -> r.Capacity)
-            |> function
-                | [] -> float problem.Tasks.Length // No capacity constraints: all tasks fit
-                | capacities -> capacities |> List.max |> float
-
-        {
-            Items = items
-            BinCapacity = binCapacity
-        }
-
-    /// Decode a QuantumBinPackingSolver.Solution back to a Schedule.
-    /// Bin indices are mapped back to resource indices.
-    let private decodeQaoaBinPackingSolution
-        (problem: SchedulingProblem)
-        (binSolution: QuantumBinPackingSolver.Solution)
-        : Schedule =
-        let resources = problem.Resources |> List.toArray
-        let numResources = resources.Length
+    /// Convert a task-resource bitstring (x[t, r] at t * numResources + r) to a Schedule.
+    /// Every set bit is an assignment; createSchedule judges feasibility.
+    let private decodeAssignmentBits (problem: SchedulingProblem) (bits: int[]) : Schedule =
+        let numResources = problem.Resources.Length
 
         let assignments =
-            if numResources = 0 then
-                []
-            else
-                binSolution.Assignments
-                |> List.choose (fun (item, binIdx) ->
-                    let taskId = item.Id
-                    // Map bin index to resource (modular wrap if more bins than resources)
-                    let resIdx = binIdx % numResources
+            problem.Tasks
+            |> List.mapi (fun tIdx task ->
+                problem.Resources
+                |> List.mapi (fun rIdx res ->
+                    let varId = tIdx * numResources + rIdx
 
-                    if resIdx < numResources then
-                        let res = resources.[resIdx]
-
+                    if varId < bits.Length && bits.[varId] = 1 then
                         Some
                             {
-                                Task = taskId
+                                Task = task
                                 Resource = res.Id
                                 Cost = res.Cost
                             }
                     else
                         None)
+                |> List.choose id)
+            |> List.concat
 
         createSchedule problem assignments
+
+    /// QUBO of the assignment problem with a capacity per resource (T tasks, R resources).
+    ///
+    /// Variables:
+    ///   x[t, r] at t * R + r: task t runs on resource r
+    ///   slack bits of the capacity-limited resources, after the T * R assignment bits
+    ///
+    /// Terms (P = penalty weight):
+    ///   P * (sum_r x[t, r] - 1)^2                       each task on exactly one resource
+    ///   P * (sum_t x[t, r] + slack_r - limit_r)^2       at most limit_r tasks on resource r
+    ///   P * x[t1, r] * x[t2, r] for every r             Conflict(t1, t2)
+    ///   P * (1 - x[t, r])                               RequiresResource(t, r)
+    ///   cost_r * x[t, r]                                MinimizeCost and Balanced only
+    ///
+    /// limit_r = min(capacity_r, T); a resource without capacity, or with capacity >= T, has
+    /// no capacity term. In a complete schedule resource r carries at least T minus the limits
+    /// of the other resources, so slack_r covers 0..limit_r minus that least load
+    /// (Qubo.boundedSlackWeights), and no slack bit exists when the load is fixed.
+    ///
+    /// P = (largest cost of a complete schedule) - (smallest cost of any bitstring) + 1, so
+    /// one broken rule costs more than the whole cost range: when a feasible schedule exists,
+    /// the minimum-energy bitstrings are the feasible schedules of least cost. Constraints
+    /// that name an unknown task or resource are left out, as in the SAT encoding.
+    ///
+    /// Error when the limits add up to fewer than T: no schedule can place every task.
+    let internal toCapacityQubo (problem: SchedulingProblem) : Result<float[,], QuantumError> =
+        let numTasks = problem.Tasks.Length
+        let resources = problem.Resources |> List.toArray
+        let numResources = resources.Length
+        let taskIdx = createTaskIndex problem.Tasks
+        let resIdx = createResourceIndex problem.Resources
+
+        let limits =
+            resources
+            |> Array.map (fun res ->
+                match res.Capacity with
+                | Some capacity -> max 0 (min capacity numTasks)
+                | None -> numTasks)
+
+        let totalLimit = Array.sum limits
+
+        if totalLimit < numTasks then
+            Error(
+                QuantumError.ValidationError(
+                    "Resources",
+                    $"the resource capacities add up to {totalLimit}, fewer than the {numTasks} tasks to schedule"
+                )
+            )
+        else
+            let x (t: int) (r: int) = t * numResources + r
+
+            let slackWeights =
+                limits
+                |> Array.map (fun limit ->
+                    if limit >= numTasks then
+                        []
+                    else
+                        let leastLoad = max 0 (numTasks - (totalLimit - limit))
+                        Qubo.boundedSlackWeights (limit - leastLoad))
+
+            let slackOffsets =
+                slackWeights
+                |> Array.scan (fun offset weights -> offset + weights.Length) (numTasks * numResources)
+
+            let numQubits = slackOffsets.[numResources]
+
+            let costs =
+                match problem.Goal with
+                | MinimizeCost
+                | Balanced -> resources |> Array.map (fun res -> res.Cost)
+                | MaximizeSatisfaction -> Array.zeroCreate numResources
+
+            let penalty =
+                float numTasks * Array.max costs
+                - float numTasks * (costs |> Array.sumBy (fun cost -> min cost 0.0))
+                + 1.0
+
+            let costTerms =
+                [
+                    for t in 0 .. numTasks - 1 do
+                        for r in 0 .. numResources - 1 do
+                            yield ((x t r, x t r), costs.[r])
+                ]
+
+            let assignmentTerms =
+                [
+                    for t in 0 .. numTasks - 1 do
+                        let row = [ for r in 0 .. numResources - 1 -> (x t r, 1.0) ]
+                        yield! Qubo.squaredLinearPenalty penalty row -1.0 |> Map.toList
+                ]
+
+            let capacityTerms =
+                [
+                    for r in 0 .. numResources - 1 do
+                        if limits.[r] < numTasks then
+                            let load = [ for t in 0 .. numTasks - 1 -> (x t r, 1.0) ]
+
+                            let slack =
+                                slackWeights.[r]
+                                |> List.mapi (fun k weight -> (slackOffsets.[r] + k, float weight))
+
+                            yield!
+                                Qubo.squaredLinearPenalty penalty (load @ slack) (-(float limits.[r]))
+                                |> Map.toList
+                ]
+
+            let hardTerms =
+                problem.HardConstraints
+                |> List.collect (fun constraint' ->
+                    match constraint' with
+                    | Conflict(task1, task2) ->
+                        match Map.tryFind task1 taskIdx, Map.tryFind task2 taskIdx with
+                        | Some t1, Some t2 ->
+                            [
+                                for r in 0 .. numResources - 1 ->
+                                    ((min (x t1 r) (x t2 r), max (x t1 r) (x t2 r)), penalty)
+                            ]
+                        | _ -> []
+                    | RequiresResource(task, resource) ->
+                        match Map.tryFind task taskIdx, Map.tryFind resource resIdx with
+                        | Some t, Some r -> [ ((x t r, x t r), -penalty) ]
+                        | _ -> []
+                    | Precedence _ -> [])
+
+            (costTerms @ assignmentTerms @ capacityTerms @ hardTerms)
+            |> List.fold (fun acc (key, value) -> Qubo.combineTerms key value acc) Map.empty
+            |> Qubo.toDenseArray numQubits
+            |> Ok
 
     /// Find optimal schedule using QAOA-based SAT optimization.
     let private optimizeQaoaSat
@@ -771,36 +903,69 @@ module ConstraintScheduler =
             return Some schedule
         }
 
-    /// Find optimal schedule using QAOA-based bin packing optimization.
-    let private optimizeQaoaBinPacking
+    /// The schedule that the samples of a capacity-QUBO run stand for. Slack bits are
+    /// auxiliary, so a feasible sample can sit at a higher energy than an infeasible one:
+    /// the pick is the feasible sample of least cost (the first feasible sample for
+    /// MaximizeSatisfaction), and the lowest-energy sample only when no sample is feasible.
+    /// The sample is decoded as measured, without repair.
+    let private pickCapacitySchedule (problem: SchedulingProblem) (run: QaoaExecutionHelpers.QaoaRun) : Schedule =
+        let feasible =
+            run.Samples
+            |> Array.distinct
+            |> Array.map (decodeAssignmentBits problem)
+            |> Array.filter (fun schedule -> schedule.IsFeasible)
+
+        if feasible.Length = 0 then
+            decodeAssignmentBits problem run.Best
+        else
+            match problem.Goal with
+            | MinimizeCost
+            | Balanced -> feasible |> Array.minBy (fun schedule -> schedule.TotalCost)
+            | MaximizeSatisfaction -> feasible.[0]
+
+    /// Find a schedule by QAOA on the capacity QUBO (see pickCapacitySchedule for the sample
+    /// that is returned); createSchedule reports whether it is feasible.
+    let private optimizeQaoaCapacity
         (backend: IQuantumBackend)
         (problem: SchedulingProblem)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<Schedule option>> =
-        quantumResultTask {
-            let binProblem = toQaoaBinPackingProblem problem
+        task {
+            match toCapacityQubo problem with
+            | Error err -> return Error err
+            | Ok qubo ->
+                let numQubits = Array2D.length1 qubo
 
-            let! binSolution =
-                QuantumBinPackingSolver.solveWithConfigAsync
-                    backend
-                    binProblem
-                    { QuantumBinPackingSolver.defaultConfig with
-                        FinalShots = problem.Shots
-                    }
-                    cancellationToken
+                match UnifiedBackend.getRunnableQubits backend with
+                | Some maxQubits when numQubits > maxQubits ->
+                    return
+                        Error(
+                            QuantumError.ValidationError(
+                                "qubits",
+                                $"scheduling {problem.Tasks.Length} tasks on {problem.Resources.Length} resources with capacities needs {numQubits} qubits (tasks x resources + capacity slack bits), but backend '{backend.Name}' runs at most {maxQubits} qubits"
+                            )
+                        )
+                | _ ->
+                    let config =
+                        { QaoaExecutionHelpers.defaultConfig with
+                            FinalShots = problem.Shots
+                        }
 
-            let schedule = decodeQaoaBinPackingSolution problem binSolution
-            return Some schedule
+                    let! run =
+                        QaoaExecutionHelpers.runQaoaSampledAsync backend qubo config cancellationToken
+
+                    return run |> Result.map (pickCapacitySchedule problem >> Some)
         }
 
     /// Determine the effective strategy based on problem characteristics.
-    /// Auto selects QAOA when capacity constraints are present (bin packing formulation),
+    /// Auto (or no strategy) selects QAOA when capacity constraints are present (capacity QUBO),
     /// and Grover otherwise (exact search is preferred for small problems).
     let private resolveStrategy (problem: SchedulingProblem) : AlgorithmStrategy =
         match problem.Strategy with
-        | Some strategy -> strategy
+        | Some GroverSearch -> GroverSearch
+        | Some QaoaOptimize -> QaoaOptimize
+        | Some Auto
         | None ->
-            // Auto: Use QAOA if any resource has capacity constraints
             let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
             if hasCapacity then QaoaOptimize else GroverSearch
 
@@ -859,14 +1024,19 @@ module ConstraintScheduler =
                     match strategy, problem.Goal with
                     // Satisfaction goal: resource cost is intentionally NOT part of the
                     // objective (the user is maximising constraint satisfaction, not cost).
+                    // With capacities, QAOA runs the capacity QUBO (without its cost terms),
+                    // because the SAT clauses do not express capacity. The Grover Max-SAT
+                    // oracle does not express it either; Schedule.IsFeasible still checks it.
+                    | QaoaOptimize, MaximizeSatisfaction when hasCapacity ->
+                        optimizeQaoaCapacity backend problem cancellationToken
                     | QaoaOptimize, MaximizeSatisfaction -> optimizeQaoaSat backend problem cancellationToken
                     | (GroverSearch | Auto), MaximizeSatisfaction -> Task.FromResult(optimizeQuantumSat backend problem)
 
-                    // Cost goal WITH capacity: capacity is a hard structural requirement,
-                    // so we use the bin-packing formulation (cost minimisation is bounded
-                    // by capacity feasibility in this combination).
+                    // Cost goal WITH capacity: the capacity QUBO carries each resource's own
+                    // capacity, the hard constraints and the resource costs, whatever the
+                    // Grover/QAOA strategy hint.
                     | _, (MinimizeCost | Balanced) when hasCapacity ->
-                        optimizeQaoaBinPacking backend problem cancellationToken
+                        optimizeQaoaCapacity backend problem cancellationToken
 
                     // Cost goal WITHOUT capacity: resource cost is genuinely encoded via the
                     // weighted graph-colouring oracle. The SAT/QAOA clause encoding cannot
@@ -887,7 +1057,22 @@ module ConstraintScheduler =
                                 if sched.IsFeasible then
                                     $"Found feasible schedule with cost ${sched.TotalCost:F2}"
                                 else
-                                    $"Found partial schedule (unsatisfied constraints: {sched.TotalHardConstraints - sched.HardConstraintsSatisfied})"
+                                    let misassigned = misassignedTasks problem sched.Assignments
+                                    let overloaded = overloadedResources problem sched.Assignments
+
+                                    let reasons =
+                                        [
+                                            $"unsatisfied constraints: {sched.TotalHardConstraints - sched.HardConstraintsSatisfied}"
+                                            if not misassigned.IsEmpty then
+                                                let tasks = String.concat ", " misassigned
+                                                $"tasks not on exactly one resource: {tasks}"
+                                            if not overloaded.IsEmpty then
+                                                let resources = String.concat ", " overloaded
+                                                $"resources over capacity: {resources}"
+                                        ]
+                                        |> String.concat "; "
+
+                                    $"Found partial schedule ({reasons})"
                     }
         }
 
@@ -1126,8 +1311,9 @@ module ConstraintScheduler =
         /// QAOA formulates the scheduling problem as a QUBO and uses
         /// variational quantum optimization. Best for problems with
         /// capacity constraints or when approximate solutions are acceptable.
-        /// Automatically selects bin packing formulation when resources have
-        /// capacity limits, or SAT formulation otherwise.
+        /// Uses the capacity QUBO (tasks x resources assignment bits plus slack
+        /// bits per capacity-limited resource) when resources have capacity
+        /// limits, or the SAT formulation otherwise.
         /// </remarks>
         [<CustomOperation("useQaoa")>]
         member _.UseQaoa(problem: SchedulingProblem) : SchedulingProblem =

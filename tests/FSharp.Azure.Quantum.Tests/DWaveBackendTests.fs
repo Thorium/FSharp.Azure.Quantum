@@ -330,7 +330,8 @@ module DWaveBackendTests =
                     [ "A"; "B"; "C" ]
                     [ ("A", "B", 1.0); ("B", "C", 1.0); ("A", "C", 1.0) ]
 
-            let! result = FSharp.Azure.Quantum.MaxCut.solveAsync triangle (Some dwave) CancellationToken.None
+            let! result =
+                FSharp.Azure.Quantum.MaxCut.solveAsync triangle (Some dwave) CancellationToken.None
 
             result
             |> Result.map (fun solution -> Assert.Equal(2.0, solution.CutValue, 3))

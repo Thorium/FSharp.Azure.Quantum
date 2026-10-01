@@ -137,6 +137,17 @@ module Types =
 
             /// True if no deadline violations
             IsValid: bool
+
+            /// True when no measured sample was a feasible schedule as measured (exactly one
+            /// start slot per task) and the schedule comes from the one-hot repair decode,
+            /// which gives a task with several start bits its earliest set slot.
+            /// Always false for the classical solver.
+            WasRepaired: bool
+
+            /// Standing of this schedule among the final samples of the quantum solver:
+            /// Valid counts the samples that are feasible schedules as measured, Hits those
+            /// that are this schedule (0 when it was repaired). None for the classical solver.
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
         }
 
     // ============================================================================

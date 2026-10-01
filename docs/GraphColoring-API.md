@@ -170,7 +170,7 @@ let problem = graphColoring {
 | `conflictPenalty` | Multiplies the conflict penalty: an edge whose ends share a color costs `conflictPenalty` × P. Must be positive. See the guarantee below. |
 | `maxColors` | Only the first `maxColors` entries of `colors` are encoded, so no other color can be assigned. A `fixedColor` outside them is a validation error. |
 | `avoidColors` | Soft penalty of 0.3 × P / n when the node gets an avoided color (at most 0.3 × P over the whole graph), so another color is preferred when one is free. Must be in `colors`. |
-| `objective MinimizeColors` | Cost that grows with the color index (0.2 × P × index / (n × (colors − 1)) per node, at most 0.2 × P over the whole graph); among valid samples the fewest colors wins. |
+| `objective MinimizeColors` | Cost that grows with the color index (0.2 × P × index / (n × (colors − 1)) per node, at most 0.2 × P over the whole graph); among valid samples the fewest colors wins. The QUBO minimum is the valid coloring with the smallest sum of color indices, which can use more colors than necessary (a square with one node fixed to the third of three colors: index sum 3 takes three colors, the two-color coloring has index sum 4); the color count enters only when the samples are ranked. |
 | `objective BalanceColors` | Penalty 0.2 × P / n² × Σ (nodes per color)², at most 0.2 × P, which is smallest for even class sizes; among valid samples the most even one wins. |
 | `objective MinimizeConflicts` | No color-count preference; samples are ranked by conflict count. |
 | `priority` | Tie-break only: among samples that rank equal on the objective and QUBO energy, the one giving higher-priority nodes earlier colors wins; the greedy coloring (graphs without conflicts, `approximateChromaticNumber`) visits nodes in descending priority. |
@@ -217,7 +217,7 @@ type GraphColoringProblem = {
 
 ```text
 type ColoringObjective =
-    | MinimizeColors              // Minimize total colors used (default)
+    | MinimizeColors              // Prefer fewer colors (default; see the options table)
     | MinimizeConflicts           // Allow invalid, minimize conflicts
     | BalanceColors               // Balanced color distribution
 ```

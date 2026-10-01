@@ -359,8 +359,7 @@ module QRNG =
                                         // Simulated state: sample it once.
                                         match QuantumState.measure state 1 with
                                         | [||] -> Array.zeroCreate<bool> numBits
-                                        | measurements ->
-                                            measurements.[0] |> Array.map (fun bitValue -> bitValue = 1))
+                                        | measurements -> measurements.[0] |> Array.map (fun bitValue -> bitValue = 1))
                         }
 
                     let! measured =

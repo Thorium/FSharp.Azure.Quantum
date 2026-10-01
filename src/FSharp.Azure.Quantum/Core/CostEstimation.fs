@@ -838,7 +838,9 @@ module CostEstimation =
             // converted to the same clock before its date is taken.
             let now = DateTimeOffset.Now
             let today = now.Date
-            let todayRecords = records |> List.filter (fun r -> r.Timestamp.ToLocalTime().Date = today)
+
+            let todayRecords =
+                records |> List.filter (fun r -> r.Timestamp.ToLocalTime().Date = today)
 
             let todaySpend =
                 todayRecords

@@ -360,8 +360,8 @@ let ``Ising TopologicalBackend accepts QuantumMatchingSolver.solve`` () : Task =
         | Error err -> Assert.Fail($"Matching should run on the Ising backend: {err}")
     }
 
-// Slow: bin packing needs n·B + B = 6 qubits for 2 items, and a 6-qubit
-// fusion-tree state carries 64 explicit terms through every gate.
+// Bin packing needs n·B + B qubits plus slack bits per bin; these two items fill the
+// one first-fit-decreasing bin, so the instance takes 2 + 1 = 3 qubits and no slack.
 [<Fact; Trait("Category", "Slow")>]
 let ``Ising TopologicalBackend accepts QuantumBinPackingSolver.solve`` () : Task =
     task {

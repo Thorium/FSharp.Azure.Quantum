@@ -4,7 +4,8 @@
 // Usage:
 //   dotnet fsi RSAFactorization.fsx
 //   dotnet fsi RSAFactorization.fsx -- --help
-//   dotnet fsi RSAFactorization.fsx -- --number 21 --precision 6
+//   dotnet fsi RSAFactorization.fsx -- --precision 6        (18 qubits, slower)
+//   dotnet fsi RSAFactorization.fsx -- --number 21          (20 qubits: over an hour locally)
 //   dotnet fsi RSAFactorization.fsx -- --quiet --output results.json --csv results.csv
 
 (*
@@ -259,10 +260,19 @@ if not quiet then
 
 runFactorization "User Target" numberToFactor precision maxAttempts
 
-// --- Scenario 2: Factor 143 = 11 x 13 (if different from user target) ---
+// --- Scenario 2: what the next sizes cost (informational only) ---
+// The circuit is counting qubits + 2 register bits per bit of n + 4. The local simulator
+// runs up to 20 qubits, so 15 and 21 fit and 143 does not.
 
-if numberToFactor <> 143 then
-    runFactorization "Larger Modulus" 143 precision maxAttempts
+if not quiet then
+    printfn "--- Circuit Width by Modulus ---"
+    printfn ""
+    printfn "  n      Register bits   Width (counting + 2·bits + 4)      Local simulator"
+    printfn "  ---    -------------   ------------------------------     ---------------"
+    printfn "  15     4               4 + 8 + 4 = 16 qubits              seconds"
+    printfn "  21     5               6 + 10 + 4 = 20 qubits             over an hour"
+    printfn "  143    8               8 + 16 + 4 = 28 qubits             refused (limit 20)"
+    printfn ""
 
 // --- Scenario 3: Real-world RSA assessment (informational only) ---
 
@@ -346,7 +356,7 @@ match csvPath with
 if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then
     printfn ""
     printfn "Hint: Customize this run with CLI options:"
-    printfn "  dotnet fsi RSAFactorization.fsx -- --number 21 --precision 6"
-    printfn "  dotnet fsi RSAFactorization.fsx -- --number 77 --max-attempts 20"
+    printfn "  dotnet fsi RSAFactorization.fsx -- --precision 6 --max-attempts 20"
+    printfn "  dotnet fsi RSAFactorization.fsx -- --number 21     (20 qubits: over an hour locally)"
     printfn "  dotnet fsi RSAFactorization.fsx -- --quiet --output results.json --csv results.csv"
     printfn "  dotnet fsi RSAFactorization.fsx -- --help"

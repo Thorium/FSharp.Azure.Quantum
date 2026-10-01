@@ -667,7 +667,7 @@ module DecomposeRecombineTests =
         Assert.Equal(2, parts.Head.Vertices.Length)
 
     [<Fact>]
-    let ``recombine picks largest clique`` () =
+    let ``recombine picks the heaviest clique`` () =
         let s1: Solution =
             {
                 CliqueVertices = [ { Id = "A"; Weight = 1.0 } ]
@@ -679,6 +679,8 @@ module DecomposeRecombineTests =
                 NumShots = 100
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         let s2: Solution =
@@ -692,6 +694,8 @@ module DecomposeRecombineTests =
                 NumShots = 100
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         let combined = recombine [ s1; s2 ]
@@ -702,3 +706,77 @@ module DecomposeRecombineTests =
         let combined = recombine []
         Assert.Equal(0, combined.CliqueSize)
         Assert.True(combined.IsValid)
+
+// ============================================================================
+// MAXIMUM-WEIGHT SEMANTICS (every bitstring enumerated, no circuit)
+// ============================================================================
+
+module MaximumWeightTests =
+
+    /// K4 of weight-1 vertices and a separate pair whose first vertex weighs 10.
+    let private heavyPairProblem: Problem =
+        {
+            Vertices =
+                [
+                    { Id = "A"; Weight = 1.0 }
+                    { Id = "B"; Weight = 1.0 }
+                    { Id = "C"; Weight = 1.0 }
+                    { Id = "D"; Weight = 1.0 }
+                    { Id = "E"; Weight = 10.0 }
+                    { Id = "F"; Weight = 1.0 }
+                ]
+            Edges = [ (0, 1); (0, 2); (0, 3); (1, 2); (1, 3); (2, 3); (4, 5) ]
+        }
+
+    let private cliqueOf (problem: Problem) (ids: string list) : Solution =
+        let vertices = problem.Vertices |> List.filter (fun v -> List.contains v.Id ids)
+
+        {
+            CliqueVertices = vertices
+            CliqueSize = vertices.Length
+            CliqueWeight = vertices |> List.sumBy (fun v -> v.Weight)
+            IsValid = true
+            WasRepaired = false
+            BackendName = "test"
+            NumShots = 100
+            OptimizedParameters = None
+            OptimizationConverged = None
+            Sampling = None
+            Split = None
+        }
+
+    [<Fact>]
+    let ``toQubo minimum is the maximum-weight clique, not the largest one`` () =
+        match toQubo heavyPairProblem with
+        | Error err -> Assert.Fail($"toQubo failed: {err}")
+        | Ok qubo ->
+            let n = heavyPairProblem.Vertices.Length
+
+            let states =
+                Array.init (1 <<< n) (fun index -> Array.init n (fun q -> (index >>> q) &&& 1))
+
+            let energies = states |> Array.map (QaoaExecutionHelpers.evaluateQubo qubo)
+            let lowest = Array.min energies
+
+            let minima =
+                Array.zip states energies
+                |> Array.filter (fun (_, e) -> e <= lowest + 1e-9)
+                |> Array.map fst
+
+            // The pair {E, F} weighs 11; the four-vertex clique weighs 4.
+            Assert.Equal<int[][]>([| [| 0; 0; 0; 0; 1; 1 |] |], minima)
+
+    [<Fact>]
+    let ``recombine picks the clique the QUBO ranks best`` () =
+        let parts = decompose heavyPairProblem
+        Assert.Equal(2, parts.Length)
+
+        let combined =
+            recombine
+                [
+                    cliqueOf heavyPairProblem [ "A"; "B"; "C"; "D" ]
+                    cliqueOf heavyPairProblem [ "E"; "F" ]
+                ]
+
+        Assert.Equal(11.0, combined.CliqueWeight, 9)
+        Assert.Equal(2, combined.CliqueSize)

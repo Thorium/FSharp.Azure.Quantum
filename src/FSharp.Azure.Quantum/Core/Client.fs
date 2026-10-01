@@ -49,7 +49,9 @@ module Client =
 
         /// Workspace quotas (AzureQuantumWorkspace.ListQuotasAsync)
         let quotasPath subscriptionId resourceGroup workspaceName =
-            sprintf "%s/quotas?api-version=2022-09-12-preview" (workspacePath subscriptionId resourceGroup workspaceName)
+            sprintf
+                "%s/quotas?api-version=2022-09-12-preview"
+                (workspacePath subscriptionId resourceGroup workspaceName)
 
         /// Provider and target availability (AzureQuantumWorkspace.ListProvidersAsync)
         let providerStatusPath subscriptionId resourceGroup workspaceName =
@@ -290,7 +292,9 @@ module Client =
         member this.SubmitJobAsync(submission: JobSubmission, ?cancellationToken: CancellationToken) =
             task {
                 let ct = defaultArg cancellationToken CancellationToken.None
-                return! Retry.executeWithRetryAsync retryConfig (fun ct -> this.SubmitJobAsyncInternal(submission, ct)) ct
+
+                return!
+                    Retry.executeWithRetryAsync retryConfig (fun ct -> this.SubmitJobAsyncInternal(submission, ct)) ct
             }
 
         /// Get job status (internal implementation without retry)
@@ -530,8 +534,7 @@ module Client =
                                 use resultRequest = new HttpRequestMessage(HttpMethod.Get, outputDataUri)
                                 Authentication.markNoAuth resultRequest
 
-                                use! resultResponse =
-                                    config.HttpClient.SendAsync(resultRequest, ct)
+                                use! resultResponse = config.HttpClient.SendAsync(resultRequest, ct)
 
                                 if not resultResponse.IsSuccessStatusCode then
                                     let! errorBody = resultResponse.Content.ReadAsStringAsync ct

@@ -273,7 +273,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 - **[Chemistry/H2OWater.fsx](Chemistry/H2OWater.fsx)**  
   Water molecule (H₂O) quantum simulation  
-  **Complexity:** 10 qubits (requires cloud backend)
+  **Complexity:** runs on LocalBackend; up to 16 qubits (2 per spatial orbital of the integrals supplied)
 
 - **[Chemistry/ElectronTransportChain.fsx](Chemistry/ElectronTransportChain.fsx)** 🧬 NEW  
   VQE for cytochrome Fe2+/Fe3+ redox chemistry  
@@ -382,7 +382,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 - **[ProblemDecomposition/ProblemDecomposition_Example.fsx](ProblemDecomposition/ProblemDecomposition_Example.fsx)** NEW  
   Automatic problem decomposition: splits large QUBOs into sub-problems that fit backend qubit limits, solves independently, and merges results  
-  **Use Case:** Run 50+ variable problems on 16-qubit LocalBackend via divide-and-conquer  
+  **Use Case:** Run 50+ variable problems on the local simulator (20 qubits in practice) via divide-and-conquer  
   **Algorithm:** Graph-based partitioning with budget-aware execution orchestration
 
 ### Quantum Circuit Building

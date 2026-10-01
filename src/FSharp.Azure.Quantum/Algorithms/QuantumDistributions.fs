@@ -72,7 +72,8 @@ module QuantumDistributions =
 
             /// Quantum entropy used (number of quantum bits)
             ///
-            /// - Pure simulation (`sample`): 53 qubits (IEEE 754 double precision)
+            /// - Pure simulation (`sample`): 53 bits, each from one simulated qubit measured in
+            ///   turn (IEEE 754 double precision); no 53-qubit circuit runs
             /// - Backend-based (`sampleWithBackendAsync`): 10 qubits (configurable)
             QuantumBitsUsed: int
         }
@@ -203,7 +204,7 @@ module QuantumDistributions =
         | Ok() ->
             try
                 // Generate quantum uniform random U ~ (0,1)
-                // QRNG.generateFloat() uses 53 qubits (IEEE 754 double precision mantissa)
+                // QRNG.generateFloat() draws 53 bits (IEEE 754 double precision mantissa)
                 let numQubits = 53 // Matches QRNG.generateFloat() internal implementation
                 let u = QRNG.generateFloat ()
 

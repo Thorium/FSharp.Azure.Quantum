@@ -723,7 +723,9 @@ module ProbabilisticErrorCancellationTests =
             // Act
 
             // Assert: Should propagate error gracefully
-            match! ProbabilisticErrorCancellation.mitigateAsync circuit config failingExecutor CancellationToken.None with
+            match!
+                ProbabilisticErrorCancellation.mitigateAsync circuit config failingExecutor CancellationToken.None
+            with
             | Error err -> Assert.Contains("execution failed", err.ToLower())
             | Ok _ -> Assert.Fail("Expected error for failing executor")
         }
@@ -785,8 +787,11 @@ module ProbabilisticErrorCancellationTests =
             let mockExecutor (_: CircuitBuilder.Circuit) = task { return Ok 0.85 }
 
             // Act: Run twice with same seed
-            let! result1 = ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None
-            let! result2 = ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None
+            let! result1 =
+                ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None
+
+            let! result2 =
+                ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None
 
             // Assert: Should get identical results
             match result1, result2 with
@@ -1155,7 +1160,8 @@ module ProbabilisticErrorCancellationTests =
                 ]
 
             // Act: Run PEC with different sample counts, one configuration after another
-            let results = ResizeArray<Result<ProbabilisticErrorCancellation.PECResult, string>>()
+            let results =
+                ResizeArray<Result<ProbabilisticErrorCancellation.PECResult, string>>()
 
             for cfg in configs do
                 let! r =

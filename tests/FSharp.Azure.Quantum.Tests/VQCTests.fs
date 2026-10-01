@@ -75,7 +75,15 @@ module VQCTests =
             let config = createTestConfig ()
 
             let! result =
-                trainAsync backend featureMap variationalForm parameters emptyFeatures emptyLabels config CancellationToken.None
+                trainAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    emptyFeatures
+                    emptyLabels
+                    config
+                    CancellationToken.None
 
             result
             |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty training set"))
@@ -114,7 +122,15 @@ module VQCTests =
             let emptyLabels = [||]
 
             let! result =
-                evaluateAsync backend featureMap variationalForm parameters emptyFeatures emptyLabels 100 CancellationToken.None
+                evaluateAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    emptyFeatures
+                    emptyLabels
+                    100
+                    CancellationToken.None
 
             result
             |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty dataset"))
@@ -201,7 +217,9 @@ module VQCTests =
             let features = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |]; [| 0.5; 0.6 |] |]
             let labels = [| 0; 1; 0 |]
 
-            match! evaluateAsync backend featureMap variationalForm parameters features labels 100 CancellationToken.None with
+            match!
+                evaluateAsync backend featureMap variationalForm parameters features labels 100 CancellationToken.None
+            with
             | Error msg -> Assert.True(false, $"Evaluation failed: {msg}")
             | Ok accuracy ->
                 // With untrained random parameters, accuracy will be random but valid
@@ -219,7 +237,9 @@ module VQCTests =
             let features = [| [| 0.5; 0.5 |] |]
             let labels = [| 0 |]
 
-            match! evaluateAsync backend featureMap variationalForm parameters features labels 100 CancellationToken.None with
+            match!
+                evaluateAsync backend featureMap variationalForm parameters features labels 100 CancellationToken.None
+            with
             | Error msg -> Assert.True(false, $"Evaluation failed: {msg}")
             | Ok accuracy ->
                 // Either 0.0 (wrong) or 1.0 (correct) for single sample
@@ -264,7 +284,15 @@ module VQCTests =
             let config = createTestConfig ()
 
             let! trained =
-                trainAsync backend featureMap variationalForm initialParams features labels config CancellationToken.None
+                trainAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    initialParams
+                    features
+                    labels
+                    config
+                    CancellationToken.None
 
             trained
             |> Result.map (fun result -> Assert.Equal(initialParams.Length, result.Parameters.Length))
@@ -360,7 +388,17 @@ module VQCTests =
             let features = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |]; [| 0.5; 0.6 |]; [| 0.7; 0.8 |] |]
             let labels = [| 0; 0; 1; 1 |]
 
-            match! confusionMatrixAsync backend featureMap variationalForm parameters features labels 100 CancellationToken.None with
+            match!
+                confusionMatrixAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    100
+                    CancellationToken.None
+            with
             | Error msg -> Assert.True(false, $"Confusion matrix failed: {msg}")
             | Ok cm ->
                 // Check that all counts are non-negative
@@ -493,7 +531,14 @@ module VQCTests =
 
                 // Predict on training data
                 match!
-                    predictAsync backend featureMap variationalForm trainResult.Parameters trainFeatures.[0] 100 CancellationToken.None
+                    predictAsync
+                        backend
+                        featureMap
+                        variationalForm
+                        trainResult.Parameters
+                        trainFeatures.[0]
+                        100
+                        CancellationToken.None
                 with
                 | Error msg -> Assert.True(false, $"Prediction failed: {msg}")
                 | Ok prediction ->
@@ -594,7 +639,15 @@ module VQCTests =
                 }
 
             let! result =
-                trainAsync backend featureMap variationalForm parameters features labels adamConfig CancellationToken.None
+                trainAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    adamConfig
+                    CancellationToken.None
 
             match result with
             | Error msg -> Assert.True(false, $"Training with Adam should succeed: {msg}")
@@ -626,7 +679,15 @@ module VQCTests =
                 }
 
             let! sgdResult =
-                trainAsync backend featureMap variationalForm parameters features labels sgdConfig CancellationToken.None
+                trainAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    sgdConfig
+                    CancellationToken.None
 
             // Train with Adam (use same initial parameters for fair comparison)
             let adamConfig =
@@ -637,7 +698,15 @@ module VQCTests =
                 }
 
             let! adamResult =
-                trainAsync backend featureMap variationalForm parameters features labels adamConfig CancellationToken.None
+                trainAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    adamConfig
+                    CancellationToken.None
 
             match sgdResult, adamResult with
             | Ok sgd, Ok adam ->
@@ -702,7 +771,15 @@ module VQCTests =
                 }
 
             match!
-                trainMultiClassAsync backend featureMap variationalForm parameters features labels config CancellationToken.None
+                trainMultiClassAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    config
+                    CancellationToken.None
             with
             | Error msg -> Assert.True(false, $"Multi-class training failed: {msg}")
             | Ok result ->
@@ -735,7 +812,15 @@ module VQCTests =
             let config = createTestConfig ()
 
             match!
-                trainMultiClassAsync backend featureMap variationalForm parameters features labels config CancellationToken.None
+                trainMultiClassAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    config
+                    CancellationToken.None
             with
             | Error msg -> Assert.True(false, $"Binary classification should work: {msg}")
             | Ok result ->
@@ -757,7 +842,15 @@ module VQCTests =
             let config = createTestConfig ()
 
             let! result =
-                trainMultiClassAsync backend featureMap variationalForm parameters features labels config CancellationToken.None
+                trainMultiClassAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    config
+                    CancellationToken.None
 
             result
             |> Result.map (fun _ -> Assert.True(false, "Should have rejected single class"))
@@ -805,7 +898,15 @@ module VQCTests =
             let config = createTestConfig ()
 
             let! result =
-                trainMultiClassAsync backend featureMap variationalForm parameters features labels config CancellationToken.None
+                trainMultiClassAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    config
+                    CancellationToken.None
 
             result
             |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths"))
@@ -829,13 +930,28 @@ module VQCTests =
                 }
 
             match!
-                trainMultiClassAsync backend featureMap variationalForm parameters features labels config CancellationToken.None
+                trainMultiClassAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    config
+                    CancellationToken.None
             with
             | Error msg -> Assert.True(false, $"Training failed: {msg}")
             | Ok trainResult ->
                 // Predict on first training sample (class 0)
                 match!
-                    predictMultiClassAsync backend featureMap variationalForm trainResult features.[0] 100 CancellationToken.None
+                    predictMultiClassAsync
+                        backend
+                        featureMap
+                        variationalForm
+                        trainResult
+                        features.[0]
+                        100
+                        CancellationToken.None
                 with
                 | Error msg -> Assert.True(false, $"Prediction failed: {msg}")
                 | Ok prediction ->
@@ -874,12 +990,27 @@ module VQCTests =
                 }
 
             match!
-                trainMultiClassAsync backend featureMap variationalForm parameters features labels config CancellationToken.None
+                trainMultiClassAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    config
+                    CancellationToken.None
             with
             | Error msg -> Assert.True(false, $"Training failed: {msg}")
             | Ok trainResult ->
                 match!
-                    predictMultiClassAsync backend featureMap variationalForm trainResult features.[0] 100 CancellationToken.None
+                    predictMultiClassAsync
+                        backend
+                        featureMap
+                        variationalForm
+                        trainResult
+                        features.[0]
+                        100
+                        CancellationToken.None
                 with
                 | Error msg -> Assert.True(false, $"Prediction failed: {msg}")
                 | Ok prediction ->
@@ -913,14 +1044,29 @@ module VQCTests =
                 }
 
             match!
-                trainMultiClassAsync backend featureMap variationalForm parameters features labels config CancellationToken.None
+                trainMultiClassAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    labels
+                    config
+                    CancellationToken.None
             with
             | Error msg -> Assert.True(false, $"Training failed: {msg}")
             | Ok trainResult ->
                 // Run prediction 10 times to catch any floating-point comparison issues
                 for i in 1..10 do
                     match!
-                        predictMultiClassAsync backend featureMap variationalForm trainResult features.[0] 100 CancellationToken.None
+                        predictMultiClassAsync
+                            backend
+                            featureMap
+                            variationalForm
+                            trainResult
+                            features.[0]
+                            100
+                            CancellationToken.None
                     with
                     | Error msg -> Assert.True(false, $"Prediction #{i} failed: {msg}")
                     | Ok prediction ->
@@ -967,7 +1113,14 @@ module VQCTests =
                     let testFeatures = trainFeatures.[sampleIdx]
 
                     match!
-                        predictMultiClassAsync backend featureMap variationalForm trainResult testFeatures 100 CancellationToken.None
+                        predictMultiClassAsync
+                            backend
+                            featureMap
+                            variationalForm
+                            trainResult
+                            testFeatures
+                            100
+                            CancellationToken.None
                     with
                     | Error msg -> Assert.True(false, $"Prediction for class {classLabel} failed: {msg}")
                     | Ok prediction ->

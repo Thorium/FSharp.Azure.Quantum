@@ -211,7 +211,7 @@ module QuantumPeriodFinderBuilderTests =
                 // Inert as a speed knob, despite appearances. findPeriodQuantum clamps
                 // counting qubits to practicalCircuitQubits - 2*registerBits - 4, here
                 // 20 - 2*5 - 4 = 6, so 10, 8 and 6 all simulate the same 20-qubit circuit
-                // and only the reported QubitsUsed changes. 5 is the last value that does
+                // and report the same QubitsUsed. 5 is the last value that does
                 // anything (a 19-qubit circuit); at 4 the phase grid 2^4 = 16 drops below
                 // N = 21 and the continued fraction can no longer resolve a period of 6.
                 precision 8
@@ -325,13 +325,16 @@ module QuantumPeriodFinderBuilderTests =
             | Error err, _ -> Assert.Fail($"Low-precision solve failed: {err.Message}")
             | _, Error err -> Assert.Fail($"High-precision solve failed: {err.Message}")
             | Ok lowResult, Ok highResult ->
-                // QubitsUsed = precision + ceil(log₂ N), so it tracks the request
-                // exactly even though the counting register is clamped to the
-                // simulator's budget during execution.
-                Assert.True(
-                    highResult.QubitsUsed > lowResult.QubitsUsed,
-                    $"12-qubit precision should report more qubits than 4: {highResult.QubitsUsed} vs {lowResult.QubitsUsed}"
-                )
+                // QubitsUsed is the width of the circuit that ran, so the clamped 8 counting
+                // qubits report a wider circuit than 4 when both results came from a circuit.
+                let fromCircuit (r: PeriodFinderResult) =
+                    r.FactorSource = ShorsTypes.FactorSource.QuantumPeriodFinding
+
+                if fromCircuit lowResult && fromCircuit highResult then
+                    Assert.True(
+                        highResult.QubitsUsed > lowResult.QubitsUsed,
+                        $"8 counting qubits should report a wider circuit than 4: {highResult.QubitsUsed} vs {lowResult.QubitsUsed}"
+                    )
 
                 // Both precisions factor 15; more counting qubits never costs success.
                 Assert.True(lowResult.Success, $"Low precision should still factor 15: {lowResult.Message}")
@@ -428,7 +431,16 @@ module QuantumPeriodFinderBuilderTests =
                     $"Phase estimate {result.PhaseEstimate} should be in [0, 1]"
                 )
 
-                Assert.True(result.QubitsUsed > 0, "Should use at least one qubit")
+                // QubitsUsed is the width of the circuit that measured the period: counting
+                // qubits + 2 register bits + 4 for N = 15 on the gate route, and 0 when
+                // classical preprocessing produced the factors without a circuit.
+                if result.FactorSource = ShorsTypes.FactorSource.QuantumPeriodFinding then
+                    Assert.True(
+                        result.QubitsUsed >= 6 + 4,
+                        $"Circuit width {result.QubitsUsed} is below the counting and register qubits"
+                    )
+                elif result.FactorSource = ShorsTypes.FactorSource.ClassicalPreprocessing then
+                    Assert.Equal(0, result.QubitsUsed)
 
                 // Attempts counts QPE shots inside period finding, not the MaxAttempts
                 // base-retry budget, so it is NOT bounded by 3 — a base whose phase

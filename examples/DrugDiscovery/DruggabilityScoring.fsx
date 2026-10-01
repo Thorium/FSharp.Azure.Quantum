@@ -452,8 +452,15 @@ let toIndependentSetProblem
 let problem = toIndependentSetProblem features overlaps
 
 let startTime = DateTime.Now
+
 let solveResult =
-    IndependentSet.solveWithConfigAsync backend problem { defaultConfig with FinalShots = shots } CancellationToken.None
+    IndependentSet.solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with
+            FinalShots = shots
+        }
+        CancellationToken.None
     |> Async.AwaitTask
     |> Async.RunSynchronously
 

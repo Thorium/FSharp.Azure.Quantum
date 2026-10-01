@@ -383,6 +383,7 @@ module PathOptimizer =
     /// Solve path planning using TSP.solveDirectlyAsync (quantum-first API with local simulation)
     let solveQuantum (waypoints: Waypoint array) : QuantumResult<TSP.Tour> =
         let cities = toTspCities waypoints
+
         TSP.solveDirectlyAsync cities None System.Threading.CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously

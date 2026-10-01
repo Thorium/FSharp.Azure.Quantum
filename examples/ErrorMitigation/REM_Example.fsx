@@ -277,7 +277,11 @@ if not quiet then
     printfn "----------------------------------------"
     printfn ""
 
-match measureCalibrationMatrixAsync "ionq" 1 remConfig executor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    measureCalibrationMatrixAsync "ionq" 1 remConfig executor CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Error err ->
     if not quiet then
         printfn "[ERROR] Calibration failed: %s" err
@@ -310,7 +314,11 @@ match measureCalibrationMatrixAsync "ionq" 1 remConfig executor CancellationToke
         printfn "------------------------------------------------"
         printfn ""
 
-    match executor zeroStateCircuit circuitShots |> Async.AwaitTask |> Async.RunSynchronously with
+    match
+        executor zeroStateCircuit circuitShots
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Error err ->
         if not quiet then
             printfn "[ERROR] Execution failed: %s" err
@@ -430,7 +438,11 @@ if not quiet then
     printfn "Running two-qubit REM (calibrate + execute + correct)..."
     printfn ""
 
-match mitigateAsync bellStateCircuit "ionq" remConfig twoQubitExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    mitigateAsync bellStateCircuit "ionq" remConfig twoQubitExecutor CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Error err ->
     if not quiet then
         printfn "[ERROR] REM failed: %s" err
@@ -701,7 +713,11 @@ if not quiet then
     printfn "    -> Task<Result<Map<string, float>, string>>"
     printfn ""
 
-match runCircuitWithREM bellStateCircuit "ionq" circuitShots twoQubitExecutor |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    runCircuitWithREM bellStateCircuit "ionq" circuitShots twoQubitExecutor
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok histogram ->
     if not quiet then
         printfn "[OK] Production Results (with REM):"

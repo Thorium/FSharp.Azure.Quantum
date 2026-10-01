@@ -2,12 +2,13 @@ namespace FSharp.Azure.Quantum.Examples.Kasino
 
 /// Scoring for Kasino card game.
 /// Points are awarded at the end of a round:
-///   - Most cards:    1 point (ties: no one gets it)
-///   - Most spades:   2 points (ties: no one gets it)
+///   - Most cards:    1 point per round in the pot (a tie carries the point over, see
+///                    CarryOver, until someone wins it outright)
+///   - Most spades:   2 points per round in the pot (ties carry over likewise)
 ///   - Each Ace:      1 point
 ///   - Diamond 10:    2 points
 ///   - Spade 2:       1 point
-///   - Each sweep:    1 point
+///   - Each sweep:    1 point, net of the table's lowest sweep count
 module Scoring =
 
     /// Score breakdown for one player
@@ -22,20 +23,34 @@ module Scoring =
             Total: int
         }
 
-    /// Calculate scores for all players at end of a round
-    let calculateScores (players: Player list) : (Player * ScoreBreakdown) list =
+    /// Undistributed most-cards and most-spades points. When a category ties, its round
+    /// points join the pot and roll into the next round; whoever then wins the category
+    /// outright collects the whole pot.
+    [<Struct>]
+    type CarryOver = { CardsPool: int; SpadesPool: int }
+
+    module CarryOver =
+        let zero = { CardsPool = 0; SpadesPool = 0 }
+
+    /// Calculate scores for all players at end of a round, with the pots carried from
+    /// earlier tied rounds. Returns the breakdowns and the pot for the next round.
+    let calculateScoresCarry (carry: CarryOver) (players: Player list) : (Player * ScoreBreakdown) list * CarryOver =
         let cardCounts = players |> List.map (fun p -> p, p.CapturedCards.Length)
 
         let spadeCounts =
             players
             |> List.map (fun p -> p, p.CapturedCards |> List.filter Cards.isSpade |> List.length)
 
-        // Most cards: 1 point (only if unique maximum)
+        // This round's category points plus any pot from earlier tied rounds
+        let cardsPot = carry.CardsPool + 1
+        let spadesPot = carry.SpadesPool + 2
+
+        // Most cards: the pot (only if unique maximum)
         let maxCards = cardCounts |> List.map snd |> List.max
         let mostCardsWinners = cardCounts |> List.filter (fun (_, c) -> c = maxCards)
         let uniqueMostCards = mostCardsWinners.Length = 1
 
-        // Most spades: 2 points (only if unique maximum)
+        // Most spades: the pot (only if unique maximum)
         let maxSpades = spadeCounts |> List.map snd |> List.max
         let mostSpadesWinners = spadeCounts |> List.filter (fun (_, c) -> c = maxSpades)
         let uniqueMostSpades = mostSpadesWinners.Length = 1
@@ -47,9 +62,17 @@ module Scoring =
                 let myCards = player.CapturedCards.Length
                 let mySpades = player.CapturedCards |> List.filter Cards.isSpade |> List.length
 
-                let mostCardsPoints = if uniqueMostCards && myCards = maxCards then 1 else 0
+                let mostCardsPoints =
+                    if uniqueMostCards && myCards = maxCards then
+                        cardsPot
+                    else
+                        0
 
-                let mostSpadesPoints = if uniqueMostSpades && mySpades = maxSpades then 2 else 0
+                let mostSpadesPoints =
+                    if uniqueMostSpades && mySpades = maxSpades then
+                        spadesPot
+                    else
+                        0
 
                 let acePoints = player.CapturedCards |> List.filter Cards.isAce |> List.length
 
@@ -75,30 +98,47 @@ module Scoring =
             else
                 players |> List.map (fun p -> p.Sweeps) |> List.min
 
-        intermediate
-        |> List.map (fun (player, mostCardsPoints, mostSpadesPoints, acePoints, diamondTenPoints, spadeTwoPoints) ->
-            let sweepPoints = player.Sweeps - minSweeps
+        let breakdowns =
+            intermediate
+            |> List.map (fun (player, mostCardsPoints, mostSpadesPoints, acePoints, diamondTenPoints, spadeTwoPoints) ->
+                let sweepPoints = player.Sweeps - minSweeps
 
-            let total =
-                mostCardsPoints
-                + mostSpadesPoints
-                + acePoints
-                + diamondTenPoints
-                + spadeTwoPoints
-                + sweepPoints
+                let total =
+                    mostCardsPoints
+                    + mostSpadesPoints
+                    + acePoints
+                    + diamondTenPoints
+                    + spadeTwoPoints
+                    + sweepPoints
 
-            let breakdown =
-                {
-                    MostCards = mostCardsPoints
-                    MostSpades = mostSpadesPoints
-                    Aces = acePoints
-                    DiamondTen = diamondTenPoints
-                    SpadeTwo = spadeTwoPoints
-                    Sweeps = sweepPoints
-                    Total = total
-                }
+                let breakdown =
+                    {
+                        MostCards = mostCardsPoints
+                        MostSpades = mostSpadesPoints
+                        Aces = acePoints
+                        DiamondTen = diamondTenPoints
+                        SpadeTwo = spadeTwoPoints
+                        Sweeps = sweepPoints
+                        Total = total
+                    }
 
-            (player, breakdown))
+                (player, breakdown))
+
+        let nextCarry =
+            {
+                CardsPool = if uniqueMostCards then 0 else cardsPot
+                SpadesPool = if uniqueMostSpades then 0 else spadesPot
+            }
+
+        breakdowns, nextCarry
+
+    /// Calculate scores for a single round with no carried pot: a tie awards nothing.
+    let calculateScores (players: Player list) : (Player * ScoreBreakdown) list =
+        calculateScoresCarry CarryOver.zero players |> fst
+
+    /// Game score at which sweeps stop scoring for the rest of the game
+    [<Literal>]
+    let sweepFreezeScore = 10
 
     /// Maximum possible fixed score in a round, excluding sweeps (which are
     /// open-ended): most cards 1 + most spades 2 + aces 4 + 10♦ 2 + 2♠ 1.

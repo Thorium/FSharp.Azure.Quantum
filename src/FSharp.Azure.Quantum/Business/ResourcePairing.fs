@@ -159,13 +159,20 @@ module ResourcePairing =
                     $"Found {pairings.Length} pairings (may have conflicts)"
         }
 
-    /// Execute resource pairing optimization without blocking the calling thread
+    /// Execute resource pairing optimization without blocking the calling thread.
+    ///
+    /// On a simulator a problem that needs more qubits than the backend runs is split into
+    /// circuits that fit and joined (QuboSplitting, default QaoaExecutionHelpers.SplitSettings);
+    /// it then takes many runs instead of one. A backend that bills every circuit is never
+    /// split here. Call QuantumMatchingSolver.solveWithConfigAsync to change the settings or to read the
+    /// split report.
     let solveAsync
         (problem: PairingProblem)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<PairingResult>> =
         quantumResultTask {
-            let knownParticipants = System.Collections.Generic.HashSet<ParticipantId>(problem.Participants)
+            let knownParticipants =
+                System.Collections.Generic.HashSet<ParticipantId>(problem.Participants)
 
             if problem.Participants.Length < 2 then
                 return! Error(QuantumError.ValidationError("Participants", "must have at least 2 participants"))

@@ -47,11 +47,21 @@ module QuantumSolver =
     ///
     /// Resource-constrained scheduling is solved via quantum optimization:
     /// 1. Encodes tasks, dependencies, and resource limits as QUBO problem
-    /// 2. Uses QAOA or quantum annealing to find optimal schedule
-    /// 3. Respects resource capacity constraints (unlike classical solver)
-    /// 4. Respects EarliestStart and resource availability windows: slots that break them
-    ///    are penalised in the QUBO, cleared before decoding, and re-checked on the result
-    /// 5. Breaks ties between equally good schedules by task Priority
+    ///    (see QuboEncoding.toQubo; its objective is the sum of completion times)
+    /// 2. Runs QAOA as the configuration asks: config.NumLayers layers, angles from
+    ///    Nelder-Mead (config.EnableOptimization) or a grid search, config.FinalShots samples
+    /// 3. Decodes strictly: a sample is valid only if every task has exactly one start
+    ///    slot set and the schedule respects dependencies, resource capacities,
+    ///    EarliestStart and resource availability windows
+    /// 4. Returns the best valid sample for the objective (minimum makespan, or least
+    ///    lateness for MinimizeLateness), ties broken by task Priority
+    /// 5. Only when no sample is valid, and config.EnableConstraintRepair allows it, falls
+    ///    back to the one-hot repair decode (forbidden start bits cleared, a task with
+    ///    several start bits takes its earliest set slot) under the same feasibility
+    ///    checks; the solution then has WasRepaired = true
+    ///
+    /// Solution.Sampling reports the final samples: Valid = valid samples in the sense of
+    /// step 3, Hits = samples that are the returned schedule (0 when it was repaired).
     ///
     /// Use this when:
     /// - Tasks have resource requirements (workers, machines, budget)
@@ -60,10 +70,12 @@ module QuantumSolver =
     ///
     /// Example:
     ///   let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
-    ///   let! result = solveQuantumAsync backend problem CancellationToken.None
-    let solveAsync
+    ///   let config = { QaoaExecutionHelpers.defaultConfig with NumLayers = 3; FinalShots = 2000 }
+    ///   let! result = solveWithConfigAsync backend problem config CancellationToken.None
+    let solveWithConfigAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: SchedulingProblem<'TTask, 'TResource>)
+        (config: QaoaExecutionHelpers.QaoaSolverConfig)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<Solution>> =
         task {
@@ -159,29 +171,17 @@ module QuantumSolver =
                     | Ok quboMatrix ->
 
                         // Convert sparse QUBO to dense array for QAOA
-                        let quboArray = Array2D.zeroCreate quboMatrix.NumVariables quboMatrix.NumVariables
+                        let quboArray = QaoaExecutionHelpers.quboMapToArray quboMatrix
 
-                        for KeyValue((i, j), value) in quboMatrix.Q do
-                            quboArray.[i, j] <- value
-
-                        // p = 1 QAOA at fixed angles through the shared solver pipeline
-                        // (normalised cost Hamiltonian, minimisation convention)
-                        let gamma, beta = 0.5, 0.5
-                        let numShots = 1000
-
+                        // Angles chosen and final samples drawn through the shared solver pipeline,
+                        // as the configuration asks (layers, optimisation, shots)
                         let! execution =
-                            QaoaExecutionHelpers.executeFromQuboAsync
-                                backend
-                                quboArray
-                                [| (gamma, beta) |]
-                                numShots
-                                cancellationToken
+                            QaoaExecutionHelpers.runQaoaSampledAsync backend quboArray config cancellationToken
 
                         match execution with
                         | Error err -> return Error err
-                        | Ok measurements ->
+                        | Ok run ->
 
-                            // Decode each measurement and find best feasible solution
                             // A schedule respects precedence iff every finish-to-start dependency holds:
                             // the successor starts no earlier than the predecessor finishes (+ lag).
                             let respectsDependencies (assignments: TaskAssignment list) =
@@ -226,47 +226,69 @@ module QuantumSolver =
                                     |> Option.forall (fun t ->
                                         Validation.startIsAllowed problem.Resources t a.StartTime.TotalMinutes))
 
-                            let solutions =
-                                measurements
-                                |> Array.choose (fun measured ->
-                                    // Forbidden start bits are cleared before decoding, so the repair
-                                    // below picks each task's earliest ALLOWED set slot.
-                                    let bitstring =
-                                        measured
-                                        |> Array.mapi (fun i bit -> if forbiddenVars.Contains i then 0 else bit)
+                            // Only fully feasible schedules (precedence, resource capacity, earliest
+                            // starts and availability windows) may be returned: the minimum-makespan
+                            // selection must not pick a schedule that breaks a constraint the user
+                            // specified. A task without a start yields no schedule.
+                            let feasibleSchedule (taskStarts: Map<string, float>) =
+                                match QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts slotMinutes with
+                                | Some assignments when
+                                    respectsDependencies assignments
+                                    && respectsResources assignments
+                                    && respectsStartRestrictions assignments
+                                    ->
+                                    Some(ScheduleMetrics.calculateMakespan assignments, assignments)
+                                | _ -> None
 
-                                    // One-hot REPAIR decode: tasks with multiple set start bits take
-                                    // their earliest set slot (QAOA rarely samples exact one-hot
-                                    // states, so the strict decode would reject nearly every shot);
-                                    // tasks with zero set bits still yield no start, making
-                                    // buildSolutionFromStarts return None. Feasibility of repaired
-                                    // schedules is enforced by the classical validation below.
-                                    let taskStarts = QuboEncoding.decodeBitstringWithRepair bitstring reverseMapping
+                            // Strict decode: the sample exactly as measured. decodeBitstring gives a
+                            // start only to a task with exactly one start bit set, so a sample is valid
+                            // iff it is one-hot per task and the schedule it spells is feasible.
+                            let strictSchedule (measured: int[]) =
+                                feasibleSchedule (QuboEncoding.decodeBitstring measured reverseMapping)
 
-                                    match
-                                        QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts slotMinutes
-                                    with
-                                    // Keep only fully feasible measurements (precedence, resource capacity,
-                                    // earliest starts and availability windows).
-                                    // The QUBO penalties bias QAOA sampling toward these, but the final
-                                    // min-makespan selection must not pick a lower-makespan measurement that
-                                    // VIOLATES the constraints the user specified — otherwise the returned
-                                    // "solution" would silently break dependencies or overload resources.
-                                    | Some assignments when
-                                        respectsDependencies assignments
-                                        && respectsResources assignments
-                                        && respectsStartRestrictions assignments
-                                        ->
-                                        let makespan = ScheduleMetrics.calculateMakespan assignments
-                                        Some(makespan, assignments)
-                                    | _ -> None)
+                            // Repair decode: forbidden start bits are cleared, then a task with several
+                            // set start bits takes its earliest set slot; a task with none has no start.
+                            let repairedSchedule (measured: int[]) =
+                                let bitstring =
+                                    measured
+                                    |> Array.mapi (fun i bit -> if forbiddenVars.Contains i then 0 else bit)
 
-                            if Array.isEmpty solutions then
+                                feasibleSchedule (QuboEncoding.decodeBitstringWithRepair bitstring reverseMapping)
+
+                            // Each sample that decodes, paired with its schedule
+                            let decodeAll
+                                (decode: int[] -> (System.TimeSpan * TaskAssignment list) option)
+                                (samples: int[][])
+                                =
+                                samples
+                                |> Array.choose (fun bits ->
+                                    decode bits |> Option.map (fun schedule -> (bits, schedule)))
+
+                            let distinctSamples = run.Samples |> Array.distinct
+                            let strictSchedules = decodeAll strictSchedule distinctSamples
+
+                            // The result is chosen among the strictly valid samples. The repair decode
+                            // is used only when there is none, and the solution then says so.
+                            let candidates, wasRepaired =
+                                if not (Array.isEmpty strictSchedules) then
+                                    (strictSchedules, false)
+                                elif config.EnableConstraintRepair then
+                                    (decodeAll repairedSchedule distinctSamples, true)
+                                else
+                                    ([||], false)
+
+                            if Array.isEmpty candidates then
+                                let repairNote =
+                                    if config.EnableConstraintRepair then
+                                        ", and the one-hot repair decode gives no feasible schedule either"
+                                    else
+                                        " (the one-hot repair decode is off: EnableConstraintRepair = false)"
+
                                 return
                                     Error(
                                         QuantumError.OperationError(
                                             "Quantum scheduling",
-                                            "No valid solutions found from quantum measurements. Try increasing numShots or adjusting QAOA parameters."
+                                            $"No valid solutions found from quantum measurements: none of the {run.Samples.Length} final samples has exactly one start slot per task and satisfies every constraint{repairNote}. Try more FinalShots or NumLayers."
                                         )
                                     )
                             else
@@ -295,20 +317,20 @@ module QuantumSolver =
                                         |> Option.map (fun t -> t.Priority * a.EndTime.TotalMinutes)
                                         |> Option.defaultValue 0.0)
 
-                                let (bestMakespan, bestAssignments) =
+                                let (bestBits, (bestMakespan, bestAssignments)) =
                                     match problem.Objective with
                                     | MinimizeLateness ->
                                         // Least total lateness first; makespan, then priority, breaks ties.
-                                        solutions
-                                        |> Array.minBy (fun (makespan, assignments) ->
+                                        candidates
+                                        |> Array.minBy (fun (_, (makespan, assignments)) ->
                                             (totalLatenessMinutes assignments,
                                              makespan,
                                              priorityWeightedEnd assignments))
                                     | MinimizeMakespan
                                     | MinimizeCost
                                     | MaximizeResourceUtilization ->
-                                        solutions
-                                        |> Array.minBy (fun (makespan, assignments) ->
+                                        candidates
+                                        |> Array.minBy (fun (_, (makespan, assignments)) ->
                                             (makespan, priorityWeightedEnd assignments))
 
                                 // Score the quantum-decoded schedule with the shared ScheduleMetrics helpers
@@ -327,6 +349,21 @@ module QuantumSolver =
                                         problem.Resources
                                         bestMakespan
 
+                                // Valid: samples that are feasible schedules as measured. Hits: samples
+                                // that are the returned schedule; none when the repair decode built it.
+                                let strictlyValid =
+                                    System.Collections.Generic.HashSet<int[]>(
+                                        strictSchedules |> Array.map fst,
+                                        HashIdentity.Structural
+                                    )
+
+                                let sampling =
+                                    QaoaExecutionHelpers.sampleStatistics
+                                        quboMatrix.NumVariables
+                                        (fun sample -> strictlyValid.Contains sample)
+                                        (fun sample -> not wasRepaired && sample = bestBits)
+                                        run.Samples
+
                                 let solution =
                                     {
                                         Assignments = bestAssignments
@@ -335,7 +372,23 @@ module QuantumSolver =
                                         ResourceUtilization = resourceUtil
                                         DeadlineViolations = violations
                                         IsValid = List.isEmpty violations
+                                        WasRepaired = wasRepaired
+                                        Sampling = Some sampling
                                     }
 
                                 return Ok solution
         }
+
+    /// solveWithConfigAsync with the shared default QAOA configuration
+    /// (QaoaExecutionHelpers.defaultConfig: 2 layers, Nelder-Mead angle optimisation,
+    /// 1000 final shots, repair decode allowed).
+    ///
+    /// Example:
+    ///   let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+    ///   let! result = solveAsync backend problem CancellationToken.None
+    let solveAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: SchedulingProblem<'TTask, 'TResource>)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution>> =
+        solveWithConfigAsync backend problem QaoaExecutionHelpers.defaultConfig cancellationToken

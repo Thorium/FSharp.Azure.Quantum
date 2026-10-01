@@ -509,9 +509,7 @@ let private tryFetchReturnSeriesAsync (symbols: string list) =
                         EndDate = None
                     }
 
-                let! fetched = fetchYahooHistoryAsync httpClient request CancellationToken.None
-
-                match fetched with
+                match! fetchYahooHistoryAsync httpClient request CancellationToken.None with
                 | Ok priceSeries -> series.Add(calculateReturns priceSeries)
                 | Error error ->
                     raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}"))
@@ -550,11 +548,7 @@ let returnSeries =
     if liveDataEnabled then
         let symbols = marketData |> List.map (fun (sym, _, _, _, _, _, _) -> sym)
 
-        match
-            tryFetchReturnSeriesAsync symbols
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-        with
+        match tryFetchReturnSeriesAsync symbols |> Async.AwaitTask |> Async.RunSynchronously with
         | Some series ->
             if not quiet then
                 printfn "Using live Yahoo Finance data (cached at %s)" yahooCacheDir
@@ -736,65 +730,70 @@ let private stressScenarioAsync (scenario: ScenarioInfo) =
         let! quantumResult =
             estimateProbabilityAsync stressedStatePrep oracle groverIterations backend CancellationToken.None
 
-        match quantumResult with
-        | Ok tailProb ->
-            let scaledVaR =
-                varThreshold
-                * sqrt (float timeHorizon)
-                * scenario.VolatilityMultiplier
-                * portfolioValue
-            // Expected Shortfall (CVaR): the AVERAGE loss in the tail BEYOND the VaR
-            // quantile -- a genuine tail expectation, NOT a fixed multiple of VaR.
-            // Computed as the mean of the worst returns (at or below the VaR quantile),
-            // scaled the same way as the stressed VaR so ES >= VaR by construction.
-            let tailReturns =
-                sortedReturns.[0..varIndex]
-                |> Array.map (fun r -> r * sqrt (float timeHorizon) * scenario.VolatilityMultiplier)
+        let runTail () =
+            task {
+                match quantumResult with
+                | Ok tailProb ->
+                    let scaledVaR =
+                        varThreshold
+                        * sqrt (float timeHorizon)
+                        * scenario.VolatilityMultiplier
+                        * portfolioValue
+                    // Expected Shortfall (CVaR): the AVERAGE loss in the tail BEYOND the VaR
+                    // quantile -- a genuine tail expectation, NOT a fixed multiple of VaR.
+                    // Computed as the mean of the worst returns (at or below the VaR quantile),
+                    // scaled the same way as the stressed VaR so ES >= VaR by construction.
+                    let tailReturns =
+                        sortedReturns.[0..varIndex]
+                        |> Array.map (fun r -> r * sqrt (float timeHorizon) * scenario.VolatilityMultiplier)
 
-            let quantumES = -(tailReturns |> Array.average) * portfolioValue
-            // Theoretical asymptotic advantage: amplitude estimation needs O(1/eps)
-            // queries vs classical Monte Carlo's O(1/eps^2), i.e. a quadratic speedup.
-            // This iteration count is that theoretical factor, not a measured wall-clock gain.
-            let speedup = float groverIterations
+                    let quantumES = -(tailReturns |> Array.average) * portfolioValue
+                    // Theoretical asymptotic advantage: amplitude estimation needs O(1/eps)
+                    // queries vs classical Monte Carlo's O(1/eps^2), i.e. a quadratic speedup.
+                    // This iteration count is that theoretical factor, not a measured wall-clock gain.
+                    let speedup = float groverIterations
 
-            if not quiet then
-                printfn
-                    "  [OK] %-35s  Loss: $%12s  Tail: %.4f%%  Speedup: ~%.1fx (theoretical)"
-                    scenario.Name
-                    (classicalLoss.ToString "N0")
-                    (tailProb * 100.0)
-                    speedup
+                    if not quiet then
+                        printfn
+                            "  [OK] %-35s  Loss: $%12s  Tail: %.4f%%  Speedup: ~%.1fx (theoretical)"
+                            scenario.Name
+                            (classicalLoss.ToString "N0")
+                            (tailProb * 100.0)
+                            speedup
 
-            return
-                {
-                    Scenario = scenario
-                    ClassicalLoss = classicalLoss
-                    ClassicalLossPct = classicalLossPct
-                    QuantumVaR = scaledVaR
-                    QuantumES = quantumES
-                    TailProbability = tailProb
-                    QuantumQueries = groverIterations
-                    Speedup = speedup
-                    HasQuantumFailure = false
-                }
-        | Error err ->
-            anyQuantumFailure <- true
+                    return
+                        {
+                            Scenario = scenario
+                            ClassicalLoss = classicalLoss
+                            ClassicalLossPct = classicalLossPct
+                            QuantumVaR = scaledVaR
+                            QuantumES = quantumES
+                            TailProbability = tailProb
+                            QuantumQueries = groverIterations
+                            Speedup = speedup
+                            HasQuantumFailure = false
+                        }
+                | Error err ->
+                    anyQuantumFailure <- true
 
-            if not quiet then
-                printfn "  [FAIL] %-33s  Loss: $%12s  Error: %A" scenario.Name (classicalLoss.ToString "N0") err
+                    if not quiet then
+                        printfn "  [FAIL] %-33s  Loss: $%12s  Error: %A" scenario.Name (classicalLoss.ToString "N0") err
 
-            return
-                {
-                    Scenario = scenario
-                    ClassicalLoss = classicalLoss
-                    ClassicalLossPct = classicalLossPct
-                    QuantumVaR = nan
-                    QuantumES = nan
-                    TailProbability = nan
-                    QuantumQueries = 0
-                    Speedup = nan
-                    HasQuantumFailure = true
-                }
+                    return
+                        {
+                            Scenario = scenario
+                            ClassicalLoss = classicalLoss
+                            ClassicalLossPct = classicalLossPct
+                            QuantumVaR = nan
+                            QuantumES = nan
+                            TailProbability = nan
+                            QuantumQueries = 0
+                            Speedup = nan
+                            HasQuantumFailure = true
+                        }
+            }
+
+        return! runTail ()
     }
 
 let scenarioResults =

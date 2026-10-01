@@ -243,8 +243,20 @@ module ConstraintSchedulerTests =
         }
         :> Task
 
-    [<Fact; Trait("Category", "Slow")>]
-    let ``QAOA Strategy - Bin Packing with Capacity Constraints`` () =
+    /// What IsFeasible = true promises, read from the assignment list alone: every task on
+    /// exactly one resource and no resource over its capacity.
+    let private assertFeasibleMeansWithinCapacity (tasks: string list) (capacities: (string * int) list) (s: Schedule) =
+        if s.IsFeasible then
+            Assert.Equal<string list>(List.sort tasks, s.Assignments |> List.map (fun a -> a.Task) |> List.sort)
+
+            for resource, capacity in capacities do
+                let load =
+                    s.Assignments |> List.filter (fun a -> a.Resource = resource) |> List.length
+
+                Assert.True(load <= capacity, $"{resource} carries {load} tasks, capacity {capacity}")
+
+    [<Fact>]
+    let ``QAOA Strategy - Capacity QUBO with Capacity Constraints`` () =
         task {
             let! result =
                 constraintScheduler {
@@ -264,10 +276,12 @@ module ConstraintSchedulerTests =
             | Ok r ->
                 match r.BestSchedule with
                 | Some s ->
-                    // All 3 tasks should be assigned
-                    Assert.Equal(3, s.Assignments.Length)
+                    assertFeasibleMeansWithinCapacity [ "T1"; "T2"; "T3" ] [ "Server1", 2; "Server2", 2 ] s
+                    // The cheapest feasible schedule puts two tasks on Server2: 3 + 3 + 5
+                    if s.IsFeasible then
+                        Assert.True(s.TotalCost >= 11.0, $"cost {s.TotalCost} is below the cheapest feasible schedule")
                 | None -> () // QAOA is approximate
-            | Error e -> Assert.Fail($"QAOA bin packing solver failed: %A{e}")
+            | Error e -> Assert.Fail($"QAOA capacity solver failed: %A{e}")
         }
         :> Task
 
@@ -356,7 +370,7 @@ module ConstraintSchedulerTests =
             match result with
             | Ok r ->
                 match r.BestSchedule with
-                | Some s -> Assert.Equal(2, s.Assignments.Length)
+                | Some s -> assertFeasibleMeansWithinCapacity [ "T1"; "T2" ] [ "Server1", 2; "Server2", 2 ] s
                 | None -> () // QAOA is approximate
             | Error e -> Assert.Fail($"Auto QAOA solver failed: %A{e}")
         }
@@ -511,3 +525,273 @@ module ConstraintSchedulerTests =
             | Ok _ -> Assert.Fail("Precedence constraint should be rejected, not silently ignored")
         }
         :> Task
+
+    // ========================================================================
+    // CAPACITY AND FEASIBILITY (energy-only brute force, no circuit)
+    // ========================================================================
+
+    let private problemOf
+        (goal: OptimizationGoal)
+        (tasks: string list)
+        (resources: (string * float * int option) list)
+        (hard: HardConstraint list)
+        : SchedulingProblem =
+        {
+            Tasks = tasks
+            Resources =
+                resources
+                |> List.map (fun (id, cost, capacity) ->
+                    {
+                        Id = id
+                        Cost = cost
+                        Capacity = capacity
+                    })
+            HardConstraints = hard
+            SoftConstraints = []
+            Goal = goal
+            MaxBudget = None
+            Backend = None
+            Strategy = None
+            Shots = 200
+        }
+
+    let private bitsOf (numQubits: int) (index: int) : int[] =
+        Array.init numQubits (fun q -> (index >>> q) &&& 1)
+
+    /// The resources each task is on, read from the task-resource bits x[t, r] at t * R + r.
+    let private resourcesPerTask (problem: SchedulingProblem) (bits: int[]) : int list list =
+        let numResources = problem.Resources.Length
+
+        problem.Tasks
+        |> List.mapi (fun t _ ->
+            [ 0 .. numResources - 1 ]
+            |> List.filter (fun r -> bits.[t * numResources + r] = 1))
+
+    /// Some cost when the bits are a feasible schedule: every task on exactly one resource,
+    /// every resource within its own capacity, every Conflict and RequiresResource satisfied.
+    let private feasibleCost (problem: SchedulingProblem) (bits: int[]) : float option =
+        let resources = problem.Resources |> List.toArray
+        let perTask = resourcesPerTask problem bits
+
+        if perTask |> List.forall (fun rs -> rs.Length = 1) then
+            let resourceOf = perTask |> List.map List.head |> List.toArray
+
+            let taskIndex task =
+                problem.Tasks |> List.findIndex ((=) task)
+
+            let withinCapacity =
+                resources
+                |> Array.mapi (fun r res ->
+                    let load = resourceOf |> Array.filter ((=) r) |> Array.length
+                    res.Capacity |> Option.forall (fun capacity -> load <= capacity))
+                |> Array.forall id
+
+            let hardSatisfied =
+                problem.HardConstraints
+                |> List.forall (function
+                    | Conflict(a, b) -> resourceOf.[taskIndex a] <> resourceOf.[taskIndex b]
+                    | RequiresResource(task, resource) -> resources.[resourceOf.[taskIndex task]].Id = resource
+                    | Precedence _ -> true)
+
+            if withinCapacity && hardSatisfied then
+                Some(resourceOf |> Array.sumBy (fun r -> resources.[r].Cost))
+            else
+                None
+        else
+            None
+
+    /// Minimum-energy bitstrings of a QUBO, by enumeration.
+    let private groundStates (qubo: float[,]) : int[] list =
+        let numQubits = qubo.GetLength 0
+        Assert.True(numQubits <= 16, $"{numQubits} qubits is too many to enumerate")
+
+        let energies =
+            Array.init (1 <<< numQubits) (fun index -> QaoaExecutionHelpers.evaluateQubo qubo (bitsOf numQubits index))
+
+        let minimum = Array.min energies
+
+        [ 0 .. energies.Length - 1 ]
+        |> List.filter (fun index -> energies.[index] <= minimum + 1e-9)
+        |> List.map (bitsOf numQubits)
+
+    [<Fact>]
+    let ``every minimum-energy bitstring of the capacity QUBO is a feasible schedule of least cost`` () =
+        let tasks = [ "T1"; "T2"; "T3" ]
+
+        let problems =
+            [
+                // own capacities 2 and 1: both resources full
+                problemOf Balanced tasks [ "Alice", 25.0, Some 2; "Bob", 15.0, Some 1 ] []
+                // hard constraints in the QUBO
+                problemOf
+                    Balanced
+                    tasks
+                    [ "Alice", 25.0, Some 2; "Bob", 15.0, Some 2 ]
+                    [ Conflict("T1", "T2"); RequiresResource("T3", "Bob") ]
+                // a resource without capacity next to limited ones
+                problemOf MinimizeCost tasks [ "A", 5.0, Some 1; "B", 3.0, Some 2; "C", 10.0, None ] []
+                // no cost terms for the satisfaction goal
+                problemOf
+                    MaximizeSatisfaction
+                    tasks
+                    [ "Alice", 25.0, Some 2; "Bob", 15.0, Some 2 ]
+                    [ Conflict("T1", "T2") ]
+                // a negative cost and a resource that takes nothing
+                problemOf MinimizeCost [ "T1"; "T2" ] [ "A", -5.0, Some 1; "B", 3.0, None; "C", 1.0, Some 0 ] []
+            ]
+
+        for problem in problems do
+            match ConstraintScheduler.toCapacityQubo problem with
+            | Error err -> Assert.Fail($"toCapacityQubo failed: {err}")
+            | Ok qubo ->
+                let assignmentBits = problem.Tasks.Length * problem.Resources.Length
+
+                let leastCost =
+                    [ 0 .. (1 <<< assignmentBits) - 1 ]
+                    |> List.choose (bitsOf assignmentBits >> feasibleCost problem)
+                    |> List.min
+
+                for bits in groundStates qubo do
+                    let text = bits |> Array.map string |> String.concat ""
+
+                    match feasibleCost problem bits with
+                    | None -> Assert.Fail($"%A{problem.Resources}: ground state %s{text} is not a feasible schedule")
+                    | Some cost ->
+                        if problem.Goal <> MaximizeSatisfaction then
+                            Assert.Equal(leastCost, cost, 9)
+
+    [<Fact>]
+    let ``capacity QUBO has task-resource bits plus slack bits of the limited resources`` () =
+        let tasks = [ "T1"; "T2"; "T3" ]
+
+        let qubits problem =
+            match ConstraintScheduler.toCapacityQubo problem with
+            | Ok qubo -> qubo.GetLength 0
+            | Error err -> failwith $"{err}"
+
+        // capacities 2 + 1 = 3 tasks: both loads are fixed, no slack
+        Assert.Equal(6, qubits (problemOf Balanced tasks [ "Alice", 25.0, Some 2; "Bob", 15.0, Some 1 ] []))
+        // capacities 2 and 2: each resource carries 1 or 2 tasks, one slack bit each
+        Assert.Equal(8, qubits (problemOf Balanced tasks [ "Alice", 25.0, Some 2; "Bob", 15.0, Some 2 ] []))
+        // a capacity of at least the task count adds no term
+        Assert.Equal(6, qubits (problemOf Balanced tasks [ "Alice", 25.0, Some 3; "Bob", 15.0, None ] []))
+
+    [<Fact>]
+    let ``capacities below the task count are rejected`` () =
+        task {
+            let problem =
+                problemOf Balanced [ "T1"; "T2"; "T3" ] [ "Alice", 25.0, Some 1; "Bob", 15.0, Some 1 ] []
+
+            match! ConstraintScheduler.solveAsync problem CancellationToken.None with
+            | Error(QuantumError.ValidationError("Resources", _)) -> ()
+            | other -> Assert.Fail($"Expected a Resources validation error, got: %A{other}")
+        }
+        :> Task
+
+    [<Fact>]
+    let ``IsFeasible requires one resource per task, capacity, hard constraints and the budget`` () =
+        let problem =
+            problemOf
+                Balanced
+                [ "T1"; "T2"; "T3" ]
+                [ "Alice", 25.0, Some 2; "Bob", 15.0, Some 1 ]
+                [ Conflict("T1", "T2") ]
+
+        let schedule (pairs: (string * string) list) =
+            pairs
+            |> List.map (fun (task, resource) ->
+                {
+                    Task = task
+                    Resource = resource
+                    Cost = 1.0
+                })
+            |> ConstraintScheduler.createSchedule problem
+
+        Assert.True((schedule [ "T1", "Alice"; "T2", "Bob"; "T3", "Alice" ]).IsFeasible)
+        // Bob carries two tasks, capacity 1
+        Assert.False((schedule [ "T1", "Alice"; "T2", "Bob"; "T3", "Bob" ]).IsFeasible)
+        // T1 and T2 share Alice
+        Assert.False((schedule [ "T1", "Alice"; "T2", "Alice"; "T3", "Bob" ]).IsFeasible)
+        // T3 is on two resources
+        Assert.False((schedule [ "T1", "Alice"; "T2", "Bob"; "T3", "Alice"; "T3", "Bob" ]).IsFeasible)
+        // total cost 3.0 against a budget of 2.5
+        let overBudget =
+            [ "T1", "Alice"; "T2", "Bob"; "T3", "Alice" ]
+            |> List.map (fun (task, resource) ->
+                {
+                    Task = task
+                    Resource = resource
+                    Cost = 1.0
+                })
+
+        Assert.False((ConstraintScheduler.createSchedule { problem with MaxBudget = Some 2.5 } overBudget).IsFeasible)
+        Assert.True((ConstraintScheduler.createSchedule { problem with MaxBudget = Some 3.0 } overBudget).IsFeasible)
+
+        // T3 is unassigned
+        Assert.False((schedule [ "T1", "Alice"; "T2", "Bob" ]).IsFeasible)
+
+        // A conflict is judged on every resource a task is on
+        let doubled = schedule [ "T1", "Alice"; "T1", "Bob"; "T2", "Alice"; "T3", "Alice" ]
+        Assert.Equal(0, doubled.HardConstraintsSatisfied)
+
+    [<Fact>]
+    let ``capacity schedules reported feasible respect each resource's own capacity`` () =
+        task {
+            let tasks = [ "T1"; "T2"; "T3" ]
+
+            let problem =
+                { problemOf Balanced tasks [ "Alice", 25.0, Some 2; "Bob", 15.0, Some 1 ] [] with
+                    Backend = Some(LocalBackend.LocalBackend() :> IQuantumBackend)
+                }
+
+            match! ConstraintScheduler.solveAsync problem CancellationToken.None with
+            | Error e -> Assert.Fail($"Solver failed: %A{e}")
+            | Ok r ->
+                match r.BestSchedule with
+                | None -> Assert.Fail("The capacity path returns the decoded sample")
+                | Some s ->
+                    assertFeasibleMeansWithinCapacity tasks [ "Alice", 2; "Bob", 1 ] s
+                    // Feasible means two tasks on Alice and one on Bob
+                    if s.IsFeasible then
+                        Assert.Equal(65.0, s.TotalCost)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``every minimum-energy bitstring of the QAOA SAT encoding assigns each task once`` () =
+        let overConstrained =
+            [
+                // one task required on two resources
+                problemOf
+                    MaximizeSatisfaction
+                    [ "T1" ]
+                    [ "R1", 1.0, None; "R2", 1.0, None ]
+                    [ RequiresResource("T1", "R1"); RequiresResource("T1", "R2") ]
+                // two conflicting tasks, one resource
+                problemOf MaximizeSatisfaction [ "T1"; "T2" ] [ "R1", 1.0, None ] [ Conflict("T1", "T2") ]
+                // one task required on each of three resources, the second requirement listed twice
+                problemOf
+                    MaximizeSatisfaction
+                    [ "T1" ]
+                    [ "R1", 1.0, None; "R2", 1.0, None; "R3", 1.0, None ]
+                    [
+                        RequiresResource("T1", "R1")
+                        RequiresResource("T1", "R2")
+                        RequiresResource("T1", "R2")
+                        RequiresResource("T1", "R3")
+                    ]
+            ]
+
+        for problem in overConstrained do
+            let satProblem = ConstraintScheduler.toQaoaSatProblem problem
+
+            match FSharp.Azure.Quantum.Quantum.QuantumSatSolver.toQubo satProblem with
+            | Error err -> Assert.Fail($"toQubo failed: {err}")
+            | Ok qubo ->
+                for bits in groundStates qubo do
+                    let perTask = resourcesPerTask problem bits
+
+                    Assert.True(
+                        perTask |> List.forall (fun rs -> rs.Length = 1),
+                        $"%A{problem.HardConstraints}: a ground state puts the tasks on %A{perTask}"
+                    )

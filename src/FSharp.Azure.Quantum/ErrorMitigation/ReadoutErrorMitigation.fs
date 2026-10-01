@@ -179,9 +179,7 @@ module ReadoutErrorMitigation =
                         match! executor (prepareBasisState j) config.CalibrationShots with
                         | Error err ->
                             failure <-
-                                Some(
-                                    sprintf "Failed to measure basis state |%s>: %s" (intToBitstring j qubits) err
-                                )
+                                Some(sprintf "Failed to measure basis state |%s>: %s" (intToBitstring j qubits) err)
                         | Ok histogram ->
                             // Accumulate raw measured counts into column j...
                             for (bitstring, count) in Map.toList histogram do

@@ -397,8 +397,12 @@ let bondLengthResults, quartetResult, doubletResult =
             let! row = runVqeAsync label desc (createFeHMolecule bl 4)
             bondLengthRows.Add(row |> Map.add "bond_length_A" $"%.2f{bl}")
 
-        let! quartet = runVqeAsync "FeH Quartet (M=4)" "S=3/2, ferromagnetic" (createFeHMolecule 1.63 4)
-        let! doublet = runVqeAsync "FeH Doublet (M=2)" "S=1/2, reduced moment" (createFeHMolecule 1.63 2)
+        let! quartet =
+            runVqeAsync "FeH Quartet (M=4)" "S=3/2, ferromagnetic" (createFeHMolecule 1.63 4)
+
+        let! doublet =
+            runVqeAsync "FeH Doublet (M=2)" "S=1/2, reduced moment" (createFeHMolecule 1.63 2)
+
         return List.ofSeq bondLengthRows, quartet, doublet
     }
     |> Async.AwaitTask

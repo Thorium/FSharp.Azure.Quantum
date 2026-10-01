@@ -438,9 +438,15 @@ let runVqeAsync (label: string) (description: string) (molecule: Molecule) =
 
 let vqeResults =
     task {
-        let! cdSeDimer = runVqeAsync "CdSe Dimer" $"Cd-Se bond: %.2f{cdSeBondLength} A" (createCdSeDimer ())
-        let! cd2Se2Cluster = runVqeAsync "Cd2Se2 Cluster" "Rhombus structure, 4 atoms" (createCd2Se2Cluster ())
-        let! znSDimer = runVqeAsync "ZnS Dimer" "Comparison material, Zn-S bond: 2.34 A" (createZnSDimer ())
+        let! cdSeDimer =
+            runVqeAsync "CdSe Dimer" $"Cd-Se bond: %.2f{cdSeBondLength} A" (createCdSeDimer ())
+
+        let! cd2Se2Cluster =
+            runVqeAsync "Cd2Se2 Cluster" "Rhombus structure, 4 atoms" (createCd2Se2Cluster ())
+
+        let! znSDimer =
+            runVqeAsync "ZnS Dimer" "Comparison material, Zn-S bond: 2.34 A" (createZnSDimer ())
+
         return [ cdSeDimer; cd2Se2Cluster; znSDimer ]
     }
     |> Async.AwaitTask

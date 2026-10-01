@@ -266,7 +266,8 @@ module SimilaritySearchBuilderTests =
         task {
             match! buildAsync defaultProblem CancellationToken.None with
             | Ok index ->
-                let! found = findSimilarAsync "apple" [| 1.0; 0.1; 0.0 |] 2 index CancellationToken.None
+                let! found =
+                    findSimilarAsync "apple" [| 1.0; 0.1; 0.0 |] 2 index CancellationToken.None
 
                 found
                 |> Result.map (fun results -> Assert.True(results.SearchTime >= TimeSpan.Zero))

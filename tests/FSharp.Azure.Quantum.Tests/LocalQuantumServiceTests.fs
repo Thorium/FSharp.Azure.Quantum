@@ -329,8 +329,7 @@ module LocalQuantumServiceTests =
             use http = service.CreateHttpClient()
 
             let! ex =
-                Assert.ThrowsAnyAsync<exn>(fun () ->
-                    http.GetAsync "https://example.com/" :> Task)
+                Assert.ThrowsAnyAsync<exn>(fun () -> http.GetAsync "https://example.com/" :> Task)
 
             Assert.Contains("refused", ex.Message)
             Assert.Empty service.Requests
@@ -342,7 +341,9 @@ module LocalQuantumServiceTests =
     // ------------------------------------------------------------------------
 
     [<Fact>]
-    let ``QuantumClient submits, lists across pages, fetches results and cancels via the routed data-plane URL`` () : Task =
+    let ``QuantumClient submits, lists across pages, fetches results and cancels via the routed data-plane URL``
+        ()
+        : Task =
         task {
             use service = LocalQuantumService.start { seeded with JobsPageSize = 1 }
 

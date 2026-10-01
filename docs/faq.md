@@ -43,13 +43,17 @@ FSharp.Azure.Quantum is a **quantum-first F# library** for solving combinatorial
 
 ### Is this production-ready?
 
-The current package version is **1.4.15**. It is suitable for:
+The current package version is **1.5.1**. It is suitable for:
 - ✅ Development and prototyping
 - ✅ Academic research and learning
 - ✅ Quantum algorithm experimentation
 - ✅ Applications whose problems fit the simulator or the cloud backends' qubit limits
 
 **LocalBackend** provides free quantum simulation; its width is derived from available memory (hard ceiling 30 qubits), and iterative algorithms such as QAOA are practical up to about 20 qubits. For more, cloud backends are available via Azure Quantum.
+
+### Should I use quantum computing to solve my problem? Why not AI?
+
+Quantum computing is for small-data, big-compute problems: the input fits on a page, but the number of possible answers explodes (routes, schedules, portfolios, molecular energies). For big-data problems, where the answer has to be learned from many examples, traditional AI could work better.
 
 ## Technical Questions
 
@@ -133,6 +137,52 @@ task {
 - Deterministic results
 - Fast execution for small and medium problems
 
+### How many shots do I need?
+
+It depends on what the shots are for.
+
+**Estimating a number** (an expectation value, a probability, an option price): the statistical error falls as 1/√shots, so four times the shots halves it. `Primitives.sampledExpectation` and the Monte Carlo results report their standard error; raise shots until that error is small against the difference you need to resolve.
+
+**Finding a good solution** (QAOA, Grover-style search): what matters is the chance *p* that one shot returns an acceptable answer. The chance of seeing at least one in *N* shots is 1 − (1 − p)^N, so
+
+| Wanted confidence | Shots needed |
+|---|---|
+| 95% | about 3 / p |
+| 99% | about 4.6 / p |
+
+**Read *p* off the solution.** Every QAOA solver solution carries `Sampling`, the standing of the returned answer among the final samples:
+
+```fsharp
+open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
+
+// call as: report solution.Sampling
+let report (sampling: SampleStatistics option) =
+    match sampling with
+    | Some s ->
+        printfn "%d of %d shots returned this answer (p ≈ %.1f%%); %d were valid" s.Hits s.Shots (100.0 * s.HitRate) s.Valid
+        printfn "uniform guessing: %.2f%% per shot; shots for 95%%: %A" (100.0 * s.UniformRate) (s.ShotsFor 0.95)
+    | None -> printfn "no single sampling run produced this answer (decomposed, or no circuit needed)"
+```
+
+- `HitRate` estimates *p* for the answer you got. Trust it from about three hits upward; one hit in *N* shots reads as 1/N whatever the true value.
+- `Hits = 0` with `WasRepaired = true` means classical repair produced the answer and no shot did.
+- It says nothing about better answers that were never sampled.
+
+On the 8-route supply-chain example the optimised circuit returns the optimum in 4–5% of shots, and 100 shots found it in 147 of 150 runs.
+
+**Start small, then scale.** While you are still getting the model right (the encoding, the constraints, the backend configuration), run 10–50 shots on the local simulator: a wrong model shows up as an error or as `Valid = 0` however many shots you take, and short runs keep the loop fast. Once the answers are right, take a pilot run of 100–200 shots, read `HitRate`, and size the production run from the table.
+
+**Check that the circuit is doing the work.** A problem on *n* qubits has 2^n bitstrings. If your shots approach or exceed that number, sampling is close to exhaustive and would find the answer with any circuit; random guessing finds a unique optimum with probability 1/2^n per shot (`UniformRate`). Compare `HitRate` with that baseline, and expect *p* to shrink as the problem grows — more layers and optimised angles raise it, more shots only compensate.
+
+### Will my Azure bill grow exponentially with more shots?
+
+No. The price of a job is linear in its shots: twice the shots costs about twice as much, never more. Each provider on Azure Quantum bills in proportion to shots — IonQ per gate and shot, Quantinuum in credits where the shot count multiplies the gate count, Rigetti by execution time — some with a minimum charge per job. `CostEstimation.estimateCost` gives a figure before you submit, and the [Azure Quantum pricing page](https://azure.microsoft.com/en-us/pricing/details/azure-quantum/) has the current rates. The local simulator is free.
+
+Two things do need watching:
+
+- **The shots you need can grow fast.** If the per-shot chance *p* of a good answer falls as the problem grows, 3 / *p* rises with it. That comes from the circuit, not from billing: raise *p* (more layers, optimised angles, a tighter encoding) instead of buying shots, and use `Sampling.HitRate` against `UniformRate` to see where you stand.
+- **Jobs multiply shots.** On hardware every optimiser evaluation is a job of `OptimizationShots`, so a run costs about evaluations × `OptimizationShots` + `FinalShots`. Optimise the angles on the simulator where the problem fits, and pass a `JobBudget` to the backend so a run stops at a job count you chose (see [Backend Switching](backend-switching.md)).
+
 ### What problem sizes can I solve?
 
 **With a quantum backend** the limit is the number of qubits the encoding needs:
@@ -141,13 +191,75 @@ task {
 |---------|---------------|
 | TSP | cities² (4 cities = 16 qubits) |
 | Graph Coloring | nodes × colors |
-| MaxCut, Knapsack, Portfolio | one per vertex / item / asset |
+| MaxCut | one per vertex |
+| Knapsack | one per item + ⌈log₂(capacity + 1)⌉ slack bits (capacity in whole weight units) |
+| Portfolio | one per affordable asset (+ slack bits when lots limit the number of holdings) |
 | Network Flow | one per route |
 | Task Scheduling | tasks × time slots |
 
-The local simulator holds up to `StateVector.maxQubits` (derived from memory, at most 30), and QAOA is practical up to about 20 qubits. Solvers return an error that names the qubit count when a problem is too wide for the backend.
+The local simulator holds up to `StateVector.maxQubits` (derived from memory, at most 30), and QAOA is practical up to about 20 qubits by default. A problem wider than the backend is split into circuits that fit where its structure allows (next question); otherwise the solver returns an error that names the qubit count.
 
 **With the classical path of HybridSolver** there is no qubit limit: the classical TSP heuristic accepts up to 10,000 cities (`TspSolver.maxCities`).
+
+### My problem is wider than the backend. Can it still run on it?
+
+Often, by trading qubits for circuit runs. `QuboSplitting` cuts a problem into pieces that fit, runs every piece on the backend, and joins the answers classically. Two splits exist:
+
+| Split | Works when | Cost | Used by |
+|---|---|---|---|
+| **Conditioning** | the QUBO is sparse: fixing a few variables breaks it into pieces that fit | a piece runs once per assignment of the fixed variables it touches: 2^b runs for b of them (at most 8 fixed by default) | MaxCut, vertex cover, clique, matching, set cover, MAX-SAT, binary ILP and the drug-discovery solvers |
+| **Blocks** | a linear objective under one additive integer limit (a knapsack) | one run per block and share of the capacity (at most 256 by default) | Knapsack (`solveAsync`, or `solveInBlocksAsync` to ask for it) |
+| **Halves** | every subset that sums to a target is wanted (subset-sum) | one search per half and partial sum (at most 256 by default) | `QuantumKnapsackSolver.findAllExactCombinationsAsync` and the `Knapsack.findAll…Async` functions with a backend |
+
+**When it happens.** Only when the problem needs more qubits than the backend runs (or than `MaxPieceQubits`, when you set it), and only where the split settings allow it. The default is `SplitPolicy.OnSimulators`:
+
+| `Policy` | Simulators (local, topological) | Backends that bill every circuit (Azure Quantum, Braket) |
+|---|---|---|
+| `Never` | one circuit; the backend accepts or refuses it | one circuit |
+| `OnSimulators` (default) | split | one circuit, so billed jobs never multiply unasked |
+| `Always` | split | split: every piece is a billed job |
+
+**How to set it.** The settings are the `Splitting` field of `QaoaSolverConfig` and of the MaxCut and Knapsack configurations:
+
+```fsharp
+open FSharp.Azure.Quantum.Core
+
+let splitting: QaoaExecutionHelpers.SplitSettings =
+    { QaoaExecutionHelpers.defaultSplitSettings with
+        Policy = QaoaExecutionHelpers.SplitPolicy.Always // also on billed hardware
+        MaxPieceQubits = ValueSome 12 // widest circuit: wider problems are split even if the backend could run them
+        MaxFixedVariables = 6      // at most 2^6 = 64 runs per piece
+        MaxShareRuns = 100         // at most 100 block runs
+        MaxBlockItems = 10 }       // at most 10 items per block
+
+let config =
+    { QaoaExecutionHelpers.defaultConfig with
+        Splitting = splitting }
+```
+
+The business builders (`coverageOptimizer`, `resourcePairing`, `socialNetwork`, …) and the `MaxCut` and `Knapsack` builders use the default settings; call the solver's `solveWithConfigAsync` (or `QuantumMaxCutSolver.solveAsync` / `QuantumKnapsackSolver.solveAsync`) to pass your own.
+
+**How to see it.** A solution that was split carries `Split`, and has no `Sampling`:
+
+```fsharp
+open FSharp.Azure.Quantum.Core
+
+let describe (split: QaoaExecutionHelpers.SplitReport option) =
+    match split with
+    | Some s -> printfn "%d runs, widest %d qubits, %d fixed variables, %d blocks" s.Runs s.WidestPieceQubits s.FixedVariables s.Blocks
+    | None -> printfn "ran as one circuit"
+```
+
+What to expect:
+
+- **Runs multiply.** On a simulator that is time; on hardware every run is billed, so `Always` belongs together with a `JobBudget` on the backend.
+- **A problem that cannot be split runs as one circuit** while the backend can hold it, and otherwise returns an error that names the limit it hit (`MaxFixedVariables` or `MaxShareRuns`). The subset-sum search counts its searches as it goes, so it returns that error once it passes `MaxShareRuns`.
+- **Pieces stay separate.** Every piece is a circuit of its own, never packed with another: a narrow circuit is faster to simulate and its best sample is not diluted by the other piece. A chain of 100 vertices in pieces of 12 takes 7 fixed vertices and 28 runs.
+- **A graph of several components adds its reports up.** `Split` then counts the runs, fixed variables and blocks of all components.
+- **The join is exact; the pieces are not.** If every piece returned its true optimum the joined answer would be the optimum of the whole problem. Each piece is sampled, so a missed piece optimum carries into the answer.
+- **It is not a wider quantum computation.** No circuit is wider than a piece, so no entanglement spans the pieces; what crosses the cut is tried classically. The split extends the problem size a small device can take on, not the size of the quantum state.
+- **Dense encodings do not split by conditioning.** A penalty that squares a sum couples every variable to every other (TSP, task scheduling, knapsack as one QUBO). Knapsack splits by blocks instead.
+- **A block needs no slack bits.** It is asked for an exact share, which is an equality: a knapsack of 12 items with capacity 15 is 16 qubits as one QUBO and 6 qubits per block in two blocks.
 
 ### Can I use my own distance calculations?
 
@@ -210,7 +322,7 @@ let normalized =
 
 **Try these improvements:**
 
-1. **Give QAOA more shots and iterations** (quantum TSP; 4 cities = 16 qubits):
+1. **Give QAOA more shots** (quantum TSP; 4 cities = 16 qubits). Only a few percent of the shots are valid tours at 4 cities, and the result is the shortest of them, so more shots raise the chance that the optimum is among them. `NumLayers = 3` raises the share of valid tours and makes the optimization slower:
 ```fsharp
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -219,8 +331,7 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 let config =
     { QuantumTspSolver.defaultConfig with
         OptimizationShots = 500
-        FinalShots = 4000
-        MaxOptimizationIterations = 2000 }
+        FinalShots = 4000 }
 
 let backend = LocalBackend() :> IQuantumBackend
 
@@ -390,7 +501,7 @@ The `CSharpBuilders` class and the C# extension methods offer a more idiomatic s
 **LocalBackend (Quantum Simulation):** Free - runs entirely local; width derived from available memory
 
 **Cloud Quantum Backends:** Azure Quantum pricing applies
-- Pay-per-use; cost depends on provider, circuit size and shot count
+- Pay-per-use; cost depends on provider, circuit size and shot count, and is linear in shots (see [Will my Azure bill grow exponentially with more shots?](#will-my-azure-bill-grow-exponentially-with-more-shots))
 - Qubit limits the library enforces: IonQ Aria 25 / Forte 36, Rigetti 84, Quantinuum H1 32 / H2 56, Atom Computing 100, IQM 20; provider simulators 20
 - `CostEstimation` gives rough per-provider estimates before you submit
 - See [Azure Quantum Pricing](https://azure.microsoft.com/en-us/pricing/details/azure-quantum/)

@@ -157,7 +157,7 @@ module QuantumTreeSearch =
                 let qubitsNeeded =
                     GroverSearch.TreeSearch.estimateQubitsNeeded searchDepth estimatedBranching
 
-                let maxQubits = 20 // LocalBackend practical limit
+                let maxQubits = 16 // the tree-search builder's limit
 
                 if qubitsNeeded > maxQubits then
                     Error(
@@ -259,7 +259,7 @@ module QuantumTreeSearch =
             let optimalIters = Grover.calculateOptimalIterations qubits numSolutions
             Some optimalIters
 
-        let maxQubits = 20 // LocalBackend practical limit
+        let maxQubits = 16 // the tree-search builder's limit
 
         let (feasible, reason) =
             if qubits > maxQubits then

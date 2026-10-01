@@ -376,9 +376,7 @@ let private tryFetchReturnSeriesAsync (symbols: string list) =
                         EndDate = None
                     }
 
-                let! fetched = fetchYahooHistoryAsync httpClient request CancellationToken.None
-
-                match fetched with
+                match! fetchYahooHistoryAsync httpClient request CancellationToken.None with
                 | Ok priceSeries -> series.Add(calculateReturns priceSeries)
                 | Error error ->
                     raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}"))
@@ -418,11 +416,7 @@ let returnSeries =
     if liveDataEnabled then
         let symbols = assets |> List.map (fun a -> a.Symbol)
 
-        match
-            tryFetchReturnSeriesAsync symbols
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-        with
+        match tryFetchReturnSeriesAsync symbols |> Async.AwaitTask |> Async.RunSynchronously with
         | Some series ->
             if not quiet then
                 printfn "Using live Yahoo Finance data (cached at %s)" yahooCacheDir

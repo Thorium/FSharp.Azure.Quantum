@@ -26,9 +26,11 @@ module PackingOptimizerTests =
                 packingOptimizer {
                     containerCapacity 100.0
 
-                    item "Crate-A" 45.0
-                    item "Crate-B" 35.0
-                    item "Crate-C" 25.0
+                    // 60 + 40 fill one container, the other 60 needs a second: 12 qubits
+                    // (6 item bits, 2 bin bits, 2 slack bits per bin for loads of 60..100)
+                    item "Crate-A" 60.0
+                    item "Crate-B" 40.0
+                    item "Crate-C" 60.0
 
                     backend (localBackend ())
                 }
@@ -39,6 +41,45 @@ module PackingOptimizerTests =
                 Assert.True(r.BinsUsed > 0, "Should use at least one bin")
                 Assert.Equal(3, r.TotalItems)
             | Error e -> Assert.Fail($"Packing optimizer failed: %A{e}")
+        }
+        :> Task
+
+    [<Fact>]
+    let ``PackingOptimizer reports repair and sampling statistics`` () =
+        task {
+            let problem =
+                {
+                    Items =
+                        [
+                            { Id = "A"; Size = 50.0 }
+                            { Id = "B"; Size = 50.0 }
+                            { Id = "C"; Size = 50.0 }
+                        ]
+                    BinCapacity = 100.0
+                    Backend = Some(localBackend ())
+                    Shots = 200
+                }
+
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
+            | Error e -> Assert.Fail($"Packing optimizer failed: %A{e}")
+            | Ok r ->
+                // Repair is on by default, so the packing is valid: 3 items, 2 containers
+                Assert.True(r.IsValid)
+                Assert.Equal(3, r.ItemsAssigned)
+                Assert.Equal(2, r.BinsUsed)
+
+                match r.Sampling with
+                | None -> Assert.Fail("no sampling statistics")
+                | Some stats ->
+                    Assert.Equal(200, stats.Shots)
+
+                    // Repair runs only when no sample was a valid packing, and the message says so
+                    if r.WasRepaired then
+                        Assert.Equal(0, stats.Valid)
+                        Assert.Contains("repair", r.Message)
+                    else
+                        Assert.InRange(stats.Hits, 1, stats.Valid)
+                        Assert.DoesNotContain("repair", r.Message)
         }
         :> Task
 

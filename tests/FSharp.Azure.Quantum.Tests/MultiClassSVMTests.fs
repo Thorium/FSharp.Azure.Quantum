@@ -50,7 +50,9 @@ let ``MultiClassSVM train should succeed with 3 classes`` () : Task =
         let config = QuantumKernelSVM.defaultConfig
         let shots = 1000
 
-        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        match!
+            MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        with
         | Error e -> Assert.Fail($"Training failed: {e}")
         | Ok model ->
             Assert.Equal(3, model.NumClasses)
@@ -67,7 +69,9 @@ let ``MultiClassSVM train should succeed with 4 classes`` () : Task =
         let config = QuantumKernelSVM.defaultConfig
         let shots = 1000
 
-        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        match!
+            MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        with
         | Error e -> Assert.Fail($"Training failed: {e}")
         | Ok model ->
             Assert.Equal(4, model.NumClasses)
@@ -84,7 +88,9 @@ let ``MultiClassSVM predict should classify training samples`` () : Task =
         let config = QuantumKernelSVM.defaultConfig
         let shots = 1000
 
-        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        match!
+            MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        with
         | Error e -> Assert.Fail($"Training failed: {e}")
         | Ok model ->
             match! MultiClassSVM.predictAsync backend model trainData.[0] shots CancellationToken.None with
@@ -103,7 +109,9 @@ let ``MultiClassSVM evaluate should compute accuracy`` () : Task =
         let config = QuantumKernelSVM.defaultConfig
         let shots = 1000
 
-        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        match!
+            MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        with
         | Error e -> Assert.Fail($"Training failed: {e}")
         | Ok model ->
             match! MultiClassSVM.evaluateAsync backend model trainData trainLabels shots CancellationToken.None with
@@ -122,7 +130,9 @@ let ``MultiClassSVM confusionMatrix should have correct dimensions`` () : Task =
         let config = QuantumKernelSVM.defaultConfig
         let shots = 1000
 
-        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        match!
+            MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        with
         | Error e -> Assert.Fail($"Training failed: {e}")
         | Ok model ->
             let predictions = [| 0; 1; 2; 0; 1; 2 |]

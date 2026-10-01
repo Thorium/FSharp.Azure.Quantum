@@ -704,7 +704,7 @@ let fullConfigResult = drugDiscovery {
 
     // General settings
     set_batch_size 20         // Molecules per batch (default: 10)
-    shots 1000                // Measurement shots (default: 100)
+    shots 1000                // Measurement shots (default: 100; QAOADiverseSelection: 1000 final shots)
     backend localBackend      // Quantum backend (required)
 
     // VQC-specific settings (for VQCClassifier)
@@ -712,7 +712,7 @@ let fullConfigResult = drugDiscovery {
     vqc_max_epochs 100        // Max training epochs (default: 50)
 
     // QAOA-specific settings (for QAOADiverseSelection)
-    selection_budget 5.0      // Budget constraint (default: 10.0)
+    selection_budget 5.0      // At most 5 molecules, each costs 1 (default: 10.0)
     diversity_weight 0.7      // Diversity bonus weight (default: 0.5)
 }
 ```
@@ -790,21 +790,23 @@ task {
         use_method QAOADiverseSelection
 
         // QAOA-specific configuration
-        selection_budget 10.0     // Max total cost of selected compounds
+        selection_budget 4.0      // At most 4 compounds: each one costs 1
         diversity_weight 0.6      // Balance value vs diversity (0-1)
 
-        set_batch_size 50         // Evaluate top 50 candidates
-        shots 2000                // More shots for better optimization
+        set_batch_size 10         // First 10 candidates: 10 qubits + 3 budget slack qubits
+        shots 2000                // Final shots (default for this method: 1000)
         backend localBackend
     }
 
     match selectionResult with
     | Ok r ->
         printfn "Selection complete!"
-        printfn "%s" r.Message  // Shows selected compounds, total value, diversity
+        printfn "%s" r.Message  // Selected compounds, value, diversity, repair flag, sample counts
     | Error e -> eprintfn "Selection failed: %s" e.Message
 }
 ```
+
+The selection runs on the first `set_batch_size` candidates, one qubit each, plus ⌊log2 budget⌋ + 1 slack qubits while the budget is below the batch size. A `selection_budget` at or above the batch size (the defaults are 10.0 and 10) does not bind: with non-negative activity values the best selection is then the whole batch, so set the budget below the batch size to select a subset. The message reports `Repaired to fit the budget` (the lowest-energy sample was over budget and compounds were dropped classically) and how many of the final samples were the returned selection and how many were within budget.
 
 **When to use:**
 - Building diverse screening libraries
@@ -829,9 +831,9 @@ task {
     let! diverseResult = drugDiscovery {
         load_candidates_from_file "classified_hits.sdf"
         use_method QAOADiverseSelection
-        selection_budget 20.0       // Select compounds worth total "cost" of 20
+        selection_budget 5.0        // At most 5 compounds (each costs 1)
         diversity_weight 0.5        // Equal weight to value and diversity
-        set_batch_size 50
+        set_batch_size 10           // 10 qubits + 3 budget slack qubits
         backend localBackend
     }
 
@@ -1036,7 +1038,11 @@ task {
 
 **Result — `SchedulingResult`:** `BestSchedule: Schedule option` and `Message`. A `Schedule` has `Assignments` (each `Task`, `Resource`, `Cost`), `TotalCost`, hard/soft constraint counts (`HardConstraintsSatisfied`, `TotalHardConstraints`, `SoftConstraintsSatisfied`, `TotalSoftConstraints`) and `IsFeasible`.
 
+`IsFeasible` is true only when every task is on exactly one resource, no resource carries more tasks than its capacity, every hard constraint holds and the total cost is within `maxBudget` when one is set; otherwise `Message` names what is broken.
+
 The search space is tasks × resources binary variables, so keep problems small on a simulator.
+
+**Resources with capacities.** When any resource has a capacity, QAOA runs a QUBO over the task-resource assignment bits that encodes each resource's own capacity, `conflict`, `require` and, for `MinimizeCost` and `Balanced`, the resource costs. It adds a few slack qubits per capacity-limited resource (none when the capacities leave no choice of loads; 3 tasks on resources with capacities 2 and 2 take 6 + 2 = 8 qubits). The returned schedule is a measured sample without classical repair (the cheapest feasible sample, or the lowest-energy sample when none is feasible), so check `IsFeasible`. Capacities that add up to fewer than the number of tasks are rejected with a validation error. `maxBudget` and soft preferences are not part of this QUBO; `IsFeasible` still checks the budget. With `useGrover` and `MaximizeSatisfaction` the Max-SAT oracle does not see capacities; `IsFeasible` still checks them.
 
 ### Example: Shift Duty Assignment
 
@@ -1237,6 +1243,10 @@ The `packingOptimizer` computation expression builder is in `FSharp.Azure.Quantu
 | `TotalItems` | `int` | Total items in the problem |
 | `ItemsAssigned` | `int` | Items successfully assigned |
 | `Message` | `string` | Human-readable execution summary |
+| `WasRepaired` | `bool` | `true` when no measured sample was a valid packing and classical constraint repair produced the assignments |
+| `Sampling` | `SampleStatistics option` | Standing of the packing among the final samples: `Valid` = samples that were valid packings, `Hits` = samples that are the returned packing |
+
+**Sizes and qubits.** Item sizes and the capacity are rescaled to integers, so they need a common decimal form of at most 6 places (30, 40, 20 into 100 becomes 3, 4, 2 into 10); other values are a validation error. The QUBO has n·B item bits, B bin bits and K slack bits per bin, where B is the bin count of a first-fit-decreasing packing and the slack covers the loads a used bin can have on that integer grid. The slack is what makes "at most the capacity" an inequality; it is absent when every used bin must be full. The example below takes 4·2 + 2 + 2·4 = 18 qubits; with sizes 45, 35, 65, 55 (two full containers) it takes 10.
 
 **Minimal example:**
 

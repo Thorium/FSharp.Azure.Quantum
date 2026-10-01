@@ -40,6 +40,51 @@ module Braket =
         [<Literal>]
         let queraAquila = "arn:aws:braket:us-east-1::device/qpu/quera/Aquila"
 
+        /// Qubits of a gate-model device this module names, ValueNone for any other device (its own
+        /// limit then applies when a task is submitted). Aquila is an analog device and has no
+        /// gate-model width. The figures are defaults from when this version was released:
+        /// BraketBackend takes a maxQubits argument that replaces them, and
+        /// BraketBackend.CreateWithDeviceLimitAsync reads the device's own figure.
+        let maxQubits (deviceArn: string) : int voption =
+            [
+                ionqAria1, 25
+                ionqForte1, 36
+                rigettiAnkaa3, 84
+                iqmGarnet, 20
+                oqcLucy, 8
+                sv1, 34
+                dm1, 17
+                tn1, 50
+            ]
+            |> List.tryFind (fun (arn, _) -> arn = deviceArn)
+            |> ValueOption.ofOption
+            |> ValueOption.map snd
+
+        /// Qubit count in a device's capabilities document (the DeviceCapabilities JSON of
+        /// Braket's GetDevice): its paradigm.qubitCount. ValueNone when the document names none
+        /// or is not a JSON object.
+        let qubitCountOfCapabilities (capabilitiesJson: string) : int voption =
+            if System.String.IsNullOrWhiteSpace capabilitiesJson then
+                ValueNone
+            else
+                try
+                    use doc = JsonDocument.Parse capabilitiesJson
+
+                    if doc.RootElement.ValueKind <> JsonValueKind.Object then
+                        ValueNone
+                    else
+                        match doc.RootElement.TryGetProperty "paradigm" with
+                        | true, paradigm when paradigm.ValueKind = JsonValueKind.Object ->
+                            match paradigm.TryGetProperty "qubitCount" with
+                            | true, count when count.ValueKind = JsonValueKind.Number ->
+                                match count.TryGetInt32() with
+                                | true, qubits when qubits >= 1 -> ValueSome qubits
+                                | _ -> ValueNone
+                            | _ -> ValueNone
+                        | _ -> ValueNone
+                with :? JsonException ->
+                    ValueNone
+
     /// Wrap an OpenQASM 3.0 source string in a Braket OpenQASM program action.
     let openQasmAction (source: string) : string =
         // JsonSerializer.Serialize handles escaping of newlines/quotes in the source.

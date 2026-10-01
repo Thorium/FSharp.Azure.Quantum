@@ -18,6 +18,15 @@
 //   dotnet fsi DrugDiscoverySolvers_Example.fsx -- --output results.json --csv results.csv
 // ============================================================================
 
+// WIDER THAN THE BACKEND (FSharp.Azure.Quantum 1.5.1 and later):
+//   A graph that needs more qubits than the backend runs is split into circuits that fit:
+//   a few vertices are fixed, the rest falls into pieces, and each piece is solved for
+//   every assignment of its fixed neighbours (QuboSplitting). It works when the graph is
+//   sparse and takes many runs instead of one; the solution's Split field reports them.
+//   Simulators split by default, a backend that bills every circuit only with
+//   SplitPolicy.Always (QaoaExecutionHelpers.SplitSettings). See the FAQ: "My problem is
+//   wider than the backend".
+
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "nuget: MathNet.Numerics, 5.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
@@ -133,7 +142,9 @@ if runAll || exampleName = "independent" then
         DrugDiscoverySolvers.IndependentSet.solveWithConfigAsync
             quantumBackend
             problem
-            { DrugDiscoverySolvers.defaultConfig with FinalShots = cliShots }
+            { DrugDiscoverySolvers.defaultConfig with
+                FinalShots = cliShots
+            }
             CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -213,7 +224,9 @@ if runAll || exampleName = "influence" then
         DrugDiscoverySolvers.InfluenceMaximization.solveWithConfigAsync
             quantumBackend
             problem
-            { DrugDiscoverySolvers.defaultConfig with FinalShots = cliShots }
+            { DrugDiscoverySolvers.defaultConfig with
+                FinalShots = cliShots
+            }
             CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -313,7 +326,9 @@ if runAll || exampleName = "diverse" then
         DrugDiscoverySolvers.DiverseSelection.solveWithConfigAsync
             quantumBackend
             problem
-            { DrugDiscoverySolvers.defaultConfig with FinalShots = cliShots }
+            { DrugDiscoverySolvers.defaultConfig with
+                FinalShots = cliShots
+            }
             CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously

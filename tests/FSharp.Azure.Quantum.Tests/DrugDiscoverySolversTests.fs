@@ -259,31 +259,30 @@ module InfluenceMaximizationTests =
 
     [<Fact>]
     let ``toQubo includes synergy bonus for edges`` () =
-        // Arrange: 2 nodes with an edge
+        // Arrange: 3 nodes, one edge between A and B
         let problem: InfluenceMaximization.Problem =
             {
-                Nodes = [ { Id = "A"; Score = 10.0 }; { Id = "B"; Score = 10.0 } ]
+                Nodes =
+                    [
+                        { Id = "A"; Score = 10.0 }
+                        { Id = "B"; Score = 10.0 }
+                        { Id = "C"; Score = 10.0 }
+                    ]
                 Edges = [ { Source = 0; Target = 1; Weight = 5.0 } ]
                 K = 2
                 SynergyWeight = 1.0
             }
 
-        // Compare with same problem without edge
-        let problemNoEdge = { problem with Edges = [] }
-
         // Act
-        let quboWithEdge = InfluenceMaximization.toQubo problem
-        let quboNoEdge = InfluenceMaximization.toQubo problemNoEdge
+        let qubo = InfluenceMaximization.toQubo problem
 
-        // Assert: Edge term should make selecting both more favorable
-        // (lower QUBO value = better in minimization)
-        let pairTermWithEdge = quboWithEdge.[0, 1] + quboWithEdge.[1, 0]
-        let pairTermNoEdge = quboNoEdge.[0, 1] + quboNoEdge.[1, 0]
+        // Assert: every pair carries the same cardinality penalty (which grows with the
+        // synergy total), so the connected pair differs from an unconnected pair by
+        // exactly the synergy bonus -α·w (lower QUBO value = better in minimization)
+        let connectedPair = qubo.[0, 1] + qubo.[1, 0]
+        let unconnectedPair = qubo.[0, 2] + qubo.[2, 0]
 
-        Assert.True(
-            pairTermWithEdge < pairTermNoEdge,
-            $"Synergy should reduce pair penalty: with={pairTermWithEdge}, without={pairTermNoEdge}"
-        )
+        Assert.Equal(-5.0, connectedPair - unconnectedPair, 9)
 
     [<Fact>]
     let ``decode calculates correct score and synergy`` () =
@@ -1120,4 +1119,344 @@ module AdvancedQaoaTests =
                     solution.IsFeasible,
                     $"Solution should be feasible. Cost={solution.TotalCost}, Budget={problem.Budget}, Repaired={solution.WasRepaired}"
                 )
+        }
+
+// ============================================================================
+// QUBO MINIMUM = CLASSICAL OPTIMUM (every bitstring enumerated, no circuit)
+// ============================================================================
+
+module QuboMinimumTests =
+
+    let private bitsOf (n: int) (index: int) =
+        Array.init n (fun q -> (index >>> q) &&& 1)
+
+    /// Every minimum-energy bitstring of the QUBO.
+    let private minimumEnergyStates (qubo: float[,]) : int[][] =
+        let n = Array2D.length1 qubo
+        let states = Array.init (1 <<< n) (bitsOf n)
+        let energies = states |> Array.map (QaoaExecutionHelpers.evaluateQubo qubo)
+        let lowest = Array.min energies
+
+        Array.zip states energies
+        |> Array.filter (fun (_, e) -> e <= lowest + 1e-9 * max 1.0 (abs lowest))
+        |> Array.map fst
+
+    /// Items as (value, cost in cost units); a cost unit is 1 / unitsPerCost of the problem's
+    /// cost scale, so the test's own feasibility check runs on exact integers.
+    let private diverseProblem
+        (unitsPerCost: int)
+        (items: (float * int) list)
+        (budgetUnits: int)
+        : DiverseSelection.Problem =
+        let n = items.Length
+
+        {
+            Items =
+                items
+                |> List.mapi (fun i (value, costUnits) ->
+                    {
+                        DiverseSelection.Item.Id = $"m{i}"
+                        Value = value
+                        Cost = float costUnits / float unitsPerCost
+                    })
+            Diversity = Array2D.init n n (fun i j -> if i = j then 0.0 else 0.2 * float (1 + (i + j) % 3))
+            Budget = float budgetUnits / float unitsPerCost
+            DiversityWeight = 0.5
+        }
+
+    /// The QUBO's minimum-energy states select, on their item bits, exactly the best
+    /// selections within the budget.
+    let private assertMinimumIsBestFeasible (items: (float * int) list) (budgetUnits: int) (unitsPerCost: int) =
+        let problem = diverseProblem unitsPerCost items budgetUnits
+        let n = items.Length
+        let costUnits = items |> List.map snd |> List.toArray
+
+        let objective (selection: int[]) =
+            let value = items |> List.mapi (fun i (v, _) -> float selection.[i] * v) |> List.sum
+
+            let diversity =
+                [
+                    for i in 0 .. n - 1 do
+                        for j in i + 1 .. n - 1 do
+                            if selection.[i] = 1 && selection.[j] = 1 then
+                                yield problem.Diversity.[i, j]
+                ]
+                |> List.sum
+
+            value + problem.DiversityWeight * diversity
+
+        let feasible (selection: int[]) =
+            (selection |> Array.mapi (fun i bit -> bit * costUnits.[i]) |> Array.sum)
+            <= budgetUnits
+
+        let best =
+            Array.init (1 <<< n) (bitsOf n)
+            |> Array.filter feasible
+            |> Array.map objective
+            |> Array.max
+
+        let minima = minimumEnergyStates (DiverseSelection.toQubo problem)
+        Assert.NotEmpty minima
+
+        for state in minima do
+            let selection = Array.truncate n state
+            Assert.True(feasible selection, $"minimum-energy state %A{state} exceeds the budget")
+            Assert.Equal(best, objective selection, 9)
+            Assert.True((DiverseSelection.decode problem selection).IsFeasible)
+
+    [<Fact>]
+    let ``DiverseSelection QUBO minimum is the best selection within an integer budget`` () =
+        assertMinimumIsBestFeasible [ 3.0, 2; 4.0, 3; 6.0, 4; 1.0, 1; 2.5, 2 ] 6 1
+
+    [<Fact>]
+    let ``DiverseSelection QUBO minimum is the best selection within the budget for non-integer costs`` () =
+        // costs 1.0 / 1.1 / 0.9, budget 2.0: the two most valuable items cost 2.1
+        assertMinimumIsBestFeasible [ 5.0, 10; 5.0, 11; 1.0, 9 ] 20 10
+        // costs 0.1 / 0.2 / 0.3, budget 0.3: 0.1 + 0.2 fits exactly
+        assertMinimumIsBestFeasible [ 1.0, 1; 1.0, 2; 1.0, 3 ] 3 10
+
+    [<Fact>]
+    let ``DiverseSelection QUBO minimum is the best selection when the budget lies between cost sums`` () =
+        // costs 2 / 4 / 2, budget 5: every cost sum is even
+        assertMinimumIsBestFeasible [ 3.0, 2; 4.0, 4; 2.0, 2 ] 5 1
+        // costs 120 / 250 / 90, budget 300
+        assertMinimumIsBestFeasible [ 5.0, 120; 8.0, 250; 4.0, 90 ] 300 1
+
+    [<Fact>]
+    let ``DiverseSelection QUBO minimum selects everything worth having under a budget above the total cost`` () =
+        assertMinimumIsBestFeasible [ 1.0, 1; 0.0, 1; 1.0, 1; 1.0, 1 ] 10 1
+
+    let private influenceProblem
+        (scores: float list)
+        (edges: (int * int * float) list)
+        (k: int)
+        : InfluenceMaximization.Problem =
+        {
+            Nodes =
+                scores
+                |> List.mapi (fun i score ->
+                    {
+                        InfluenceMaximization.Node.Id = $"n{i}"
+                        Score = score
+                    })
+            Edges =
+                edges
+                |> List.map (fun (source, target, weight) ->
+                    {
+                        InfluenceMaximization.Edge.Source = source
+                        Target = target
+                        Weight = weight
+                    })
+            K = k
+            SynergyWeight = 0.5
+        }
+
+    /// The QUBO's minimum-energy states are exactly the best selections of K nodes.
+    let private assertMinimumIsBestOfSizeK (problem: InfluenceMaximization.Problem) =
+        let n = problem.Nodes.Length
+        let scores = problem.Nodes |> List.map (fun node -> node.Score) |> List.toArray
+
+        let objective (selection: int[]) =
+            (selection |> Array.mapi (fun i bit -> float bit * scores.[i]) |> Array.sum)
+            + problem.SynergyWeight
+              * (problem.Edges
+                 |> List.sumBy (fun e ->
+                     if selection.[e.Source] = 1 && selection.[e.Target] = 1 then
+                         e.Weight
+                     else
+                         0.0))
+
+        let best =
+            Array.init (1 <<< n) (bitsOf n)
+            |> Array.filter (fun selection -> Array.sum selection = problem.K)
+            |> Array.map objective
+            |> Array.max
+
+        let minima = minimumEnergyStates (InfluenceMaximization.toQubo problem)
+        Assert.NotEmpty minima
+
+        for state in minima do
+            Assert.Equal(problem.K, Array.sum state)
+            Assert.Equal(best, objective state, 9)
+
+    let private completeGraphEdges (n: int) (weight: float) =
+        [
+            for i in 0 .. n - 2 do
+                for j in i + 1 .. n - 1 -> (i, j, weight)
+        ]
+
+    [<Fact>]
+    let ``InfluenceMaximization QUBO minimum is the best selection of K nodes`` () =
+        assertMinimumIsBestOfSizeK (
+            influenceProblem [ 0.9; 0.8; 0.7; 0.3; 0.2; 0.1 ] [ 0, 3, 1.0; 1, 2, 0.8; 2, 5, 0.3; 3, 4, 0.5 ] 2
+        )
+
+    [<Fact>]
+    let ``InfluenceMaximization QUBO minimum keeps K nodes when the synergy outweighs the scores`` () =
+        assertMinimumIsBestOfSizeK (influenceProblem (List.replicate 5 0.1) (completeGraphEdges 5 100.0) 2)
+
+    [<Fact>]
+    let ``InfluenceMaximization QUBO minimum keeps K nodes when every score is zero`` () =
+        assertMinimumIsBestOfSizeK (influenceProblem (List.replicate 5 0.0) (completeGraphEdges 5 1.0) 2)
+
+    [<Fact>]
+    let ``DiverseSelection QUBO has slack bits only for a budget that can bind`` () =
+        let qubits (items: (float * int) list) (budgetUnits: int) (unitsPerCost: int) =
+            Array2D.length1 (DiverseSelection.toQubo (diverseProblem unitsPerCost items budgetUnits))
+
+        // costs 120 / 250 / 90, budget 300: common divisor 10, so 12 / 25 / 9 against 30
+        // with slack weights 1, 2, 4, 8, 15
+        Assert.Equal(3 + 5, qubits [ 5.0, 120; 8.0, 250; 4.0, 90 ] 300 1)
+        // costs 1.0 / 1.1 / 0.9, budget 2.0: 10 / 11 / 9 against 20 with slack weights 1, 2, 4, 8, 5
+        Assert.Equal(3 + 5, qubits [ 5.0, 10; 5.0, 11; 1.0, 9 ] 20 10)
+
+        let unitCosts = [ 1.0, 1; 0.0, 1; 1.0, 1; 1.0, 1 ]
+        // one below the total cost: slack weights 1, 2
+        Assert.Equal(4 + 2, qubits unitCosts 3 1)
+        // at or above the total cost the budget cannot be exceeded: no slack
+        Assert.Equal(4, qubits unitCosts 4 1)
+        Assert.Equal(4, qubits unitCosts 10 1)
+
+    [<Fact>]
+    let ``DiverseSelection rejects costs without a common integer scale`` () : Task =
+        task {
+            let problem: DiverseSelection.Problem =
+                {
+                    Items =
+                        [
+                            {
+                                Id = "A"
+                                Value = 1.0
+                                Cost = 1.0 / 3.0
+                            }
+                            { Id = "B"; Value = 1.0; Cost = 1.0 }
+                        ]
+                    Diversity = Array2D.zeroCreate 2 2
+                    Budget = 1.0
+                    DiversityWeight = 0.0
+                }
+
+            match DiverseSelection.tryToQubo problem with
+            | Error(QuantumError.ValidationError("cost", _)) -> ()
+            | other -> Assert.Fail($"expected a validation error on the costs, got %A{other}")
+
+            Assert.Throws<System.ArgumentException>(fun () -> DiverseSelection.toQubo problem |> ignore)
+            |> ignore
+
+            let! solved =
+                DiverseSelection.solveWithConfigAsync (createLocalBackend ()) problem fastConfig CancellationToken.None
+
+            match solved with
+            | Error(QuantumError.ValidationError("cost", _)) -> ()
+            | other -> Assert.Fail($"expected a validation error on the costs, got %A{other}")
+        }
+
+    [<Fact>]
+    let ``DiverseSelection rejects a negative cost`` () =
+        let problem: DiverseSelection.Problem =
+            {
+                Items = [ { Id = "A"; Value = 1.0; Cost = -1.0 } ]
+                Diversity = Array2D.zeroCreate 1 1
+                Budget = 1.0
+                DiversityWeight = 0.0
+            }
+
+        match DiverseSelection.tryToQubo problem with
+        | Error(QuantumError.ValidationError("cost", _)) -> ()
+        | other -> Assert.Fail($"expected a validation error on the costs, got %A{other}")
+
+    [<Fact>]
+    let ``DiverseSelection solution on non-integer costs is within budget and reports its sampling`` () : Task =
+        task {
+            // costs 1.0 / 1.1 / 0.9, budget 2.0
+            let problem = diverseProblem 10 [ 5.0, 10; 5.0, 11; 1.0, 9 ] 20
+
+            let! solved =
+                DiverseSelection.solveWithConfigAsync
+                    (createLocalBackend ())
+                    problem
+                    { defaultConfig with FinalShots = 200 }
+                    CancellationToken.None
+
+            match solved with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.IsFeasible)
+                Assert.True(solution.TotalCost <= 2.0 + 1e-9)
+
+                match solution.Sampling with
+                | None -> Assert.Fail("Sampling should be reported")
+                | Some sampling ->
+                    Assert.Equal(200, sampling.Shots)
+                    Assert.Equal(8, sampling.Qubits)
+                    Assert.InRange(sampling.Valid, 0, 200)
+                    Assert.InRange(sampling.Hits, 0, 200)
+
+                    // A selection that was not repaired is the lowest-energy sample itself
+                    if not solution.WasRepaired then
+                        Assert.True(sampling.Hits >= 1)
+                        Assert.True(sampling.Valid >= sampling.Hits)
+        }
+
+// ============================================================================
+// DRUG DISCOVERY BUILDER: QAOA DIVERSE SELECTION
+// ============================================================================
+
+module DrugDiscoveryBuilderTests =
+
+    open FSharp.Azure.Quantum.Business
+
+    [<Fact>]
+    let ``builder defaults keep 100 classifier shots and use the shared QAOA final shots`` () =
+        let defaults = drugDiscovery.Zero()
+        Assert.Equal(100, defaults.Shots)
+        Assert.Equal(QaoaExecutionHelpers.defaultConfig.FinalShots, defaults.SelectionShots)
+        Assert.Equal(10, defaults.BatchSize)
+        Assert.Equal(10.0, defaults.SelectionBudget)
+
+        let custom = drugDiscovery.Shots(defaults, 250)
+        Assert.Equal(250, custom.Shots)
+        Assert.Equal(250, custom.SelectionShots)
+
+    [<Fact>]
+    let ``QAOA diverse selection stays within the budget and reports repair and sampling`` () : Task =
+        task {
+            let file =
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"fsaq-diverse-{System.Guid.NewGuid():N}.csv")
+
+            do!
+                System.IO.File.WriteAllLinesAsync(
+                    file,
+                    [
+                        "SMILES,Label"
+                        "CCO,0"
+                        "CC(=O)O,0"
+                        "c1ccccc1,1"
+                        "c1ccc(O)cc1,1"
+                        "c1ccc(N)cc1,1"
+                        "CC(=O)Oc1ccccc1C(=O)O,1"
+                    ]
+                )
+
+            try
+                // 6 molecules of cost 1, budget 3: 6 item qubits + 2 slack qubits
+                let! result =
+                    drugDiscovery {
+                        load_candidates_from_file file
+                        use_method QAOADiverseSelection
+                        selection_budget 3.0
+                        backend (createLocalBackend ())
+                    }
+
+                match result with
+                | Error err -> Assert.Fail($"Selection failed: {err}")
+                | Ok screening ->
+                    Assert.Equal(QAOADiverseSelection, screening.Method)
+                    Assert.Equal(6, screening.MoleculesProcessed)
+                    Assert.InRange(screening.RankedCandidates.Length, 0, 3)
+                    Assert.Contains("Feasible: True", screening.Message)
+                    Assert.Contains("Repaired to fit the budget:", screening.Message)
+                    Assert.Contains("Final samples: 1000;", screening.Message)
+            finally
+                System.IO.File.Delete file
         }

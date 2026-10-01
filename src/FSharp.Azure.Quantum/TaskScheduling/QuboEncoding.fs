@@ -67,7 +67,9 @@ module QuboEncoding =
 
         (penaltyOneHot, penaltyDependency, penaltyResource)
 
-    /// Build objective QUBO terms (minimize makespan: sum of completion times)
+    /// Build objective QUBO terms: the sum of the tasks' completion times, in slots.
+    /// This is the linear stand-in for the makespan (the latest completion time is not a
+    /// quadratic function of the start bits); see toQubo for what it does and does not rank.
     let private buildObjectiveTerms
         (tasks: ScheduledTask<'T> list)
         (varMapping: Map<string * int, int>)
@@ -330,11 +332,11 @@ module QuboEncoding =
     /// gets its EARLIEST set slot (deterministic, biased toward low makespan);
     /// a task with zero set bits is still omitted (nothing to repair from).
     ///
-    /// Rationale: QAOA at fixed initial parameters rarely samples exact one-hot
-    /// states, so the strict decode rejects almost every measurement. Repairing
-    /// keeps sampling usable — SAFELY, because the quantum solver re-validates
-    /// every repaired schedule classically (dependencies + resource capacity)
-    /// before it can be returned.
+    /// The schedule this returns is a classical reading of the sample, not the sample
+    /// itself. The quantum solver uses it only when no sample decodes strictly
+    /// (decodeBitstring) to a feasible schedule, validates the repaired schedule the same
+    /// way (dependencies, resource capacity, allowed starts) and reports
+    /// WasRepaired = true on the solution.
     let decodeBitstringWithRepair (bitstring: int[]) (reverseMapping: Map<int, string * int>) : Map<string, float> =
 
         bitstring
@@ -390,9 +392,17 @@ module QuboEncoding =
     /// - Time discretized into slots (0, 1, 2, ..., T-1)
     /// - Each task must start at exactly one time slot
     ///
-    /// OBJECTIVE (per problem.Objective — the declared objective IS honoured):
-    /// - MinimizeMakespan: Σ_{task,time} completion(task,time) * x_{task,time}
+    /// OBJECTIVE (per problem.Objective):
+    /// - MinimizeMakespan: Σ_{task,time} completion(task,time) * x_{task,time}, the SUM of
+    ///   the completion times. The makespan itself (the latest completion time) is not a
+    ///   quadratic function of the start bits. Among the schedules that pay no penalty the
+    ///   lowest energy goes to the smallest completion-time sum, and schedules equal in
+    ///   that sum can differ in makespan: durations 20/10/10 with A -> B and A, C sharing a
+    ///   unit resource have two minimum-energy schedules, of makespan 30 (A, then B and C
+    ///   together) and 40 (C, A, B in turn).
+    ///   The quantum solver ranks the valid samples by their real makespan.
     /// - MinimizeLateness: Σ_{task,time} max(0, completion - deadline) * x_{task,time}
+    ///   plus 0.01 × the completion-time sum as a tie-break
     /// - MinimizeCost: in this encoding every task is always assigned exactly its
     ///   ResourceRequirements for its fixed Duration, so total resource cost is
     ///   IDENTICAL for every feasible schedule — every feasible schedule is
@@ -400,7 +410,7 @@ module QuboEncoding =
     ///   search toward compact feasible schedules.
     /// - MaximizeResourceUtilization: total usage is likewise schedule-invariant,
     ///   so utilisation = usage / (capacity × makespan) is maximised exactly by
-    ///   minimising makespan; encoded as the makespan objective.
+    ///   minimising makespan; encoded as the same completion-time sum.
     ///
     /// CONSTRAINTS (encoded as penalties):
     ///   1. One-hot: Each task starts exactly once: Σ_time x_{task,time} = 1
@@ -433,12 +443,11 @@ module QuboEncoding =
                 computePenaltyWeights problem.Tasks timeHorizon slotMinutes
 
             // Build QUBO terms functionally.
-            // The objective term follows problem.Objective (previously the field was
-            // never read and MinimizeCost silently optimised completion times):
-            // MinimizeCost and MaximizeResourceUtilization are schedule-invariant /
-            // makespan-equivalent under this encoding (see doc comment above), so
-            // they share the completion-time objective; MinimizeLateness gets a
-            // genuinely different deadline-based objective.
+            // The objective term follows problem.Objective: MinimizeCost and
+            // MaximizeResourceUtilization are schedule-invariant / makespan-equivalent
+            // under this encoding (see doc comment above), so they share the
+            // completion-time objective; MinimizeLateness has its own deadline-based
+            // objective.
             let objectiveTerms =
                 match problem.Objective with
                 | MinimizeMakespan

@@ -395,6 +395,8 @@ val solveQuantumAsync :
 | `ResourceUtilization` | `Map<string, float>` | Utilization per resource (0.0-1.0) |
 | `DeadlineViolations` | `string list` | Task IDs that missed deadlines |
 | `IsValid` | `bool` | True if no deadline violations |
+| `WasRepaired` | `bool` | True when no measured sample was a feasible schedule as measured and the schedule comes from the one-hot repair decode (see below). Always false from `ClassicalSolver.solve` |
+| `Sampling` | `SampleStatistics option` | From `solveQuantumAsync`: `Shots`, `Qubits`, `Valid` (final samples that are feasible schedules as measured) and `Hits` (final samples that are the returned schedule; 0 when it was repaired). `None` from `ClassicalSolver.solve` |
 
 **TaskAssignment Fields:**
 
@@ -440,14 +442,16 @@ Circular dependencies are not rejected up front: `solveQuantumAsync` then finds 
 
 1. **Time slots.** Time is split into a small grid of equal slots. The window is `max timeHorizon (total task duration)`. The slot count starts from window ÷ shortest task duration, is capped so that tasks × slots stays near 18 (at most 10 slots, at least 2), and is never below the length of the longest dependency chain. Slot length = window ÷ slot count, and every task starts on a slot boundary.
 2. **Allowed start slots.** A (task, slot) pair is forbidden when the slot starts before the task's `earliestStart`, or when a task started there would not fit inside an availability window of every resource it requires. If some task has no allowed slot on the grid, `solveQuantumAsync` returns a `ValidationError` on `"AvailableWindows"` naming the task, before running any circuit.
-3. **QUBO.** One binary variable per (task, slot) - so **qubits = tasks × slots** - with penalty terms for "start exactly once", dependencies, resource capacity and forbidden start slots, plus the objective. Forbidden slots stay in the QUBO (with a penalty), so they still count towards the qubits.
-4. **QAOA.** One layer with fixed angles (γ = β = 0.5), 1000 shots.
-5. **Decode and check.** In each shot the bits of forbidden slots are cleared, and each task takes its earliest remaining set slot. Shots that leave a task without a start, break a dependency, overload a resource, start a task before its `earliestStart` or outside a resource window are discarded. The best remaining schedule by the objective is returned, with ties broken by priority.
+3. **QUBO.** One binary variable per (task, slot) - so **qubits = tasks × slots** - with penalty terms for "start exactly once", dependencies, resource capacity and forbidden start slots, plus the objective. Forbidden slots stay in the QUBO (with a penalty), so they still count towards the qubits. For `MinimizeMakespan` the QUBO objective is the **sum of the tasks' completion times**, not the makespan (the latest completion time is not a quadratic function of the start bits). Two schedules with the same sum have the same energy even when their makespans differ: tasks of 20, 10 and 10 minutes with A → B and A, C sharing one machine have two lowest-energy schedules, of makespan 30 and 40. The makespan is applied in step 5.
+4. **QAOA.** The shared QAOA configuration (`QaoaExecutionHelpers.QaoaSolverConfig`). `solveQuantumAsync` uses `QaoaExecutionHelpers.defaultConfig`: 2 layers, angles optimised with Nelder-Mead, 1000 final shots. `solveQuantumWithConfigAsync backend problem config cancellationToken` takes your own (`NumLayers`, `EnableOptimization`, `FinalShots`, `EnableConstraintRepair`, …).
+5. **Decode and check.** A shot counts as valid only if every task has exactly one start slot set and the schedule keeps every dependency, resource capacity, `earliestStart` and resource window. The best valid shot by the objective (minimum makespan, or least lateness) is returned, with ties broken by priority; `Sampling.Valid` and `Sampling.Hits` count the valid shots and the shots equal to the returned schedule.
+6. **Repair decode, reported.** Only if no shot is valid, and `EnableConstraintRepair` is on (the default), the shots are read leniently: the bits of forbidden slots are cleared and a task with several set start bits takes its earliest one. Schedules read this way pass the same feasibility checks, and the solution has `WasRepaired = true` (with `Sampling.Valid = 0` and `Sampling.Hits = 0`). With `EnableConstraintRepair = false` the result is an `Error` instead.
 
 Consequences:
 - **Set `timeHorizon` close to the expected makespan.** With the default 1000-minute window, a short problem gets slots of well over an hour, so tasks can only start at those coarse boundaries and the makespan is padded accordingly.
 - **Size limit.** The backend must be able to run tasks × slots qubits. For `LocalBackend` the limit is the smaller of its memory capacity (`StateVector.maxQubits`, derived from available memory, at most 30) and its wall-clock budget (20 qubits by default, raised with the `FSAQ_MAX_CIRCUIT_QUBITS` environment variable). A larger problem returns an `Error` naming the qubits it needs; long dependency chains raise the slot count and hit this first.
-- **Results are sampled.** A run can come back with `Error "No valid solutions found"`, or with a schedule that is feasible but not optimal.
+- **Run time grows with the qubits.** The default configuration optimises the angles by simulating the circuit a few hundred times. On `LocalBackend` a default run takes about 5 seconds at 12 qubits, over a minute at 16 and several minutes at 18. `solveQuantumWithConfigAsync` with `QaoaExecutionHelpers.fastConfig` (one layer, grid search) or a smaller `MaxOptimizationIterations` is quicker.
+- **Results are sampled.** A run can come back with `Error "No valid solutions found"`, or with a schedule that is feasible but not optimal. Check `WasRepaired` and `Sampling` to see how the returned schedule stood among the samples.
 
 ### `ClassicalSolver.solve`
 
@@ -938,9 +942,9 @@ let orphan : ScheduledTask<unit> = scheduledTask {
 
 ### Issue: "No valid solutions found from quantum measurements"
 
-**Cause:** None of the 1000 samples decoded to a schedule that respects every dependency, resource limit, earliest start and availability window. This is more likely with tight horizons and many constraints.
+**Cause:** None of the final samples is a feasible schedule as measured (exactly one start slot per task, every dependency, resource limit, earliest start and availability window kept), and the repair decode found none either, or is switched off. This is more likely with tight horizons and many constraints.
 
-**Solution:** Run again, give the problem a little more room in `timeHorizon`, or reduce the problem size.
+**Solution:** Run again, pass a configuration with more `FinalShots` or `NumLayers` to `solveQuantumWithConfigAsync`, give the problem a little more room in `timeHorizon`, or reduce the problem size.
 
 ### Issue: Tasks overlap on a shared resource
 

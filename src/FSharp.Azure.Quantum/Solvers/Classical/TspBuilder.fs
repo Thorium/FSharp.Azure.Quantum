@@ -128,7 +128,9 @@ module TSP =
     ///   let! tour = TSP.solveAsync problem (Some ionqBackend) cancellationToken
     ///
     /// RETURNS:
-    ///   Task of QuantumResult with Tour (city names, distance, validity) or QuantumError
+    ///   Task of QuantumResult with Tour (city names, distance, validity) or QuantumError.
+    ///   The tour is the shortest one among the measurements that are valid tours; when no
+    ///   measurement is a valid tour the result is an Error (no tour is built classically).
     let solveAsync
         (problem: TspProblem)
         (backend: BackendAbstraction.IQuantumBackend option)
@@ -141,17 +143,11 @@ module TSP =
                     backend
                     |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
 
-                // Create quantum TSP solver configuration
-                let quantumConfig: QuantumTspSolver.QuantumTspConfig =
-                    {
-                        OptimizationShots = 100
-                        FinalShots = 1000
-                        EnableOptimization = true
-                        InitialParameters = (0.5, 0.5)
-                        MaxOptimizationIterations = 1000
-                    }
+                // The solver's default configuration: optimised angles, 2 QAOA layers, 1000 final shots
+                let quantumConfig = QuantumTspSolver.defaultConfig
 
-                // Call quantum TSP solver directly
+                // Call quantum TSP solver directly. Its Error when no measurement is a
+                // valid tour is returned as is.
                 let! quantumResult =
                     QuantumTspSolver.solveAsync actualBackend problem.DistanceMatrix quantumConfig cancellationToken
 

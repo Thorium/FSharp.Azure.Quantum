@@ -294,11 +294,11 @@ if shouldRun 3 then
             :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 4 - Four anyons (2-qubit equivalent)
+// Example 4 - Two logical qubits (six Ising anyons)
 // ---------------------------------------------------------------------------
 if shouldRun 4 then
     separator ()
-    pr "EXAMPLE 4: Four Ising anyons (2-qubit equivalent)"
+    pr "EXAMPLE 4: Two logical qubits (six Ising anyons)"
     separator ()
 
     // Use the unified backend: InitializeState 2 creates a 2-qubit

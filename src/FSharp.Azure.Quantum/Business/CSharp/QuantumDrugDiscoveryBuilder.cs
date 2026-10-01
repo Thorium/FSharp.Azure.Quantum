@@ -23,6 +23,7 @@ public class QuantumDrugDiscoveryBuilder
     private int _vqcMaxEpochs = 50;
     private double _selectionBudget = 10.0;
     private double _diversityWeight = 0.5;
+    private int _selectionShots = 1000;
 
     /// <summary>
     /// Sets the target protein structure from a PDB file path.
@@ -91,13 +92,15 @@ public class QuantumDrugDiscoveryBuilder
     }
 
     /// <summary>
-    /// Sets the number of shots used when executing quantum circuits.
+    /// Sets the number of shots used when executing quantum circuits: the classifier circuits
+    /// (default 100) and the final shots of the QAOA selection (default 1000) alike.
     /// </summary>
     /// <param name="shots">Number of shots.</param>
     /// <returns>The current builder instance.</returns>
     public QuantumDrugDiscoveryBuilder WithShots(int shots)
     {
         _shots = shots;
+        _selectionShots = shots;
         return this;
     }
 
@@ -137,7 +140,7 @@ public class QuantumDrugDiscoveryBuilder
     /// <summary>
     /// Sets the budget constraint for diverse selection (for QAOADiverseSelection method).
     /// </summary>
-    /// <param name="budget">Budget constraint (default: 10.0).</param>
+    /// <param name="budget">Budget constraint (default: 10.0): the largest number of molecules selected, each costing 1. At or above the batch size it does not bind.</param>
     /// <returns>The current builder instance.</returns>
     public QuantumDrugDiscoveryBuilder WithSelectionBudget(double budget)
     {
@@ -183,7 +186,8 @@ public class QuantumDrugDiscoveryBuilder
             _vqcLayers,
             _vqcMaxEpochs,
             _selectionBudget,
-            _diversityWeight);
+            _diversityWeight,
+            _selectionShots);
 
         return drugDiscovery.RunAsync(config, cancellationToken);
     }

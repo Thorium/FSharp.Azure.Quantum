@@ -295,9 +295,7 @@ if shouldRun 1 then
 
         task {
             for i in 0 .. threats.Length - 1 do
-                let! check = AnomalyDetector.checkAsync threats.[i] detector CancellationToken.None
-
-                match check with
+                match! AnomalyDetector.checkAsync threats.[i] detector CancellationToken.None with
                 | Ok result ->
                     threatResults.Add(
                         {|
@@ -351,9 +349,7 @@ if shouldRun 1 then
 
         task {
             for traffic in heldOutNormals do
-                let! check = AnomalyDetector.checkAsync traffic detector CancellationToken.None
-
-                match check with
+                match! AnomalyDetector.checkAsync traffic detector CancellationToken.None with
                 | Ok result ->
                     normalsChecked <- normalsChecked + 1
 
@@ -439,9 +435,7 @@ if shouldRun 2 then
                 let testTraffic =
                     Array.append (normalTraffic |> Array.take 10) (generateAnomalousTraffic ())
 
-                let! checkedBatch = AnomalyDetector.checkBatchAsync testTraffic detector CancellationToken.None
-
-                match checkedBatch with
+                match! AnomalyDetector.checkBatchAsync testTraffic detector CancellationToken.None with
                 | Ok batch ->
                     sensResults.Add(
                         {|
@@ -454,10 +448,7 @@ if shouldRun 2 then
                     if not quiet then
                         printfn "  Checked %d samples" batch.TotalItems
 
-                        printfn
-                            "  Detected %d anomalies (%.1f%%)\n"
-                            batch.AnomaliesDetected
-                            (batch.AnomalyRate * 100.0)
+                        printfn "  Detected %d anomalies (%.1f%%)\n" batch.AnomaliesDetected (batch.AnomalyRate * 100.0)
                 | Error err ->
                     if not quiet then
                         printfn "  Batch check failed: %s\n" err.Message
@@ -545,9 +536,7 @@ if shouldRun 3 then
 
         task {
             for (name, traffic) in monitoredSessions do
-                let! check = AnomalyDetector.checkAsync traffic detector CancellationToken.None
-
-                match check with
+                match! AnomalyDetector.checkAsync traffic detector CancellationToken.None with
                 | Ok result ->
                     monitorResults.Add(
                         {|

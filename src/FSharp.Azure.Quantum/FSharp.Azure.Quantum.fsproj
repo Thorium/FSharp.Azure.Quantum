@@ -6,22 +6,34 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.5.0</Version>
+    <Version>1.5.1</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification, QPE, Shor, HHL) and quantum chemistry (VQE, QPE) with cloud backend execution as whole-circuit jobs. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.5.0: Task-based API; no Azure Quantum SDK dependency
-- BREAKING: every solver, builder, ML and algorithm entry point is `xAsync … cancellationToken : Task&lt;…&gt;`; the synchronous and Async&lt;_&gt; variants and all [&lt;Obsolete&gt;] wrappers are gone. Migrate `X.solve …` → `X.solveAsync … CancellationToken.None`; in a script finish with `|&gt; Async.AwaitTask |&gt; Async.RunSynchronously`
-- BREAKING: every computation expression (`binaryClassification`, `optionPricing`, `chemistry`, …) returns Task&lt;QuantumResult&lt;_&gt;&gt;; the C# builders expose only `…Async(…, CancellationToken)`
-- BREAKING (workspace): AzureQuantumWorkspace reads quotas and provider status from the REST data plane; Microsoft.Azure.Quantum.Client and Azure.Quantum.Jobs are no longer referenced. WorkspaceConfig gains HttpClient (and createWithHttpClient); InnerWorkspace is gone
-- CHANGED (cloud fan-out): kernel matrices, SVM evaluation, VQC and Primitives.sampleBatchAsync/observeBatchAsync keep at most JobThrottle.MaxConcurrentSampledJobs (8) circuits in flight on a sampling backend; error-mitigation noise levels and benchmark suites run one after another
-- CHANGED: cancellation surfaces as OperationCanceledException instead of an Error; Knapsack's classical fallback no longer runs after the caller cancelled
-- CHANGED (bin packing): the bin bound is the first-fit-decreasing count, not the item count, so a 6-item problem that fits 2 bins takes 14 qubits instead of 42
-- CHANGED (cost dashboard): "today" and "this month" buckets use the local calendar instead of UTC
-- ADDED (LocalQuantumService): GET {workspace}/quotas and GET {workspace}/providerStatus, so the workspace client runs offline too
-- FIXED (tests): the QuantumClient facts returned Async&lt;unit&gt; and were never run by xUnit; they run now
+    <PackageReleaseNotes>v1.5.1: QUBO encoding fixes; QAOA solutions report how often they were sampled
+- FIXED (network flow): the demand term is a squared penalty, so the QUBO minimum is the cheapest flow that serves every sink; solveWithShotsAsync and solveWithDefaultsAsync optimise the angles (2 layers); solveWithQaoaConfigAsync takes a QaoaSolverConfig
+- FIXED (TSP): every step is charged in the direction taken, return leg included; the penalty scales with the distances; only a permutation matrix decodes to a tour (no padding), so few shots can end in a "no valid tour" error. 2 optimised layers by default (QuantumTspConfig.NumLayers, QuantumTspSolution.LayerParameters); a 4-city default solve takes minutes on the simulator
+- FIXED (bin packing): capacity is an inequality with slack bits (4,3,3 into 6 takes 12 qubits, was 8); sizes are rescaled to integers; isValid is strict; repair always returns a valid packing; PackingResult gains WasRepaired and Sampling
+- FIXED (binary ILP): the slack range covers negative coefficients; non-integer coefficients and bounds are rescaled or rejected; feasible negative bounds are accepted
+- FIXED (knapsack): non-integer weights and capacities are rescaled or rejected; the subset-sum loop adds no exclusion term
+- FIXED (portfolio): a holding limit below the asset count is a QUBO term with slack bits
+- FIXED (ConstraintScheduler): resources with capacities get a QUBO with each capacity and the hard constraints; IsFeasible requires one resource per task, capacity, hard constraints and the budget
+- FIXED (drug discovery): diverse selection rescales costs to integers; the influence penalty covers the synergy term; QAOA selection takes 1000 final shots (DrugDiscoveryConfiguration.SelectionShots)
+- CHANGED (task scheduling): optimised angles (solveWithConfigAsync), samples decode strictly one-hot; Solution gains WasRepaired and Sampling
+- CHANGED (clique): recombine keeps the heaviest clique, the measure the QUBO optimises
+- BREAKING: Knapsack.findAllExactCombinationsAsync, findAllCapturedItemsAsync and findAllValidCombinationsAsync return Task&lt;QuantumResult&lt;…&gt;&gt;; a quantum error is returned instead of a classical answer
+- FIXED (benchmarks): benchmarkClassicalTSPAsync and benchmarkClassicalPortfolioAsync time the classical solvers
+- ADDED: every QAOA solver solution has Sampling: SampleStatistics option (Shots, Qubits, Hits, Valid; HitRate, ValidRate, UniformRate, ShotsFor confidence). Code that constructs a solution record adds `Sampling = None`
+- ADDED: QaoaExecutionHelpers.runQaoaSampledAsync (every final sample, QaoaRun) and sampleStatistics; Qubo.squaredLinearPenalty, boundedSlackWeights, tryScaleToIntegers
+- ADDED: QuboSplitting runs a problem wider than the backend as circuits that fit, trading qubits for runs. Conditioning fixes a few variables of a sparse QUBO (MaxCut, vertex cover, clique, matching, set cover, MAX-SAT, binary ILP, drug-discovery solvers); blocks cut a knapsack into pieces without slack bits (QuantumKnapsackSolver.solveInBlocksAsync, and solveAsync). A split solution reports Split: SplitReport (runs, widest piece, fixed variables, blocks) and has Sampling = None
+- ADDED: QuantumKnapsackSolver.findAllExactCombinationsAsync leaves out items heavier than the target and splits a search over more items than the backend runs into halves joined over their partial sums (SubsetSumConfig.Splitting; SubsetSumResult.Split)
+- ADDED: the Azure Quantum backends take maxQubits, which replaces the built-in qubit limit of the target (CloudBackendHelpers.qubitLimit); the built-in figures are defaults
+- CHANGED: a Quantinuum target this version does not know reports no qubit limit (was 20)
+- ADDED: SplitSettings (Splitting on QaoaSolverConfig and on the MaxCut, Knapsack and subset-sum configs): Policy Never | OnSimulators (default: backends that bill every circuit are never split unasked) | Always, MaxPieceQubits, MaxFixedVariables (8), MaxShareRuns (256), MaxBlockItems (12). A problem that cannot be split runs as one circuit while the backend holds it. Full literals of those config records add `Splitting = QaoaExecutionHelpers.defaultSplitSettings`
 </PackageReleaseNotes>
+
+
 
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
@@ -145,6 +157,7 @@
     <Compile Include="Core\QaoaOptimizer.fs" />
     <Compile Include="Core\QaoaExecutionHelpers.fs" />
     <Compile Include="Core\ProblemDecomposition.fs" />
+    <Compile Include="Core\QuboSplitting.fs" />
     <Compile Include="Core\QaoaParameterOptimizer.fs" />
 
     <!-- Record-then-submit for backends that run complete circuits only (depends on BackendAbstraction) -->

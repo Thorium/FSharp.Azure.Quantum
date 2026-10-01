@@ -3126,221 +3126,216 @@ module FermionMapping =
             (config: ChemistryVQEConfig)
             (cancellationToken: CancellationToken)
             : Result<ChemistryVQEResult, QuantumError> =
-                match config.Ansatz with
-                | UCCSD(numElectrons, numOrbitals) ->
+            match config.Ansatz with
+            | UCCSD(numElectrons, numOrbitals) ->
 
-                    // UCCSD excitation pool size
-                    let numSingles = numElectrons * (numOrbitals - numElectrons)
-                    let numDoublesOccPairs = numElectrons * (numElectrons - 1) / 2
+                // UCCSD excitation pool size
+                let numSingles = numElectrons * (numOrbitals - numElectrons)
+                let numDoublesOccPairs = numElectrons * (numElectrons - 1) / 2
 
-                    let numDoublesVirtPairs =
-                        (numOrbitals - numElectrons) * (numOrbitals - numElectrons - 1) / 2
+                let numDoublesVirtPairs =
+                    (numOrbitals - numElectrons) * (numOrbitals - numElectrons - 1) / 2
 
-                    let numDoubles = numDoublesOccPairs * numDoublesVirtPairs
-                    let totalParams = numSingles + numDoubles
+                let numDoubles = numDoublesOccPairs * numDoublesVirtPairs
+                let totalParams = numSingles + numDoubles
 
-                    // Step 1: Prepare initial state (Hartree-Fock or |0⟩)
-                    let initialStateResult =
-                        if config.UseHFInitialState then
-                            HartreeFock.prepareHartreeFockState numElectrons numOrbitals config.Backend
-                        else
-                            config.Backend.InitializeState numOrbitals
+                // Step 1: Prepare initial state (Hartree-Fock or |0⟩)
+                let initialStateResult =
+                    if config.UseHFInitialState then
+                        HartreeFock.prepareHartreeFockState numElectrons numOrbitals config.Backend
+                    else
+                        config.Backend.InitializeState numOrbitals
 
-                    // Initial UCCSD amplitudes: provided, or small seeded random values near zero.
-                    let startingParameters () =
-                        match initialParameters with
-                        | Some provided -> Array.copy provided
-                        | None ->
-                            let rng = Random(42)
-                            Array.init totalParams (fun _ -> (rng.NextDouble() - 0.5) * 0.01)
+                // Initial UCCSD amplitudes: provided, or small seeded random values near zero.
+                let startingParameters () =
+                    match initialParameters with
+                    | Some provided -> Array.copy provided
+                    | None ->
+                        let rng = Random(42)
+                        Array.init totalParams (fun _ -> (rng.NextDouble() - 0.5) * 0.01)
 
-                    match initialStateResult with
-                    | _ when
-                        initialParameters
-                        |> Option.exists (fun provided -> provided.Length <> totalParams)
-                        ->
-                        Error(
-                            QuantumError.ValidationError(
-                                "InitialParameters",
-                                $"UCCSD({numElectrons} electrons, {numOrbitals} spin orbitals) takes {totalParams} parameters "
-                                + $"({numSingles} singles + {numDoubles} doubles), got {initialParameters.Value.Length}"
-                            )
+                match initialStateResult with
+                | _ when
+                    initialParameters
+                    |> Option.exists (fun provided -> provided.Length <> totalParams)
+                    ->
+                    Error(
+                        QuantumError.ValidationError(
+                            "InitialParameters",
+                            $"UCCSD({numElectrons} electrons, {numOrbitals} spin orbitals) takes {totalParams} parameters "
+                            + $"({numSingles} singles + {numDoubles} doubles), got {initialParameters.Value.Length}"
                         )
-                    // A backend that cannot apply gates one at a time (cloud hardware) runs
-                    // whole circuits: sampled energies, SPSA.
-                    | Error err when config.UseHFInitialState && UnifiedBackend.isIncrementalUnsupported err ->
-                        runSampled (startingParameters ()) errorMitigation config numElectrons numOrbitals
-                    | Error err -> Error err
-                    | Ok initialState ->
-                        let initialParameters = startingParameters ()
+                    )
+                // A backend that cannot apply gates one at a time (cloud hardware) runs
+                // whole circuits: sampled energies, SPSA.
+                | Error err when config.UseHFInitialState && UnifiedBackend.isIncrementalUnsupported err ->
+                    runSampled (startingParameters ()) errorMitigation config numElectrons numOrbitals
+                | Error err -> Error err
+                | Ok initialState ->
+                    let initialParameters = startingParameters ()
 
-                        // BFGS with a backtracking (Armijo) line search on central-difference
-                        // gradients. Converged when every gradient component is below
-                        // 0.1·√Tolerance, which bounds the remaining energy error near Tolerance.
-                        // One iteration = one line search plus the gradient at the new point.
-                        let epsilon = 1e-4
-                        let gradientTolerance = 0.1 * sqrt config.Tolerance
-                        let armijo = 1e-4
-                        let minStep = 1e-8
-                        let n = totalParams
-                        let energyOf = measureEnergy errorMitigation config.Hamiltonian
+                    // BFGS with a backtracking (Armijo) line search on central-difference
+                    // gradients. Converged when every gradient component is below
+                    // 0.1·√Tolerance, which bounds the remaining energy error near Tolerance.
+                    // One iteration = one line search plus the gradient at the new point.
+                    let epsilon = 1e-4
+                    let gradientTolerance = 0.1 * sqrt config.Tolerance
+                    let armijo = 1e-4
+                    let minStep = 1e-8
+                    let n = totalParams
+                    let energyOf = measureEnergy errorMitigation config.Hamiltonian
 
-                        /// Ansatz state and energy at the given amplitudes.
-                        let evaluate (parameters: float array) : Result<QuantumState * float, QuantumError> =
-                            UCCSD.generateExcitationPool numElectrons numOrbitals parameters
-                            |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
-                            |> Result.bind (fun pool -> buildUCCSDCircuit pool parameters initialState config.Backend)
-                            |> Result.bind (fun state ->
-                                energyOf state config.Backend |> Result.map (fun energy -> (state, energy)))
+                    /// Ansatz state and energy at the given amplitudes.
+                    let evaluate (parameters: float array) : Result<QuantumState * float, QuantumError> =
+                        UCCSD.generateExcitationPool numElectrons numOrbitals parameters
+                        |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
+                        |> Result.bind (fun pool -> buildUCCSDCircuit pool parameters initialState config.Backend)
+                        |> Result.bind (fun state ->
+                            energyOf state config.Backend |> Result.map (fun energy -> (state, energy)))
 
-                        /// Central-difference gradient; an evaluation error is returned.
-                        let gradientAt (parameters: float array) : Result<float array, QuantumError> =
-                            List.init (FSharp.Core.Operators.max 0 n) (fun i ->
-                                let shifted delta =
-                                    let p = Array.copy parameters
-                                    p.[i] <- p.[i] + delta
-                                    evaluate p |> Result.map snd
+                    /// Central-difference gradient; an evaluation error is returned.
+                    let gradientAt (parameters: float array) : Result<float array, QuantumError> =
+                        List.init (FSharp.Core.Operators.max 0 n) (fun i ->
+                            let shifted delta =
+                                let p = Array.copy parameters
+                                p.[i] <- p.[i] + delta
+                                evaluate p |> Result.map snd
 
-                                match shifted epsilon, shifted -epsilon with
-                                | Ok plus, Ok minus -> Ok((plus - minus) / (2.0 * epsilon))
-                                | Error e, _
-                                | _, Error e -> Error e)
-                            |> ResultHelpers.sequence
-                            |> Result.map Array.ofList
+                            match shifted epsilon, shifted -epsilon with
+                            | Ok plus, Ok minus -> Ok((plus - minus) / (2.0 * epsilon))
+                            | Error e, _
+                            | _, Error e -> Error e)
+                        |> ResultHelpers.sequence
+                        |> Result.map Array.ofList
 
-                        let dot (a: float array) (b: float array) =
-                            Array.fold2 (fun acc x y -> acc + x * y) 0.0 a b
+                    let dot (a: float array) (b: float array) =
+                        Array.fold2 (fun acc x y -> acc + x * y) 0.0 a b
 
-                        let largest (v: float array) =
-                            if v.Length = 0 then
-                                0.0
-                            else
-                                v |> Array.map abs |> Array.max
+                    let largest (v: float array) =
+                        if v.Length = 0 then
+                            0.0
+                        else
+                            v |> Array.map abs |> Array.max
 
-                        let identity () =
-                            Array2D.init n n (fun i j -> if i = j then 1.0 else 0.0)
+                    let identity () =
+                        Array2D.init n n (fun i j -> if i = j then 1.0 else 0.0)
 
-                        let apply (m: float[,]) (v: float array) =
-                            Array.init n (fun i -> Seq.sum (seq { for j in 0 .. n - 1 -> m.[i, j] * v.[j] }))
+                    let apply (m: float[,]) (v: float array) =
+                        Array.init n (fun i -> Seq.sum (seq { for j in 0 .. n - 1 -> m.[i, j] * v.[j] }))
 
-                        /// BFGS inverse-Hessian update for step s and gradient change y (sy = sᵀy > 0).
-                        let bfgsUpdate (h: float[,]) (s: float array) (y: float array) (sy: float) =
-                            let rho = 1.0 / sy
-                            let hy = apply h y
-                            let scale = rho * rho * dot y hy + rho
+                    /// BFGS inverse-Hessian update for step s and gradient change y (sy = sᵀy > 0).
+                    let bfgsUpdate (h: float[,]) (s: float array) (y: float array) (sy: float) =
+                        let rho = 1.0 / sy
+                        let hy = apply h y
+                        let scale = rho * rho * dot y hy + rho
 
-                            Array2D.init n n (fun i j ->
-                                h.[i, j] - rho * (s.[i] * hy.[j] + hy.[i] * s.[j]) + scale * s.[i] * s.[j])
+                        Array2D.init n n (fun i j ->
+                            h.[i, j] - rho * (s.[i] * hy.[j] + hy.[i] * s.[j]) + scale * s.[i] * s.[j])
 
-                        let report iteration energy =
-                            config.ProgressReporter
-                            |> Option.iter (fun r ->
-                                r.Report(Progress.IterationUpdate(iteration, config.MaxIterations, Some energy)))
+                    let report iteration energy =
+                        config.ProgressReporter
+                        |> Option.iter (fun r ->
+                            r.Report(Progress.IterationUpdate(iteration, config.MaxIterations, Some energy)))
 
-                        let finish (s: OptimizationState) =
-                            Ok
-                                {
-                                    Energy = s.Energy
-                                    OptimalParameters = s.Parameters
-                                    Iterations = s.Iteration
-                                    Converged = s.Converged
-                                    FinalState = s.FinalState
-                                    Estimation =
-                                        match s.FinalState with
-                                        | QuantumState.StateVector _ -> ExactExpectation
-                                        | _ -> SampledGateByGate shotsPerTerm
-                                    Notes = []
-                                }
+                    let finish (s: OptimizationState) =
+                        Ok
+                            {
+                                Energy = s.Energy
+                                OptimalParameters = s.Parameters
+                                Iterations = s.Iteration
+                                Converged = s.Converged
+                                FinalState = s.FinalState
+                                Estimation =
+                                    match s.FinalState with
+                                    | QuantumState.StateVector _ -> ExactExpectation
+                                    | _ -> SampledGateByGate shotsPerTerm
+                                Notes = []
+                            }
 
-                        /// Largest step (halving from 1) along `direction` meeting the Armijo condition.
-                        let rec lineSearch
-                            (s: OptimizationState)
-                            (direction: float array)
-                            (slope: float)
-                            (step: float)
-                            =
-                            if step < minStep then
-                                Ok None
-                            else
-                                let candidate = Array.map2 (fun x d -> x + step * d) s.Parameters direction
+                    /// Largest step (halving from 1) along `direction` meeting the Armijo condition.
+                    let rec lineSearch (s: OptimizationState) (direction: float array) (slope: float) (step: float) =
+                        if step < minStep then
+                            Ok None
+                        else
+                            let candidate = Array.map2 (fun x d -> x + step * d) s.Parameters direction
 
-                                evaluate candidate
-                                |> Result.bind (fun (state, energy) ->
-                                    if energy <= s.Energy + armijo * step * slope then
-                                        Ok(Some(candidate, state, energy, step))
-                                    else
-                                        lineSearch s direction slope (step * 0.5))
+                            evaluate candidate
+                            |> Result.bind (fun (state, energy) ->
+                                if energy <= s.Energy + armijo * step * slope then
+                                    Ok(Some(candidate, state, energy, step))
+                                else
+                                    lineSearch s direction slope (step * 0.5))
 
-                        let rec optimize (s: OptimizationState) : Result<ChemistryVQEResult, QuantumError> =
-                            cancellationToken.ThrowIfCancellationRequested()
+                    let rec optimize (s: OptimizationState) : Result<ChemistryVQEResult, QuantumError> =
+                        cancellationToken.ThrowIfCancellationRequested()
 
-                            if largest s.Gradient < gradientTolerance then
-                                finish { s with Converged = true }
-                            elif s.Iteration >= config.MaxIterations then
-                                finish s
-                            else
-                                let quasiNewton = apply s.InverseHessian s.Gradient |> Array.map (~-)
+                        if largest s.Gradient < gradientTolerance then
+                            finish { s with Converged = true }
+                        elif s.Iteration >= config.MaxIterations then
+                            finish s
+                        else
+                            let quasiNewton = apply s.InverseHessian s.Gradient |> Array.map (~-)
 
-                                let direction, inverseHessian, fresh =
-                                    if dot quasiNewton s.Gradient < 0.0 then
-                                        quasiNewton, s.InverseHessian, s.FreshHessian
-                                    else
-                                        Array.map (~-) s.Gradient, identity (), true
+                            let direction, inverseHessian, fresh =
+                                if dot quasiNewton s.Gradient < 0.0 then
+                                    quasiNewton, s.InverseHessian, s.FreshHessian
+                                else
+                                    Array.map (~-) s.Gradient, identity (), true
 
-                                lineSearch s direction (dot direction s.Gradient) 1.0
-                                |> Result.bind (function
-                                    | None when not fresh ->
-                                        // No decrease along the quasi-Newton direction: restart from steepest descent.
+                            lineSearch s direction (dot direction s.Gradient) 1.0
+                            |> Result.bind (function
+                                | None when not fresh ->
+                                    // No decrease along the quasi-Newton direction: restart from steepest descent.
+                                    optimize
+                                        { s with
+                                            InverseHessian = identity ()
+                                            FreshHessian = true
+                                            Iteration = s.Iteration + 1
+                                        }
+                                | None -> finish { s with Iteration = s.Iteration + 1 }
+                                | Some(parameters, state, energy, step) ->
+                                    gradientAt parameters
+                                    |> Result.bind (fun gradient ->
+                                        report (s.Iteration + 1) energy
+                                        let stepVector = direction |> Array.map (fun d -> step * d)
+                                        let y = Array.map2 (-) gradient s.Gradient
+                                        let sy = dot stepVector y
+
+                                        let updated, stillFresh =
+                                            if sy > 1e-12 then
+                                                bfgsUpdate inverseHessian stepVector y sy, false
+                                            else
+                                                inverseHessian, fresh
+
                                         optimize
-                                            { s with
-                                                InverseHessian = identity ()
-                                                FreshHessian = true
+                                            {
+                                                Parameters = parameters
+                                                Energy = energy
+                                                Gradient = gradient
+                                                InverseHessian = updated
+                                                FreshHessian = stillFresh
                                                 Iteration = s.Iteration + 1
-                                            }
-                                    | None -> finish { s with Iteration = s.Iteration + 1 }
-                                    | Some(parameters, state, energy, step) ->
-                                        gradientAt parameters
-                                        |> Result.bind (fun gradient ->
-                                            report (s.Iteration + 1) energy
-                                            let stepVector = direction |> Array.map (fun d -> step * d)
-                                            let y = Array.map2 (-) gradient s.Gradient
-                                            let sy = dot stepVector y
+                                                FinalState = state
+                                                Converged = false
+                                            }))
 
-                                            let updated, stillFresh =
-                                                if sy > 1e-12 then
-                                                    bfgsUpdate inverseHessian stepVector y sy, false
-                                                else
-                                                    inverseHessian, fresh
+                    evaluate initialParameters
+                    |> Result.bind (fun (state, energy) ->
+                        report 0 energy
 
-                                            optimize
-                                                {
-                                                    Parameters = parameters
-                                                    Energy = energy
-                                                    Gradient = gradient
-                                                    InverseHessian = updated
-                                                    FreshHessian = stillFresh
-                                                    Iteration = s.Iteration + 1
-                                                    FinalState = state
-                                                    Converged = false
-                                                }))
-
-                        evaluate initialParameters
-                        |> Result.bind (fun (state, energy) ->
-                            report 0 energy
-
-                            gradientAt initialParameters
-                            |> Result.bind (fun gradient ->
-                                optimize
-                                    {
-                                        Parameters = initialParameters
-                                        Energy = energy
-                                        Gradient = gradient
-                                        InverseHessian = identity ()
-                                        FreshHessian = true
-                                        Iteration = 0
-                                        FinalState = state
-                                        Converged = false
-                                    }))
+                        gradientAt initialParameters
+                        |> Result.bind (fun gradient ->
+                            optimize
+                                {
+                                    Parameters = initialParameters
+                                    Energy = energy
+                                    Gradient = gradient
+                                    InverseHessian = identity ()
+                                    FreshHessian = true
+                                    Iteration = 0
+                                    FinalState = state
+                                    Converged = false
+                                }))
 
         /// Run UCCSD-VQE to find molecular ground state, starting from the given
         /// excitation amplitudes (see the parameter notes above runWithCore).
@@ -6749,8 +6744,7 @@ module QuantumChemistryBuilder =
                 | None ->
                     match problem.MoleculeSource with
                     | Some source -> loadMoleculeFromSource source cancellationToken
-                    | None ->
-                        Task.FromResult(Error(QuantumError.ValidationError("Molecule", "No molecule specified")))
+                    | None -> Task.FromResult(Error(QuantumError.ValidationError("Molecule", "No molecule specified")))
 
             match moleculeResult with
             | Error err -> return Error err

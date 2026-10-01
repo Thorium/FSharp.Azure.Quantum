@@ -90,6 +90,12 @@ module PackingOptimizer =
             ItemsAssigned: int
             /// Execution message
             Message: string
+            /// True when no measured sample was a valid packing and classical constraint
+            /// repair produced the assignments; false when they are a measured sample
+            WasRepaired: bool
+            /// Standing of the packing among the final samples: Valid = samples that were valid
+            /// packings before any repair, Hits = samples that are the returned packing
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
         }
 
     // ========================================================================
@@ -123,10 +129,14 @@ module PackingOptimizer =
             TotalItems = problem.Items.Length
             ItemsAssigned = assignments.Length
             Message =
-                if solution.IsValid then
+                if solution.IsValid && solution.WasRepaired then
+                    $"Packed {assignments.Length} items into {solution.BinsUsed} bins (no measured sample was a valid packing; classical constraint repair produced this one)"
+                elif solution.IsValid then
                     $"Packed {assignments.Length} items into {solution.BinsUsed} bins"
                 else
-                    $"Partial packing: {assignments.Length}/{problem.Items.Length} items assigned to {solution.BinsUsed} bins"
+                    $"Invalid packing: {assignments.Length}/{problem.Items.Length} items placed in exactly one bin, {solution.BinsUsed} bins"
+            WasRepaired = solution.WasRepaired
+            Sampling = solution.Sampling
         }
 
     /// Execute packing optimization without blocking the calling thread

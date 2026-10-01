@@ -440,7 +440,7 @@ module HybridSolver =
     ///   timeout - Optional timeout for classical solver (milliseconds)
     ///   forceMethod - Optional override to force specific solver method
     ///   backend - Optional unified backend to use when forceMethod=Quantum
-    ///   quantumConfig - QAOA shots, initial parameters and optimizer budget
+    ///   quantumConfig - QAOA layers, shots, fixed-angle parameters and optimizer budget
     ///   cancellationToken - Cancels the quantum execution
     let solveTspWithBackendAndConfigAsync
         (distances: float[,])

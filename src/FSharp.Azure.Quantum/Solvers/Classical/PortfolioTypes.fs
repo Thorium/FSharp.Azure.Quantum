@@ -115,7 +115,10 @@ module PortfolioTypes =
                             yield (i, j, covariance.[i, j])
                 |]
 
-            match entries |> Array.tryFind (fun (_, _, v) -> Double.IsNaN v || Double.IsInfinity v) with
+            match
+                entries
+                |> Array.tryFind (fun (_, _, v) -> Double.IsNaN v || Double.IsInfinity v)
+            with
             | Some(i, j, v) -> fail $"Covariance entry [{i},{j}] is not finite: {v}"
             | None ->
                 match Seq.init rows id |> Seq.tryFind (fun i -> covariance.[i, i] < 0.0) with

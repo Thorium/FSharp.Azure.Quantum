@@ -50,23 +50,27 @@ match result with
     printfn "Time: %.2f ms" solution.ElapsedMs
     printfn "Best tour: %A" solution.Tour
     printfn "Tour length: %.2f" solution.TourLength
-    printfn "Optimized parameters (γ, β): %A" solution.OptimizedParameters
+    printfn "Layer parameters (γ, β): %A" solution.LayerParameters
     printfn "Optimization converged: %b" (solution.OptimizationConverged |> Option.defaultValue false)
+    printfn "Valid tours: %A" (solution.Sampling |> Option.map (fun s -> s.Valid, s.Shots))
 | Error err ->
     eprintfn "Simulation failed: %s" err.Message
 ```
 
-**Example output** (timings and parameters vary from run to run):
+**Example output** (timings and the count of valid tours vary from run to run):
 ```
 Backend: Local Simulator
-Time: 125.45 ms
+Time: 480.12 ms
 Best tour: [|0; 1; 2|]
 Tour length: 4.50
-Optimized parameters (γ, β): Some (1.23, 0.87)
+Layer parameters (γ, β): [|(0.35, 0.47); (1.13, 0.2)|]
 Optimization converged: true
+Valid tours: Some (151, 1000)
 ```
 
 A 3-city TSP uses 9 qubits (N² for N cities). The solver refuses problems wider than the backend can run in reasonable time, so on the local simulator TSP is practical up to 4 cities (16 qubits).
+
+Only a measurement with every city in exactly one time slot is a tour. The solver returns the shortest tour among those measurements and an `Error` when there is none; see [What the solver returns](getting-started.md#what-the-solver-returns).
 
 ## When to Use Local Simulation
 

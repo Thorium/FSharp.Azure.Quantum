@@ -539,17 +539,19 @@ let private computeEnergyAsync
         let startTime = DateTime.Now
         let config = solverConfig backend maxIter tol
 
-        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+        let! result =
+            GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
         let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-        match result with
-        | Ok vqeResult -> return (Ok vqeResult.Energy, elapsed)
-        | Error err ->
-            if not quiet then
-                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        return
+            match result with
+            | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
+            | Error err ->
+                if not quiet then
+                    eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+                (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
     }
 
 /// Compute the ground state energy profile for one fragment.
@@ -622,7 +624,9 @@ let results =
         let computed = ResizeArray()
 
         for (i, frag) in List.indexed fragments do
-            let! result = computeFragmentAsync backend maxIterations tolerance i fragments.Length frag
+            let! result =
+                computeFragmentAsync backend maxIterations tolerance i fragments.Length frag
+
             computed.Add result
 
         return List.ofSeq computed

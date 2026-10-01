@@ -42,6 +42,15 @@ Usage:
   dotnet fsi Kasino.fsx -- --quiet --output results.json      (pipeline mode)
 *)
 
+// WIDER THAN THE BACKEND (FSharp.Azure.Quantum 1.5.1 and later):
+//   A knapsack that needs more qubits than the backend runs is cut into blocks of items:
+//   each block is asked for its best subset at every exact share of the capacity and the
+//   answers are joined (QuboSplitting). A block needs no slack qubits, so 100 items run as
+//   ten 10-qubit blocks; it takes one run per block and share instead of one run. The
+//   solution's Split field reports the blocks and runs. Simulators split by default, a
+//   backend that bills every circuit only with SplitPolicy.Always
+//   (QaoaExecutionHelpers.SplitSettings). See the FAQ: "My problem is wider than the backend".
+
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD
@@ -336,7 +345,9 @@ let runSequenceAsync () =
             if not quiet then
                 printfn "  %s" desc
 
-            let! turnRows = captureRowsAsync (sprintf "sequence-turn%d" (i + 1)) hand table "Maximize value"
+            let! turnRows =
+                captureRowsAsync (sprintf "sequence-turn%d" (i + 1)) hand table "Maximize value"
+
             rows.AddRange turnRows
 
         return List.ofSeq rows

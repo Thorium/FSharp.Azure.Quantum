@@ -1116,17 +1116,19 @@ let private computeEnergyAsync
         let startTime = DateTime.Now
         let config = solverConfig backend maxIter tol
 
-        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+        let! result =
+            GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
         let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-        match result with
-        | Ok vqeResult -> return (Ok vqeResult.Energy, elapsed)
-        | Error err ->
-            if not quiet then
-                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        return
+            match result with
+            | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
+            | Error err ->
+                if not quiet then
+                    eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+                (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
     }
 
 /// Interpret an activation energy barrier for metabolic context.
@@ -1250,7 +1252,9 @@ let results =
         let computed = ResizeArray()
 
         for (i, pathway) in List.indexed pathways do
-            let! result = computePathwayAsync backend maxIterations tolerance i pathways.Length pathway
+            let! result =
+                computePathwayAsync backend maxIterations tolerance i pathways.Length pathway
+
             computed.Add result
 
         return List.ofSeq computed

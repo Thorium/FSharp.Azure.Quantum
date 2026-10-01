@@ -404,63 +404,64 @@ let private computeRouteAsync (index: int) (route: SynthesisRoute) : Task<RouteR
             }
 
         let! products = energiesOf "product" route.Products
-        let all = reactants @ products @ Option.toList tsEnergy
 
-        let failures =
-            all
-            |> List.choose (function
-                | Error msg -> Some msg
-                | Ok _ -> None)
+        let runTail () =
+            let all = reactants @ products @ Option.toList tsEnergy
 
-        let computed =
-            all
-            |> List.choose (function
-                | Ok e -> Some e
-                | Error _ -> None)
+            let failures =
+                all
+                |> List.choose (function
+                    | Error msg -> Some msg
+                    | Ok _ -> None)
 
-        let total (results: Result<ChemistryIntegrals.SpeciesEnergy, string> list) =
-            results
-            |> List.sumBy (function
-                | Ok e -> e.Energy
-                | Error _ -> 0.0)
+            let computed =
+                all
+                |> List.choose (function
+                    | Ok e -> Some e
+                    | Error _ -> None)
 
-        let reactantsComplete =
-            reactants
-            |> List.forall (function
-                | Ok _ -> true
-                | Error _ -> false)
+            let total (results: Result<ChemistryIntegrals.SpeciesEnergy, string> list) =
+                results
+                |> List.sumBy (function
+                    | Ok e -> e.Energy
+                    | Error _ -> 0.0)
 
-        let productsComplete =
-            products
-            |> List.forall (function
-                | Ok _ -> true
-                | Error _ -> false)
+            let reactantsComplete =
+                reactants
+                |> List.forall (function
+                    | Ok _ -> true
+                    | Error _ -> false)
 
-        let reactionEnergy =
-            if reactantsComplete && productsComplete then
-                Some(total products - total reactants)
-            else
-                None
+            let productsComplete =
+                products
+                |> List.forall (function
+                    | Ok _ -> true
+                    | Error _ -> false)
 
-        let activationEnergy =
-            match tsEnergy with
-            | None -> Error $"no TS ({ChemistryIntegrals.fcidumpFileName ts} not found)"
-            | Some(Error msg) -> Error $"TS failed: {msg}"
-            | Some(Ok _) when not reactantsComplete -> Error "a reactant failed"
-            | Some(Ok e) -> Ok(e.Energy - total reactants)
+            let reactionEnergy =
+                if reactantsComplete && productsComplete then
+                    Some(total products - total reactants)
+                else
+                    None
 
-        if not quiet then
-            match activationEnergy with
-            | Ok ea -> printfn "         => Ea = %.6f Ha = %.1f kcal/mol" ea (ea * hartreeToKcalMol)
-            | Error why -> printfn "         => Ea: %s" why
+            let activationEnergy =
+                match tsEnergy with
+                | None -> Error $"no TS ({ChemistryIntegrals.fcidumpFileName ts} not found)"
+                | Some(Error msg) -> Error $"TS failed: {msg}"
+                | Some(Ok _) when not reactantsComplete -> Error "a reactant failed"
+                | Some(Ok e) -> Ok(e.Energy - total reactants)
 
-            match reactionEnergy with
-            | Some dE -> printfn "         => dE = %.6f Ha = %.1f kcal/mol" dE (dE * hartreeToKcalMol)
-            | None -> printfn "         => INCOMPLETE (a species failed VQE: no reaction energy)"
+            if not quiet then
+                match activationEnergy with
+                | Ok ea -> printfn "         => Ea = %.6f Ha = %.1f kcal/mol" ea (ea * hartreeToKcalMol)
+                | Error why -> printfn "         => Ea: %s" why
 
-            printfn ""
+                match reactionEnergy with
+                | Some dE -> printfn "         => dE = %.6f Ha = %.1f kcal/mol" dE (dE * hartreeToKcalMol)
+                | None -> printfn "         => INCOMPLETE (a species failed VQE: no reaction energy)"
 
-        return
+                printfn ""
+
             {
                 Route = route
                 ReactionEnergy = reactionEnergy
@@ -469,6 +470,8 @@ let private computeRouteAsync (index: int) (route: SynthesisRoute) : Task<RouteR
                 Failures = failures
                 ComputeTimeSeconds = computed |> List.sumBy (fun e -> if e.Reused then 0.0 else e.Seconds)
             }
+
+        return runTail ()
     }
 
 if not quiet then

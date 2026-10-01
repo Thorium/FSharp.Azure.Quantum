@@ -353,7 +353,17 @@ The simulator stores a state as a superposition: a list of (amplitude, fusion tr
 | **Fibonacci** | 2 | 16 anyons |
 | **SU(2)_k** (k ≥ 2) | 2 | 16 anyons |
 
-The `maxAnyons` argument of `TopologicalUnifiedBackendFactory.create*` caps the anyon count; `InitializeState` returns an `Error` when a request needs more.
+The `maxAnyons` argument of `TopologicalUnifiedBackendFactory.create*` caps the anyon count; `InitializeState` returns an `Error` when a request needs more. The backend reports the logical qubits that budget holds (`IQubitLimitedBackend.MaxQubits`: 4 for 10 Ising anyons, 8 for 18), so the QAOA solvers split a problem that needs more into circuits that fit instead of failing (see [My problem is wider than the backend](../faq#my-problem-is-wider-than-the-backend-can-it-still-run-on-it)).
+
+There is no limit on the number of braids; the cost is per operation and grows with the state. Measured on the Ising simulator for a state spread over all 2ⁿ terms:
+
+| Logical qubits | Anyons | One braid | One CNOT |
+|---|---|---|---|
+| 8 | 18 | 0.6 s | 0.4 s |
+| 10 | 22 | 2.8 s | 2 s |
+| 12 | 26 | 14 s | 11 s |
+
+Each two more qubits cost about five times as much, so about 8 logical qubits is the comfortable width.
 
 **Optimization strategies**:
 

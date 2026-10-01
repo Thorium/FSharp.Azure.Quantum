@@ -778,12 +778,210 @@ module GraphOptimizationTests =
         // Check correct number of variables
         Assert.Equal(9, qubo.NumVariables)
 
-        // QUBO should contain quadratic terms for distance minimization
-        // For edge A->B (distance 10): terms like x_{A,t} * x_{B,t+1}
-        // These should be present in the QUBO matrix
+        // Variable index is city * 3 + slot, cities in id order (A = 0, B = 1, C = 2).
+        // The undirected edge A-B (distance 10) is charged in both directions and for
+        // every pair of consecutive slots, the last slot being followed by the first.
+        Assert.Equal(10.0, qubo.Q.[(0, 4)]) // A in slot 0, B in slot 1
+        Assert.Equal(10.0, qubo.Q.[(1, 3)]) // B in slot 0, A in slot 1
+        Assert.Equal(10.0, qubo.Q.[(2, 3)]) // A in slot 2, B in slot 0 (return leg)
+        Assert.Equal(10.0, qubo.Q.[(0, 5)]) // B in slot 2, A in slot 0 (return leg)
 
-        // At minimum, verify QUBO is not empty (has some terms)
-        Assert.True(qubo.Q.Count > 0, "TSP QUBO should contain constraint and objective terms")
+        // The penalty is twice the largest distance (2 * 20): each variable is in two
+        // one-hot groups (-40 each), each pair within a group gets 2 * 40.
+        Assert.Equal(-80.0, qubo.Q.[(0, 0)])
+        Assert.Equal(80.0, qubo.Q.[(0, 1)]) // A in slots 0 and 1
+        Assert.Equal(80.0, qubo.Q.[(0, 3)]) // A and B both in slot 0
+
+    /// The minimum-energy assignments of a QUBO, by brute force over every bitstring.
+    let private groundStates (qubo: QuboMatrix) : int list list =
+        let entries = qubo.Q |> Map.toArray
+
+        let energies =
+            Array.init (1 <<< qubo.NumVariables) (fun index ->
+                entries
+                |> Array.sumBy (fun ((i, j), v) ->
+                    if (index >>> i) &&& 1 = 1 && (index >>> j) &&& 1 = 1 then
+                        v
+                    else
+                        0.0))
+
+        let minimum = Array.min energies
+        let tolerance = 1e-9 * max 1.0 (abs minimum)
+
+        [
+            for index in 0 .. energies.Length - 1 do
+                if energies.[index] <= minimum + tolerance then
+                    yield List.init qubo.NumVariables (fun q -> (index >>> q) &&& 1)
+        ]
+
+    let private tspProblem (ids: string list) (edges: Edge<float> list) =
+        GraphOptimizationBuilder<string, float>()
+            .Nodes(ids |> List.map (fun id -> node id id))
+            .Edges(edges)
+            .Objective(MinimizeTotalWeight)
+            .Build()
+
+    /// The tours of the minimum-energy assignments of a TSP problem, each rotated to start
+    /// at its first node id; fails when a minimum is not a permutation matrix.
+    let private groundTours (problem: GraphOptimizationProblem<string, float>) : string list list =
+        let first = problem.Graph.Nodes |> Map.toList |> List.head |> fst
+
+        groundStates (toQubo problem)
+        |> List.map (fun bits ->
+            match tryDecodeTour problem bits with
+            | None -> failwith $"minimum-energy assignment %A{bits} is not a permutation matrix"
+            | Some tour ->
+                let start = List.findIndex ((=) first) tour
+                List.skip start tour @ List.take start tour)
+        |> List.distinct
+        |> List.sort
+
+    /// The bits (city * n + slot, cities in id order) of the given visiting order.
+    let private tourBits (ids: string list) (order: string list) : int list =
+        let n = ids.Length
+        let sorted = List.sort ids
+
+        List.init (n * n) (fun index ->
+            let city, slot = index / n, index % n
+            if order.[slot] = sorted.[city] then 1 else 0)
+
+    [<Fact>]
+    let ``TSP QUBO minimum is the shortest closed tour when the id order is not optimal`` () =
+        // The cheap cycle is A-C-B-D (4); the id order A-B-C-D costs 12.
+        let edgesAt (scale: float) =
+            [
+                edge "A" "C" (1.0 * scale)
+                edge "B" "C" (1.0 * scale)
+                edge "B" "D" (1.0 * scale)
+                edge "A" "D" (1.0 * scale)
+                edge "A" "B" (5.0 * scale)
+                edge "C" "D" (5.0 * scale)
+            ]
+
+        for scale in [ 1.0; 100.0; 0.01 ] do
+            let problem = tspProblem [ "A"; "B"; "C"; "D" ] (edgesAt scale)
+            // One cycle, in its two directions
+            Assert.Equal<string list list>([ [ "A"; "C"; "B"; "D" ]; [ "A"; "D"; "B"; "C" ] ], groundTours problem)
+            // 4 rotations of each direction
+            Assert.Equal(8, (groundStates (toQubo problem)).Length)
+
+    [<Fact>]
+    let ``TSP QUBO charges a directed edge in its own direction only`` () =
+        let forward =
+            [ directedEdge "A" "B" 1.0; directedEdge "B" "C" 1.0; directedEdge "C" "A" 1.0 ]
+
+        let backward =
+            [
+                directedEdge "B" "A" 10.0
+                directedEdge "C" "B" 10.0
+                directedEdge "A" "C" 10.0
+            ]
+
+        // Both directions exist with their own cost: the cheap direction wins
+        Assert.Equal<string list list>(
+            [ [ "A"; "B"; "C" ] ],
+            groundTours (tspProblem [ "A"; "B"; "C" ] (forward @ backward))
+        )
+
+        Assert.Equal<string list list>([ [ "A"; "C"; "B" ] ], groundTours (tspProblem [ "A"; "B"; "C" ] backward))
+
+        // Only one direction exists: the other direction is not a free ride
+        Assert.Equal<string list list>([ [ "A"; "B"; "C" ] ], groundTours (tspProblem [ "A"; "B"; "C" ] forward))
+
+        // A directed graph makes every edge one-way
+        let directedGraph =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes([ "A"; "B"; "C" ] |> List.map (fun id -> node id id))
+                .Edges([ edge "A" "B" 1.0; edge "B" "C" 1.0; edge "C" "A" 1.0 ])
+                .Directed()
+                .Objective(MinimizeTotalWeight)
+                .Build()
+
+        Assert.Equal<string list list>([ [ "A"; "B"; "C" ] ], groundTours directedGraph)
+
+    [<Fact>]
+    let ``TSP QUBO minimum uses existing edges when the graph is not complete`` () =
+        // A ring A-B-C-D-A of expensive edges and no diagonals: the only Hamiltonian cycle
+        let ring =
+            [ edge "A" "B" 7.0; edge "B" "C" 7.0; edge "C" "D" 7.0; edge "D" "A" 7.0 ]
+
+        let problem = tspProblem [ "A"; "B"; "C"; "D" ] ring
+        Assert.Equal<string list list>([ [ "A"; "B"; "C"; "D" ]; [ "A"; "D"; "C"; "B" ] ], groundTours problem)
+
+    [<Fact>]
+    let ``TSP QUBO takes the cheapest parallel edge and accepts negative weights`` () =
+        let doubled =
+            tspProblem [ "A"; "B"; "C" ] [ edge "A" "B" 10.0; edge "A" "B" 3.0; edge "B" "C" 4.0; edge "A" "C" 5.0 ]
+
+        let solution = decodeSolution doubled (tourBits [ "A"; "B"; "C" ] [ "A"; "B"; "C" ])
+        Assert.True(solution.IsFeasible)
+        Assert.Equal(12.0, solution.ObjectiveValue)
+
+        // Forward cycle -15, backward cycle +3
+        let negative =
+            tspProblem
+                [ "A"; "B"; "C" ]
+                [
+                    directedEdge "A" "B" -5.0
+                    directedEdge "B" "C" -5.0
+                    directedEdge "C" "A" -5.0
+                    directedEdge "B" "A" 1.0
+                    directedEdge "C" "B" 1.0
+                    directedEdge "A" "C" 1.0
+                ]
+
+        Assert.Equal<string list list>([ [ "A"; "B"; "C" ] ], groundTours negative)
+
+    [<Fact>]
+    let ``tryDecodeTour reads the city in each time slot of a permutation matrix`` () =
+        let ids = [ "A"; "B"; "C" ]
+
+        let problem =
+            tspProblem ids [ edge "A" "B" 1.0; edge "B" "C" 2.0; edge "A" "C" 4.0 ]
+
+        Assert.Equal(Some [ "C"; "A"; "B" ], tryDecodeTour problem (tourBits ids [ "C"; "A"; "B" ]))
+        // A in slots 0 and 1, C missing
+        Assert.Equal(None, tryDecodeTour problem [ 1; 1; 0; 0; 0; 1; 0; 0; 0 ])
+        // Slot 2 empty
+        Assert.Equal(None, tryDecodeTour problem [ 1; 0; 0; 0; 1; 0; 0; 0; 0 ])
+        // Two cities in slot 0
+        Assert.Equal(None, tryDecodeTour problem [ 1; 0; 0; 1; 1; 0; 0; 0; 1 ])
+        Assert.Equal(None, tryDecodeTour problem [ 0; 0; 0; 0; 0; 0; 0; 0; 0 ])
+        // Wrong number of bits
+        Assert.Equal(None, tryDecodeTour problem [ 1; 0; 0; 0; 1; 0; 0; 0 ])
+
+    [<Fact>]
+    let ``decodeSolution gives the edges of the closed tour in travel order`` () =
+        let ids = [ "A"; "B"; "C" ]
+
+        let problem =
+            tspProblem ids [ edge "A" "B" 1.0; edge "B" "C" 2.0; edge "A" "C" 4.0 ]
+
+        let solution = decodeSolution problem (tourBits ids [ "C"; "B"; "A" ])
+        Assert.True(solution.IsFeasible)
+        Assert.Equal(7.0, solution.ObjectiveValue)
+
+        Assert.Equal<(string * string * float) list>(
+            [ "C", "B", 2.0; "B", "A", 1.0; "A", "C", 4.0 ],
+            solution.SelectedEdges.Value |> List.map (fun e -> e.Source, e.Target, e.Weight)
+        )
+
+        // Not a permutation matrix: no tour, no edges
+        let invalid = decodeSolution problem [ 1; 1; 0; 0; 0; 1; 0; 0; 0 ]
+        Assert.False(invalid.IsFeasible)
+        Assert.Equal(None, invalid.SelectedEdges)
+
+        // A permutation walked against the one-way edges: none of its steps has an edge
+        let oneWay =
+            tspProblem ids [ directedEdge "A" "B" 1.0; directedEdge "B" "C" 1.0; directedEdge "C" "A" 1.0 ]
+
+        let backwards = decodeSolution oneWay (tourBits ids [ "C"; "B"; "A" ])
+        Assert.False(backwards.IsFeasible)
+        Assert.Empty(backwards.SelectedEdges.Value)
+
+        let forwards = decodeSolution oneWay (tourBits ids [ "B"; "C"; "A" ])
+        Assert.True(forwards.IsFeasible)
+        Assert.Equal(3.0, forwards.ObjectiveValue)
 
     // ============================================================================
     // TDD CYCLE #6: EDGE CASES AND ROBUSTNESS

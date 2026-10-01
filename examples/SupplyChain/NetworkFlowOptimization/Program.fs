@@ -395,7 +395,7 @@ module private Picture =
         let durationS = 3.8 * float frames
 
         let pic =
-            Picture(760.0, 520.0, frames, durationS, "Supply chain route activation: classical greedy and QAOA")
+            Picture(760.0, 556.0, frames, durationS, "Supply chain route activation: classical greedy and QAOA")
 
         pic.Text(24.0, 28.0, "Supply chain: which routes to open, classical greedy and QAOA", size = 17.0, bold = true)
 
@@ -449,6 +449,52 @@ module private Picture =
             else
                 sprintf "%s: %d of %d customers, cost %s" s.Name (servedCount s resultFrame) sinks.Length (num s.Cost)
 
+        let routeSet (s: Solution) =
+            s.Selected |> List.map (fun e -> e.Source, e.Target) |> Set.ofList
+
+        // Two flows serving the same customers compare by cost; any other pair
+        // gets one summary per solution.
+        let verdict =
+            match solutions with
+            | [ a; b ] when not a.Failed && not b.Failed ->
+                let servedA, servedB = servedCount a resultFrame, servedCount b resultFrame
+
+                if routeSet a = routeSet b then
+                    sprintf
+                        "%s and %s open the same routes: %d of %d customers, cost %s"
+                        a.Name
+                        b.Name
+                        servedA
+                        sinks.Length
+                        (num a.Cost)
+                elif servedA = servedB then
+                    let gap = b.Cost - a.Cost
+
+                    let words =
+                        if gap = 0.0 then
+                            "the same by other routes"
+                        else
+                            let share =
+                                if a.Cost > 0.0 then
+                                    sprintf " (%s%.0f%%)" (if gap < 0.0 then "−" else "+") (100.0 * abs gap / a.Cost)
+                                else
+                                    ""
+
+                            sprintf "%s %s%s" (num (abs gap)) (if gap < 0.0 then "less" else "more") share
+
+                    sprintf
+                        "%s: cost %s · %s: cost %s, %s · both serve %d of %d customers"
+                        a.Name
+                        (num a.Cost)
+                        b.Name
+                        (num b.Cost)
+                        words
+                        servedA
+                        sinks.Length
+                else
+                    solutions |> List.map summary |> String.concat " · "
+            | _ -> solutions |> List.map summary |> String.concat " · "
+
         pic.FrameText(
             24.0,
             76.0,
@@ -458,12 +504,34 @@ module private Picture =
                 elif f < resultFrame then
                     sprintf "Stage %d of %d: ship from %s" f stages.Length (stageWords stages.[f - 1])
                 else
-                    solutions |> List.map summary |> String.concat " · "),
+                    verdict),
             size = 14.0,
             bold = true
         )
 
-        let panelW, panelH, panelY = 350.0, 336.0, 90.0
+        // Routes a solution opens and no other solution does, among the
+        // solutions that have a flow; these are drawn in `apart`.
+        let apart = colour 6
+
+        let onlyHere =
+            let flows =
+                solutions |> List.map (fun s -> if s.Failed then None else Some(routeSet s))
+
+            flows
+            |> List.mapi (fun i mine ->
+                let others =
+                    flows |> List.indexed |> List.choose (fun (j, o) -> if j = i then None else o)
+
+                match mine with
+                | Some own when not others.IsEmpty -> own - Set.unionMany others
+                | _ -> Set.empty)
+
+        let anyApart = onlyHere |> List.exists (fun o -> not o.IsEmpty)
+
+        let comparable =
+            (solutions |> List.filter (fun s -> not s.Failed) |> List.length) >= 2
+
+        let panelW, panelH, panelY = 350.0, 354.0, 90.0
 
         for i, s in List.indexed solutions do
             let px = 24.0 + float i * (panelW + 12.0)
@@ -497,7 +565,10 @@ module private Picture =
                 |> List.map (fun e -> s.Flow(e.Source, e.Target))
                 |> List.fold max 1e-9
 
-            let accent = colour 0
+            let only = onlyHere.[i]
+
+            let accent (route: string * string) =
+                if only.Contains route then apart else colour 0
 
             for r in routes do
                 let x1, y1, x2, y2 = ends r.From r.To
@@ -508,8 +579,9 @@ module private Picture =
                     let x1, y1, x2, y2 = ends a b
                     let share = s.Flow(a, b) / maxFlow
                     let shown = from (stageOf e)
-                    pic.Line(x1, y1, x2, y2, stroke = tint 0.6 accent, width = 3.0 + 4.0 * share, shown = shown)
-                    pic.Dots(x1, y1, x2, y2, accent, 5.0, 12.0 / max share 0.1, 28.0, shown = shown)
+                    let hue = accent (a, b)
+                    pic.Line(x1, y1, x2, y2, stroke = tint 0.6 hue, width = 3.0 + 4.0 * share, shown = shown)
+                    pic.Dots(x1, y1, x2, y2, hue, 5.0, 12.0 / max share 0.1, 28.0, shown = shown)
 
             // Cost labels a third of the way along, clear of crossings at the middle.
             for r in routes do
@@ -523,14 +595,15 @@ module private Picture =
                 match selected.TryFind((r.From, r.To)) with
                 | Some e ->
                     let shown = from (stageOf e)
-                    pic.Rect(lx - w / 2.0, ly - 8.0, w, 15.0, fill = "white", stroke = accent, rx = 3.0, shown = shown)
+                    let hue = accent (r.From, r.To)
+                    pic.Rect(lx - w / 2.0, ly - 8.0, w, 15.0, fill = "white", stroke = hue, rx = 3.0, shown = shown)
 
                     pic.Text(
                         lx,
                         ly + 3.5,
                         label,
                         size = 10.0,
-                        fill = accent,
+                        fill = hue,
                         bold = true,
                         anchor = "middle",
                         shown = shown
@@ -671,17 +744,55 @@ module private Picture =
                 fill = grey
             )
 
-        // Legend.
-        let ly = 448.0
+            // What sets this panel apart: its own routes and what they cost.
+            if comparable && not s.Failed then
+                let own = routes |> List.filter (fun r -> only.Contains((r.From, r.To)))
+
+                let text, fill =
+                    match own with
+                    | [] when anyApart -> ("No route of its own", grey)
+                    | [] -> ("Same routes in every panel", grey)
+                    | [ r ] -> (sprintf "Only here: %s→%s (%s)" r.From r.To (num r.Cost), apart)
+                    | _ ->
+                        let sum = own |> List.sumBy (fun r -> r.Cost) |> num
+
+                        let listed =
+                            if own.Length > 3 then
+                                $"%d{own.Length} routes"
+                            else
+                                own
+                                |> List.map (fun r -> sprintf "%s→%s (%s)" r.From r.To (num r.Cost))
+                                |> String.concat " + "
+
+                        ($"Only here: %s{listed} = %s{sum}", apart)
+
+                pic.FrameText(
+                    px + 14.0,
+                    panelY + 340.0,
+                    Array.init frames (fun f -> if f < resultFrame then "" else text),
+                    size = 11.0,
+                    fill = fill,
+                    bold = not own.IsEmpty
+                )
+
+        // Legend: routes on the first row, nodes on the second.
+        let ly = 466.0
         pic.Line(30.0, ly, 54.0, ly, stroke = "#c8c8c8", width = 1.5)
         pic.Text(60.0, ly + 4.0, "candidate route", size = 11.0, fill = grey)
         pic.Line(160.0, ly, 190.0, ly, stroke = tint 0.6 (colour 0), width = 7.0)
         pic.Dots(160.0, ly, 190.0, ly, colour 0, 5.0, 12.0, 28.0)
         pic.Text(196.0, ly + 4.0, "open route, dots = units moving", size = 11.0, fill = grey)
 
+        if anyApart then
+            pic.Line(384.0, ly, 414.0, ly, stroke = tint 0.6 apart, width = 7.0)
+            pic.Dots(384.0, ly, 414.0, ly, apart, 5.0, 12.0, 28.0)
+            pic.Text(420.0, ly + 4.0, "open in this panel only", size = 11.0, fill = grey)
+
+        let ny = ly + 22.0
+
         pic.Rect(
-            378.0,
-            ly - 8.0,
+            30.0,
+            ny - 8.0,
             16.0,
             16.0,
             fill = tint 0.55 (colour 4),
@@ -690,11 +801,11 @@ module private Picture =
             strokeWidth = 1.5
         )
 
-        pic.Text(400.0, ly + 4.0, "supplier", size = 11.0, fill = grey)
+        pic.Text(52.0, ny + 4.0, "supplier", size = 11.0, fill = grey)
 
         pic.Rect(
-            456.0,
-            ly - 8.0,
+            108.0,
+            ny - 8.0,
             16.0,
             16.0,
             fill = tint 0.6 (colour 3),
@@ -703,17 +814,17 @@ module private Picture =
             strokeWidth = 1.5
         )
 
-        pic.Text(478.0, ly + 4.0, "warehouse", size = 11.0, fill = grey)
-        pic.Circle(548.0, ly, 8.0, fill = tint 0.45 (colour 2), stroke = colour 2, strokeWidth = 2.0)
-        pic.Text(562.0, ly + 4.0, "customer served", size = 11.0, fill = grey)
-        pic.Circle(668.0, ly, 8.0, stroke = colour 1, strokeWidth = 2.0, dash = "4 3")
-        pic.Text(682.0, ly + 4.0, "violation", size = 11.0, fill = grey)
+        pic.Text(130.0, ny + 4.0, "warehouse", size = 11.0, fill = grey)
+        pic.Circle(208.0, ny, 8.0, fill = tint 0.45 (colour 2), stroke = colour 2, strokeWidth = 2.0)
+        pic.Text(222.0, ny + 4.0, "customer served", size = 11.0, fill = grey)
+        pic.Circle(328.0, ny, 8.0, stroke = colour 1, strokeWidth = 2.0, dash = "4 3")
+        pic.Text(342.0, ny + 4.0, "violation", size = 11.0, fill = grey)
 
-        pic.Progress(24.0, 474.0, 712.0)
+        pic.Progress(24.0, 510.0, 712.0)
 
         pic.Text(
             24.0,
-            500.0,
+            536.0,
             "Numbers on routes: cost per unit. Totals: sum of the open routes' costs. QAOA samples differ from run to run.",
             size = 10.0,
             fill = grey
@@ -755,7 +866,7 @@ module Program =
             printfn "  --nodes <path>   (CSV: node_id,node_type,capacity,supply,demand)"
             printfn "  --routes <path>  (CSV: from,to,cost)"
             printfn "  --out <dir>      (output folder)"
-            printfn "  --shots <n>      (default: 1000)"
+            printfn "  --shots <n>      (default: 100)"
 
             printfn
                 "  --svg [path]     (also draw the run as an animated SVG; default: examples/SupplyChain/_images/supply-chain-flow.svg)"
@@ -772,7 +883,7 @@ module Program =
             let outDir =
                 Cli.getOr "out" (Path.Combine("runs", "supplychain", "networkflow")) args
 
-            let shots = Cli.getIntOr "shots" 1000 args
+            let shots = Cli.getIntOr "shots" 100 args
 
             Data.ensureDirectory outDir
             let runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
@@ -821,6 +932,7 @@ module Program =
 
                 let swQuantum = Stopwatch.StartNew()
                 let backend = LocalBackend() :> IQuantumBackend
+
                 let quantumResult =
                     QuantumNetworkFlowSolver.solveWithShotsAsync backend problem shots CancellationToken.None
                     |> Async.AwaitTask
@@ -858,7 +970,7 @@ module Program =
                 match quantumResult with
                 | Ok _ ->
                     printfn
-                        "QAOA (p = 1, %d shots on %s): %s"
+                        "QAOA (p = 2, optimised angles, %d shots on %s): %s"
                         shots
                         backend.Name
                         (describe quantumCost quantumServed quantumDemandFillRate quantumViolations.Length)
@@ -918,7 +1030,7 @@ module Program =
 This example models supply chain planning as **route activation** (binary decision per route), and compares:
 
 - Classical baseline: greedy route activation
-- Quantum: QAOA (p = 1) via `QuantumNetworkFlowSolver` (LocalBackend). Of the valid sampled flows (flow conserved, no node over its capacity, supply or demand), the solver returns the one meeting the most demand, then the cheapest.
+- Quantum: QAOA (two layers, angles optimised for the problem) via `QuantumNetworkFlowSolver` (LocalBackend). Of the valid sampled flows (flow conserved, no node over its capacity, supply or demand), the solver returns the one meeting the most demand, then the cheapest.
 
 Important: this is *not* a continuous min-cost flow model. It is a small, backend-friendly formulation that is useful as a template for building stronger encodings. Each open route carries one unit.
 
@@ -965,7 +1077,7 @@ Important: this is *not* a continuous min-cost flow model. It is a small, backen
                         [
                             {
                                 Picture.Name = "Classical greedy"
-                                Method = "Cheapest route into each customer, then close gaps upstream"
+                                Method = "Cheapest last hop per customer, then cheapest feed per warehouse"
                                 Selected = classicalSelected
                                 // Route activation: one unit on every open route.
                                 Flow = fun _ -> 1.0
@@ -976,7 +1088,7 @@ Important: this is *not* a continuous min-cost flow model. It is a small, backen
                             }
                             {
                                 Picture.Name = "QAOA"
-                                Method = $"p = 1, %d{shots} shots: most demand met, then cheapest"
+                                Method = $"p = 2, optimised angles, %d{shots} shots: most demand, then cheapest"
                                 Selected = quantumSelected
                                 Flow = fun _ -> 1.0
                                 Cost = quantumCost

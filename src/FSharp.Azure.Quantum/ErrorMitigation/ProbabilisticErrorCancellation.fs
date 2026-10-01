@@ -256,10 +256,7 @@ module ProbabilisticErrorCancellation =
     /// E[f] = Σᵢ pᵢ·f(gateᵢ) = Σᵢ qᵢ·(sign(pᵢ)×Normalization)·f(gateᵢ)
     ///
     /// Returns: (sampled_gate_sequence, weight) where weight = ±Normalization
-    let sampleQuasiProb
-        (decomposition: QuasiProbDecomposition)
-        (rng: Random)
-        : CircuitBuilder.Gate list * float =
+    let sampleQuasiProb (decomposition: QuasiProbDecomposition) (rng: Random) : CircuitBuilder.Gate list * float =
         // Step 1: Convert quasi-probabilities to proper probabilities
         // qᵢ = |pᵢ| / Σ|pⱼ|
         let properProbabilities =

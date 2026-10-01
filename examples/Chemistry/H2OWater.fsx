@@ -571,17 +571,19 @@ let private computeEnergyAsync
         let startTime = DateTime.Now
         let config = solverConfig backend maxIter tol provider
 
-        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+        let! result =
+            GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
         let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-        match result with
-        | Ok vqeResult -> return (Ok(vqeResult.Energy, vqeResult.Source, vqeResult.Converged), elapsed)
-        | Error err ->
-            if not quiet then
-                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        return
+            match result with
+            | Ok vqeResult -> (Ok(vqeResult.Energy, vqeResult.Source, vqeResult.Converged), elapsed)
+            | Error err ->
+                if not quiet then
+                    eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+                (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
     }
 
 /// Compute BDE for one bond system: E(stretched) - E(equilibrium).
@@ -716,7 +718,9 @@ let results =
         let computed = ResizeArray()
 
         for (i, sys) in List.indexed systems do
-            let! result = computeSystemAsync backend maxIterations tolerance stretchFactor i systems.Length sys
+            let! result =
+                computeSystemAsync backend maxIterations tolerance stretchFactor i systems.Length sys
+
             computed.Add result
 
         return List.ofSeq computed

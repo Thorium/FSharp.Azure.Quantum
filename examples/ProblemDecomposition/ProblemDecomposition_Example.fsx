@@ -18,6 +18,13 @@
 //   dotnet fsi ProblemDecomposition_Example.fsx -- --quiet --output results.json
 // ============================================================================
 
+// SEE ALSO (FSharp.Azure.Quantum 1.5.1 and later):
+//   ProblemDecomposition splits a problem only where it falls apart by itself (connected
+//   components). QuboSplitting goes further: it fixes a few variables to cut a connected
+//   sparse QUBO into pieces that fit, or cuts a knapsack into blocks, at the price of many
+//   runs. The QAOA solvers use it when a problem is wider than the backend (settings:
+//   QaoaExecutionHelpers.SplitSettings). See the FAQ: "My problem is wider than the backend".
+
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD

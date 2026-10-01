@@ -377,13 +377,14 @@ if shouldRun 5 then
                         config.Shots
                         CancellationToken.None
 
-                match evaluated with
-                | Ok acc ->
-                    pr "%s accuracy: %s (%.1f%%)" label (fmt acc) (acc * 100.0)
-                    return acc
-                | Error err ->
-                    pr "%s evaluation failed: %s" label err.Message
-                    return 0.0
+                return
+                    match evaluated with
+                    | Ok acc ->
+                        pr "%s accuracy: %s (%.1f%%)" label (fmt acc) (acc * 100.0)
+                        acc
+                    | Error err ->
+                        pr "%s evaluation failed: %s" label err.Message
+                        0.0
             }
 
         let trainAcc, testAcc =

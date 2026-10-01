@@ -146,6 +146,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>Gets a human-readable execution message.</summary>
         public required string Message { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether classical constraint repair produced the assignments
+        /// because no measured sample was a valid packing.
+        /// </summary>
+        public bool WasRepaired { get; init; }
     }
 
     /// <summary>
@@ -187,6 +193,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 TotalItems = fsharpResult.TotalItems,
                 ItemsAssigned = fsharpResult.ItemsAssigned,
                 Message = fsharpResult.Message,
+                WasRepaired = fsharpResult.WasRepaired,
             };
         }
     }

@@ -107,7 +107,8 @@ let calculateVQEEnergyAsync
             }
 
         try
-            let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+            let! result =
+                GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
             let elapsed = (DateTime.Now - startTime).TotalSeconds
 

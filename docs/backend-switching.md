@@ -90,10 +90,10 @@ The TSP solver returns the same `QuantumTspSolution` record whichever backend it
 
 ```fsharp
 type QuantumTspSolution = {
-    /// Best tour found (city visit order)
+    /// Shortest tour among the measurements that are valid tours (city visit order, starting at city 0)
     Tour: int array
 
-    /// Total tour length (distance)
+    /// Total tour length (distance), the return to the first city included
     TourLength: float
 
     /// Name of the backend that ran the circuits
@@ -105,18 +105,23 @@ type QuantumTspSolution = {
     /// Wall-clock time in milliseconds
     ElapsedMs: float
 
-    /// Optimized QAOA parameters (γ, β), when optimization ran
+    /// QAOA parameters (γ, β) of every layer of the final circuit
+    LayerParameters: (float * float)[]
+
+    /// The first layer's optimized (γ, β), when optimization ran
     OptimizedParameters: (float * float) option
 
     /// Whether the optimizer converged, when optimization ran
     OptimizationConverged: bool option
 
-    /// Number of optimizer iterations, when optimization ran
-    OptimizationIterations: int option
+    /// Shots, valid tours among them (Valid) and shots that are the returned tour (Hits)
+    Sampling: FSharp.Azure.Quantum.Core.QaoaExecutionHelpers.SampleStatistics option
 
-    // ... plus BestEnergy and TopSolutions
+    // ... plus BestEnergy, TopSolutions and OptimizationIterations
 }
 ```
+
+A backend whose shots contain no valid tour (no measurement with every city in exactly one time slot) gives an `Error` that names the number of shots, not a tour.
 
 This means:
 - ✅ Analysis code works with any backend
@@ -476,6 +481,7 @@ What differs on cloud backends:
 - **Whole circuits only.** They refuse incremental `ApplyOperation` and claim no algorithm intent (QFT, QPE, Grover…), so algorithms build the complete gate circuit and submit it with `ExecuteToState`. Before conversion each backend transpiles the circuit to its provider's gates (`GateTranspiler.transpileForBackendFully`): T/TDG, CP, CRZ, CCX, MCZ and the other composite gates are decomposed, and the Braket backend does the same by device ARN.
 - **Measured shots, not amplitudes.** They implement `IShotSamplingBackend`: the returned state holds √(count/shots) with no phases. `Primitives.observe` therefore measures each qubit-wise commuting group of Pauli terms in its own rotated basis (`Primitives.sampledExpectation`, one job per group, with a standard error), ADAPT-VQE and ADAPT-QAOA switch to measured energies with parameter-shift gradients, and `Primitives.sample` returns the backend's own counts (the requested shot count must equal the backend's). `QRNG.generateWithBackendAsync` needs a backend created with `shots = 1`: its bits are that one measured shot. Algorithms that measure the returned state (`UnifiedBackend.measureState`) get the job's own recorded shots, never resampled ones and never more than the job measured. Protocols made of many independent trials (BB84 transmissions, E91 pairs, teleportation tomography) run their trials side by side in circuits as wide as the backend runs (at most 16 qubits, `WholeCircuit.runTrials`) and use every shot of every job.
 - **Every `ExecuteToState` is a separately billed job.** Iterative algorithms submit many (one per energy, gradient term or sample; a 3-city TSP by QAOA is several hundred). Pass a `JobBudget` to cap them; the job after the limit is refused with a `QuotaExceeded` error before it is submitted. A budget can be shared by several backends, and every cloud backend exposes its budget through `IJobCountingBackend`, including how many jobs it has submitted. Without one, jobs are counted but not limited.
+- **The qubit limit is a default.** Each backend reports the width of its target as it was when this version was released, and solvers refuse a wider problem before submitting. Pass `maxQubits` to the constructor to replace the figure when a device has grown: `CloudBackends.IonQCloudBackend(httpClient, workspaceUrl, "ionq.qpu.forte-1", maxQubits = 64)`.
 
 ```fsharp
 open FSharp.Azure.Quantum.Backends

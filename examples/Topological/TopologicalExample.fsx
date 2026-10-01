@@ -150,7 +150,7 @@ if shouldRun 3 then
     separator ()
 
     let circuitResult =
-        pr "  Initializing 4-anyon qubit..."
+        pr "  Initializing 4 logical qubits (10 sigma anyons)..."
 
         quantumBackend.InitializeState 4
         |> Result.mapError (fun e -> $"Init failed: %A{e}")

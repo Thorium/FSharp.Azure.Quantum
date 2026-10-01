@@ -96,8 +96,12 @@ module TaskSchedulingTypes =
     ///
     /// Resource-constrained scheduling is solved via quantum optimization:
     /// 1. Encodes tasks, dependencies, and resource limits as QUBO problem
-    /// 2. Uses QAOA or quantum annealing to find optimal schedule
+    /// 2. Runs QAOA with the shared default configuration (2 layers, optimised angles,
+    ///    1000 final shots) and returns the best sample that is a feasible schedule
     /// 3. Respects resource capacity constraints (unlike classical solver)
+    ///
+    /// See TaskScheduling.QuantumSolver.solveWithConfigAsync for the decoding rules and
+    /// for Solution.WasRepaired and Solution.Sampling.
     ///
     /// Use this when:
     /// - Tasks have resource requirements (workers, machines, budget)
@@ -113,6 +117,20 @@ module TaskSchedulingTypes =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<Solution>> =
         TaskScheduling.QuantumSolver.solveAsync backend problem cancellationToken
+
+    /// solveQuantumAsync with an explicit QAOA configuration (layers, angle optimisation,
+    /// shots, and whether the one-hot repair decode may be used when no sample is valid).
+    ///
+    /// Example:
+    ///   let config = { QaoaExecutionHelpers.defaultConfig with NumLayers = 3; FinalShots = 2000 }
+    ///   let! result = solveQuantumWithConfigAsync backend problem config CancellationToken.None
+    let solveQuantumWithConfigAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: SchedulingProblem<'TTask, 'TResource>)
+        (config: QaoaExecutionHelpers.QaoaSolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution>> =
+        TaskScheduling.QuantumSolver.solveWithConfigAsync backend problem config cancellationToken
 
     /// Export schedule as Gantt chart to text file
     let exportGanttChart (solution: Solution) (filePath: string) : unit =

@@ -426,8 +426,15 @@ let toDiverseSelectionProblem (compoundList: Compound list) (bgt: float) (divWei
 let problem = toDiverseSelectionProblem compounds budget diversityWeight
 
 let startTime = DateTime.Now
+
 let solveResult =
-    DiverseSelection.solveWithConfigAsync backend problem { defaultConfig with FinalShots = shots } CancellationToken.None
+    DiverseSelection.solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with
+            FinalShots = shots
+        }
+        CancellationToken.None
     |> Async.AwaitTask
     |> Async.RunSynchronously
 

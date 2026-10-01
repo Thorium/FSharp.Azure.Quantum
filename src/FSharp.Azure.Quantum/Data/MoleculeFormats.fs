@@ -1021,7 +1021,10 @@ module MoleculeFormats =
                 ligandGroups
                 |> Array.map (fun atoms ->
                     let resName = atoms.[0].ResName
-                    let chainId = atoms.[0].ChainId |> ValueOption.map string |> ValueOption.defaultValue ""
+
+                    let chainId =
+                        atoms.[0].ChainId |> ValueOption.map string |> ValueOption.defaultValue ""
+
                     let resSeq = atoms.[0].ResSeq
 
                     {

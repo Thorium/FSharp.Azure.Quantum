@@ -1009,7 +1009,8 @@ module AutoML =
                                                             cancellationToken
 
                                                     // Genuine evaluation against ground-truth labels (balanced accuracy)
-                                                    let! score = scoreAnomalyDetectorAsync detector valX valY cancellationToken
+                                                    let! score =
+                                                        scoreAnomalyDetectorAsync detector valX valY cancellationToken
 
                                                     if problemWithToken.Verbose then
                                                         logInfo
@@ -1040,7 +1041,12 @@ module AutoML =
 
                                                     // Genuine retrieval quality: label-based precision@k on the validation set
                                                     let! score =
-                                                        scoreSimilarityIndexAsync searchIndex trainY valX valY cancellationToken
+                                                        scoreSimilarityIndexAsync
+                                                            searchIndex
+                                                            trainY
+                                                            valX
+                                                            valY
+                                                            cancellationToken
 
                                                     if problemWithToken.Verbose then
                                                         logInfo

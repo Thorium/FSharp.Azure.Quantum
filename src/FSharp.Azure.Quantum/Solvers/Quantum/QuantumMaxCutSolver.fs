@@ -41,7 +41,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///
 /// Example:
 ///   let backend = LocalBackend() :> IQuantumBackend
-///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
+///   let config = { defaultConfig with NumShots = 1000 }
 ///   match! QuantumMaxCutSolver.solveAsync backend graph config CancellationToken.None with
 ///   | Ok solution -> printfn "Cut value: %f" solution.CutValue
 ///   | Error msg -> printfn "Error: %s" msg
@@ -87,6 +87,12 @@ module QuantumMaxCutSolver =
 
             /// QUBO objective value (energy)
             BestEnergy: float
+
+            /// Standing of this solution among the final samples; None when no sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+
+            /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+            Split: QaoaExecutionHelpers.SplitReport option
         }
 
     // ================================================================================
@@ -199,6 +205,8 @@ module QuantumMaxCutSolver =
             NumShots = 0
             ElapsedMs = 0.0
             BestEnergy = -cutValue // QUBO minimizes -cutValue
+            Sampling = None
+            Split = None
         }
 
     /// Calculate cut value for a given partition (for validation)
@@ -226,6 +234,10 @@ module QuantumMaxCutSolver =
             /// QAOA angles (gamma, beta) of the single layer, in units of the normalised cost
             /// Hamiltonian (minimisation convention, see Core.QaoaCircuit). Default (0.5, 0.5).
             InitialParameters: float * float
+
+            /// When and how a problem wider than the backend is split into circuits that fit.
+            /// Default: on simulators only (see QaoaExecutionHelpers.SplitSettings).
+            Splitting: QaoaExecutionHelpers.SplitSettings
         }
 
     /// Default QAOA configuration for MaxCut
@@ -233,6 +245,7 @@ module QuantumMaxCutSolver =
         {
             NumShots = 1000
             InitialParameters = (0.5, 0.5) // Reasonable starting point
+            Splitting = QaoaExecutionHelpers.defaultSplitSettings
         }
 
     // ================================================================================
@@ -251,7 +264,7 @@ module QuantumMaxCutSolver =
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...] }
-    ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
+    ///   let config = { defaultConfig with NumShots = 1000 }
     ///   task {
     ///       match! solveAsync backend problem config CancellationToken.None with
     ///       | Ok solution -> printfn "Cut: %f" solution.CutValue
@@ -296,6 +309,19 @@ module QuantumMaxCutSolver =
                         // Step 8: Find best solution (maximum cut value)
                         let bestSolution = solutions |> Array.maxBy (fun sol -> sol.CutValue)
 
+                        // A partition and its complement are the same cut.
+                        let isBest (sol: MaxCutSolution) =
+                            sol.PartitionS = bestSolution.PartitionS
+                            || sol.PartitionS = bestSolution.PartitionT
+
+                        let sampling: QaoaExecutionHelpers.SampleStatistics =
+                            {
+                                Shots = solutions.Length
+                                Qubits = quboMatrix.NumVariables
+                                Hits = solutions |> Array.filter isBest |> Array.length
+                                Valid = solutions.Length
+                            }
+
                         let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
                         Ok
@@ -303,19 +329,67 @@ module QuantumMaxCutSolver =
                                 BackendName = backend.Name
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
+                                Sampling = Some sampling
                             }
 
+                    // A piece of a split graph: the same fixed-angle circuit, its lowest-energy sample.
+                    let solvePiece (piece: float[,]) =
+                        task {
+                            let! sampled =
+                                QaoaExecutionHelpers.executeFromQuboAsync
+                                    backend
+                                    piece
+                                    parameters
+                                    config.NumShots
+                                    cancellationToken
+
+                            return
+                                sampled
+                                |> Result.bind (fun samples ->
+                                    if Array.isEmpty samples then
+                                        Error(
+                                            QuantumError.OperationError(
+                                                "QuantumMaxCutSolver",
+                                                "the backend returned no samples"
+                                            )
+                                        )
+                                    else
+                                        Ok(samples |> Array.minBy (QaoaExecutionHelpers.evaluateQubo piece)))
+                        }
+
                     task {
+                        // A graph wider than the backend runs as pieces when config.Splitting
+                        // allows it (QuboSplitting): a few vertices are fixed, the rest falls into
+                        // circuits that fit, and the assignment with the largest cut wins.
                         match!
-                            QaoaExecutionHelpers.executeFromQuboAsync
+                            QuboSplitting.trySolveByConditioningAsync
+                                config.Splitting
                                 backend
                                 quboArray
-                                parameters
-                                config.NumShots
+                                solvePiece
                                 cancellationToken
                         with
                         | Error err -> return Error err
-                        | Ok measurements -> return handleMeasurements measurements
+                        | Ok(QuboSplitting.SplitAttempt.Solved(bits, report)) ->
+                            return
+                                Ok
+                                    { decodeSolution problem bits with
+                                        BackendName = backend.Name
+                                        NumShots = config.NumShots
+                                        ElapsedMs = stopwatch.Elapsed.TotalMilliseconds
+                                        Split = Some report
+                                    }
+                        | Ok QuboSplitting.SplitAttempt.RunAsOneCircuit ->
+                            match!
+                                QaoaExecutionHelpers.executeFromQuboAsync
+                                    backend
+                                    quboArray
+                                    parameters
+                                    config.NumShots
+                                    cancellationToken
+                            with
+                            | Error err -> return Error err
+                            | Ok measurements -> return handleMeasurements measurements
                     }
         with ex ->
             task {
@@ -398,4 +472,6 @@ module QuantumMaxCutSolver =
             NumShots = 0
             ElapsedMs = 0.0
             BestEnergy = -cutValue
+            Sampling = None
+            Split = None
         }

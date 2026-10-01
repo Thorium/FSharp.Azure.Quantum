@@ -141,11 +141,7 @@ module PrimitivesTests =
                 }
             // |00> has ⟨Z0Z1⟩ = +1; Bell also has ⟨Z0Z1⟩ = +1.
             let! results =
-                Primitives.observeBatchAsync
-                    (backend ())
-                    [ CircuitBuilder.empty 2; bell () ]
-                    zz
-                    CancellationToken.None
+                Primitives.observeBatchAsync (backend ()) [ CircuitBuilder.empty 2; bell () ] zz CancellationToken.None
 
             match results with
             | [ Ok a; Ok b ] ->

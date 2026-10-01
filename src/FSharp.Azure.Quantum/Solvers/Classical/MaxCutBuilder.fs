@@ -254,6 +254,12 @@ module MaxCut =
     ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
     ///   let! solution = MaxCut.solveAsync problem (Some ionqBackend) cancellationToken
     ///
+    /// WIDER THAN THE BACKEND:
+    ///   On a simulator a problem that needs more qubits than the backend runs is split into
+    ///   circuits that fit and joined (QuboSplitting, default QaoaExecutionHelpers.SplitSettings);
+    ///   it then takes many runs instead of one. A backend that bills every circuit is never
+    ///   split here. Call QuantumMaxCutSolver.solveAsync to change the settings or to read the split report.
+    ///
     /// RETURNS:
     ///   Task of Result with Solution (partitions, cut value) or error message
     let solveAsync
@@ -280,6 +286,7 @@ module MaxCut =
                     {
                         NumShots = 1000
                         InitialParameters = (0.5, 0.5)
+                        Splitting = QaoaExecutionHelpers.defaultSplitSettings
                     }
 
                 // Call quantum MaxCut solver directly

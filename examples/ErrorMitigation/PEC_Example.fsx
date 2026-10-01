@@ -283,7 +283,11 @@ if not quiet then
     printfn "(Running %d circuit samples)" pecSamples
     printfn ""
 
-match mitigateAsync h2Circuit pecConfig noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    mitigateAsync h2Circuit pecConfig noisyExecutor CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok result ->
     let uncorrectedError = abs (result.UncorrectedExpectation - trueEnergy)
     let correctedError = abs (result.CorrectedExpectation - trueEnergy)
@@ -413,7 +417,11 @@ if not quiet then
     printfn "Running high-precision PEC..."
     printfn ""
 
-match mitigateAsync h2Circuit highPrecisionConfig noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    mitigateAsync h2Circuit highPrecisionConfig noisyExecutor CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok result ->
     let errorHartree = abs (result.CorrectedExpectation - trueEnergy)
     let errorKcalMol = errorHartree * 627.5 // Hartree to kcal/mol
@@ -569,7 +577,11 @@ if not quiet then
     printfn "    -> Task<Result<float, string>>"
     printfn ""
 
-match runVQEWithPEC h2Circuit noiseModel pecSamples |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    runVQEWithPEC h2Circuit noiseModel pecSamples
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok energy ->
     if not quiet then
         printfn "[OK] Production VQE Energy: %.4f Hartree" energy

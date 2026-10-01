@@ -243,8 +243,7 @@ let ``TokenManager should propagate credential errors`` () =
         let tokenManager = new TokenManager(failingCredential)
 
         let! ex =
-            Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-                tokenManager.GetAccessTokenAsync() :> Task)
+            Assert.ThrowsAsync<AuthenticationFailedException>(fun () -> tokenManager.GetAccessTokenAsync() :> Task)
 
         Assert.Contains("Invalid credentials", ex.Message)
     }
@@ -265,8 +264,7 @@ let ``TokenManager should handle network timeout gracefully`` () =
         let tokenManager = new TokenManager(timeoutCredential)
 
         let! _ =
-            Assert.ThrowsAsync<TimeoutException>(fun () ->
-                tokenManager.GetAccessTokenAsync() :> Task)
+            Assert.ThrowsAsync<TimeoutException>(fun () -> tokenManager.GetAccessTokenAsync() :> Task)
 
         ()
     }
@@ -322,8 +320,7 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
 
         // First attempt should fail
         let! _ =
-            Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-                tokenManager.GetAccessTokenAsync() :> Task)
+            Assert.ThrowsAsync<AuthenticationFailedException>(fun () -> tokenManager.GetAccessTokenAsync() :> Task)
 
         // Recover and clear cache
         shouldFail <- false

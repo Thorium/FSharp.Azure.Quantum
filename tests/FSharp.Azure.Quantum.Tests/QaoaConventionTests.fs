@@ -306,22 +306,7 @@ let ``QaoaSimulator mixer follows the same minimising convention`` () =
 // ============================================================================
 
 /// The QUBO QuantumTspSolver builds for a distance matrix.
-let private tspQubo (d: float[,]) =
-    let n = d.GetLength 0
-
-    let problem =
-        GraphOptimizationBuilder()
-            .Nodes(List.init n (fun i -> node (string i) i))
-            .Edges(
-                [
-                    for i in 0 .. n - 1 do
-                        for j in i + 1 .. n - 1 -> edge (string i) (string j) d.[i, j]
-                ]
-            )
-            .Objective(MinimizeTotalWeight)
-            .Build()
-
-    toQubo problem |> dense
+let private tspQubo (d: float[,]) = QuantumTspSolver.toQubo d
 
 let private tsp3 =
     array2D [ [ 0.0; 2.0; 3.0 ]; [ 2.0; 0.0; 4.0 ]; [ 3.0; 4.0; 0.0 ] ]
@@ -355,9 +340,14 @@ type private RecordingBackend() =
 
         member _.ApplyOperationAsync op state ct = inner.ApplyOperationAsync op state ct
 
-/// The recorded circuit is p = 1 at the default angles, built from the normalised cost
-/// Hamiltonian of `qubo` and the standard mixer: exactly what solverProbabilities simulates.
-let private assertSolverCircuit (label: string) (recorder: RecordingBackend) (qubo: float[,]) =
+/// The recorded circuit is p = 1 at `angles`, built from the normalised cost Hamiltonian
+/// of `qubo` and the standard mixer: exactly what solverProbabilities simulates.
+let private assertSolverCircuitAt
+    (angles: float * float)
+    (label: string)
+    (recorder: RecordingBackend)
+    (qubo: float[,])
+    =
     Assert.True(recorder.Circuits.Count > 0, $"{label}: no QAOA circuit executed")
     let circuit = recorder.Circuits |> Seq.last
     let n = Array2D.length1 qubo
@@ -366,9 +356,12 @@ let private assertSolverCircuit (label: string) (recorder: RecordingBackend) (qu
         QaoaCircuit.build
             (ProblemHamiltonian.fromQubo qubo |> ProblemHamiltonian.normalize)
             (MixerHamiltonian.create n)
-            [| (0.5, 0.5) |]
+            [| angles |]
 
     Assert.Equal(expected, circuit)
+
+/// assertSolverCircuitAt for the solvers whose default angles are (0.5, 0.5).
+let private assertSolverCircuit = assertSolverCircuitAt (0.5, 0.5)
 
 [<Fact>]
 let ``fixed-angle solvers execute the normalised default circuit`` () : Task =
@@ -390,7 +383,8 @@ let ``fixed-angle solvers execute the normalised default circuit`` () : Task =
             }
 
         let! recorder =
-            run (fun b -> QuantumMaxCutSolver.solveAsync b maxCut QuantumMaxCutSolver.defaultConfig CancellationToken.None)
+            run (fun b ->
+                QuantumMaxCutSolver.solveAsync b maxCut QuantumMaxCutSolver.defaultConfig CancellationToken.None)
 
         assertSolverCircuit "MaxCut" recorder (QuantumMaxCutSolver.toQubo maxCut |> ok |> dense)
 
@@ -411,8 +405,15 @@ let ``fixed-angle solvers execute the normalised default circuit`` () : Task =
 
         assertSolverCircuit "Knapsack" recorder (QuantumKnapsackSolver.toQubo knapsack |> ok |> dense)
 
-        let! recorder =
-            run (fun b -> QuantumTspSolver.solveAsync b tsp3 QuantumTspSolver.fastConfig CancellationToken.None)
+        // The TSP circuit runs whether or not one of its samples is a valid tour
+        let recorder = RecordingBackend()
+
+        let! _ =
+            QuantumTspSolver.solveAsync
+                (recorder :> BackendAbstraction.IQuantumBackend)
+                tsp3
+                QuantumTspSolver.fastConfig
+                CancellationToken.None
 
         assertSolverCircuit "TSP" recorder (tspQubo tsp3)
 
@@ -466,9 +467,17 @@ let ``fixed-angle solvers execute the normalised default circuit`` () : Task =
 
         let! recorder =
             run (fun b ->
-                QuantumNetworkFlowSolver.solveAsync b flow QuantumNetworkFlowSolver.defaultConfig CancellationToken.None)
+                QuantumNetworkFlowSolver.solveAsync
+                    b
+                    flow
+                    QuantumNetworkFlowSolver.defaultConfig
+                    CancellationToken.None)
 
-        assertSolverCircuit "NetworkFlow" recorder (QuantumNetworkFlowSolver.toQubo flow |> ok |> dense)
+        assertSolverCircuitAt
+            QuantumNetworkFlowSolver.defaultConfig.InitialParameters
+            "NetworkFlow"
+            recorder
+            (QuantumNetworkFlowSolver.toQubo flow |> ok |> dense)
     }
 
 // ============================================================================
@@ -528,6 +537,212 @@ let ``Knapsack default angles beat uniform sampling on a penalty QUBO with coeff
     let (g, b) = QuantumKnapsackSolver.defaultConfig.InitialParameters
     assertBeatsUniform "Knapsack" qubo [| (g, b) |]
 
+// ============================================================================
+// KNAPSACK AND SUBSET-SUM ENCODINGS (brute force over every bitstring)
+// ============================================================================
+
+let private knapsackOf (items: (float * float) list) (capacity: float) : QuantumKnapsackSolver.KnapsackProblem =
+    {
+        Items =
+            items
+            |> List.mapi (fun i (weight, value) ->
+                {
+                    Id = $"i{i}"
+                    Weight = weight
+                    Value = value
+                })
+        Capacity = capacity
+    }
+
+/// The item parts of the minimum-energy bitstrings of the knapsack QUBO are exactly the
+/// most valuable selections that fit the capacity. Returns the qubit count and the optima.
+let private knapsackGroundStates (items: (float * float) list) (capacity: float) : int * int[][] =
+    let problem = knapsackOf items capacity
+    let qubo = QuantumKnapsackSolver.toQubo problem |> ok |> dense
+    let total = Array2D.length1 qubo
+    let n = items.Length
+    let e = energies qubo
+    let minEnergy = Array.min e
+    let tolerance = 1e-9 * max 1.0 (abs minEnergy)
+
+    let weightOf (bits: int[]) =
+        items |> List.mapi (fun i (weight, _) -> float bits.[i] * weight) |> List.sum
+
+    let valueOf (bits: int[]) =
+        items |> List.mapi (fun i (_, value) -> float bits.[i] * value) |> List.sum
+
+    let fitting =
+        Array.init (1 <<< n) (bitsOf n)
+        |> Array.filter (fun bits -> weightOf bits <= capacity + 1e-9)
+
+    let best = fitting |> Array.map valueOf |> Array.max
+
+    let optima =
+        fitting |> Array.filter (fun bits -> valueOf bits >= best - 1e-9) |> Array.sort
+
+    let ground =
+        [|
+            for index in 0 .. e.Length - 1 do
+                if e.[index] <= minEnergy + tolerance then
+                    yield (bitsOf total index).[0 .. n - 1]
+        |]
+        |> Array.distinct
+        |> Array.sort
+
+    Assert.Equal<int[][]>(optima, ground)
+    total, optima
+
+[<Fact>]
+let ``Knapsack QUBO minimum is the best fitting selection for non-integer weights and capacities`` () =
+    // Weights 1.2 / 2.3 / 3.1 in tenths, capacity 50 tenths: 6 slack bits.
+    let qubits, optima = knapsackGroundStates [ 1.2, 5.0; 2.3, 6.0; 3.1, 9.0 ] 5.0
+    Assert.Equal(9, qubits)
+    Assert.Equal<int[][]>([| [| 1; 0; 1 |] |], optima)
+
+    // Capacity 4.5 holds 4 whole units: both items together (weight 5) do not fit.
+    let qubits, optima = knapsackGroundStates [ 2.0, 5.0; 3.0, 6.0 ] 4.5
+    Assert.Equal(5, qubits)
+    Assert.Equal<int[][]>([| [| 0; 1 |] |], optima)
+
+    // Weights 1.5 / 2.0 in halves (3 / 4), capacity 6 halves.
+    let qubits, optima = knapsackGroundStates [ 1.5, 10.0; 2.0, 1.0 ] 3.0
+    Assert.Equal(5, qubits)
+    Assert.Equal<int[][]>([| [| 1; 0 |] |], optima)
+
+    // 0.1 + 0.2 fits a capacity of 0.3 although the floating-point sum exceeds it.
+    let _, optima = knapsackGroundStates [ 0.1, 1.0; 0.2, 1.0; 0.3, 1.5 ] 0.3
+    Assert.Equal<int[][]>([| [| 1; 1; 0 |] |], optima)
+
+[<Fact>]
+let ``Knapsack QUBO minimum is the best fitting selection for integer weights`` () =
+    let qubits, _ = knapsackGroundStates [ 2.0, 3.0; 3.0, 4.0; 4.0, 5.0; 5.0, 6.0 ] 5.0
+    // Slack weights [1; 2; 2] reach exactly 0..5.
+    Assert.Equal(7, qubits)
+
+    knapsackGroundStates [ 3.0, 10.0; 4.0, 12.0; 5.0, 13.0; 2.0, 3.0; 1.0, 1.0 ] 7.0
+    |> ignore
+
+    let qubits, optima =
+        knapsackGroundStates [ 5.0, 10.0; 4.0, 40.0; 6.0, 30.0; 3.0, 50.0; 2.0, 5.0; 7.0, 35.0 ] 10.0
+
+    Assert.Equal(10, qubits)
+    Assert.Equal<int[][]>([| [| 0; 1; 0; 1; 1; 0 |] |], optima)
+
+    // A common factor is divided out: weights 20 / 30 / 40 against 50 are 2 / 3 / 4 against 5.
+    let qubits, _ = knapsackGroundStates [ 20.0, 3.0; 30.0, 4.0; 40.0, 5.0 ] 50.0
+    Assert.Equal(6, qubits)
+
+    // A weightless item and an item of no value.
+    knapsackGroundStates [ 0.0, 2.0; 3.0, 0.0; 2.0, 4.0; 2.0, 1.0 ] 3.0 |> ignore
+
+[<Fact>]
+let ``Knapsack QUBO has no slack bits when every item fits or the capacity holds no weight unit`` () =
+    // All items fit together: the constraint always holds.
+    let qubits, optima = knapsackGroundStates [ 1.0, 2.0; 2.0, 3.0 ] 5.0
+    Assert.Equal(2, qubits)
+    Assert.Equal<int[][]>([| [| 1; 1 |] |], optima)
+
+    // Capacity 0.5 holds no whole unit: only the empty selection fits.
+    let qubits, optima = knapsackGroundStates [ 2.0, 5.0; 3.0, 6.0 ] 0.5
+    Assert.Equal(2, qubits)
+    Assert.Equal<int[][]>([| [| 0; 0 |] |], optima)
+
+[<Fact>]
+let ``Knapsack QUBO rejects weights it cannot encode`` () =
+    let fieldOf (items: (float * float) list) =
+        match QuantumKnapsackSolver.toQubo (knapsackOf items 5.0) with
+        | Error(QuantumError.ValidationError(field, _)) -> field
+        | other -> failwith $"expected a validation error, got %A{other}"
+
+    Assert.Equal("weight", fieldOf [ 1.0 / 3.0, 1.0; 1.0, 1.0 ])
+    Assert.Equal("weight", fieldOf [ -1.0, 1.0; 1.0, 1.0 ])
+    Assert.Equal("weight", fieldOf [ nan, 1.0 ])
+    Assert.Equal("value", fieldOf [ 1.0, nan ])
+
+[<Fact>]
+let ``Knapsack.randomInstance weights have a common integer scale`` () =
+    for maxWeight in [ 100.0; 7.5; 0.5 ] do
+        let problem = Knapsack.randomInstance 6 maxWeight 500.0 0.5
+
+        for item in problem.Items do
+            // k · maxWeight / 100 with k in 1 .. 100
+            let k = item.Weight * 100.0 / maxWeight
+            Assert.Equal(Math.Round k, k, 9)
+            Assert.InRange(k, 1.0 - 1e-9, 100.0 + 1e-9)
+
+        let encoded =
+            QuantumKnapsackSolver.toQubo
+                {
+                    Items = problem.Items
+                    Capacity = problem.Capacity
+                }
+
+        Assert.True(Result.isOk encoded, $"%A{encoded}")
+
+let private subsetSumItems: QuantumKnapsackSolver.KnapsackItem list =
+    [ 2.0; 5.0; 3.0; 4.0 ]
+    |> List.map (fun w -> { Id = string w; Weight = w; Value = w })
+
+[<Fact>]
+let ``subset-sum QUBO minima are the exact subsets and the exclusion term raises the known one`` () =
+    let states = Array.init 16 (bitsOf 4)
+
+    let sumOf (bits: int[]) =
+        subsetSumItems
+        |> List.mapi (fun i item -> float bits.[i] * item.Weight)
+        |> List.sum
+
+    let exact = states |> Array.map (fun bits -> sumOf bits = 7.0)
+
+    Assert.Equal<int[][]>(
+        [| [| 1; 1; 0; 0 |]; [| 0; 0; 1; 1 |] |],
+        Array.zip states exact |> Array.filter snd |> Array.map fst
+    )
+
+    let energiesWith (extra: Map<int * int, float>) =
+        QuantumKnapsackSolver.toSubsetSumQubo subsetSumItems 7.0 extra
+        |> ok
+        |> dense
+        |> energies
+
+    let plain = energiesWith Map.empty
+    let lowest = Array.min plain
+    Assert.Equal<bool[]>(exact, plain |> Array.map (fun e -> e <= lowest + 1e-9))
+
+    // Known solution {2, 5} = bits 1100 (index 3); the other exact subset {3, 4} is index 12.
+    // Strength 10 over 4 bits stays below the base penalty step of 200 between an exact
+    // subset and a sum that is off by one.
+    let excluded =
+        energiesWith (QuantumKnapsackSolver.buildExclusionPenalty [| 1; 1; 0; 0 |] 10.0)
+
+    Assert.True(excluded.[3] > excluded.[12], $"known {excluded.[3]}, other exact subset {excluded.[12]}")
+    Assert.Equal(12, excluded |> Array.indexed |> Array.minBy snd |> fst)
+
+    for index in 0..15 do
+        if not exact.[index] then
+            Assert.True(excluded.[index] > excluded.[3], $"non-solution {index} below the known subset")
+
+[<Fact>]
+let ``findAllExactCombinationsAsync returns distinct exact subsets only`` () : Task =
+    task {
+        let! result =
+            QuantumKnapsackSolver.findAllExactCombinationsAsync
+                (backend ())
+                subsetSumItems
+                7.0
+                { QuantumKnapsackSolver.defaultSubsetSumConfig with
+                    NumShots = 200
+                }
+                CancellationToken.None
+
+        let found = (ok result).Combinations
+        Assert.InRange(found.Length, 0, 2)
+        Assert.Equal(found.Length, (found |> List.distinct).Length)
+
+        for combination in found do
+            Assert.Equal(7.0, combination |> List.sumBy (fun item -> item.Weight))
+    }
+
 [<Fact>]
 let ``GraphColoring default angles beat uniform sampling`` () =
     let ue a b : Edge<unit> =
@@ -583,7 +798,9 @@ module TaskSchedulingQubo =
     open FSharp.Azure.Quantum.TaskScheduling.Builders
 
     [<Fact>]
-    let ``TaskScheduling fixed angles beat uniform sampling on its QUBO`` () : Task =
+    let ``TaskScheduling runs the configured layers on the normalised Hamiltonian and beats uniform sampling``
+        ()
+        : Task =
         task {
             let problem =
                 scheduling {
@@ -605,6 +822,9 @@ module TaskSchedulingQubo =
                         ]
 
                     objective MinimizeMakespan
+                    // 180 minutes of work in a 180-minute window: the solver's grid is
+                    // 3 slots of 60 minutes, 3 tasks x 3 slots = 9 qubits
+                    timeHorizon (minutes 180.0)
                 }
 
             let qubo =
@@ -613,17 +833,21 @@ module TaskSchedulingQubo =
                 |> fun q -> Qubo.toDenseArray q.NumVariables q.Q
 
             Assert.Equal(9, Array2D.length1 qubo)
-            // QuantumSolver runs p = 1 at (0.5, 0.5) on the normalised Hamiltonian
-            assertBeatsUniform "TaskScheduling" qubo [| (0.5, 0.5) |]
 
             let recorder = RecordingBackend()
 
             let! solved =
                 QuantumSolver.solveAsync (recorder :> BackendAbstraction.IQuantumBackend) problem CancellationToken.None
+
             solved |> ok |> ignore
 
+            // The default entry point runs the shared default configuration: the last circuit
+            // (the final sampling run) has its layer count, on the normalised Hamiltonian
+            // with the standard mixer
             let circuit = Seq.last recorder.Circuits
-            Assert.Equal<(float * float)[]>([| (0.5, 0.5) |], circuit.Layers |> Array.map (fun l -> (l.Gamma, l.Beta)))
+            Assert.Equal(9, circuit.ProblemHamiltonian.NumQubits)
+            let angles = circuit.Layers |> Array.map (fun l -> (l.Gamma, l.Beta))
+            Assert.Equal(QaoaExecutionHelpers.defaultConfig.NumLayers, angles.Length)
 
             Assert.Equal(
                 1.0,
@@ -634,33 +858,101 @@ module TaskSchedulingQubo =
             )
 
             Assert.All(circuit.MixerHamiltonian.Terms, (fun t -> Assert.Equal(-1.0, t.Coefficient)))
+
+            // The angles the optimisation settled on beat uniform sampling on the QUBO
+            assertBeatsUniform "TaskScheduling" qubo angles
+
+            // Another layer count in the configuration is what runs
+            let singleLayer = RecordingBackend()
+
+            let! solvedSingle =
+                QuantumSolver.solveWithConfigAsync
+                    (singleLayer :> BackendAbstraction.IQuantumBackend)
+                    problem
+                    { QaoaExecutionHelpers.defaultConfig with
+                        NumLayers = 1
+                        FinalShots = 200
+                    }
+                    CancellationToken.None
+
+            let sampling = (solvedSingle |> ok).Sampling |> Option.get
+            Assert.Equal(200, sampling.Shots)
+            Assert.Equal(1, (Seq.last singleLayer.Circuits).Layers.Length)
         }
+
+/// The circuit must put more probability on valid tours (measurements the solver's decode
+/// accepts) and on optimal tours than uniform sampling does: the tours come from the
+/// circuit, not from the decode.
+let private assertToursBeatUniform (label: string) (distances: float[,]) (parameters: (float * float)[]) =
+    let n = distances.GetLength 0
+    let p = solverProbabilities (tspQubo distances) parameters
+
+    let lengths =
+        Array.init p.Length (fun index ->
+            QuantumTspSolver.tryDecodeTour distances (bitsOf (n * n) index)
+            |> Option.map (FSharp.Azure.Quantum.Classical.TspSolver.calculateTourLength distances))
+
+    let optimum = lengths |> Array.choose id |> Array.min
+    let isValid (length: float option) = length.IsSome
+
+    let isOptimal (length: float option) =
+        length |> Option.exists (fun l -> l <= optimum + 1e-9)
+
+    let probabilityOf (accept: float option -> bool) =
+        Array.fold2 (fun acc length pi -> if accept length then acc + pi else acc) 0.0 lengths p
+
+    let uniformOf (accept: float option -> bool) =
+        float (lengths |> Array.filter accept |> Array.length) / float lengths.Length
+
+    Assert.True(
+        probabilityOf isValid > uniformOf isValid,
+        $"{label}: P(valid tour) = {probabilityOf isValid} at {parameters}, uniform = {uniformOf isValid}"
+    )
+
+    Assert.True(
+        probabilityOf isOptimal > uniformOf isOptimal,
+        $"{label}: P(optimal tour) = {probabilityOf isOptimal} at {parameters}, uniform = {uniformOf isOptimal}"
+    )
 
 [<Fact>]
 let ``TSP fixed angles beat uniform sampling for 3 and 4 cities`` () =
-    let angles = [| QuantumTspSolver.fastConfig.InitialParameters |]
+    let fast = QuantumTspSolver.fastConfig
+    let angles = Array.create fast.NumLayers fast.InitialParameters
     assertBeatsUniform "TSP 3 cities" (tspQubo tsp3) angles
+    assertToursBeatUniform "TSP 3 cities" tsp3 angles
 
+    // 16 qubits. The cheapest cycle 0-2-1-3 is not the index order.
     let tsp4 =
         array2D
             [
-                [ 0.0; 1.0; 4.0; 2.0 ]
-                [ 1.0; 0.0; 2.0; 5.0 ]
-                [ 4.0; 2.0; 0.0; 1.5 ]
-                [ 2.0; 5.0; 1.5; 0.0 ]
+                [ 0.0; 5.0; 1.0; 1.5 ]
+                [ 5.0; 0.0; 2.0; 1.0 ]
+                [ 1.0; 2.0; 0.0; 4.0 ]
+                [ 1.5; 1.0; 4.0; 0.0 ]
             ]
 
     assertBeatsUniform "TSP 4 cities (16 qubits)" (tspQubo tsp4) angles
+    assertToursBeatUniform "TSP 4 cities (16 qubits)" tsp4 angles
 
 [<Fact>]
-let ``TSP default optimisation returns angles that beat uniform sampling`` () : Task =
+let ``TSP default optimisation runs angles that beat uniform sampling`` () : Task =
     task {
-        let! solved = QuantumTspSolver.solveAsync (backend ()) tsp3 QuantumTspSolver.defaultConfig CancellationToken.None
-        let solution = solved |> ok
+        // The final circuit is the last one executed, whether or not a sample is a valid tour
+        let recorder = RecordingBackend()
 
-        match solution.OptimizedParameters with
-        | Some angles -> assertBeatsUniform "TSP 3 cities, optimised" (tspQubo tsp3) [| angles |]
-        | None -> Assert.Fail "defaultConfig optimises the angles"
+        let! _ =
+            QuantumTspSolver.solveAsync
+                (recorder :> BackendAbstraction.IQuantumBackend)
+                tsp3
+                QuantumTspSolver.defaultConfig
+                CancellationToken.None
+
+        let final = Seq.last recorder.Circuits
+        let angles = final.Layers |> Array.map (fun l -> (l.Gamma, l.Beta))
+
+        Assert.Equal(QuantumTspSolver.defaultConfig.NumLayers, angles.Length)
+        assertBeatsUniform "TSP 3 cities, optimised" (tspQubo tsp3) angles
+        assertToursBeatUniform "TSP 3 cities, optimised" tsp3 angles
     }
 
 let private lit v neg : QuantumSatSolver.Literal = { Variable = v; IsNegated = neg }

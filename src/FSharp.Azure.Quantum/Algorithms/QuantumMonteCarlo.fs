@@ -749,8 +749,7 @@ module QuantumMonteCarlo =
                 // definition, then estimate the marked-subspace amplitude by
                 // Maximum-Likelihood Amplitude Estimation over a Grover-power schedule.
                 let! markedSet =
-                    plan backend intent
-                    |> Result.bind (fun _ -> markedSetOfOracle config.Oracle)
+                    plan backend intent |> Result.bind (fun _ -> markedSetOfOracle config.Oracle)
 
                 let! estimate =
                     runAmplitudeEstimationAsync
@@ -857,7 +856,8 @@ module QuantumMonteCarlo =
                     (CircuitBuilder.empty numQubits)
 
             // Estimate probability that oracle marks state
-            let! prob = estimateProbabilityAsync statePrep functionOracle precision backend cancellationToken
+            let! prob =
+                estimateProbabilityAsync statePrep functionOracle precision backend cancellationToken
 
             // Scale by domain width
             return

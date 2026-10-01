@@ -195,7 +195,9 @@ module CloudEndToEndTests =
     let ``QRNG takes its bits from one one-shot job per call`` () : Task =
         withCloudTask "ionq" 1 (fun service backend ->
             task {
-                let! generated = QRNG.generateWithBackendAsync 16 backend System.Threading.CancellationToken.None
+                let! generated =
+                    QRNG.generateWithBackendAsync 16 backend System.Threading.CancellationToken.None
+
                 let result = generated |> expectOk
 
                 Assert.Equal(16, result.Bits.Length)

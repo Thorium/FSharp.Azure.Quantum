@@ -283,8 +283,7 @@ module SocialNetworkAnalyzer =
                         |> List.map (fun bitstring ->
                             // Extract selected people from bitstring
                             let selectedIndices =
-                                [ 0 .. people.Length - 1 ]
-                                |> List.filter (fun i -> (bitstring >>> i) &&& 1 = 1)
+                                [ 0 .. people.Length - 1 ] |> List.filter (fun i -> (bitstring >>> i) &&& 1 = 1)
 
                             let members = selectedIndices |> List.map (fun idx -> people.[idx])
 
@@ -531,7 +530,13 @@ module SocialNetworkAnalyzer =
     // SOLVE — MAIN DISPATCH
     // ========================================================================
 
-    /// Execute social network analysis without blocking the calling thread
+    /// Execute social network analysis without blocking the calling thread.
+    ///
+    /// On a simulator a problem that needs more qubits than the backend runs is split into
+    /// circuits that fit and joined (QuboSplitting, default QaoaExecutionHelpers.SplitSettings);
+    /// it then takes many runs instead of one. A backend that bills every circuit is never
+    /// split here. Call the solvers' solveWithConfigAsync (clique, vertex cover, matching) to change the settings or to read the
+    /// split report.
     let solveAsync
         (problem: SocialNetworkProblem)
         (cancellationToken: CancellationToken)

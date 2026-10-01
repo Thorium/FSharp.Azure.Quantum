@@ -528,10 +528,11 @@ module MarketData =
                     |> Array.distinctBy fst
                     |> Array.sortBy fst
 
-                if bars.Length = 0 then
-                    return Error "the response has no adjusted closes"
-                else
-                    return Ok bars
+                return
+                    if bars.Length = 0 then
+                        Error "the response has no adjusted closes"
+                    else
+                        Ok bars
         }
 
     /// Fetches every symbol (plus the regime proxy) and computes the figures. Symbols that fail to
@@ -579,10 +580,11 @@ module MarketData =
                 fetched
                 |> List.choose (fun (s, r) -> r |> Result.map (fun bars -> Some(s, bars)) |> Result.defaultValue None)
 
-            if kept.IsEmpty then
-                return Error(dropped |> List.map (fun (s, e) -> $"%s{s}: %s{e}") |> String.concat "; ")
-            else
-                return Ok(computeStats kept fromDate toDate regimeProxy, dropped)
+            return
+                if kept.IsEmpty then
+                    Error(dropped |> List.map (fun (s, e) -> $"%s{s}: %s{e}") |> String.concat "; ")
+                else
+                    Ok(computeStats kept fromDate toDate regimeProxy, dropped)
         }
 
     // --------------------------------------------------------------------------

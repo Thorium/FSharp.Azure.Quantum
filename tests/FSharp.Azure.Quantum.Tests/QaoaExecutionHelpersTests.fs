@@ -308,6 +308,60 @@ module AtMostOneConstraintTests =
         Assert.Equal(30.0, evaluateQubo dense [| 1; 1; 1 |], 10)
 
 // ============================================================================
+// Qubo LINEAR-CONSTRAINT HELPER TESTS
+// ============================================================================
+
+module LinearConstraintTests =
+
+    let private allBits (n: int) =
+        [ for v in 0 .. (1 <<< n) - 1 -> Array.init n (fun i -> (v >>> i) &&& 1) ]
+
+    [<Fact>]
+    let ``squaredLinearPenalty equals the expanded square minus its constant on every bitstring`` () =
+        let terms = [ (0, 2.0); (1, -3.0); (3, 1.5); (1, 1.0) ] // variable 1 listed twice: -2 in total
+        let constant = -2.5
+        let weight = 4.0
+        let dense = Qubo.toDenseArray 4 (Qubo.squaredLinearPenalty weight terms constant)
+
+        for bits in allBits 4 do
+            let linear =
+                2.0 * float bits.[0] - 2.0 * float bits.[1] + 1.5 * float bits.[3] + constant
+
+            let expected = weight * (linear * linear - constant * constant)
+            Assert.Equal(expected, evaluateQubo dense bits, 9)
+
+    [<Fact>]
+    let ``boundedSlackWeights reach every integer up to the range and nothing beyond`` () =
+        Assert.Equal<int list>([], Qubo.boundedSlackWeights 0)
+        Assert.Equal<int list>([ 1; 2; 2 ], Qubo.boundedSlackWeights 5)
+        Assert.Equal<int list>([ 1; 2; 4 ], Qubo.boundedSlackWeights 7)
+
+        for range in 1..40 do
+            let weights = Qubo.boundedSlackWeights range |> List.toArray
+
+            let sums =
+                allBits weights.Length
+                |> List.map (fun bits -> Array.fold2 (fun acc bit w -> acc + bit * w) 0 bits weights)
+                |> Set.ofList
+
+            Assert.Equal<Set<int>>(Set.ofList [ 0..range ], sums)
+
+    [<Fact>]
+    let ``tryScaleToIntegers finds the smallest integer representation`` () =
+        Assert.Equal(Some([ 3; 4; 2; 10 ], 0.1), Qubo.tryScaleToIntegers [ 30.0; 40.0; 20.0; 100.0 ])
+        Assert.Equal(Some([ 10; 11; 9; 20 ], 10.0), Qubo.tryScaleToIntegers [ 1.0; 1.1; 0.9; 2.0 ])
+        Assert.Equal(Some([ 1; -1; -1; 0 ], 1.0), Qubo.tryScaleToIntegers [ 1.0; -1.0; -1.0; 0.0 ])
+        Assert.Equal(Some([ 0; 0 ], 1.0), Qubo.tryScaleToIntegers [ 0.0; 0.0 ])
+        Assert.Equal(Some([ 3; 2 ], 2.0), Qubo.tryScaleToIntegers [ 1.5; 1.0 ])
+
+    [<Fact>]
+    let ``tryScaleToIntegers gives up on values without a short decimal form`` () =
+        Assert.Equal(None, Qubo.tryScaleToIntegers [ 1.0 / 3.0; 1.0 ])
+        Assert.Equal(None, Qubo.tryScaleToIntegers [ System.Math.PI ])
+        Assert.Equal(None, Qubo.tryScaleToIntegers [ nan; 1.0 ])
+        Assert.Equal(None, Qubo.tryScaleToIntegers [ 1e12; 0.5 ])
+
+// ============================================================================
 // executeQaoaCircuit TESTS
 // ============================================================================
 
@@ -518,9 +572,7 @@ module RunQaoaTests =
             | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
         }
 
-    [<Theory>]
-    [<InlineData(true)>]
-    [<InlineData(false)>]
+    [<Theory; InlineData(true); InlineData(false)>]
     let ``runQaoaAsync reports an invalid configuration as Error`` (enableOptimization: bool) : Task =
         task {
             let config =

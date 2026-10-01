@@ -277,6 +277,20 @@ module CloudBackendHelpers =
         /// The budget this backend reserves each job from.
         abstract member JobBudget: JobBudget
 
+    /// The qubit limit a cloud backend reports (IQubitLimitedBackend.MaxQubits): the caller's
+    /// `supplied` value when there is one, else the figure built in for the target.
+    ///
+    /// The built-in figures describe the devices as they were when this version was released.
+    /// Solvers refuse a problem wider than the reported limit before anything is submitted,
+    /// so a device that has grown since needs the caller's figure to be used at full width.
+    /// A supplied value below 1 is an ArgumentException. The result is an `option` because
+    /// IQubitLimitedBackend.MaxQubits is one.
+    let qubitLimit (supplied: int voption) (builtIn: int voption) : int option =
+        match supplied with
+        | ValueSome qubits when qubits < 1 -> invalidArg "maxQubits" $"must be at least 1, got {qubits}"
+        | ValueSome qubits -> Some qubits
+        | ValueNone -> ValueOption.toOption builtIn
+
     // ============================================================================
     // ERROR HELPERS
     // ============================================================================

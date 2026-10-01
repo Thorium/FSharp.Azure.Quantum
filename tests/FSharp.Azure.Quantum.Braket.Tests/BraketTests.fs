@@ -89,3 +89,102 @@ module BraketTests =
             | other -> Assert.Fail($"%s{device}: expected the job-budget refusal, got %A{other}")
 
             Assert.Equal(0, budget.Submitted)
+
+    [<Fact>]
+    let ``Devices.maxQubits knows the gate-model devices and nothing else`` () =
+        Assert.Equal(ValueSome 25, Braket.Devices.maxQubits Braket.Devices.ionqAria1)
+        Assert.Equal(ValueSome 36, Braket.Devices.maxQubits Braket.Devices.ionqForte1)
+        Assert.Equal(ValueSome 84, Braket.Devices.maxQubits Braket.Devices.rigettiAnkaa3)
+        Assert.Equal(ValueSome 20, Braket.Devices.maxQubits Braket.Devices.iqmGarnet)
+        Assert.Equal(ValueSome 8, Braket.Devices.maxQubits Braket.Devices.oqcLucy)
+        Assert.Equal(ValueSome 34, Braket.Devices.maxQubits Braket.Devices.sv1)
+        Assert.Equal(ValueSome 17, Braket.Devices.maxQubits Braket.Devices.dm1)
+        Assert.Equal(ValueSome 50, Braket.Devices.maxQubits Braket.Devices.tn1)
+        // analog device, and a device this module does not name
+        Assert.Equal(ValueNone, Braket.Devices.maxQubits Braket.Devices.queraAquila)
+        Assert.Equal(ValueNone, Braket.Devices.maxQubits Braket.Devices.infleqtionSqale)
+        Assert.Equal(ValueNone, Braket.Devices.maxQubits "arn:aws:braket:::device/qpu/unknown/Device")
+
+    [<Fact>]
+    let ``the Braket backend reports its device's qubits and bills every circuit`` () =
+        let backendFor (device: string) =
+            BraketExecution.BraketBackend(null, null, { Bucket = "b"; KeyPrefix = "k" }, device, 100)
+            :> BackendAbstraction.IQuantumBackend
+
+        Assert.Equal(Some 8, BackendAbstraction.UnifiedBackend.getRunnableQubits (backendFor Braket.Devices.oqcLucy))
+        Assert.Equal(Some 34, BackendAbstraction.UnifiedBackend.getMaxQubits (backendFor Braket.Devices.sv1))
+        Assert.Equal(None, BackendAbstraction.UnifiedBackend.getMaxQubits (backendFor Braket.Devices.infleqtionSqale))
+
+        // A billed backend is split only on request (SplitPolicy.Always).
+        let lucy = backendFor Braket.Devices.oqcLucy
+        let settings = QaoaExecutionHelpers.defaultSplitSettings
+        Assert.Equal(ValueNone, QaoaExecutionHelpers.splitPieceQubits settings lucy 20)
+
+        Assert.Equal(
+            ValueSome 8,
+            QaoaExecutionHelpers.splitPieceQubits
+                { settings with
+                    Policy = QaoaExecutionHelpers.SplitPolicy.Always
+                }
+                lucy
+                20
+        )
+
+    [<Fact>]
+    let ``maxQubits replaces the built-in figure of a Braket device`` () =
+        let backendWith (device: string) (qubits: int) =
+            BraketExecution.BraketBackend(
+                null,
+                null,
+                { Bucket = "b"; KeyPrefix = "k" },
+                device,
+                100,
+                maxQubits = qubits
+            )
+            :> BackendAbstraction.IQuantumBackend
+
+        // a device the table knows, grown since
+        Assert.Equal(Some 64, BackendAbstraction.UnifiedBackend.getMaxQubits (backendWith Braket.Devices.ionqAria1 64))
+
+        Assert.Equal(
+            Some 64,
+            BackendAbstraction.UnifiedBackend.getRunnableQubits (backendWith Braket.Devices.ionqAria1 64)
+        )
+        // a device the table does not know
+        Assert.Equal(
+            Some 24,
+            BackendAbstraction.UnifiedBackend.getMaxQubits (backendWith Braket.Devices.infleqtionSqale 24)
+        )
+
+        Assert.Throws<System.ArgumentException>(fun () -> backendWith Braket.Devices.sv1 0 |> ignore)
+        |> ignore
+
+    [<Fact>]
+    let ``qubitCountOfCapabilities reads paradigm.qubitCount of a device capabilities document`` () =
+        let hardware =
+            """{"braketSchemaHeader":{"name":"braket.device_schema.ionq.ionq_device_capabilities","version":"1"},
+                "service":{"shotsRange":[1,5000]},
+                "action":{"braket.ir.openqasm.program":{"actionType":"braket.ir.openqasm.program","version":["1"]}},
+                "paradigm":{"qubitCount":36,"nativeGateSet":["GPI","GPI2","ZZ"],
+                            "connectivity":{"fullyConnected":true,"connectivityGraph":{}}}}"""
+
+        let simulator =
+            """{"service":{"shotsRange":[0,100000]},"paradigm":{"qubitCount":34}}"""
+
+        Assert.Equal(ValueSome 36, Braket.Devices.qubitCountOfCapabilities hardware)
+        Assert.Equal(ValueSome 34, Braket.Devices.qubitCountOfCapabilities simulator)
+
+        // documents that name no usable count
+        for document in
+            [
+                """{"service":{}}"""
+                """{"paradigm":{"nativeGateSet":["cz"]}}"""
+                """{"paradigm":{"qubitCount":"many"}}"""
+                """{"paradigm":{"qubitCount":0}}"""
+                """{"paradigm":36}"""
+                "[1, 2]"
+                "not json"
+                ""
+                null
+            ] do
+            Assert.Equal(ValueNone, Braket.Devices.qubitCountOfCapabilities document)

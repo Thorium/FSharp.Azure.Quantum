@@ -273,7 +273,11 @@ if not quiet then
 
 let allResults = System.Collections.Generic.List<Map<string, string>>()
 
-match mitigateAsync vqeCircuit config1 noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    mitigateAsync vqeCircuit config1 noisyExecutor CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok result ->
     if not quiet then
         printfn "[OK] ZNE Complete!"
@@ -367,7 +371,11 @@ if not quiet then
     printfn "  Samples: %d (higher precision)" (samples * 2)
     printfn ""
 
-match mitigateAsync vqeCircuit customConfig noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    mitigateAsync vqeCircuit customConfig noisyExecutor CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok result ->
     if not quiet then
         printfn "[OK] Custom ZNE Complete!"
@@ -438,7 +446,11 @@ if not quiet then
 
 let rigettiConfig = defaultRigettiConfig
 
-match mitigateAsync vqeCircuit rigettiConfig noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    mitigateAsync vqeCircuit rigettiConfig noisyExecutor CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok result ->
     if not quiet then
         printfn "[OK] Rigetti ZNE Complete!"

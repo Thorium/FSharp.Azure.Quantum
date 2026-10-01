@@ -115,8 +115,7 @@ module private Screening =
                 match kernel with
                 | Ok m ->
                     // m.[candidate, active]
-                    Array.init library.Length (fun j ->
-                        Array.init actives.Length (fun i -> m.[j, i]) |> Array.average)
+                    Array.init library.Length (fun j -> Array.init actives.Length (fun i -> m.[j, i]) |> Array.average)
                 | Error _ -> Array.create library.Length 0.0
         }
 

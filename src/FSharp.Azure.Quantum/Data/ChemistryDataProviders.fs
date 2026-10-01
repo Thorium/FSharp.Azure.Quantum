@@ -142,7 +142,8 @@ module ChemistryDataProviders =
     type IGeometryProviderAsync =
         /// Get 3D geometry asynchronously
         abstract TryGetGeometryAsync:
-            topology: MoleculeTopology * cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeGeometry option>>
+            topology: MoleculeTopology * cancellationToken: CancellationToken ->
+                Task<QuantumResult<MoleculeGeometry option>>
 
     /// A "no-op" geometry provider that always returns None.
     /// Useful for topology-only workflows (drug discovery ML).
@@ -204,8 +205,11 @@ module ChemistryDataProviders =
     type IMoleculeDatasetProviderAsync =
         /// Human-readable description
         abstract Describe: unit -> string
+
         /// Load molecules asynchronously
-        abstract LoadAsync: query: DatasetQuery * cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeDataset>>
+        abstract LoadAsync:
+            query: DatasetQuery * cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeDataset>>
+
         /// List available names
         abstract ListNamesAsync: cancellationToken: CancellationToken -> Task<string list>
 
@@ -1317,8 +1321,9 @@ module ChemistryDataProviders =
                 (MoleculeFormats.Sdf.parse content)
                 |> Result.map (Conversions.fromMoleculeData >> Some)
                 |> Result.defaultValue None
-            with :? IOException | :? UnauthorizedAccessException ->
-                None
+            with
+            | :? IOException
+            | :? UnauthorizedAccessException -> None
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1698,8 +1703,10 @@ module ChemistryDataProviders =
                     Some(Conversions.fromMoleculeData moleculeData)
                 | Error _ -> None
             // OverflowException: a header integer (NORB, NELEC, ...) beyond Int32 in parseHeader
-            with :? IOException | :? UnauthorizedAccessException | :? OverflowException ->
-                None
+            with
+            | :? IOException
+            | :? UnauthorizedAccessException
+            | :? OverflowException -> None
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1965,8 +1972,9 @@ module ChemistryDataProviders =
                             Charge = charge
                             IsHetAtom = isHetatm
                         }
-                with :? FormatException | :? OverflowException ->
-                    None
+                with
+                | :? FormatException
+                | :? OverflowException -> None
 
         /// Options for parsing PDB files.
         type PdbParseOptions =
@@ -2299,8 +2307,9 @@ module ChemistryDataProviders =
                 (MoleculeFormats.Pdb.parseLigands content)
                 |> Result.map (fun moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData)
                 |> Result.defaultValue [||]
-            with :? IOException | :? UnauthorizedAccessException ->
-                [||]
+            with
+            | :? IOException
+            | :? UnauthorizedAccessException -> [||]
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =

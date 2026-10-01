@@ -17,6 +17,7 @@ open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.NeutralAtom
+open FSharp.Azure.Quantum.Backends
 
 /// AWS Braket execution: submit a task, poll to completion, read the result from S3.
 ///
@@ -213,9 +214,37 @@ module BraketExecution =
             (TimeSpan.FromMinutes 30.0)
             ct
 
+    /// The qubit count a device reports for itself now (Braket GetDevice, paradigm.qubitCount
+    /// of its capabilities); ValueNone when its capabilities name none. One API call, which needs
+    /// the braket:GetDevice permission; a failed call is an Error.
+    let deviceQubitsAsync
+        (braket: IAmazonBraket)
+        (deviceArn: string)
+        (ct: CancellationToken)
+        : Task<Result<int voption, QuantumError>> =
+        task {
+            try
+                let! device = braket.GetDeviceAsync(GetDeviceRequest(DeviceArn = deviceArn), ct)
+                return Ok(Braket.Devices.qubitCountOfCapabilities device.DeviceCapabilities)
+            with ex when not (ex :? OperationCanceledException) ->
+                return
+                    Error(
+                        QuantumError.OperationError(
+                            "Braket",
+                            $"Reading the device failed (check AWS credentials / device ARN / braket:GetDevice): %s{ex.Message}"
+                        )
+                    )
+        }
+
     /// A gate `IQuantumBackend` backed by an AWS Braket device (submits OpenQASM 3.0).
     /// `deviceArn` selects the device — e.g. `Braket.Devices.oqcLucy`, `.infleqtionSqale`,
     /// `.ionqAria1`, `.sv1`.
+    ///
+    /// `maxQubits` is the qubit limit the backend reports (IQubitLimitedBackend): solvers refuse
+    /// or split a wider problem before a task is submitted. Left out, it is the figure
+    /// Braket.Devices.maxQubits has for the device, which dates from this version's release;
+    /// pass the current figure for a device that has grown, or use CreateWithDeviceLimitAsync
+    /// to read it from the device. A value below 1 is an ArgumentException.
     type BraketBackend
         (
             braket: IAmazonBraket,
@@ -223,13 +252,16 @@ module BraketExecution =
             s3Config: S3Config,
             deviceArn: string,
             ?shots: int,
-            ?jobBudget: FSharp.Azure.Quantum.Backends.CloudBackendHelpers.JobBudget
+            ?jobBudget: CloudBackendHelpers.JobBudget,
+            [<Struct>] ?maxQubits: int
         ) =
 
         let shots = defaultArg shots 1000
 
-        let jobBudget =
-            defaultArg jobBudget (FSharp.Azure.Quantum.Backends.CloudBackendHelpers.JobBudget())
+        let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
+
+        let qubitLimit =
+            CloudBackendHelpers.qubitLimit maxQubits (Braket.Devices.maxQubits deviceArn)
 
         /// OpenQASM 3.0 source of `circuit` in the device's native gates (transpiled by the device ARN,
         /// which names the provider), with one job reserved from the budget.
@@ -341,5 +373,46 @@ module BraketExecution =
         interface IShotSamplingBackend with
             member _.Shots = shots
 
-        interface FSharp.Azure.Quantum.Backends.CloudBackendHelpers.IJobCountingBackend with
+        /// A backend whose qubit limit is the one the device reports now (deviceQubitsAsync),
+        /// so a device that has grown is used at its full width. A device whose capabilities
+        /// name no qubit count keeps the built-in figure. Costs one GetDevice call.
+        static member CreateWithDeviceLimitAsync
+            (
+                braket: IAmazonBraket,
+                s3: IAmazonS3,
+                s3Config: S3Config,
+                deviceArn: string,
+                ?shots: int,
+                ?jobBudget: CloudBackendHelpers.JobBudget,
+                ?cancellationToken: CancellationToken
+            ) : Task<Result<BraketBackend, QuantumError>> =
+            task {
+                let! reported =
+                    deviceQubitsAsync braket deviceArn (defaultArg cancellationToken CancellationToken.None)
+
+                return
+                    reported
+                    |> Result.map (fun reportedQubits ->
+                        match reportedQubits with
+                        | ValueSome qubits ->
+                            BraketBackend(
+                                braket,
+                                s3,
+                                s3Config,
+                                deviceArn,
+                                ?shots = shots,
+                                ?jobBudget = jobBudget,
+                                maxQubits = qubits
+                            )
+                        | ValueNone ->
+                            BraketBackend(braket, s3, s3Config, deviceArn, ?shots = shots, ?jobBudget = jobBudget))
+            }
+
+        /// The maxQubits given at construction, else the device's qubits when Braket.Devices
+        /// knows the device. Reported so that a solver can refuse or decompose a problem that
+        /// needs more before a task is submitted.
+        interface IQubitLimitedBackend with
+            member _.MaxQubits = qubitLimit
+
+        interface CloudBackendHelpers.IJobCountingBackend with
             member _.JobBudget = jobBudget

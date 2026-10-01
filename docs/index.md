@@ -200,6 +200,8 @@ task {
 }
 ```
 
+Four cities are 16 qubits (cities²); the default two-layer optimisation takes a minute or two on the local simulator. The route is the shortest one among the measurements that are valid routes, and the result is an `Error` when no shot is one ([details](getting-started.md#what-the-solver-returns)).
+
 ### Portfolio Optimization
 
 **Use Case:** Investment allocation, asset selection, risk management
@@ -227,6 +229,8 @@ task {
 **Use Case:** Supply chain optimization, logistics, distribution planning
 
 [![Supply chain route activation: classical greedy and QAOA](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/SupplyChain/_images/supply-chain-flow.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/SupplyChain/NetworkFlowOptimization)
+
+One run of the [supply chain example](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/SupplyChain) on its 8-route dataset: the greedy baseline takes the cheapest last hop into each customer, then has to feed both warehouses, and pays 31, while QAOA sends both customers through one warehouse for 23, the optimum; the routes on which the two differ are drawn in brown.
 
 ```fsharp
 let nodes = [
@@ -337,11 +341,11 @@ A QAOA run needs as many qubits as its encoding has variables. The local simulat
 |---------|---------------|-----------------------|
 | Graph coloring | nodes × colors | 6 nodes, 3 colors |
 | MaxCut | one per vertex | 20 vertices |
-| Knapsack | one per item | 20 items |
+| Knapsack | one per item + ⌈log₂(capacity + 1)⌉ slack bits (capacity in whole weight units) | 15 items, capacity 31 |
 | TSP | cities² | 4 cities |
-| Portfolio | one per asset | 20 assets |
+| Portfolio | one per asset (+ slack bits when lots limit the number of holdings) | 20 assets |
 | Network flow | one per route | 20 routes |
-| Task scheduling | tasks × time slots | 4 tasks, 5 slots |
+| Task scheduling | tasks × time slots (the solver keeps the grid within 18) | 3 tasks, 6 slots |
 
 For problems of this size a classical solver is usually faster and cheaper. The library is for learning, experimenting with and measuring quantum algorithms, and for building applications that can move to quantum hardware as it grows.
 

@@ -1450,14 +1450,18 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
     let providersWithJobs () =
         let accepted = jobs.Values |> Seq.sortBy (fun job -> job.Sequence) |> Seq.toList
 
-        [ for provider in
-              [ LocalQuantumServiceFormats.IonQ
-                LocalQuantumServiceFormats.Rigetti
-                LocalQuantumServiceFormats.Quantinuum
-                LocalQuantumServiceFormats.Iqm
-                LocalQuantumServiceFormats.AtomComputing ] do
-              let id = LocalQuantumServiceFormats.providerId provider
-              id, accepted |> List.filter (fun job -> job.ProviderId = id) ]
+        [
+            for provider in
+                [
+                    LocalQuantumServiceFormats.IonQ
+                    LocalQuantumServiceFormats.Rigetti
+                    LocalQuantumServiceFormats.Quantinuum
+                    LocalQuantumServiceFormats.Iqm
+                    LocalQuantumServiceFormats.AtomComputing
+                ] do
+                let id = LocalQuantumServiceFormats.providerId provider
+                id, accepted |> List.filter (fun job -> job.ProviderId = id)
+        ]
 
     /// GET {workspace}/quotas: one monthly workspace quota per provider, in the shape of the
     /// Azure Quantum data plane. Utilization counts the shots of the jobs accepted so far.

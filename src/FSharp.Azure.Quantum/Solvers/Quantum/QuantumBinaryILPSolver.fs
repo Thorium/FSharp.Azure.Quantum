@@ -17,28 +17,49 @@ open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
 /// encodings typically outperform the generic encoding used here.
 ///
 /// QUBO Formulation:
-///   Decision variables: x_0 .. x_{n-1} (the original BIP variables)
-///   Slack variables:    For constraint k with bound b_k, introduce
-///                       T_k = ceil(log2(b_k + 1)) binary slack bits z_{k,t}
-///                       so that s_k = sum_{t=0}^{T_k-1} 2^t * z_{k,t}
+///   Decision variables: x_0 .. x_{n-1} (the original BIP variables), first in the bitstring.
+///
+///   Integer form: each constraint's coefficients are rescaled to integers a_k without a
+///   common divisor (Qubo.tryScaleToIntegers, factor f_k) and its bound becomes
+///   b_k = floor(f_k * Bound) (with the 1e-9 tolerance of isValid); an integer left side is
+///   at most f_k * Bound exactly when it is at most b_k. Coefficients and bounds may be
+///   negative or fractional; coefficients without a short decimal form are a
+///   ValidationError.
+///
+///   With m_k = sum of the negative a_{k,i} (the smallest possible left side) and
+///   M_k = sum of the positive a_{k,i} (the largest):
+///     b_k <  m_k : the constraint cannot be satisfied → ValidationError
+///     b_k >= M_k : the constraint holds for every x → no slack bits, no penalty
+///     otherwise  : slack s_k = sum_t w_{k,t} * z_{k,t} with the weights
+///                  Qubo.boundedSlackWeights (b_k - m_k), whose subset sums are exactly
+///                  0 .. b_k - m_k, so a_k^T x + s_k = b_k has a solution exactly when
+///                  a_k^T x <= b_k
 ///
 ///   Objective (diagonal):
 ///     qubo[i,i] += c_i
 ///
-///   Each inequality constraint k:  a_k^T x + s_k = b_k
-///     Penalty: lambda_k * (a_k^T x + s_k - b_k)^2
+///   Each encoded constraint k:
+///     Penalty: lambda * (a_k^T x + s_k - b_k)^2
+///     (Qubo.squaredLinearPenalty; each pair term is split evenly over (i,j) and (j,i))
 ///
-///     Expanded:
-///       Diagonal x_i:     lambda * (a_{k,i}^2 - 2*a_{k,i}*b_k)
-///       Diagonal z_{k,t}: lambda * (2^{2t} - 2*2^t*b_k)
-///       Cross x_i*x_j:    lambda * 2*a_{k,i}*a_{k,j}  → symmetric split
-///       Cross x_i*z_{k,t}: lambda * 2*a_{k,i}*2^t      → symmetric split
-///       Cross z_{k,t1}*z_{k,t2}: lambda * 2*2^{t1}*2^{t2} → symmetric split
+///   lambda = sum|c_i| + max|c_i|, or 1 when every c_i is 0. Up to the constant
+///   lambda * sum b_k^2 that the QUBO drops, an infeasible x leaves an integer residual of
+///   magnitude >= 1 in some constraint, so its energy is at least
+///   (sum of negative c_i) + lambda > (sum of positive c_i) >= every feasible objective,
+///   while a feasible x with matching slack has energy c^T x. Every QUBO minimum is
+///   therefore a feasible optimum.
 ///
-/// Qubits: n + sum_k ceil(log2(b_k + 1))
+/// Qubits: n + the number of slack weights of every encoded constraint
+///         (about log2(b_k - m_k + 1) each).
 ///
-/// Scaling concern: Slack bits grow logarithmically per constraint bound.
+/// Scaling concern: Slack bits grow logarithmically with a constraint's range b_k - m_k in
+/// integer units, so coefficients with many decimal places cost more qubits.
 /// Practical for ~10 variables with ~5 constraints.
+///
+/// The solver returns the lowest-energy sample. When that sample violates a constraint and
+/// EnableConstraintRepair is set, a greedy repair flips variables to remove the violation:
+/// the solution then reports WasRepaired = true, and IsValid = false when the repair found
+/// no feasible assignment.
 ///
 /// RULE 1 COMPLIANCE:
 /// All public solve functions require IQuantumBackend parameter.
@@ -52,9 +73,9 @@ module QuantumBinaryILPSolver =
     /// A single linear inequality constraint: a^T x <= b
     type Constraint =
         {
-            /// Coefficients a_i for each decision variable
+            /// Coefficients a_i for each decision variable (any sign)
             Coefficients: float list
-            /// Right-hand side bound (must be non-negative for slack encoding)
+            /// Right-hand side bound (any sign, at least the smallest possible left side)
             Bound: float
         }
 
@@ -90,6 +111,10 @@ module QuantumBinaryILPSolver =
             OptimizedParameters: (float * float)[] option
             /// Whether Nelder-Mead converged
             OptimizationConverged: bool option
+            /// Standing of this solution among the final samples; None when no single sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+            /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+            Split: QaoaExecutionHelpers.SplitReport option
         }
 
     // ========================================================================
@@ -103,49 +128,94 @@ module QuantumBinaryILPSolver =
     let highQualityConfig: Config = QaoaExecutionHelpers.highQualityConfig
 
     // ========================================================================
-    // SLACK VARIABLE HELPERS
+    // INTEGER FORM OF A CONSTRAINT
     // ========================================================================
 
-    /// Compute the number of slack bits needed for a constraint with bound b.
-    /// T = ceil(log2(b + 1)), minimum 1 bit for b > 0, 0 bits for b = 0.
-    /// Uses integer bit counting to avoid floating-point precision issues.
-    let private slackBitsForBound (b: float) : int =
-        if b <= 0.0 then
-            0
-        elif b < 1.0 then
-            1
+    /// Tolerance of the comparison a^T x <= Bound: 1e-9, relative for bounds above 1. It
+    /// absorbs the rounding of summed fractional coefficients (0.1 + 0.2 against 0.3).
+    let private boundTolerance (bound: float) : float = 1e-9 * max 1.0 (abs bound)
+
+    /// A constraint in the integer form the QUBO encodes.
+    type private EncodedConstraint =
+        /// The constraint holds for every assignment: no slack bits, no penalty.
+        | AlwaysSatisfied
+        /// Σ aᵢ·xᵢ + Σ wₜ·zₜ = bound, with integer coefficients aᵢ, an integer bound and
+        /// slack weights wₜ whose subset sums are exactly 0 .. bound − (smallest left side).
+        | WithSlack of coefficients: int list * bound: float * slackWeights: int list
+
+    /// Number of slack bits of an encoded constraint.
+    let private slackBitCount (encoded: EncodedConstraint) : int =
+        match encoded with
+        | AlwaysSatisfied -> 0
+        | WithSlack(_, _, slackWeights) -> slackWeights.Length
+
+    /// Integer form of constraint `index`: coefficients rescaled to integers by a factor f,
+    /// bound floor(f·(Bound + boundTolerance)). ValidationError when the coefficients have no
+    /// common integer scale, when the bound is below the smallest possible left side, or when
+    /// the slack range exceeds the 32-bit integer range.
+    let private encodeConstraint (index: int) (constr: Constraint) : Result<EncodedConstraint, QuantumError> =
+        if Double.IsNaN constr.Bound then
+            Error(QuantumError.ValidationError("bound", $"Constraint {index}: the bound is not a number"))
         else
-            // Integer bit counting: find smallest t such that 2^t >= b+1
-            let bInt = int (Math.Ceiling b)
+            match Qubo.tryScaleToIntegers constr.Coefficients with
+            | None ->
+                Error(
+                    QuantumError.ValidationError(
+                        "coefficients",
+                        $"Constraint {index}: the coefficients cannot be rescaled to integers "
+                        + "(each needs at most 6 decimal places and a scaled magnitude of at most 1e9)"
+                    )
+                )
+            | Some(coefficients, factor) ->
+                let minLhs = coefficients |> List.sumBy (fun a -> int64 (min a 0))
+                let maxLhs = coefficients |> List.sumBy (fun a -> int64 (max a 0))
+                let scaledBound = constr.Bound * factor
 
-            let rec countBits value bits =
-                if value <= 0 then
-                    bits
+                // The same tolerance as isConstraintSatisfied, in integer units: the QUBO
+                // and the classical check accept the same assignments.
+                let bound =
+                    if Double.IsInfinity scaledBound then
+                        scaledBound
+                    else
+                        floor (scaledBound + boundTolerance constr.Bound * factor)
+
+                if bound >= float maxLhs then
+                    Ok AlwaysSatisfied
+                elif bound < float minLhs then
+                    Error(
+                        QuantumError.ValidationError(
+                            "bound",
+                            $"Constraint {index} cannot be satisfied: its left side is at least "
+                            + $"{float minLhs / factor}, above the bound {constr.Bound}"
+                        )
+                    )
                 else
-                    countBits (value >>> 1) (bits + 1)
+                    let range = int64 bound - minLhs
 
-            max 1 (countBits bInt 0)
-
-    /// Compute the starting index for slack variables of constraint k.
-    /// Slack variables for constraint k start at:
-    ///   n + sum_{j=0}^{k-1} slackBitsForBound(b_j)
-    let private slackStartIndex (n: int) (constraints: Constraint list) (k: int) : int =
-        let precedingSlack =
-            constraints |> List.take k |> List.sumBy (fun c -> slackBitsForBound c.Bound)
-
-        n + precedingSlack
+                    if range > int64 Int32.MaxValue then
+                        Error(
+                            QuantumError.ValidationError(
+                                "coefficients",
+                                $"Constraint {index}: the slack range {range} in integer units is too large to encode"
+                            )
+                        )
+                    else
+                        Ok(WithSlack(coefficients, bound, Qubo.boundedSlackWeights (int range)))
 
     // ========================================================================
     // QUBIT ESTIMATION (Decision 11)
     // ========================================================================
 
-    /// Estimate the number of qubits required.
-    /// n (decision variables) + sum_k ceil(log2(b_k + 1)) (slack variables).
+    /// Estimate the number of qubits required: n decision variables plus the slack bits of
+    /// every encoded constraint (see the module comment). A constraint that fails validation
+    /// counts no slack bits.
     let estimateQubits (problem: Problem) : int =
         let n = problem.ObjectiveCoeffs.Length
 
         let slackBits =
-            problem.Constraints |> List.sumBy (fun c -> slackBitsForBound c.Bound)
+            problem.Constraints
+            |> List.mapi encodeConstraint
+            |> List.sumBy (Result.map slackBitCount >> Result.defaultValue 0)
 
         n + slackBits
 
@@ -153,17 +223,28 @@ module QuantumBinaryILPSolver =
     // QUBO CONSTRUCTION (Decision 9: sparse internally, Decision 5: dense output)
     // ========================================================================
 
-    /// Build the QUBO as a sparse map.
-    /// Encodes: minimize c^T x + sum_k lambda_k * (a_k^T x + s_k - b_k)^2
-    let private buildQuboMap (problem: Problem) : Map<int * int, float> =
+    /// Penalty weight λ = Σ|cᵢ| + max|cᵢ|, or 1 when every cᵢ is 0. λ exceeds the whole range
+    /// of the objective, so one unit of integer constraint residual outweighs any objective
+    /// gain.
+    let private penaltyWeight (problem: Problem) : float =
+        let magnitudes = problem.ObjectiveCoeffs |> List.map abs
+        let largest = magnitudes |> List.fold max 0.0
+
+        if largest > 0.0 then List.sum magnitudes + largest else 1.0
+
+    /// Index of each constraint's first slack bit: slack bits follow the n decision bits in
+    /// constraint order.
+    let private slackStarts (n: int) (encoded: EncodedConstraint list) : int list =
+        encoded
+        |> List.scan (fun start constr -> start + slackBitCount constr) n
+        |> List.truncate encoded.Length
+
+    /// Build the QUBO as a sparse upper-triangular map.
+    /// Encodes: minimize c^T x + lambda * sum_k (a_k^T x + s_k - b_k)^2 over the constraints
+    /// that need slack.
+    let private buildQuboMap (problem: Problem) (encoded: EncodedConstraint list) : Map<int * int, float> =
         let n = problem.ObjectiveCoeffs.Length
-
-        // Compute penalty weight: must dominate objective
-        // lambda = max(|c_i|) * n + 1, ensuring constraint penalties dominate
-        let maxAbsObj = problem.ObjectiveCoeffs |> List.map abs |> List.fold max 1.0
-        let lambda = maxAbsObj * float n + 1.0
-
-        let empty = Map.empty<int * int, float>
+        let lambda = penaltyWeight problem
 
         // --- Objective: c^T x → diagonal terms ---
         let objectiveTerms =
@@ -175,87 +256,40 @@ module QuantumBinaryILPSolver =
                         acc
                     else
                         acc |> Qubo.combineTerms (i, i) ci)
-                empty
+                Map.empty<int * int, float>
 
-        // --- Constraint penalties ---
-        // For each constraint k:  a_k^T x + s_k - b_k = 0
-        // Penalty: lambda * (sum_i a_{k,i} * x_i + sum_t 2^t * z_{k,t} - b_k)^2
-        //
-        // Let the coefficients vector be:
-        //   c'_0 = a_{k,0}, ..., c'_{n-1} = a_{k,n-1},
-        //   c'_{n+offset} = 2^0, c'_{n+offset+1} = 2^1, ..., c'_{n+offset+T-1} = 2^{T-1}
-        //   constant = -b_k
-        //
-        // (sum c'_j * v_j - b_k)^2 =
-        //   sum_j c'_j^2 * v_j          (diagonal, since v_j^2 = v_j)
-        //   + 2 * sum_{j1<j2} c'_{j1}*c'_{j2} * v_{j1}*v_{j2}  (off-diagonal)
-        //   - 2*b_k * sum_j c'_j * v_j  (diagonal contribution)
-        //   + b_k^2                      (constant, ignored in QUBO)
-        //
-        // Diagonal: lambda * (c'_j^2 - 2*b_k*c'_j)
-        // Off-diagonal: lambda * 2 * c'_{j1} * c'_{j2} → symmetric split
-
-        let constraintTerms =
-            problem.Constraints
-            |> List.indexed
-            |> List.fold
-                (fun acc (k, constr) ->
-                    let bk = constr.Bound
-                    let tk = slackBitsForBound bk
-                    let slackStart = slackStartIndex n problem.Constraints k
-
-                    // Build the unified coefficient vector: (varIndex, coefficient)
-                    let decisionCoeffs =
-                        constr.Coefficients
-                        |> List.indexed
-                        |> List.filter (fun (_, ai) -> abs ai > 1e-15)
-                        |> List.map (fun (i, ai) -> (i, ai))
-
-                    let slackCoeffs =
-                        List.init (max 0 tk) (fun t ->
-                            let idx = slackStart + t
-                            let coeff = pown 2.0 t
-                            (idx, coeff))
-
-                    let allCoeffs = decisionCoeffs @ slackCoeffs
-
-                    // Diagonal terms: lambda * (c_j^2 - 2*b_k*c_j) for each variable
-                    let acc =
-                        allCoeffs
-                        |> List.fold
-                            (fun a (idx, cj) ->
-                                let diagValue = lambda * (cj * cj - 2.0 * bk * cj)
-                                a |> Qubo.combineTerms (idx, idx) diagValue)
-                            acc
-
-                    // Off-diagonal terms: lambda * 2 * c_{j1} * c_{j2} → symmetric split
-                    let pairs =
-                        allCoeffs
-                        |> List.collect (fun (j1, c1) ->
-                            allCoeffs
-                            |> List.filter (fun (j2, _) -> j2 > j1)
-                            |> List.collect (fun (j2, c2) ->
-                                let value = lambda * 2.0 * c1 * c2
-                                // Symmetric split: value/2 to (j1,j2) and (j2,j1)
-                                [ ((j1, j2), value / 2.0); ((j2, j1), value / 2.0) ]))
-
-                    pairs |> List.fold (fun a (key, value) -> Qubo.combineTerms key value a) acc)
-                empty
-
-        // Combine objective and constraint terms
-        [ objectiveTerms; constraintTerms ]
+        // --- Constraint penalties: lambda * (sum_i a_{k,i} x_i + sum_t w_{k,t} z_{k,t} - b_k)^2 ---
+        List.zip encoded (slackStarts n encoded)
         |> List.fold
-            (fun combined termMap ->
-                termMap
-                |> Map.fold (fun acc key value -> Qubo.combineTerms key value acc) combined)
-            Map.empty
+            (fun acc (constr, slackStart) ->
+                match constr with
+                | AlwaysSatisfied -> acc
+                | WithSlack(coefficients, bound, slackWeights) ->
+                    let decisionTerms =
+                        coefficients
+                        |> List.indexed
+                        |> List.filter (fun (_, a) -> a <> 0)
+                        |> List.map (fun (i, a) -> (i, float a))
 
-    /// Validate a Binary ILP problem, returning Error if invalid.
-    let private validateProblem (problem: Problem) : Result<unit, QuantumError> =
+                    let slackTerms =
+                        slackWeights |> List.mapi (fun t weight -> (slackStart + t, float weight))
+
+                    Qubo.squaredLinearPenalty lambda (decisionTerms @ slackTerms) (-bound)
+                    |> Map.fold (fun combined key value -> Qubo.combineTerms key value combined) acc)
+            objectiveTerms
+
+    /// Validate a Binary ILP problem and return the integer form of its constraints,
+    /// or the first error.
+    let private validateProblem (problem: Problem) : Result<EncodedConstraint list, QuantumError> =
         let numVariables = problem.ObjectiveCoeffs.Length
 
         if numVariables = 0 then
             Error(QuantumError.ValidationError("objectiveCoeffs", "Problem has no decision variables"))
+        elif
+            problem.ObjectiveCoeffs
+            |> List.exists (fun c -> Double.IsNaN c || Double.IsInfinity c)
+        then
+            Error(QuantumError.ValidationError("objectiveCoeffs", "Objective coefficients must be finite"))
         elif
             problem.Constraints
             |> List.exists (fun c -> c.Coefficients.Length <> numVariables)
@@ -266,25 +300,35 @@ module QuantumBinaryILPSolver =
                     "All constraint coefficient vectors must have the same length as the objective"
                 )
             )
-        elif problem.Constraints |> List.exists (fun c -> c.Bound < 0.0) then
-            Error(
-                QuantumError.ValidationError(
-                    "bound",
-                    "Constraint bounds must be non-negative for slack variable encoding"
-                )
-            )
         else
-            Ok()
+            (problem.Constraints |> List.mapi encodeConstraint, Ok [])
+            ||> List.foldBack (fun encoded acc ->
+                match encoded, acc with
+                | Error err, _ -> Error err
+                | Ok _, Error err -> Error err
+                | Ok constr, Ok rest -> Ok(constr :: rest))
+
+    /// Dense symmetric QUBO of a validated problem: each pair term is split evenly over
+    /// (i, j) and (j, i).
+    let private denseQubo (problem: Problem) (encoded: EncodedConstraint list) : float[,] =
+        let totalVars =
+            problem.ObjectiveCoeffs.Length + (encoded |> List.sumBy slackBitCount)
+
+        let dense = Array2D.zeroCreate totalVars totalVars
+
+        for KeyValue((i, j), value) in buildQuboMap problem encoded do
+            if i = j then
+                dense.[i, i] <- dense.[i, i] + value
+            else
+                dense.[i, j] <- dense.[i, j] + value / 2.0
+                dense.[j, i] <- dense.[j, i] + value / 2.0
+
+        dense
 
     /// Convert problem to dense QUBO matrix.
     /// Returns Result to follow the canonical pattern (validates inputs).
     let toQubo (problem: Problem) : Result<float[,], QuantumError> =
-        match validateProblem problem with
-        | Error err -> Error err
-        | Ok() ->
-            let totalVars = estimateQubits problem
-            let quboMap = buildQuboMap problem
-            Ok(Qubo.toDenseArray totalVars quboMap)
+        validateProblem problem |> Result.map (denseQubo problem)
 
     // ========================================================================
     // SOLUTION DECODING & VALIDATION
@@ -303,14 +347,15 @@ module QuantumBinaryILPSolver =
             |> List.indexed
             |> List.sumBy (fun (i, ai) -> ai * float vars.[i])
 
-        lhs <= constr.Bound + 1e-9
+        lhs <= constr.Bound + boundTolerance constr.Bound
 
     /// Count the number of satisfied constraints.
     let private countSatisfiedConstraints (problem: Problem) (vars: int[]) : int =
         problem.Constraints |> List.filter (isConstraintSatisfied vars) |> List.length
 
     /// Validate a bitstring for this problem.
-    /// Checks: correct length and all constraints satisfied.
+    /// Checks: correct length (estimateQubits) and all constraints satisfied by the decision
+    /// bits, which come first; the slack bits are not checked.
     let isValid (problem: Problem) (bits: int[]) : bool =
         let totalVars = estimateQubits problem
 
@@ -337,96 +382,94 @@ module QuantumBinaryILPSolver =
             NumShots = 0
             OptimizedParameters = None
             OptimizationConverged = None
+            Sampling = None
+            Split = None
         }
 
     // ========================================================================
     // CONSTRAINT REPAIR (greedy, idiomatic F#)
     // ========================================================================
 
-    /// Repair an invalid Binary ILP solution.
-    /// Strategy: For each violated constraint, greedily flip variables from 1→0
-    /// (choosing the variable with the largest positive coefficient first)
-    /// until the constraint is satisfied. This reduces the LHS most quickly.
-    /// Wraps in a convergence loop since fixing one constraint may violate another.
-    /// Then rebuild the full bitstring with correct slack values.
-    let private repairConstraints (problem: Problem) (bits: int[]) : int[] =
-        let n = problem.ObjectiveCoeffs.Length
-        let totalVars = estimateQubits problem
-
-        // Start with current decision variables
-        let vars = Array.copy bits.[0 .. n - 1]
-
-        // Convergence loop: iterate until all constraints satisfied or max iterations
-        let maxIterations = problem.Constraints.Length * 2 + 1
-
-        let rec converge iteration =
-            if iteration >= maxIterations then
-                () // Give up after max iterations
-            else
-                let mutable anyViolated = false
-
-                // Repair each violated constraint by flipping x_i from 1→0
-                problem.Constraints
-                |> List.iter (fun constr ->
-                    let lhs =
-                        constr.Coefficients
-                        |> List.indexed
-                        |> List.sumBy (fun (i, ai) -> ai * float vars.[i])
-
-                    if lhs > constr.Bound + 1e-9 then
-                        anyViolated <- true
-                        // Get variables that are 1, sorted by coefficient (largest first)
-                        // Flipping these reduces LHS most
-                        let candidates =
-                            constr.Coefficients
-                            |> List.indexed
-                            |> List.filter (fun (i, ai) -> vars.[i] = 1 && ai > 0.0)
-                            |> List.sortByDescending snd
-
-                        let rec flipUntilSatisfied remaining currentLhs =
-                            match remaining with
-                            | _ when currentLhs <= constr.Bound + 1e-9 -> ()
-                            | [] -> ()
-                            | (i, ai) :: rest ->
-                                vars.[i] <- 0
-                                flipUntilSatisfied rest (currentLhs - ai)
-
-                        flipUntilSatisfied candidates lhs)
-
-                if anyViolated then
-                    converge (iteration + 1)
-
-        converge 0
-
-        // Build the full bitstring: decision vars + optimal slack values
-        let result = Array.zeroCreate totalVars
-
-        // Copy repaired decision variables
-        Array.blit vars 0 result 0 n
-
-        // Set slack variables to their optimal values: s_k = b_k - a_k^T x
-        // Encode s_k as binary: s_k = sum_t 2^t * z_{k,t}
+    /// Total constraint violation Σ_k max(0, a_k^T x − b_k) of an assignment.
+    let private totalViolation (problem: Problem) (vars: int[]) : float =
         problem.Constraints
-        |> List.indexed
-        |> List.iter (fun (k, constr) ->
+        |> List.sumBy (fun constr ->
             let lhs =
                 constr.Coefficients
                 |> List.indexed
                 |> List.sumBy (fun (i, ai) -> ai * float vars.[i])
 
-            let slack = max 0.0 (constr.Bound - lhs) |> round |> int
-            let tk = slackBitsForBound constr.Bound
-            let slackStart = slackStartIndex n problem.Constraints k
+            max 0.0 (lhs - constr.Bound))
 
-            // Binary encode slack value
-            for t in 0 .. tk - 1 do
-                let bit = (slack >>> t) &&& 1
-                let idx = slackStart + t
+    /// Repair an invalid Binary ILP assignment by greedy descent on the total violation:
+    /// repeatedly flip the one variable (1→0 or 0→1) that lowers it the most, ties going to
+    /// the smaller objective change, until every constraint holds or no single flip lowers
+    /// it. With coefficients of both signs a flip that helps one constraint can hurt another,
+    /// so the result can still be infeasible; the caller re-checks it.
+    /// The slack bits are set to the values that match the repaired assignment.
+    let private repairConstraints (problem: Problem) (encoded: EncodedConstraint list) (bits: int[]) : int[] =
+        let n = problem.ObjectiveCoeffs.Length
+        let objective = problem.ObjectiveCoeffs |> List.toArray
+        let vars = Array.copy bits.[0 .. n - 1]
 
-                if idx < totalVars then
-                    result.[idx] <- bit)
+        let rec descend (current: float) =
+            if not (problem.Constraints |> List.forall (isConstraintSatisfied vars)) then
+                let improvingFlips =
+                    [|
+                        for i in 0 .. n - 1 do
+                            vars.[i] <- 1 - vars.[i]
+                            let violation = totalViolation problem vars
+
+                            let objectiveChange = if vars.[i] = 1 then objective.[i] else -objective.[i]
+
+                            vars.[i] <- 1 - vars.[i]
+
+                            if violation < current - 1e-12 then
+                                yield (violation, objectiveChange, i)
+                    |]
+
+                if improvingFlips.Length > 0 then
+                    let (violation, _, i) = Array.min improvingFlips
+                    vars.[i] <- 1 - vars.[i]
+                    descend violation
+
+        descend (totalViolation problem vars)
+
+        // Full bitstring: decision variables, then each constraint's slack s_k = b_k − a_k^T x.
+        let result = Array.zeroCreate (n + (encoded |> List.sumBy slackBitCount))
+        Array.blit vars 0 result 0 n
+
+        List.zip encoded (slackStarts n encoded)
+        |> List.iter (fun (constr, slackStart) ->
+            match constr with
+            | AlwaysSatisfied -> ()
+            | WithSlack(coefficients, bound, slackWeights) ->
+                let lhs =
+                    coefficients
+                    |> List.indexed
+                    |> List.sumBy (fun (i, a) -> int64 a * int64 vars.[i])
+
+                // Largest weight first: each weight is at most one more than the sum of the
+                // smaller ones, so the greedy choice reaches every value in 0 .. range.
+                slackWeights
+                |> List.indexed
+                |> List.sortByDescending snd
+                |> List.fold
+                    (fun remaining (t, weight) ->
+                        if int64 weight <= remaining then
+                            result.[slackStart + t] <- 1
+                            remaining - int64 weight
+                        else
+                            remaining)
+                    (int64 bound - lhs)
+                |> ignore)
 
         result
+
+    /// repairConstraints for a bitstring of a problem that passes validation.
+    let internal repair (problem: Problem) (bits: int[]) : Result<int[], QuantumError> =
+        validateProblem problem
+        |> Result.map (fun encoded -> repairConstraints problem encoded bits)
 
     // ========================================================================
     // DECOMPOSE / RECOMBINE HOOKS (Decision 10: identity stubs)
@@ -453,6 +496,8 @@ module QuantumBinaryILPSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         | [ single ] -> single
         | _ ->
@@ -476,27 +521,42 @@ module QuantumBinaryILPSolver =
 
         match validateProblem problem with
         | Error err -> Task.FromResult(Error err)
-        | Ok() ->
+        | Ok _ ->
             let solveSingle (subProblem: Problem) : Task<Result<Solution, QuantumError>> =
                 task {
-                    match toQubo subProblem with
+                    match validateProblem subProblem with
                     | Error err -> return Error err
-                    | Ok qubo ->
-                        let! result = runQaoaAsync backend qubo config cancellationToken
+                    | Ok encoded ->
+                        let qubo = denseQubo subProblem encoded
 
-                        match result with
+                        match! QuboSplitting.runQaoaAsync backend qubo config cancellationToken with
                         | Error err -> return Error err
-                        | Ok(bits, optParams, converged) ->
+                        | Ok run ->
+                            let bits = run.Best
+                            let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                            let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
+
                             let decoded = decodeSolution subProblem bits
                             let needsRepair = not decoded.IsValid
 
                             let finalBits, wasRepaired =
                                 if config.EnableConstraintRepair && needsRepair then
-                                    (repairConstraints subProblem bits, true)
+                                    (repairConstraints subProblem encoded bits, true)
                                 else
                                     (bits, false)
 
                             let solution = decodeSolution subProblem finalBits
+
+                            // A split run has no single sample set to take statistics from
+                            let sampling =
+                                run.Direct
+                                |> Option.map (fun direct ->
+                                    sampleStatistics
+                                        bits.Length
+                                        (fun sample -> (decodeSolution subProblem sample).IsValid)
+                                        (fun sample ->
+                                            (decodeSolution subProblem sample).Variables = solution.Variables)
+                                        direct.Samples)
 
                             return
                                 Ok
@@ -506,6 +566,8 @@ module QuantumBinaryILPSolver =
                                         WasRepaired = wasRepaired
                                         OptimizedParameters = optParams
                                         OptimizationConverged = converged
+                                        Sampling = sampling
+                                        Split = run.Split
                                     }
                 }
 
@@ -555,12 +617,14 @@ module QuantumBinaryILPSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         else
             let n = problem.ObjectiveCoeffs.Length
 
-            // Start with all variables = 0 (feasible for Ax <= b with b >= 0)
-            // Greedily set variables to 1 if it improves objective without violating constraints
+            // Start with all variables = 0 and greedily set a variable to 1 when that improves
+            // the objective and leaves every constraint satisfied
             let vars = Array.zeroCreate n
 
             // Sort variables by objective coefficient (ascending for minimization:
@@ -593,4 +657,6 @@ module QuantumBinaryILPSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }

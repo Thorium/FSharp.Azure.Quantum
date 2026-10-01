@@ -365,7 +365,7 @@ if shouldRun "5" then
             pr "  Success probability: %.2f%%" (errorBudget.EstimatedSuccessProbability * 100.0)
             pr ""
 
-            pr "Step 3: Execute HHL on local simulator..."
+            pr "Step 3: Execute HHL on local simulator (default configuration, not the one from step 1)..."
 
             match solve2x2Diagonal (2.0, 3.0) (Complex(1.0, 0.0), Complex(1.0, 0.0)) quantumBackend with
             | Error err -> pr "Error: %A" err

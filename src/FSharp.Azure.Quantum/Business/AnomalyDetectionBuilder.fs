@@ -558,13 +558,7 @@ module AnomalyDetector =
             // the first failing kernel's error is the result
             for x in trainData do
                 let! k =
-                    QuantumKernels.computeKernelAsync
-                        backend
-                        detector.Model.FeatureMap
-                        sample
-                        x
-                        shots
-                        cancellationToken
+                    QuantumKernels.computeKernelAsync backend detector.Model.FeatureMap sample x shots cancellationToken
 
                 crossKernelSum <- crossKernelSum + k
 
@@ -594,7 +588,8 @@ module AnomalyDetector =
             | None -> LocalBackend.LocalBackend() :> IQuantumBackend
 
         quantumResultTask {
-            let! score = computeAnomalyScoreAsync backend detector sample detector.Shots cancellationToken
+            let! score =
+                computeAnomalyScoreAsync backend detector sample detector.Shots cancellationToken
 
             let isAnomaly = score > detector.Threshold
 

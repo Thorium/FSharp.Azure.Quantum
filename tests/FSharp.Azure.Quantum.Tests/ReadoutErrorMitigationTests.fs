@@ -679,7 +679,12 @@ module ReadoutErrorMitigationTests =
 
             // Act: Measure calibration matrix
             let! result =
-                ReadoutErrorMitigation.measureCalibrationMatrixAsync "test-simulator" 1 config executor CancellationToken.None
+                ReadoutErrorMitigation.measureCalibrationMatrixAsync
+                    "test-simulator"
+                    1
+                    config
+                    executor
+                    CancellationToken.None
 
             // Assert: Matrix should reflect 2% error rate
             match result with
@@ -745,7 +750,12 @@ module ReadoutErrorMitigationTests =
 
             // Act: Calibrate 2-qubit system
             let! result =
-                ReadoutErrorMitigation.measureCalibrationMatrixAsync "test-simulator" 2 config executor CancellationToken.None
+                ReadoutErrorMitigation.measureCalibrationMatrixAsync
+                    "test-simulator"
+                    2
+                    config
+                    executor
+                    CancellationToken.None
 
             // Assert: Should produce 4x4 matrix
             match result with
@@ -806,7 +816,12 @@ module ReadoutErrorMitigationTests =
 
             // Act: Calibrate 3-qubit system
             let! result =
-                ReadoutErrorMitigation.measureCalibrationMatrixAsync "test-simulator" 3 config executor CancellationToken.None
+                ReadoutErrorMitigation.measureCalibrationMatrixAsync
+                    "test-simulator"
+                    3
+                    config
+                    executor
+                    CancellationToken.None
 
             // Assert: Should produce 8x8 matrix
             match result with

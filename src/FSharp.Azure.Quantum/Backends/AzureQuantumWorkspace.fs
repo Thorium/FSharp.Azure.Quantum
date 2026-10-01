@@ -219,7 +219,9 @@ module AzureQuantumWorkspace =
                     }
             }
 
-        member this.GetProviderQuotaAsync(provider: string, cancellationToken: CancellationToken) : Task<QuotaInfo option> =
+        member this.GetProviderQuotaAsync
+            (provider: string, cancellationToken: CancellationToken)
+            : Task<QuotaInfo option> =
             throwIfDisposed ()
 
             task {

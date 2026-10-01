@@ -20,10 +20,7 @@ open Microsoft.Extensions.Logging
 module internal QuantumResultTaskSteps =
 
     /// The task's result with `f` applied to its error.
-    let mapErrorAsync
-        (f: QuantumError -> QuantumError)
-        (source: Task<QuantumResult<'a>>)
-        : Task<QuantumResult<'a>> =
+    let mapErrorAsync (f: QuantumError -> QuantumError) (source: Task<QuantumResult<'a>>) : Task<QuantumResult<'a>> =
         task {
             let! result = source
             return Result.mapError f result

@@ -51,7 +51,8 @@ let ``train - should reject empty training data`` () : Task =
         let config = defaultConfig
         let shots = 500
 
-        let! result = trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        let! result =
+            trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
 
         result
         |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty data"))
@@ -67,7 +68,8 @@ let ``train - should reject mismatched data and labels`` () : Task =
         let config = defaultConfig
         let shots = 500
 
-        let! result = trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        let! result =
+            trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
 
         result
         |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths"))
@@ -83,7 +85,8 @@ let ``train - should reject invalid labels`` () : Task =
         let config = defaultConfig
         let shots = 500
 
-        let! result = trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        let! result =
+            trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
 
         result
         |> Result.map (fun _ -> Assert.True(false, "Should have rejected invalid labels"))
@@ -98,7 +101,8 @@ let ``train - should reject non-positive C`` () : Task =
         let config = { defaultConfig with C = 0.0 }
         let shots = 500
 
-        let! result = trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        let! result =
+            trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
 
         result
         |> Result.map (fun _ -> Assert.True(false, "Should have rejected non-positive C"))
@@ -113,7 +117,8 @@ let ``train - should reject non-positive shots`` () : Task =
         let config = defaultConfig
         let shots = 0
 
-        let! result = trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        let! result =
+            trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
 
         result
         |> Result.map (fun _ -> Assert.True(false, "Should have rejected zero shots"))
@@ -174,7 +179,8 @@ let ``train - should handle balanced classes`` () : Task =
         let config = { defaultConfig with Verbose = false }
         let shots = 500
 
-        let! result = trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
+        let! result =
+            trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None
 
         result
         |> Result.map (fun model -> Assert.True(model.SupportVectorIndices.Length > 0, "Should have support vectors"))
@@ -412,7 +418,8 @@ let ``train with different feature maps`` () : Task =
         let shots = 500
 
         // Test with AngleEncoding
-        let! angleResult = trainAsync backend AngleEncoding trainData trainLabels config shots CancellationToken.None
+        let! angleResult =
+            trainAsync backend AngleEncoding trainData trainLabels config shots CancellationToken.None
 
         angleResult
         |> Result.map (fun _ -> ())
@@ -600,9 +607,7 @@ let private biasOnlyModel (bias: float) : SVMModel =
         FeatureMap = AngleEncoding
     }
 
-[<Theory>]
-[<InlineData(0)>]
-[<InlineData(-5)>]
+[<Theory; InlineData(0); InlineData(-5)>]
 let ``evaluateAsync - should reject non-positive shots`` (shots: int) : Task =
     task {
         match! evaluateAsync backend (biasOnlyModel 0.25) [| [| 0.5; 0.5 |] |] [| 1 |] shots CancellationToken.None with
@@ -610,9 +615,7 @@ let ``evaluateAsync - should reject non-positive shots`` (shots: int) : Task =
         | Ok _ -> Assert.True(false, "Should have rejected non-positive shots")
     }
 
-[<Theory>]
-[<InlineData(0.25, 2)>]
-[<InlineData(-0.25, 1)>]
+[<Theory; InlineData(0.25, 2); InlineData(-0.25, 1)>]
 let ``evaluateAsync - without support vectors every prediction is the sign of the bias``
     (bias: float)
     (expectedCorrect: int)

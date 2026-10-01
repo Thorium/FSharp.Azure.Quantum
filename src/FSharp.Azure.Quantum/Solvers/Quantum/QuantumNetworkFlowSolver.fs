@@ -34,8 +34,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///
 /// Example:
 ///   let backend = LocalBackend() :> IQuantumBackend
-///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-///   match! QuantumNetworkFlowSolver.solveAsync backend problem config CancellationToken.None with
+///   match! QuantumNetworkFlowSolver.solveWithShotsAsync backend problem 1000 CancellationToken.None with
 ///   | Ok solution -> printfn "Total cost: %f" solution.TotalCost
 ///   | Error msg -> printfn "Error: %s" msg
 module QuantumNetworkFlowSolver =
@@ -101,6 +100,9 @@ module QuantumNetworkFlowSolver =
 
             /// QUBO objective value (energy)
             BestEnergy: float
+
+            /// Standing of this solution among the final samples; None when no sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
         }
 
     // ================================================================================
@@ -114,9 +116,10 @@ module QuantumNetworkFlowSolver =
     ///
     /// Constraints (as penalty terms):
     /// 1. Flow conservation: For each intermediate node, inflow = outflow
-    /// 2. Demand satisfaction: Each sink receives required demand
-    /// 3. Supply limits: Each source doesn't exceed supply capacity
-    /// 4. Edge capacity: Flow on edge doesn't exceed edge capacity
+    /// 2. Demand satisfaction: Each sink receives exactly its demand
+    ///
+    /// Supply limits and node capacities are inequalities and are not in the QUBO;
+    /// every decoded sample is checked against them classically before it can be returned.
     let toQubo (problem: NetworkFlowProblem) : Result<QuboMatrix, QuantumError> =
         try
             // Create node index mapping
@@ -216,7 +219,6 @@ module QuantumNetworkFlowSolver =
                 // ========================================================================
                 // CONSTRAINT 2: Demand Satisfaction (sink nodes)
                 // For each sink: Σ x_in = demand
-                // Simplified: Just ensure at least one incoming edge is selected
                 // ========================================================================
 
                 let sinkDemandTerms =
@@ -230,9 +232,24 @@ module QuantumNetworkFlowSolver =
                             |> List.filter (fun e -> e.Target = sink)
                             |> List.choose (fun e -> Map.tryFind (e.Source, e.Target) edgeIndexMap)
 
-                        // Penalty if no incoming edges selected: (1 - Σ x_in)^2
-                        // For simplicity, encourage at least one edge with negative bias
-                        incomingEdges |> List.map (fun i -> ((i, i), -0.5 * penaltyWeight)))
+                        // Penalty λ (demand − Σ x_in)². For binary x it expands to
+                        // λ (1 − 2·demand) on each diagonal and 2λ on each unordered pair; the
+                        // constant λ·demand² shifts every state alike and is left out. A sink
+                        // that receives more than its demand is penalised like one that
+                        // receives less, so the lowest-energy state is a valid flow.
+                        let diagonal =
+                            incomingEdges
+                            |> List.map (fun i -> ((i, i), penaltyWeight * (1.0 - 2.0 * float demand)))
+
+                        let pairs =
+                            [
+                                for i in incomingEdges do
+                                    for j in incomingEdges do
+                                        if i < j then
+                                            yield ((i, j), 2.0 * penaltyWeight)
+                            ]
+
+                        diagonal @ pairs)
 
                 // ========================================================================
                 // Build QUBO Matrix
@@ -356,6 +373,7 @@ module QuantumNetworkFlowSolver =
                     NumShots = 0 // Will be set by caller
                     ElapsedMs = 0.0 // Will be set by caller
                     BestEnergy = totalCost
+                    Sampling = None
                 }
 
     // ================================================================================
@@ -376,19 +394,131 @@ module QuantumNetworkFlowSolver =
             ProgressReporter: Progress.IProgressReporter option
         }
 
-    /// Default configuration
+    /// Default configuration. The angles are single-layer values that concentrate
+    /// sampling on valid flows whatever the cost scale (the cost Hamiltonian is normalised).
     let defaultConfig =
         {
             NumShots = 1000
-            InitialParameters = (0.5, 0.5)
+            InitialParameters = (0.3, 0.3)
             ProgressReporter = None
         }
 
-    /// Solve network flow problem using quantum backend via QAOA (async version)
+    let private report (reporter: Progress.IProgressReporter option) (phase: string) (detail: string) =
+        reporter
+        |> Option.iter (fun r -> r.Report(Progress.PhaseChanged(phase, Some detail)))
+
+    /// The valid flow that meets the most demand, the cheapest among equals, of the samples.
+    let private selectFlow
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: NetworkFlowProblem)
+        (shots: int)
+        (stopwatch: Stopwatch)
+        (reporter: Progress.IProgressReporter option)
+        (measurements: int array array)
+        : Result<NetworkFlowSolution, QuantumError> =
+        report reporter "Network Flow QAOA" "Decoding solutions..."
+
+        // Decode every measurement, then keep only CLASSICALLY VALID flows
+        // (conservation at intermediate nodes, node capacities, supply and
+        // demand limits): a low-cost bitstring need not be a flow at all.
+        let flowResults =
+            measurements
+            |> Array.choose (decodeSolution problem)
+            |> Array.filter (fun sol -> isValidFlow problem sol.SelectedEdges)
+
+        if flowResults.Length = 0 then
+            Error(
+                QuantumError.OperationError(
+                    "DecodeSolution",
+                    "No valid network flow solutions found in quantum measurements"
+                )
+            )
+        else
+            // Validity only bounds flows from above, so a flow serving one
+            // customer is valid too, and cheaper than one serving all.
+            // Most demand met wins; cost breaks ties.
+            let bestSolution =
+                flowResults |> Array.minBy (fun sol -> (-sol.DemandSatisfied, sol.TotalCost))
+
+            report reporter "Network Flow Complete" $"Found solution with cost {bestSolution.TotalCost:F2}"
+
+            let sampling: QaoaExecutionHelpers.SampleStatistics =
+                {
+                    Shots = measurements.Length
+                    Qubits = problem.Edges.Length
+                    Hits =
+                        flowResults
+                        |> Array.filter (fun sol -> sol.SelectedEdges = bestSolution.SelectedEdges)
+                        |> Array.length
+                    Valid = flowResults.Length
+                }
+
+            Ok
+                { bestSolution with
+                    BackendName = backend.Name
+                    NumShots = shots
+                    ElapsedMs = stopwatch.Elapsed.TotalMilliseconds
+                    Sampling = Some sampling
+                }
+
+    /// Encode the problem, let `chooseParameters` pick the QAOA angles for its QUBO,
+    /// sample `shots` times at those angles and select the flow.
+    let private solveCoreAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: NetworkFlowProblem)
+        (shots: int)
+        (reporter: Progress.IProgressReporter option)
+        (chooseParameters: float[,] -> Task<Result<(float * float)[], QuantumError>>)
+        (cancellationToken: CancellationToken)
+        : Task<Result<NetworkFlowSolution, QuantumError>> =
+        let stopwatch = Stopwatch.StartNew()
+        let numEdges = problem.Edges.Length
+
+        if numEdges = 0 then
+            Task.FromResult(Error(QuantumError.ValidationError("numEdges", "Network flow problem has no edges")))
+        elif shots <= 0 then
+            Task.FromResult(Error(QuantumError.ValidationError("numShots", "Number of shots must be positive")))
+        else
+            task {
+                try
+                    report reporter "Network Flow QAOA" $"Encoding {numEdges} edges to QUBO..."
+
+                    match toQubo problem with
+                    | Error err -> return Error err
+                    | Ok quboMatrix ->
+                        let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
+                        report reporter "Network Flow QAOA" "Choosing QAOA angles..."
+
+                        match! chooseParameters quboArray with
+                        | Error err -> return Error err
+                        | Ok parameters ->
+                            report reporter "Network Flow QAOA" $"Executing on {backend.Name}..."
+
+                            match!
+                                QaoaExecutionHelpers.executeFromQuboAsync
+                                    backend
+                                    quboArray
+                                    parameters
+                                    shots
+                                    cancellationToken
+                            with
+                            | Error err -> return Error err
+                            | Ok measurements -> return selectFlow backend problem shots stopwatch reporter measurements
+                with ex when not (ex :? OperationCanceledException) ->
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "QuantumNetworkFlowSolver",
+                                $"Quantum network flow solver failed: %s{ex.Message}"
+                            )
+                        )
+            }
+
+    /// Solve network flow problem using quantum backend via QAOA at the given angles.
     ///
     /// Full Pipeline:
     /// 1. Network flow problem → QUBO matrix (min-cost flow encoding)
-    /// 2. QUBO → QaoaCircuit (Hamiltonians + layers)
+    /// 2. QUBO → single-layer QAOA circuit at config.InitialParameters (one circuit, no search)
     /// 3. Execute circuit on quantum backend asynchronously
     /// 4. Decode measurements → flow assignments
     /// 5. Return the valid flow that meets the most demand, the cheapest among equals
@@ -406,136 +536,70 @@ module QuantumNetworkFlowSolver =
         (config: QuantumFlowConfig)
         (cancellationToken: CancellationToken)
         : Task<Result<NetworkFlowSolution, QuantumError>> =
+        solveCoreAsync
+            backend
+            problem
+            config.NumShots
+            config.ProgressReporter
+            (fun _ -> Task.FromResult(Ok [| config.InitialParameters |]))
+            cancellationToken
 
-        let stopwatch = Stopwatch.StartNew()
-
-        // Validate inputs
-        let numEdges = problem.Edges.Length
-        let requiredQubits = numEdges
-
-        if numEdges = 0 then
-            task { return Error(QuantumError.ValidationError("numEdges", "Network flow problem has no edges")) }
-        // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
-        // Backends will return errors if qubit count exceeded
-        elif config.NumShots <= 0 then
-            task { return Error(QuantumError.ValidationError("numShots", "Number of shots must be positive")) }
-        else
-            try
-                // Report start
-                config.ProgressReporter
-                |> Option.iter (fun r ->
-                    r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Encoding {numEdges} edges to QUBO...")))
-
-                // Step 1: Encode network flow as QUBO
-                match toQubo problem with
-                | Error msg -> task { return Error msg }
-                | Ok quboMatrix ->
-
-                    // Step 2: Generate QAOA circuit components from QUBO
-                    config.ProgressReporter
-                    |> Option.iter (fun r ->
-                        r.Report(Progress.PhaseChanged("Network Flow QAOA", Some "Building QAOA circuit...")))
-
-                    let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                    let (gamma, beta) = config.InitialParameters
-                    let parameters = [| gamma, beta |]
-
-                    // Step 3: Execute QAOA pipeline
-                    config.ProgressReporter
-                    |> Option.iter (fun r ->
-                        r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Executing on {backend.Name}...")))
-
-                    let handleMeasurements (measurements: int array array) =
-                        // Step 5: Decode measurements to network flow solutions
-                        config.ProgressReporter
-                        |> Option.iter (fun r ->
-                            r.Report(Progress.PhaseChanged("Network Flow QAOA", Some "Decoding solutions...")))
-
-                        // Decode every measurement, then keep only CLASSICALLY VALID flows
-                        // (conservation at intermediate nodes, node capacities, supply and
-                        // demand limits). Selecting min-cost over all non-empty decodings
-                        // would happily return an infeasible edge set — the cheapest
-                        // bitstrings are usually the ones that violate the constraints.
-                        let flowResults =
-                            measurements
-                            |> Array.choose (decodeSolution problem)
-                            |> Array.filter (fun sol -> isValidFlow problem sol.SelectedEdges)
-
-                        if flowResults.Length = 0 then
-                            Error(
-                                QuantumError.OperationError(
-                                    "DecodeSolution",
-                                    "No valid network flow solutions found in quantum measurements"
-                                )
-                            )
-                        else
-                            // Validity only bounds flows from above, so a flow serving one
-                            // customer is valid too, and cheaper than one serving all.
-                            // Most demand met wins; cost breaks ties.
-                            let bestSolution =
-                                flowResults |> Array.minBy (fun sol -> (-sol.DemandSatisfied, sol.TotalCost))
-
-                            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
-
-                            // Report completion
-                            config.ProgressReporter
-                            |> Option.iter (fun r ->
-                                r.Report(
-                                    Progress.PhaseChanged(
-                                        "Network Flow Complete",
-                                        Some $"Found solution with cost {bestSolution.TotalCost:F2}"
-                                    )
-                                ))
-
-                            Ok
-                                { bestSolution with
-                                    BackendName = backend.Name
-                                    NumShots = config.NumShots
-                                    ElapsedMs = elapsedMs
-                                }
-
-                    task {
-                        match!
-                            QaoaExecutionHelpers.executeFromQuboAsync
-                                backend
-                                quboArray
-                                parameters
-                                config.NumShots
-                                cancellationToken
-                        with
-                        | Error err -> return Error err
-                        | Ok measurements -> return handleMeasurements measurements
-
-                    }
-            with ex ->
-                task {
-                    return
-                        Error(
-                            QuantumError.OperationError(
-                                "QuantumNetworkFlowSolver",
-                                $"Quantum network flow solver failed: %s{ex.Message}"
-                            )
-                        )
-                }
-
-    /// Solve network flow with default configuration (asynchronous)
-    let solveWithDefaultsAsync
+    /// Solve network flow with QAOA angles chosen for the problem: the shared QAOA
+    /// configuration decides the layers and whether the angles come from Nelder-Mead
+    /// optimisation or a grid search, then config.FinalShots samples are taken at those
+    /// angles. Every angle evaluation is one backend execution, so on a cloud backend
+    /// this submits many jobs; `solveAsync` submits one.
+    let solveWithQaoaConfigAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
+        (config: QaoaExecutionHelpers.QaoaSolverConfig)
         (cancellationToken: CancellationToken)
         : Task<Result<NetworkFlowSolution, QuantumError>> =
-        solveAsync backend problem defaultConfig cancellationToken
+        let chooseParameters (qubo: float[,]) =
+            task {
+                match! QaoaExecutionHelpers.runQaoaAsync backend qubo config cancellationToken with
+                | Error err -> return Error err
+                | Ok(_, Some parameters, _) -> return Ok parameters
+                | Ok(_, None, _) -> return Ok [| defaultConfig.InitialParameters |]
+            }
 
-    /// Solve network flow with custom number of shots (asynchronous)
+        solveCoreAsync backend problem config.FinalShots None chooseParameters cancellationToken
+
+    /// Solve network flow with custom number of shots (asynchronous).
+    ///
+    /// On a backend that returns exact states (a simulator) the angles are optimised for
+    /// the problem (QaoaExecutionHelpers.defaultConfig: two layers, Nelder-Mead). On a
+    /// shot-sampling backend, where each evaluation is a separately billed job, one
+    /// circuit runs at the default angles; ask for optimisation there with
+    /// solveWithQaoaConfigAsync.
     let solveWithShotsAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         (numShots: int)
         (cancellationToken: CancellationToken)
         : Task<Result<NetworkFlowSolution, QuantumError>> =
-        let config =
-            { defaultConfig with
-                NumShots = numShots
-            }
+        match backend with
+        | :? BackendAbstraction.IShotSamplingBackend ->
+            solveAsync
+                backend
+                problem
+                { defaultConfig with
+                    NumShots = numShots
+                }
+                cancellationToken
+        | _ ->
+            solveWithQaoaConfigAsync
+                backend
+                problem
+                { QaoaExecutionHelpers.defaultConfig with
+                    FinalShots = numShots
+                }
+                cancellationToken
 
-        solveAsync backend problem config cancellationToken
+    /// Solve network flow with default configuration (asynchronous); see solveWithShotsAsync.
+    let solveWithDefaultsAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: NetworkFlowProblem)
+        (cancellationToken: CancellationToken)
+        : Task<Result<NetworkFlowSolution, QuantumError>> =
+        solveWithShotsAsync backend problem defaultConfig.NumShots cancellationToken

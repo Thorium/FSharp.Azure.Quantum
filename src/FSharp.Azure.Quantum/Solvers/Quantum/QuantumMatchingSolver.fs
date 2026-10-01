@@ -77,6 +77,10 @@ module QuantumMatchingSolver =
             OptimizedParameters: (float * float)[] option
             /// Whether Nelder-Mead converged
             OptimizationConverged: bool option
+            /// Standing of this solution among the final samples; None when no single sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+            /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+            Split: QaoaExecutionHelpers.SplitReport option
         }
 
     // ========================================================================
@@ -245,6 +249,8 @@ module QuantumMatchingSolver =
             NumShots = 0
             OptimizedParameters = None
             OptimizationConverged = None
+            Sampling = None
+            Split = None
         }
 
     // ========================================================================
@@ -336,6 +342,8 @@ module QuantumMatchingSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         | [ single ] -> single
         | sols ->
@@ -360,6 +368,8 @@ module QuantumMatchingSolver =
                     |> Option.defaultValue 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = QaoaExecutionHelpers.combineSplitReports (sols |> List.map (fun s -> s.Split))
             }
 
     // ========================================================================
@@ -384,11 +394,13 @@ module QuantumMatchingSolver =
                     match toQubo subProblem with
                     | Error err -> return Error err
                     | Ok qubo ->
-                        let! result = runQaoaAsync backend qubo config cancellationToken
-
-                        match result with
+                        match! QuboSplitting.runQaoaAsync backend qubo config cancellationToken with
                         | Error err -> return Error err
-                        | Ok(bits, optParams, converged) ->
+                        | Ok run ->
+                            let bits = run.Best
+                            let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                            let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
+
                             let needsRepair =
                                 let decoded = decodeSolution edges bits
                                 not decoded.IsValid
@@ -401,6 +413,16 @@ module QuantumMatchingSolver =
 
                             let solution = decodeSolution edges finalBits
 
+                            // A split run has no single sample set to take statistics from
+                            let sampling =
+                                run.Direct
+                                |> Option.map (fun direct ->
+                                    sampleStatistics
+                                        bits.Length
+                                        (fun sample -> (decodeSolution edges sample).IsValid)
+                                        (fun sample -> sample = finalBits)
+                                        direct.Samples)
+
                             return
                                 Ok
                                     { solution with
@@ -409,6 +431,8 @@ module QuantumMatchingSolver =
                                         WasRepaired = wasRepaired
                                         OptimizedParameters = optParams
                                         OptimizationConverged = converged
+                                        Sampling = sampling
+                                        Split = run.Split
                                     }
                 }
 
@@ -453,6 +477,8 @@ module QuantumMatchingSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         else
             let edges = normalizeEdges problem.Edges
@@ -483,4 +509,6 @@ module QuantumMatchingSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }

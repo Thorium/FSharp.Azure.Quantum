@@ -211,6 +211,8 @@ module ClassicalSolver =
                         ResourceUtilization = resourceUtil
                         DeadlineViolations = violations
                         IsValid = List.isEmpty violations
+                        WasRepaired = false
+                        Sampling = None
                     }
 
                 Ok solution

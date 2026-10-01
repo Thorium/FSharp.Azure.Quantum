@@ -18,6 +18,14 @@
 //   dotnet fsi CoverageOptimizer_Example.fsx -- --shots 2000 --quiet --output results.json
 // ============================================================================
 
+// WIDER THAN THE BACKEND (FSharp.Azure.Quantum 1.5.1 and later):
+//   A problem that needs more qubits than the backend runs is split into circuits that fit
+//   and joined (QuboSplitting) when its QUBO is sparse; it then takes many runs instead of
+//   one. Simulators split by default, a backend that bills every circuit never does here.
+//   The builder uses the default settings and its result does not show the split: call the
+//   solver's solveWithConfigAsync to change QaoaExecutionHelpers.SplitSettings or to read
+//   the solution's Split report. See the FAQ: "My problem is wider than the backend".
+
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "nuget: MathNet.Numerics, 5.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.

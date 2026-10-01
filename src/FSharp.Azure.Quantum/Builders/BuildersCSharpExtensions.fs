@@ -250,7 +250,7 @@ type CSharpBuilders private () =
 
         Knapsack.createProblem itemList capacity
 
-    /// <summary>Find all valid combinations that sum exactly to capacity (classical fallback).</summary>
+    /// <summary>Find all valid combinations that sum exactly to capacity (classical enumeration).</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>Tuple of (all combinations, union of all items, combination count)</returns>
     /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
@@ -261,8 +261,8 @@ type CSharpBuilders private () =
     /// <param name="problem">Knapsack problem</param>
     /// <param name="backend">Quantum backend for QAOA execution</param>
     /// <param name="cancellationToken">Token that cancels the QAOA runs</param>
-    /// <returns>Task with a tuple of (all combinations, union of all items, combination count)</returns>
-    /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
+    /// <returns>Task with Ok of (all combinations, union of all items, combination count), or the solver error</returns>
+    /// <remarks>Uses repeated QAOA sampling to discover subset-sum solutions; a subset that is never sampled is missing from the result.</remarks>
     static member FindAllValidCombinationsAsync
         (
             problem: Knapsack.Problem,
@@ -271,7 +271,7 @@ type CSharpBuilders private () =
         ) =
         Knapsack.findAllValidCombinationsAsync problem (Some backend) cancellationToken
 
-    /// <summary>Find all exact combinations that sum to capacity (classical fallback).</summary>
+    /// <summary>Find all exact combinations that sum to capacity (classical enumeration).</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>List of all valid combinations</returns>
     /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
@@ -282,8 +282,8 @@ type CSharpBuilders private () =
     /// <param name="problem">Knapsack problem</param>
     /// <param name="backend">Quantum backend for QAOA execution</param>
     /// <param name="cancellationToken">Token that cancels the QAOA runs</param>
-    /// <returns>Task with the list of all valid combinations</returns>
-    /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
+    /// <returns>Task with Ok of all valid combinations, or the solver error</returns>
+    /// <remarks>Uses repeated QAOA sampling to discover subset-sum solutions; a subset that is never sampled is missing from the result.</remarks>
     static member FindAllExactCombinationsAsync
         (
             problem: Knapsack.Problem,
@@ -292,7 +292,7 @@ type CSharpBuilders private () =
         ) =
         Knapsack.findAllExactCombinationsAsync problem (Some backend) cancellationToken
 
-    /// <summary>Find union of all items across all exact combinations (classical fallback).</summary>
+    /// <summary>Find union of all items across all exact combinations (classical enumeration).</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>List of all items that appear in at least one valid combination</returns>
     /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
@@ -303,8 +303,8 @@ type CSharpBuilders private () =
     /// <param name="problem">Knapsack problem</param>
     /// <param name="backend">Quantum backend for QAOA execution</param>
     /// <param name="cancellationToken">Token that cancels the QAOA runs</param>
-    /// <returns>Task with the list of all items that appear in at least one valid combination</returns>
-    /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
+    /// <returns>Task with Ok of all items that appear in at least one valid combination, or the solver error</returns>
+    /// <remarks>Uses repeated QAOA sampling to discover subset-sum solutions; a subset that is never sampled is missing from the result.</remarks>
     static member FindAllCapturedItemsAsync
         (
             problem: Knapsack.Problem,
@@ -737,12 +737,20 @@ type CSharpBuilders private () =
     /// <param name="baseValue">Base value</param>
     /// <param name="exponent">Exponent</param>
     /// <param name="modulus">Modulus N</param>
-    /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
+    /// <param name="qubits">Register qubits n; the circuit takes 2n + 5. Optional: the default (0) is the smallest register that holds the modulus</param>
     /// <returns>Arithmetic operation to execute</returns>
     static member ModularExponentiate
-        (baseValue: int, exponent: int, modulus: int, [<Optional; DefaultParameterValue(8)>] qubits: int)
+        (baseValue: int, exponent: int, modulus: int, [<Optional; DefaultParameterValue(0)>] qubits: int)
         =
-        QuantumArithmeticOps.modularExponentiate baseValue exponent modulus qubits
+        let register =
+            if qubits > 0 then
+                qubits
+            else
+                [ 2..30 ]
+                |> List.tryFind (fun bits -> (1 <<< bits) >= modulus)
+                |> Option.defaultValue 31
+
+        QuantumArithmeticOps.modularExponentiate baseValue exponent modulus register
 
     /// <summary>Execute quantum arithmetic operation (C# helper).</summary>
     /// <param name="operation">Arithmetic operation to execute</param>
@@ -1194,7 +1202,8 @@ module SVMModelSerializationCSharpExtensions =
         ([<Optional>] cancellationToken: CancellationToken)
         : Task<Result<unit, string>> =
         task {
-            let! result = SVMModelSerialization.saveSVMModelAsync filePath model note cancellationToken
+            let! result =
+                SVMModelSerialization.saveSVMModelAsync filePath model note cancellationToken
 
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
@@ -1238,7 +1247,8 @@ module SVMModelSerializationCSharpExtensions =
         ([<Optional>] cancellationToken: CancellationToken)
         : Task<Result<MultiClassSVM.MultiClassModel, string>> =
         task {
-            let! result = SVMModelSerialization.loadMultiClassSVMModelAsync filePath cancellationToken
+            let! result =
+                SVMModelSerialization.loadMultiClassSVMModelAsync filePath cancellationToken
 
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }

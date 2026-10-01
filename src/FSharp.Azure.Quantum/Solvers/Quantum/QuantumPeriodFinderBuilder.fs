@@ -121,7 +121,8 @@ module QuantumPeriodFinder =
             /// QPE phase estimate (s/r where s is measured phase)
             PhaseEstimate: float
 
-            /// Total qubits used (precision + log₂(N))
+            /// Width of the circuit that measured the period; 0 when no period-finding
+            /// circuit produced the result
             QubitsUsed: int
 
             /// Number of QPE shots the successful period-finding run consumed.
@@ -312,10 +313,6 @@ module QuantumPeriodFinder =
                 | Some backend -> backend.GetType().Name
                 | None -> "LocalSimulator"
 
-            // Calculate qubits used (precision + log₂(N))
-            let qubitsUsed =
-                problem.Precision + int (ceil (log (float problem.Number) / log 2.0))
-
             // Extract period and phase from PeriodResult.
             //
             // There is no PeriodResult when no period was found: either a lucky
@@ -323,10 +320,10 @@ module QuantumPeriodFinder =
             // attempt was exhausted. Report zero QPE shots in that case — reporting
             // MaxAttempts instead claimed work that never happened, and made
             // Attempts unreadable as "how much quantum effort this took".
-            let (period, baseUsed, phaseEst, attempts) =
+            let (period, baseUsed, phaseEst, attempts, qubitsUsed) =
                 match shorsResult.PeriodResult with
-                | Some pr -> (pr.Period, pr.Base, pr.PhaseEstimate, pr.Attempts)
-                | None -> (0, problem.Base |> Option.defaultValue 2, 0.0, 0)
+                | Some pr -> (pr.Period, pr.Base, pr.PhaseEstimate, pr.Attempts, pr.QubitsUsed)
+                | None -> (0, problem.Base |> Option.defaultValue 2, 0.0, 0, 0)
 
             return
                 {

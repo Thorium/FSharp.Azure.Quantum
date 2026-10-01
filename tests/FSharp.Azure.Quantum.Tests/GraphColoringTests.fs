@@ -63,6 +63,7 @@ let private solution
         NumShots = 0
         ElapsedMs = 0.0
         BestEnergy = energy
+        Sampling = None
     }
 
 let private solveOk problem numColors =
@@ -805,13 +806,7 @@ let ``HybridSolver reports an edgeless graph as classical`` () =
         let problem = quantumProblem [ "A"; "B" ] [] 2
 
         match!
-            HybridSolver.solveGraphColoringAsync
-                problem
-                2
-                None
-                None
-                (Some HybridSolver.Quantum)
-                CancellationToken.None
+            HybridSolver.solveGraphColoringAsync problem 2 None None (Some HybridSolver.Quantum) CancellationToken.None
         with
         | Ok solution ->
             Assert.Equal(HybridSolver.Classical, solution.Method)
@@ -820,3 +815,62 @@ let ``HybridSolver reports an edgeless graph as classical`` () =
         | Error err -> Assert.Fail($"solveGraphColoringAsync failed: {err.Message}")
     }
     :> Task
+
+// ============================================================================
+// MINIMIZECOLORS: WHAT THE QUBO MINIMISES (every bitstring enumerated, no circuit)
+// ============================================================================
+
+[<Fact>]
+let ``MinimizeColors QUBO minimum has the smallest color index sum, not the fewest colors`` () =
+    // Square A-B-C-D with A fixed to color 2 and three colors available.
+    // Two colors suffice (A = C = 2, B = D = 0, index sum 4), but the valid coloring with
+    // the smallest index sum is A = 2, B = 0, C = 1, D = 0 (index sum 3), which uses three.
+    let vertices = [ "A"; "B"; "C"; "D" ]
+    let edges = [ "A", "B"; "B", "C"; "C", "D"; "D", "A" ]
+
+    let problem =
+        { quantumProblem vertices edges 3 with
+            FixedColors = Map.ofList [ "A", 2 ]
+        }
+
+    let dense =
+        match QSolver.toQubo problem penalty with
+        | Ok(matrix, _) -> Qubo.toDenseArray matrix.NumVariables matrix.Q
+        | Error err -> failwith $"toQubo failed: {err}"
+
+    let numVars = 12
+
+    let states =
+        Array.init (1 <<< numVars) (fun index -> Array.init numVars (fun q -> (index >>> q) &&& 1))
+
+    let energies = states |> Array.map (QaoaExecutionHelpers.evaluateQubo dense)
+    let lowest = Array.min energies
+
+    let minima =
+        Array.zip states energies
+        |> Array.filter (fun (_, e) -> e <= lowest + 1e-9)
+        |> Array.map fst
+
+    let colorsOf (state: int[]) =
+        List.init 4 (fun v -> [ 0..2 ] |> List.filter (fun c -> state.[var 3 v c] = 1))
+
+    Assert.Equal<int list list>([ [ [ 2 ]; [ 0 ]; [ 1 ]; [ 0 ] ] ], minima |> Array.map colorsOf |> Array.toList)
+
+    // selectBest ranks decoded samples by the number of distinct colors, so between these
+    // two valid colorings it returns the two-color one although its energy is higher.
+    let threeColors = [ "A", 2; "B", 0; "C", 1; "D", 0 ]
+    let twoColors = [ "A", 2; "B", 0; "C", 2; "D", 0 ]
+    let matrix = qubo problem QSolver.defaultPreferences
+    let energyOf assignments = energy problem matrix assignments
+    Assert.True(energyOf threeColors < energyOf twoColors)
+
+    let picked =
+        QSolver.selectBest
+            problem
+            QSolver.defaultPreferences
+            [|
+                solution problem threeColors (energyOf threeColors)
+                solution problem twoColors (energyOf twoColors)
+            |]
+
+    Assert.Equal(2, picked.ColorsUsed)

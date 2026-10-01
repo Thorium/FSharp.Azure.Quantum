@@ -823,8 +823,7 @@ module FinancialDataTests =
                     EndDate = Some(DateTime(2024, 1, 1))
                 }
 
-            let! result =
-                (fetchYahooHistoryAsync client request CancellationToken.None)
+            let! result = (fetchYahooHistoryAsync client request CancellationToken.None)
 
             Assert.True(Result.isError result)
             Assert.Empty(handler.Requests)

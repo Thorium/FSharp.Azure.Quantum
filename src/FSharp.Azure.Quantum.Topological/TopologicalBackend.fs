@@ -36,6 +36,19 @@ module TopologicalUnifiedBackend =
         let toResult (topResult: TopologicalResult<'T>) : Result<'T, string> =
             topResult |> Result.mapError (fun err -> err.Message)
 
+        /// Logical qubits whose encoding fits maxAnyons: the widest state InitializeState accepts
+        /// (Ising takes 2n + 2 sigma anyons for n qubits, Fibonacci 2n tau anyons).
+        let maxLogicalQubits =
+            let fits (numQubits: int) =
+                match FusionTree.fromComputationalBasis (List.replicate numQubits 0) anyonType with
+                | Ok tree -> FusionTree.size tree <= maxAnyons
+                | Error _ -> false
+
+            seq { 1..maxAnyons }
+            |> Seq.takeWhile fits
+            |> Seq.tryLast
+            |> Option.defaultValue 0
+
         // ====================================================================
         // GATE COMPILATION VIA GateToBraid MODULE
         // ====================================================================
@@ -1595,6 +1608,12 @@ module TopologicalUnifiedBackend =
                 (_ct: CancellationToken)
                 : Task<Result<QuantumState, QuantumError>> =
                 task { return (this :> IQuantumBackend).ApplyOperation operation state }
+
+        /// The logical qubits the anyon budget holds. Reported so that a solver can refuse,
+        /// decompose or split a problem that needs more (ProblemDecomposition, QuboSplitting)
+        /// instead of failing when the state is initialised.
+        interface IQubitLimitedBackend with
+            member _.MaxQubits = Some maxLogicalQubits
 
 /// Factory functions for creating topological backend instances
 module TopologicalUnifiedBackendFactory =

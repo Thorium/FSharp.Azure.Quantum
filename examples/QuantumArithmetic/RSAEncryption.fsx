@@ -51,8 +51,8 @@ Cli.exitIfHelp
         }
         {
             Name = "qubits"
-            Description = "Qubits for quantum circuit"
-            Default = Some "8"
+            Description = "Register qubits n; the circuit takes 2n + 5 (default 6: 17 qubits, enough for n < 64)"
+            Default = Some "6"
         }
         {
             Name = "output"
@@ -85,7 +85,7 @@ let message = Cli.getIntOr "message" 5 args
 let p = Cli.getIntOr "p" 3 args
 let q = Cli.getIntOr "q" 11 args
 let pubExp = Cli.getIntOr "e" 3 args
-let nQubits = Cli.getIntOr "qubits" 8 args
+let nQubits = Cli.getIntOr "qubits" 6 args
 let outputPath = Cli.tryGet "output" args
 let csvPath = Cli.tryGet "csv" args
 

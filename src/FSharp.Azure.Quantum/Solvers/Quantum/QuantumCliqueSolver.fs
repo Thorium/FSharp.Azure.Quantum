@@ -7,20 +7,22 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
 
-/// Quantum Maximum Clique Solver
+/// Quantum Maximum-Weight Clique Solver
 ///
-/// Problem: Given graph G=(V,E), find the largest complete subgraph
-/// (i.e., the largest subset S of vertices such that every pair in S is connected).
+/// Problem: Given graph G=(V,E) with a weight per vertex, find the complete subgraph
+/// (a subset S of vertices such that every pair in S is connected) of the largest
+/// total weight. With every weight 1.0 this is the largest clique; with other weights
+/// a small heavy clique beats a large light one.
 ///
 /// QUBO Formulation:
 ///   Variables: x_i in {0,1} per vertex (1 = in clique)
-///   Maximize:  Sum_i x_i  (maximize clique size)
-///     => Minimize: -Sum_i x_i
+///   Maximize:  Sum_i w_i * x_i  (maximize clique weight)
+///     => Minimize: -Sum_i w_i * x_i
 ///   Constraint: For each NON-edge (i,j) where (i,j) not in E and i<>j,
 ///     x_i and x_j cannot both be 1.
 ///     Penalty: lambda * x_i * x_j  for each non-edge
 ///
-/// This is equivalent to Maximum Independent Set on the complement graph.
+/// This is equivalent to Maximum Weight Independent Set on the complement graph.
 ///
 /// Qubits: |V|
 ///
@@ -37,11 +39,12 @@ module QuantumCliqueSolver =
     type Vertex =
         {
             Id: string
-            /// Optional priority weight for tie-breaking; default 1.0
+            /// Weight the vertex adds to a clique; the solver maximises the total.
+            /// 1.0 on every vertex makes the heaviest clique the largest one.
             Weight: float
         }
 
-    /// Maximum clique problem definition
+    /// Maximum-weight clique problem definition
     type Problem =
         {
             Vertices: Vertex list
@@ -50,7 +53,7 @@ module QuantumCliqueSolver =
             Edges: (int * int) list
         }
 
-    /// Maximum clique solution
+    /// Maximum-weight clique solution
     type Solution =
         {
             /// Vertices in the found clique
@@ -71,6 +74,10 @@ module QuantumCliqueSolver =
             OptimizedParameters: (float * float)[] option
             /// Whether Nelder-Mead converged
             OptimizationConverged: bool option
+            /// Standing of this solution among the final samples; None when no single sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+            /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+            Split: QaoaExecutionHelpers.SplitReport option
         }
 
     // ========================================================================
@@ -131,22 +138,25 @@ module QuantumCliqueSolver =
 
     /// Build the QUBO as a sparse map.
     ///
-    /// Objective: maximize Sum_i x_i  =>  minimize -Sum_i x_i
-    ///   Diagonal Q[i,i] = -1 (or -w_i for weighted variant)
+    /// Objective: maximize Sum_i w_i * x_i  =>  minimize -Sum_i w_i * x_i
+    ///   Diagonal Q[i,i] = -w_i
     ///
     /// Constraint: for each non-edge (i,j), x_i*x_j must be 0
     ///   Penalty: lambda * x_i * x_j  for each non-edge
     ///   Off-diagonal Q[i,j] += lambda / 2  (symmetric split)
+    ///
+    /// The minimum is a clique of the largest total weight (the largest clique when
+    /// every weight is 1.0).
     let private buildQuboMap (problem: Problem) : Map<int * int, float> =
         let n = problem.Vertices.Length
         let nonEdges = buildNonEdges problem
 
-        // Penalty must dominate the objective.
-        // Max objective magnitude = n (all vertices selected with weight 1 each).
+        // Penalty must dominate the objective, whose magnitude is at most the total weight
+        // (n when every vertex weighs 1).
         let totalWeight = problem.Vertices |> List.sumBy (fun v -> abs v.Weight)
         let penalty = max (float n) totalWeight + 1.0
 
-        // Linear terms: -w_i (maximize clique size/weight)
+        // Linear terms: -w_i (maximize clique weight)
         let linearTerms =
             problem.Vertices |> List.indexed |> List.map (fun (i, v) -> ((i, i), -v.Weight))
 
@@ -205,6 +215,8 @@ module QuantumCliqueSolver =
             NumShots = 0
             OptimizedParameters = None
             OptimizationConverged = None
+            Sampling = None
+            Split = None
         }
 
     // ========================================================================
@@ -293,8 +305,8 @@ module QuantumCliqueSolver =
                         Edges = localEdges
                     })
 
-    /// Recombine sub-solutions into a single solution. Currently identity (single solution).
-    /// Handles empty list gracefully.
+    /// Recombine the per-component solutions into one: the clique of the largest total
+    /// weight, the measure the QUBO maximises. An empty list gives the empty clique.
     let recombine (solutions: Solution list) : Solution =
         match solutions with
         | [] ->
@@ -308,12 +320,18 @@ module QuantumCliqueSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         | [ single ] -> single
         // A clique is fully connected, so it cannot span disconnected components:
-        // the maximum clique lives entirely within one component. Picking the best
-        // per-component clique is therefore correct (do NOT union here).
-        | _ -> solutions |> List.maxBy (fun s -> s.CliqueSize)
+        // the maximum-weight clique lives entirely within one component. Picking the
+        // heaviest per-component clique is therefore correct (do NOT union here).
+        // Split counts the runs of every component, not only the winner's.
+        | _ ->
+            { (solutions |> List.maxBy (fun s -> s.CliqueWeight)) with
+                Split = QaoaExecutionHelpers.combineSplitReports (solutions |> List.map (fun s -> s.Split))
+            }
 
     // ========================================================================
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
@@ -342,11 +360,13 @@ module QuantumCliqueSolver =
                     match toQubo subProblem with
                     | Error err -> return Error err
                     | Ok qubo ->
-                        let! result = runQaoaAsync backend qubo config cancellationToken
-
-                        match result with
+                        match! QuboSplitting.runQaoaAsync backend qubo config cancellationToken with
                         | Error err -> return Error err
-                        | Ok(bits, optParams, converged) ->
+                        | Ok run ->
+                            let bits = run.Best
+                            let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                            let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
+
                             let finalBits, wasRepaired =
                                 if config.EnableConstraintRepair && not (isValid subProblem bits) then
                                     (repairConstraints subProblem bits, true)
@@ -354,6 +374,16 @@ module QuantumCliqueSolver =
                                     (bits, false)
 
                             let solution = decodeSolution subProblem finalBits
+
+                            // A split run has no single sample set to take statistics from
+                            let sampling =
+                                run.Direct
+                                |> Option.map (fun direct ->
+                                    sampleStatistics
+                                        bits.Length
+                                        (isValid subProblem)
+                                        (fun sample -> sample = finalBits)
+                                        direct.Samples)
 
                             return
                                 Ok
@@ -363,6 +393,8 @@ module QuantumCliqueSolver =
                                         WasRepaired = wasRepaired
                                         OptimizedParameters = optParams
                                         OptimizationConverged = converged
+                                        Sampling = sampling
+                                        Split = run.Split
                                     }
                 }
 
@@ -374,7 +406,7 @@ module QuantumCliqueSolver =
                 recombine
                 solveSingle
 
-    /// Solve maximum clique using QAOA with full configuration control (async).
+    /// Solve maximum-weight clique using QAOA with full configuration control (async).
     /// Automatically decomposes into connected components when the problem
     /// exceeds backend qubit capacity.
     let solveWithConfigAsync

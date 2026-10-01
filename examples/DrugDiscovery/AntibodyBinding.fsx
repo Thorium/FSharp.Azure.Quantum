@@ -643,17 +643,19 @@ let private computeEnergyAsync
         let startTime = DateTime.Now
         let config = solverConfig backend maxIter tol
 
-        let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+        let! result =
+            GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
         let elapsed = (DateTime.Now - startTime).TotalSeconds
 
-        match result with
-        | Ok vqeResult -> return (Ok vqeResult.Energy, elapsed)
-        | Error err ->
-            if not quiet then
-                eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        return
+            match result with
+            | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
+            | Error err ->
+                if not quiet then
+                    eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
 
-            return (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+                (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
     }
 
 /// Build a complex molecule from antibody + antigen fragments.
@@ -796,7 +798,9 @@ let results =
         let computed = ResizeArray()
 
         for (i, contact) in List.indexed contacts do
-            let! result = computeContactAsync backend maxIterations tolerance temperature i contacts.Length contact
+            let! result =
+                computeContactAsync backend maxIterations tolerance temperature i contacts.Length contact
+
             computed.Add result
 
         return List.ofSeq computed

@@ -519,7 +519,10 @@ module RiskEngine =
     /// Returns a `Result`: the quantum amplitude-estimation path can fail as a business
     /// outcome (e.g. backend rejects the circuit), surfaced as `Error`; the classical
     /// Monte Carlo path always yields `Ok`.
-    let executeAsync (config: RiskConfiguration) (cancellationToken: CancellationToken) : Task<QuantumResult<RiskReport>> =
+    let executeAsync
+        (config: RiskConfiguration)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<RiskReport>> =
         // A token given to the configuration (`cancellation_token`) cancels the analysis
         // together with the caller's.
         match config.CancellationToken with
@@ -573,8 +576,7 @@ type QuantumRiskEngineBuilder() =
     /// propagated as Error rather than raised (executeAsync is Result-typed); the
     /// `cancellation_token` operation, when given, cancels the analysis.
     member _.Run(state: RiskConfiguration) : Task<QuantumResult<RiskReport>> =
-        let ct =
-            defaultArg state.CancellationToken CancellationToken.None
+        let ct = defaultArg state.CancellationToken CancellationToken.None
 
         RiskEngine.executeAsync state ct
 

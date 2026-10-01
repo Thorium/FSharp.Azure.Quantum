@@ -4,7 +4,7 @@
 # Bell state: (|00⟩ + |11⟩)/√2
 #
 # Topological implementation:
-# 1. Initialize 4 sigma anyons (creates 2 topological qubits)
+# 1. Initialize 2 topological qubits (6 sigma anyons: a pair per qubit and a parity pair)
 # 2. Braid anyons 0-1 (applies phase to first qubit)
 # 3. Braid anyons 2-3 (applies phase to second qubit)
 # 4. Measure fusion of anyons 1-2 (entangles the qubits)
@@ -16,9 +16,9 @@
 
 ANYON Ising
 
-# Initialize 4 sigma anyons (2 topological qubits)
-# Convention: Pair (0,1) = qubit A, Pair (2,3) = qubit B
-INIT 4
+# INIT takes logical qubits: 2 qubits are 6 sigma anyons
+# Convention: Pair (0,1) = qubit A, Pair (2,3) = qubit B, Pair (4,5) = parity
+INIT 2
 
 # Apply Hadamard-like operation to qubit A
 # (In Ising anyons, requires specific braiding sequence)

@@ -30,6 +30,9 @@ module GameLoop =
             TotalDeals: int
             LastCapturer: int option // Index of last player who captured
             Variant: GameVariant
+            /// 10-point freeze: once any player's game score has reached 10, sweeps score
+            /// nothing for the rest of the game. Set per round from the game scores.
+            SweepsFrozen: bool
         }
 
     /// Calculate total deal rounds based on player count
@@ -505,6 +508,12 @@ module GameLoop =
                         let r, t, _ = Rules.playCard backend chosenCard state.Table
                         (r, t)
 
+                // 10-point freeze: a sweep keeps its capture but loses the sweep point
+                let result =
+                    match result with
+                    | Capture(played, captured, true) when state.SweepsFrozen -> Capture(played, captured, false)
+                    | other -> other
+
                 // Build the display evaluation from the play that was actually
                 // applied. The played card is banked with the capture, so its
                 // points count too.
@@ -571,14 +580,16 @@ module GameLoop =
     let allHandsEmpty (state: GameState) : bool =
         state.Players |> List.forall (fun p -> List.isEmpty p.Hand)
 
-    /// Run a single round and return the round scores. Returns None if player quit.
+    /// Run a single round and return the round scores with the pot carried into the next
+    /// round. Returns None if player quit.
     let private runRound
         (config: GameConfig)
         (rng: Random)
         (players: Player list)
         (roundNumber: int)
         (cumulativeScores: Map<string, int>)
-        : (Player * Scoring.ScoreBreakdown) list option =
+        (carry: Scoring.CarryOver)
+        : ((Player * Scoring.ScoreBreakdown) list * Scoring.CarryOver) option =
 
         let deck = Cards.createDeck () |> Cards.shuffle rng
         let totalDeals = totalDealRounds config.PlayerCount
@@ -598,6 +609,22 @@ module GameLoop =
 
         Renderer.displayRoundHeader roundNumber cumulativeScores config.Variant config.TargetScore
 
+        if carry.CardsPool > 0 || carry.SpadesPool > 0 then
+            AnsiConsole.MarkupLine(
+                sprintf
+                    "[grey]Carried over from tied rounds: most cards +%d, most spades +%d[/]"
+                    carry.CardsPool
+                    carry.SpadesPool
+            )
+
+        if
+            cumulativeScores
+            |> Map.exists (fun _ score -> score >= Scoring.sweepFreezeScore)
+        then
+            AnsiConsole.MarkupLine(
+                sprintf "[grey]A player has %d points: sweeps no longer score.[/]" Scoring.sweepFreezeScore
+            )
+
         let mutable state =
             {
                 Players = freshPlayers
@@ -608,6 +635,9 @@ module GameLoop =
                 TotalDeals = totalDeals
                 LastCapturer = None
                 Variant = config.Variant
+                SweepsFrozen =
+                    cumulativeScores
+                    |> Map.exists (fun _ score -> score >= Scoring.sweepFreezeScore)
             }
 
         let mutable quit = false
@@ -673,7 +703,7 @@ module GameLoop =
 
             // Calculate and display round scores
             AnsiConsole.WriteLine()
-            let scores = Scoring.calculateScores state.Players
+            let scores, nextCarry = Scoring.calculateScoresCarry carry state.Players
             Renderer.displayRoundScores scores roundNumber state.Players
 
             // Show card count details
@@ -686,9 +716,17 @@ module GameLoop =
                     sprintf "  [grey]%s: %d cards (%d spades)[/]" player.Name (List.length player.CapturedCards) spades
                 )
 
+            if nextCarry.CardsPool > 0 || nextCarry.SpadesPool > 0 then
+                AnsiConsole.MarkupLine(
+                    sprintf
+                        "  [grey]Tied categories carry over: most cards %d, most spades %d[/]"
+                        nextCarry.CardsPool
+                        nextCarry.SpadesPool
+                )
+
             AnsiConsole.WriteLine()
 
-            Some scores
+            Some(scores, nextCarry)
 
     /// Run a complete multi-round game
     let runGame (config: GameConfig) : unit =
@@ -707,19 +745,21 @@ module GameLoop =
         let mutable cumulativeScores =
             players |> List.map (fun p -> p.Name, 0) |> Map.ofList
 
+        let mutable carry = Scoring.CarryOver.zero
         let mutable roundNumber = 0
         let mutable gameOver = false
 
         while not gameOver do
             roundNumber <- roundNumber + 1
 
-            match runRound config rng players roundNumber cumulativeScores with
+            match runRound config rng players roundNumber cumulativeScores carry with
             | None ->
                 // Player quit
                 AnsiConsole.MarkupLine("[yellow]Game ended by player.[/]")
                 AnsiConsole.WriteLine()
                 gameOver <- true
-            | Some roundScores ->
+            | Some(roundScores, nextCarry) ->
+                carry <- nextCarry
 
                 // Accumulate scores
                 for (player, breakdown) in roundScores do

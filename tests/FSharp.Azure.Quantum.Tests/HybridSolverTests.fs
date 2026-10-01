@@ -35,7 +35,7 @@ module HybridSolverTests =
 
     // Slow: a 3-city TSP is 3² = 9 qubits under the one-hot time encoding, and a
     // topological backend carries that as a fusion-tree state of 2⁹ explicit terms
-    // through every gate — one circuit execution is ~2 minutes. That is the floor
+    // through every gate — one circuit execution takes minutes. That is the floor
     // for this problem on this backend, independent of the QAOA configuration.
     [<Fact; Trait("Category", "Slow")>]
     let ``solveTspWithBackendAndConfigAsync forced quantum accepts topological backend`` () =
@@ -68,14 +68,49 @@ module HybridSolverTests =
                     CancellationToken.None
 
             // Assert
-            // Don't require a successful decode (QAOA is probabilistic and depends on backend capabilities);
-            // instead, verify the injected backend is accepted and quantum path is attempted.
+            // The injected backend is accepted and the quantum path runs. Whether one of the
+            // 200 samples is a valid tour (a permutation matrix) depends on the sampling: the
+            // result is the measured tour, or the solver's error, never a classical tour.
             match result with
             | Ok solution ->
                 Assert.Equal(HybridSolver.SolverMethod.Quantum, solution.Method)
-                Assert.Equal(3, solution.Result.Tour.Length)
-            | Error(FSharp.Azure.Quantum.Core.QuantumError.OperationError(op, _)) ->
+                Assert.Equal<int[]>([| 0; 1; 2 |], solution.Result.Tour)
+                Assert.Equal(6.0, solution.Result.TourLength, 9)
+            | Error(FSharp.Azure.Quantum.Core.QuantumError.OperationError(op, context)) ->
                 Assert.Equal("Quantum TSP solver", op)
+                Assert.Contains("No valid tour in 200 shots", context)
+            | Error err -> Assert.Fail(err.Message)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``solveTspWithBackendAndConfigAsync forced quantum returns the measured tour or the solver's error`` () =
+        task {
+            // 3 cities = 9 qubits on the local simulator, one circuit
+            let distances = array2D [ [ 0.0; 1.0; 2.0 ]; [ 1.0; 0.0; 3.0 ]; [ 2.0; 3.0; 0.0 ] ]
+
+            let! result =
+                HybridSolver.solveTspWithBackendAndConfigAsync
+                    distances
+                    None
+                    None
+                    (Some HybridSolver.SolverMethod.Quantum)
+                    None
+                    { QuantumTspSolver.fastConfig with
+                        FinalShots = 200
+                    }
+                    CancellationToken.None
+
+            // A forced quantum run never falls back to the classical solver: without a valid
+            // tour among the samples it is an error.
+            match result with
+            | Ok solution ->
+                Assert.Equal(HybridSolver.SolverMethod.Quantum, solution.Method)
+                Assert.Equal<int[]>([| 0; 1; 2 |], solution.Result.Tour)
+                Assert.Equal(6.0, solution.Result.TourLength, 9)
+            | Error(FSharp.Azure.Quantum.Core.QuantumError.OperationError(op, context)) ->
+                Assert.Equal("Quantum TSP solver", op)
+                Assert.Contains("No valid tour in 200 shots", context)
             | Error err -> Assert.Fail(err.Message)
         }
         :> Task

@@ -558,7 +558,8 @@ let private priceWithQuantumMC
                 Shots = shots
             }
 
-        let! result = QuantumMonteCarlo.estimateExpectationAsync config backend CancellationToken.None
+        let! result =
+            QuantumMonteCarlo.estimateExpectationAsync config backend CancellationToken.None
 
         return
             result
@@ -660,10 +661,11 @@ let private calculateDelta
                 }
                 backend
 
-        match priceUp, priceDown with
-        | Ok up, Ok down -> return Ok((up.Price - down.Price) / (2.0 * bump))
-        | Error e, _
-        | _, Error e -> return Error e
+        return
+            match priceUp, priceDown with
+            | Ok up, Ok down -> Ok((up.Price - down.Price) / (2.0 * bump))
+            | Error e, _
+            | _, Error e -> Error e
     }
 
 let private calculateVega
@@ -690,10 +692,11 @@ let private calculateVega
                 }
                 backend
 
-        match priceUp, priceDown with
-        | Ok up, Ok down -> return Ok((up.Price - down.Price) / (2.0 * bump))
-        | Error e, _
-        | _, Error e -> return Error e
+        return
+            match priceUp, priceDown with
+            | Ok up, Ok down -> Ok((up.Price - down.Price) / (2.0 * bump))
+            | Error e, _
+            | _, Error e -> Error e
     }
 
 let private calculateTheta
@@ -717,10 +720,11 @@ let private calculateTheta
                     }
                     backend
 
-            match priceNow, priceLater with
-            | Ok now, Ok later -> return Ok(later.Price - now.Price)
-            | Error e, _
-            | _, Error e -> return Error e
+            return
+                match priceNow, priceLater with
+                | Ok now, Ok later -> Ok(later.Price - now.Price)
+                | Error e, _
+                | _, Error e -> Error e
     }
 
 // ==============================================================================
@@ -748,9 +752,7 @@ let private priceSpecAsync (spec: ExoticOptionSpec) =
             | LookbackSpec _ -> "Lookback"
 
         // Price
-        let! priceResult = priceOption spec market backend
-
-        match priceResult with
+        match! priceOption spec market backend with
         | Ok pr ->
             // Greeks
             let! deltaR = calculateDelta market spec backend

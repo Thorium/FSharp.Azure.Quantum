@@ -430,7 +430,8 @@ module PredictiveModel =
             // so a file saved as a different model kind can still deserialize "successfully"
             // into the wrong schema. Validate discriminating required fields (non-null,
             // non-empty) before accepting each branch.
-            let! transferResult = ModelSerialization.loadForTransferLearningAsync path cancellationToken
+            let! transferResult =
+                ModelSerialization.loadForTransferLearningAsync path cancellationToken
 
             let transferResult =
                 match transferResult with
@@ -485,7 +486,8 @@ module PredictiveModel =
                             }
             | Error _ ->
                 // Try to load as multi-class VQC model
-                let! multiClassVqcResult = ModelSerialization.loadVQCMultiClassModelAsync path cancellationToken
+                let! multiClassVqcResult =
+                    ModelSerialization.loadVQCMultiClassModelAsync path cancellationToken
 
                 let multiClassVqcResult =
                     match multiClassVqcResult with
@@ -555,7 +557,8 @@ module PredictiveModel =
                             }
                 | Error _ ->
                     // Try to load as HHL model
-                    let! hhlResult = HHLModelSerialization.loadHHLRegressionResultAsync path cancellationToken
+                    let! hhlResult =
+                        HHLModelSerialization.loadHHLRegressionResultAsync path cancellationToken
 
                     let hhlResult =
                         match hhlResult with
@@ -699,7 +702,10 @@ module PredictiveModel =
         }
 
     /// Train a predictive model without saving it (trainAsync saves it when requested)
-    let private trainModel (problem: PredictionProblem) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
+    let private trainModel
+        (problem: PredictionProblem)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Model>> =
         task {
             match validateProblem problem with
             | Error e -> return Error e
@@ -737,7 +743,9 @@ module PredictiveModel =
                         if problem.Verbose then
                             let log = logInfo problem.Logger
                             log "Training Quantum Regression..."
-                            log $"  Samples: {problem.TrainFeatures.Length}, Features: {problem.TrainFeatures.[0].Length}"
+
+                            log
+                                $"  Samples: {problem.TrainFeatures.Length}, Features: {problem.TrainFeatures.[0].Length}"
 
                         // Try HHL first for linear regression (exponential speedup!)
                         let hhlConfig: RegressionConfig =
@@ -782,7 +790,9 @@ module PredictiveModel =
                         | _ ->
                             // HHL failed or poor fit → Try VQC (can handle non-linear)
                             if problem.Verbose then
-                                logWarning problem.Logger "[WARN] HHL not suitable, trying VQC (variational) regression..."
+                                logWarning
+                                    problem.Logger
+                                    "[WARN] HHL not suitable, trying VQC (variational) regression..."
 
                             let featureMap = FeatureMapType.ZZFeatureMap 2
                             let varFormDepth = 3
@@ -835,16 +845,22 @@ module PredictiveModel =
                                 return
                                     vqcTrainingResult
                                     |> Result.mapError (fun e ->
-                                        QuantumError.ValidationError("Input", $"Both HHL and VQC regression failed: {e}"))
+                                        QuantumError.ValidationError(
+                                            "Input",
+                                            $"Both HHL and VQC regression failed: {e}"
+                                        ))
                                     |> Result.map (fun vqcResult ->
                                         if problem.Verbose then
                                             let log = logInfo problem.Logger
                                             log "[OK] VQC training complete!"
-                                            log $"  R-squared Score: {vqcResult.TrainRSquared:F4} (non-linear regression)"
+
+                                            log
+                                                $"  R-squared Score: {vqcResult.TrainRSquared:F4} (non-linear regression)"
 
                                         let model =
                                             {
-                                                InternalModel = RegressionVQC(vqcResult, featureMap, varForm, numQubits)
+                                                InternalModel =
+                                                    RegressionVQC(vqcResult, featureMap, varForm, numQubits)
                                                 Metadata =
                                                     {
                                                         ProblemType = Regression
@@ -930,7 +946,8 @@ module PredictiveModel =
 
                                     let model =
                                         {
-                                            InternalModel = MultiClassVQC(multiClassResult, featureMap, varForm, numQubits)
+                                            InternalModel =
+                                                MultiClassVQC(multiClassResult, featureMap, varForm, numQubits)
                                             Metadata =
                                                 {
                                                     ProblemType = MultiClass numClasses
@@ -962,6 +979,7 @@ module PredictiveModel =
                                 Verbose = problem.Verbose
                                 Logger = problem.Logger
                             }
+
                         match!
                             MultiClassSVM.trainAsync
                                 backend
@@ -973,7 +991,8 @@ module PredictiveModel =
                                 cancellationToken
                         with
                         | Error e ->
-                            return Error(QuantumError.ValidationError("Input", $"Hybrid multi-class training failed: {e}"))
+                            return
+                                Error(QuantumError.ValidationError("Input", $"Hybrid multi-class training failed: {e}"))
                         | Ok multiClassModel ->
                             // Training accuracy; a sample whose prediction fails counts as wrong
                             let mutable correctCount = 0
@@ -1049,7 +1068,9 @@ module PredictiveModel =
             match model.Metadata.ProblemType with
             | MultiClass _ ->
                 return
-                    Error(QuantumError.Other "This model is for multi-class prediction. Use predictCategoryAsync instead.")
+                    Error(
+                        QuantumError.Other "This model is for multi-class prediction. Use predictCategoryAsync instead."
+                    )
             | Regression ->
                 try
                     match model.InternalModel with
@@ -1169,7 +1190,8 @@ module PredictiveModel =
                                 cancellationToken
                         with
                         | Error e ->
-                            return Error(QuantumError.ValidationError("Input", $"VQC multi-class prediction failed: {e}"))
+                            return
+                                Error(QuantumError.ValidationError("Input", $"VQC multi-class prediction failed: {e}"))
                         | Ok prediction ->
                             return
                                 Ok
@@ -1181,7 +1203,14 @@ module PredictiveModel =
                                     }
 
                     | SVMMultiClass multiClassModel ->
-                        match! MultiClassSVM.predictAsync actualBackend multiClassModel features actualShots cancellationToken with
+                        match!
+                            MultiClassSVM.predictAsync
+                                actualBackend
+                                multiClassModel
+                                features
+                                actualShots
+                                cancellationToken
+                        with
                         | Error e -> return Error e
                         | Ok prediction ->
                             let numClasses = multiClassModel.ClassLabels.Length

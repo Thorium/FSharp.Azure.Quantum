@@ -363,6 +363,8 @@ module DecomposeRecombineTests =
                 NumShots = 100
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         let result = recombine [ sol ]
@@ -383,6 +385,8 @@ module DecomposeRecombineTests =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         let sol2: Solution =
@@ -400,6 +404,8 @@ module DecomposeRecombineTests =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         let result = recombine [ sol1; sol2 ]

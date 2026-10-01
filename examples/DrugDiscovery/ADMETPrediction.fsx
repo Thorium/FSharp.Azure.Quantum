@@ -1041,7 +1041,7 @@ if not quiet then
     printfn ""
 
     let circuitStr = createFeatureMapCircuit exampleFeatures 4
-    printfn "Quantum circuit (4 qubits, depth %d):" featureMapDepth
+    printfn "Feature-map sketch (4 of the %d feature qubits, depth %d):" exampleFeatures.Length featureMapDepth
     printfn "%s" circuitStr
 
 // ==============================================================================

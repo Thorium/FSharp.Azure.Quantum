@@ -175,7 +175,9 @@ module VQC =
         let slots =
             match backend with
             | :? IShotSamplingBackend ->
-                Some(new SemaphoreSlim(QuantumKernels.MaxConcurrentSampledJobs, QuantumKernels.MaxConcurrentSampledJobs))
+                Some(
+                    new SemaphoreSlim(QuantumKernels.MaxConcurrentSampledJobs, QuantumKernels.MaxConcurrentSampledJobs)
+                )
             | _ -> None
 
         /// Runs `job` once a slot is free.
@@ -213,7 +215,10 @@ module VQC =
                     | Error e -> return Error e
                     | Ok circuit ->
                         let! forwardResult =
-                            gate.Run(cancellationToken, fun () -> forwardPassAsync backend circuit shots cancellationToken)
+                            gate.Run(
+                                cancellationToken,
+                                fun () -> forwardPassAsync backend circuit shots cancellationToken
+                            )
 
                         return
                             forwardResult
@@ -263,7 +268,10 @@ module VQC =
                         | Error e -> return Error e
                         | Ok circuit ->
                             return!
-                                gate.Run(cancellationToken, fun () -> forwardPassAsync backend circuit shots cancellationToken)
+                                gate.Run(
+                                    cancellationToken,
+                                    fun () -> forwardPassAsync backend circuit shots cancellationToken
+                                )
                     })
                 |> Task.WhenAll
 
@@ -307,7 +315,15 @@ module VQC =
 
             // Unshifted per-sample predictions p_j(θ): loss-derivative factor of the chain rule
             let! basePredictionsResult =
-                computePredictionsAsync gate backend featureMap variationalForm parameters features shots cancellationToken
+                computePredictionsAsync
+                    gate
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    shots
+                    cancellationToken
 
             match basePredictionsResult with
             | Error e -> return Error(QuantumError.ValidationError("Input", $"Gradient computation failed: {e}"))
@@ -635,7 +651,8 @@ module VQC =
                                                 AdamState = Some newAdamState
                                             })
 
-                                | Adam _, None -> return Error(QuantumError.Other "Adam optimizer state not initialized")
+                                | Adam _, None ->
+                                    return Error(QuantumError.Other "Adam optimizer state not initialized")
                 }
 
             // Start training
@@ -1285,7 +1302,8 @@ module VQC =
                                                 )
                                             )
 
-                                | Adam _, None -> return Error(QuantumError.Other "Adam optimizer state not initialized")
+                                | Adam _, None ->
+                                    return Error(QuantumError.Other "Adam optimizer state not initialized")
                 }
 
             // Start training
@@ -1328,10 +1346,7 @@ module VQC =
                                 valueRange
                                 cancellationToken
 
-                        predictions.[i] <-
-                            prediction
-                            |> Result.map (fun pred -> pred.Value)
-                            |> Result.defaultValue nan // NaN signals prediction failure in metrics
+                        predictions.[i] <- prediction |> Result.map (fun pred -> pred.Value) |> Result.defaultValue nan // NaN signals prediction failure in metrics
 
                     let finalMSE =
                         Array.zip trainTargets predictions

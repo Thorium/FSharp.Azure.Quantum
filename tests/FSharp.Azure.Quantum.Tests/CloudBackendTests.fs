@@ -1215,3 +1215,84 @@ module CloudBackendTests =
         | other -> Assert.Fail($"the shared budget is used up; expected QuotaExceeded, got %A{other}")
 
         Assert.Equal(1, shared.Submitted)
+
+    // ------------------------------------------------------------------------
+    // Qubit limits: built-in figures are defaults the caller can replace
+    // ------------------------------------------------------------------------
+
+    [<Fact>]
+    let ``maxQubits replaces the built-in qubit limit of every cloud backend`` () =
+        use client = new HttpClient()
+        let workspace = "https://test"
+
+        let overridden: IQubitLimitedBackend list =
+            [
+                CloudBackends.RigettiCloudBackend(client, workspace, "rigetti.qpu.ankaa-3", maxQubits = 336)
+                CloudBackends.IonQCloudBackend(client, workspace, "ionq.qpu.forte-1", maxQubits = 64)
+                CloudBackends.QuantinuumCloudBackend(client, workspace, "quantinuum.qpu.h2-1", maxQubits = 98)
+                CloudBackends.AtomComputingCloudBackend(
+                    client,
+                    workspace,
+                    "atom-computing.qpu.phoenix",
+                    maxQubits = 1200
+                )
+                CloudBackends.IqmCloudBackend(client, workspace, "iqm.qpu.garnet", maxQubits = 54)
+            ]
+
+        Assert.Equal<int option list>(
+            [ Some 336; Some 64; Some 98; Some 1200; Some 54 ],
+            overridden |> List.map (fun backend -> backend.MaxQubits)
+        )
+
+        // the limit the solvers read is the supplied one
+        let forte =
+            CloudBackends.IonQCloudBackend(client, workspace, "ionq.qpu.forte-1", maxQubits = 64)
+
+        Assert.Equal(Some 64, UnifiedBackend.getRunnableQubits forte)
+
+        // a provider simulator is no longer held to the conservative default
+        let simulator =
+            CloudBackends.IonQCloudBackend(client, workspace, "ionq.simulator", maxQubits = 29)
+
+        Assert.Equal(Some 29, (simulator :> IQubitLimitedBackend).MaxQubits)
+
+    [<Fact>]
+    let ``a target this version does not know reports no qubit limit`` () =
+        use client = new HttpClient()
+        let workspace = "https://test"
+
+        let unknown: IQubitLimitedBackend list =
+            [
+                CloudBackends.RigettiCloudBackend(client, workspace, "rigetti.next")
+                CloudBackends.IonQCloudBackend(client, workspace, "ionq.qpu.tempo-1")
+                CloudBackends.QuantinuumCloudBackend(client, workspace, "quantinuum.qpu.helios-1")
+                CloudBackends.AtomComputingCloudBackend(client, workspace, "atom-computing.next")
+                CloudBackends.IqmCloudBackend(client, workspace, "iqm.next")
+            ]
+
+        for backend in unknown do
+            Assert.Equal(None, backend.MaxQubits)
+
+        // and takes the caller's figure when one is given
+        let helios =
+            CloudBackends.QuantinuumCloudBackend(client, workspace, "quantinuum.qpu.helios-1", maxQubits = 98)
+
+        Assert.Equal(Some 98, (helios :> IQubitLimitedBackend).MaxQubits)
+
+    [<Fact>]
+    let ``qubitLimit prefers the supplied figure and refuses one below 1`` () =
+        Assert.Equal(Some 40, CloudBackendHelpers.qubitLimit (ValueSome 40) (ValueSome 25))
+        Assert.Equal(Some 40, CloudBackendHelpers.qubitLimit (ValueSome 40) ValueNone)
+        Assert.Equal(Some 25, CloudBackendHelpers.qubitLimit ValueNone (ValueSome 25))
+        Assert.Equal(None, CloudBackendHelpers.qubitLimit ValueNone ValueNone)
+
+        Assert.Throws<ArgumentException>(fun () ->
+            CloudBackendHelpers.qubitLimit (ValueSome 0) (ValueSome 25) |> ignore)
+        |> ignore
+
+        use client = new HttpClient()
+
+        Assert.Throws<ArgumentException>(fun () ->
+            CloudBackends.IonQCloudBackend(client, "https://test", "ionq.qpu.aria-1", maxQubits = -3)
+            |> ignore)
+        |> ignore

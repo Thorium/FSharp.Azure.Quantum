@@ -991,11 +991,11 @@ task {
 - `use_method` - `QuantumKernelSVM` (default) | `VQCClassifier` | `QAOADiverseSelection`
 - `use_feature_map` - `ZZFeatureMap` (default) | `PauliFeatureMap` | `ZFeatureMap`
 - `set_batch_size` - Batch size (default 10)
-- `shots` - Measurement shots (default 100)
-- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default 100 for the classifiers, 1000 final shots for `QAOADiverseSelection`)
+- `backend` - Quantum backend (required)
 - `vqc_layers` - Layers for `VQCClassifier` (default 2)
 - `vqc_max_epochs` - Epochs for `VQCClassifier` (default 50)
-- `selection_budget` - Budget for `QAOADiverseSelection` (default 10.0)
+- `selection_budget` - Budget for `QAOADiverseSelection` (default 10.0): the largest number of molecules selected, each costing 1; at or above the batch size it does not bind
 - `diversity_weight` - Diversity weight for `QAOADiverseSelection` (default 0.5)
 
 ---
@@ -1272,8 +1272,9 @@ task {
 - `shots` - Measurement shots (default: 1000)
 
 **Notes**:
-- Uses QAOA on a QUBO formulation of bin packing.
-- Item sizes must be positive and no larger than the bin capacity; at least one item is required.
+- Uses QAOA on a QUBO formulation of bin packing: n·B item bits, B bin bits and K slack bits per bin (B = first-fit-decreasing bin count; the slack encodes "at most the capacity" and is absent when every used bin must be full). The example above takes 18 qubits.
+- Item sizes must be positive and no larger than the bin capacity; at least one item is required. Sizes and capacity need a common decimal form of at most 6 places (they are rescaled to integers).
+- `WasRepaired` on the result is `true` when no measured sample was a valid packing and classical constraint repair produced the assignments; `Sampling` counts the valid samples and the samples equal to the returned packing.
 
 ---
 

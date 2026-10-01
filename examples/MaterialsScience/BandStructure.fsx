@@ -526,8 +526,11 @@ let runVqeAsync (label: string) (description: string) (molecule: Molecule) =
 
 let vqeResults =
     task {
-        let! silane = runVqeAsync "SiH4 (Silane)" "Si CVD precursor, tetrahedral" (createSiH4 ())
-        let! phosphine = runVqeAsync "PH3 (Phosphine)" "n-type dopant precursor, pyramidal" (createPH3 ())
+        let! silane =
+            runVqeAsync "SiH4 (Silane)" "Si CVD precursor, tetrahedral" (createSiH4 ())
+
+        let! phosphine =
+            runVqeAsync "PH3 (Phosphine)" "n-type dopant precursor, pyramidal" (createPH3 ())
 
         let! hydrogen =
             runVqeAsync "H2 at Si-H bond length" "Surface passivation model, 1.48 A" (Molecule.createH2 1.48)

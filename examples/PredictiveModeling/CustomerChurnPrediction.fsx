@@ -291,9 +291,7 @@ if shouldRun 1 then
 
         task {
             for (name, features) in testCustomers do
-                let! predicted = PredictiveModel.predictCategoryAsync features model None None CancellationToken.None
-
-                match predicted with
+                match! PredictiveModel.predictCategoryAsync features model None None CancellationToken.None with
                 | Error err ->
                     if not quiet then
                         printfn "%s: Prediction failed: %A" name err
@@ -573,9 +571,7 @@ if shouldRun 3 then
 
         task {
             for (name, features, action) in testCases do
-                let! predicted = PredictiveModel.predictAsync features model None None CancellationToken.None
-
-                match predicted with
+                match! PredictiveModel.predictAsync features model None None CancellationToken.None with
                 | Error err ->
                     if not quiet then
                         printfn "%s: Prediction failed: %A" name err

@@ -101,6 +101,10 @@ module DrugDiscoverySolvers =
                 NumShots: int
                 OptimizedParameters: (float * float)[] option
                 OptimizationConverged: bool option
+                /// Standing of this solution among the final samples; None when no single sampling run produced it
+                Sampling: QaoaExecutionHelpers.SampleStatistics option
+                /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+                Split: QaoaExecutionHelpers.SplitReport option
             }
 
         /// Build QUBO for Maximum Weight Independent Set
@@ -160,6 +164,8 @@ module DrugDiscoverySolvers =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         /// Solve using quantum QAOA with advanced features.
@@ -177,8 +183,11 @@ module DrugDiscoverySolvers =
                 else
                     let qubo = toQubo problem
 
-                    let! (bits, optParams, converged) =
-                        QaoaExecutionHelpers.runQaoaAsync backend qubo config cancellationToken
+                    let! run = QuboSplitting.runQaoaAsync backend qubo config cancellationToken
+
+                    let bits = run.Best
+                    let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                    let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
 
                     // Apply constraint repair if enabled and solution is invalid
                     let finalBits, wasRepaired =
@@ -189,6 +198,16 @@ module DrugDiscoverySolvers =
 
                     let solution = decode problem finalBits
 
+                    // A split run has no single sample set to take statistics from
+                    let sampling =
+                        run.Direct
+                        |> Option.map (fun direct ->
+                            QaoaExecutionHelpers.sampleStatistics
+                                bits.Length
+                                (isValid problem)
+                                (fun sample -> sample = finalBits)
+                                direct.Samples)
+
                     return
                         { solution with
                             BackendName = backend.Name
@@ -196,6 +215,8 @@ module DrugDiscoverySolvers =
                             WasRepaired = wasRepaired
                             OptimizedParameters = optParams
                             OptimizationConverged = converged
+                            Sampling = sampling
+                            Split = run.Split
                         }
             }
 
@@ -246,7 +267,8 @@ module DrugDiscoverySolvers =
     //
     //   First term: node importance
     //   Second term: bonus for selecting connected nodes (synergy)
-    //   Constraint: encoded as penalty λ * (Σ x_i - k)²
+    //   Constraint: encoded as penalty λ * (Σ x_i - k)²,
+    //               λ = Σ|score_i| + |α| * Σ|w_ij| + 1
     // ================================================================================
 
     module InfluenceMaximization =
@@ -292,24 +314,33 @@ module DrugDiscoverySolvers =
                 NumShots: int
                 OptimizedParameters: (float * float)[] option
                 OptimizationConverged: bool option
+                /// Standing of this solution among the final samples; None when no single sampling run produced it
+                Sampling: QaoaExecutionHelpers.SampleStatistics option
+                /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+                Split: QaoaExecutionHelpers.SplitReport option
             }
 
         /// Build QUBO for Influence Maximization
         ///
-        /// Uses Lucas Rule penalty: penalty = numOptions * objectiveMagnitude * 10.0
-        /// This ensures the cardinality constraint dominates the objective.
+        /// Cardinality penalty: λ = Σ|score_i| + |α|·Σ|w_ij| + 1. Two selections differ in
+        /// objective by at most Σ|score_i| + |α|·Σ|w_ij| (every score and every edge term
+        /// changes by at most its magnitude), and a selection of the wrong size costs at
+        /// least λ, so every minimum-energy state selects exactly K nodes and is a best
+        /// selection of K nodes.
         let toQubo (problem: Problem) : float[,] =
             let n = problem.Nodes.Length
             let k = problem.K
             let alpha = problem.SynergyWeight
             let qubo = Array2D.zeroCreate n n
 
-            // Penalty for cardinality constraint (must select exactly k)
-            // Use Lucas Rule: penalty = n * maxObjective * 10.0
-            let maxScore = problem.Nodes |> List.map (fun node -> abs node.Score) |> List.max
+            // Penalty for cardinality constraint (must select exactly k):
+            // above the widest gap the score and synergy terms together can open
             let totalScore = problem.Nodes |> List.sumBy (fun node -> abs node.Score)
-            let objectiveMagnitude = max maxScore totalScore
-            let penalty = float n * objectiveMagnitude * 10.0
+
+            let totalSynergy =
+                problem.Edges |> List.sumBy (fun edge -> abs (alpha * edge.Weight))
+
+            let penalty = totalScore + totalSynergy + 1.0
 
             // Linear terms from constraint: λ * (Σ x_i - k)² = λ * (Σ x_i² - 2k * Σ x_i + k²)
             // Since x_i² = x_i for binary: λ * ((1 - 2k) * Σ x_i + k²)
@@ -402,6 +433,8 @@ module DrugDiscoverySolvers =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         /// Solve using quantum QAOA with advanced features.
@@ -422,8 +455,11 @@ module DrugDiscoverySolvers =
                 else
                     let qubo = toQubo problem
 
-                    let! (bits, optParams, converged) =
-                        QaoaExecutionHelpers.runQaoaAsync backend qubo config cancellationToken
+                    let! run = QuboSplitting.runQaoaAsync backend qubo config cancellationToken
+
+                    let bits = run.Best
+                    let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                    let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
 
                     let currentCount = bits |> Array.sum
 
@@ -436,6 +472,16 @@ module DrugDiscoverySolvers =
 
                     let solution = decode problem finalBits
 
+                    // A split run has no single sample set to take statistics from
+                    let sampling =
+                        run.Direct
+                        |> Option.map (fun direct ->
+                            QaoaExecutionHelpers.sampleStatistics
+                                bits.Length
+                                (fun sample -> Array.sum sample = problem.K)
+                                (fun sample -> sample = finalBits)
+                                direct.Samples)
+
                     return
                         { solution with
                             BackendName = backend.Name
@@ -443,6 +489,8 @@ module DrugDiscoverySolvers =
                             WasRepaired = wasRepaired
                             OptimizedParameters = optParams
                             OptimizationConverged = converged
+                            Sampling = sampling
+                            Split = run.Split
                         }
             }
 
@@ -495,7 +543,9 @@ module DrugDiscoverySolvers =
     //
     //   First term: item value
     //   Second term: diversity bonus for pairs
-    //   Constraint: capacity penalty λ * max(0, Σ cost_i * x_i - budget)²
+    //   Constraint: costs and budget rescaled by one common factor to integers c_i and B;
+    //               binary slack s ∈ {0..B}; penalty λ * (Σ c_i * x_i + s - B)²
+    //               A budget that covers every item needs no slack and no penalty.
     // ================================================================================
 
     module DiverseSelection =
@@ -533,126 +583,196 @@ module DrugDiscoverySolvers =
                 NumShots: int
                 OptimizedParameters: (float * float)[] option
                 OptimizationConverged: bool option
+                /// Standing of this solution among the final samples; None when no single sampling run produced it
+                Sampling: QaoaExecutionHelpers.SampleStatistics option
+                /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+                Split: QaoaExecutionHelpers.SplitReport option
             }
 
-        /// Number of binary slack bits needed to represent an integer in [0, b]:
-        /// T = ceil(log2(b + 1)). Mirrors QuantumBinaryILPSolver.slackBitsForBound.
-        let private slackBitsForBound (b: float) : int =
-            if b <= 0.0 then
-                0
-            elif b < 1.0 then
-                1
+        /// The budget constraint in integer cost units.
+        type private IntegerBudget =
+            {
+                /// Cost of each item in integer units (cost × one common factor)
+                Costs: int[]
+                /// Largest total cost, in the same units, a selection may have;
+                /// ValueNone when the budget covers every item, so that no selection exceeds it
+                Limit: int voption
+                /// Weights of the slack bits; their subset sums are exactly 0..Limit
+                SlackWeights: int list
+            }
+
+        /// Put the budget constraint on integers: the costs are multiplied by one common
+        /// factor f that makes them integral (Qubo.tryScaleToIntegers: the smallest power of
+        /// ten, common divisor removed) and the budget becomes floor(budget·f). Integer cost
+        /// sums satisfy Σ c_i·x_i ≤ budget·f exactly when they satisfy Σ c_i·x_i ≤ floor(budget·f).
+        let private integerBudget (problem: Problem) : Result<IntegerBudget, QuantumError> =
+            let costs = problem.Items |> List.map (fun item -> item.Cost)
+
+            if Double.IsNaN problem.Budget || problem.Budget < 0.0 then
+                Error(QuantumError.ValidationError("budget", "Budget must be a non-negative number"))
+            elif costs |> List.exists (fun cost -> cost < 0.0) then
+                Error(QuantumError.ValidationError("cost", "Item costs must not be negative"))
             else
-                let bInt = int (Math.Ceiling b)
+                match Qubo.tryScaleToIntegers costs with
+                | None ->
+                    Error(
+                        QuantumError.ValidationError(
+                            "cost",
+                            "Item costs must be finite and become integers of at most 1e9 under one power of ten up to 1e6 (at most six decimals), so that the budget constraint can be encoded on integers"
+                        )
+                    )
+                | Some(integers, factor) ->
+                    let total = integers |> List.sumBy int64
 
-                let rec countBits value bits =
-                    if value <= 0 then
-                        bits
+                    if total > int64 Int32.MaxValue then
+                        Error(
+                            QuantumError.ValidationError(
+                                "cost",
+                                $"Item costs sum to {total} integer cost units; the budget constraint is encoded for sums up to {Int32.MaxValue}"
+                            )
+                        )
                     else
-                        countBits (value >>> 1) (bits + 1)
+                        let scaledBudget = problem.Budget * factor
 
-                max 1 (countBits bInt 0)
+                        // A product that should be integral can land just below it
+                        // (0.3 × 10 = 2.9999999999999996), so the floor takes a relative tolerance.
+                        let limit =
+                            if scaledBudget >= float total then
+                                ValueNone
+                            else
+                                let floored = int64 (floor (scaledBudget + 1e-9 * max 1.0 scaledBudget))
+
+                                if floored >= total then
+                                    ValueNone
+                                else
+                                    ValueSome(int floored)
+
+                        Ok
+                            {
+                                Costs = List.toArray integers
+                                Limit = limit
+                                SlackWeights =
+                                    match limit with
+                                    | ValueSome bound -> Qubo.boundedSlackWeights bound
+                                    | ValueNone -> []
+                            }
+
+        /// Total cost of the selected items in integer cost units (trailing slack bits are ignored).
+        let private integerCost (budget: IntegerBudget) (bits: int[]) : int64 =
+            budget.Costs
+            |> Array.mapi (fun i cost -> if bits.[i] = 1 then int64 cost else 0L)
+            |> Array.sum
+
+        /// Whether the selected items fit the budget, compared in integer cost units.
+        let private withinBudget (budget: IntegerBudget) (bits: int[]) : bool =
+            match budget.Limit with
+            | ValueNone -> true
+            | ValueSome limit -> integerCost budget bits <= int64 limit
 
         /// Build QUBO for Diverse Subset Selection.
         ///
-        /// The budget INEQUALITY Σ cost_i·x_i ≤ budget is encoded with binary slack
-        /// bits (standard Lucas / QuantumBinaryILPSolver pattern):
-        ///   Σ cost_i·x_i + Σ_t 2^t·s_t = budget
-        /// penalised as λ·(Σ cost_i·x_i + Σ_t 2^t·s_t − budget)², so under-budget
-        /// selections are NOT punished — the slack absorbs unused budget. (The
-        /// previous slack-free λ(Σcost·x − budget)² was an equality penalty that
-        /// pushed the optimum toward budget-saturating picks regardless of value.)
-        /// Matrix layout: n item variables first, then the slack bits.
+        /// The budget inequality Σ cost_i·x_i ≤ budget is encoded on integers: the costs are
+        /// multiplied by one common factor f that makes them integral (the smallest power of
+        /// ten, common divisor removed) and the budget becomes B = floor(budget·f). Binary
+        /// slack bits with weights w_t whose subset sums are exactly 0..B turn it into
+        ///   Σ c_i·x_i + Σ_t w_t·s_t = B
+        /// penalised as λ·(Σ c_i·x_i + Σ_t w_t·s_t − B)². A selection within the budget reaches
+        /// penalty 0 with slack B − Σ c_i·x_i; a selection over the budget costs at least
+        /// λ = 2·(Σ|value_i| + |β|·Σ|diversity_ij| + 1), more than the objective can gain.
+        /// Every minimum-energy state is therefore a best selection within the budget.
+        ///
+        /// A budget at or above the total cost cannot be exceeded: the QUBO then has no slack
+        /// bits and no penalty, only the objective.
+        ///
+        /// Matrix layout: n item variables first, then the ⌊log2 B⌋ + 1 slack bits.
+        /// Fails when the costs have no common integer scale (see Qubo.tryScaleToIntegers),
+        /// a cost is negative, or the budget is negative or NaN.
+        let tryToQubo (problem: Problem) : Result<float[,], QuantumError> =
+            integerBudget problem
+            |> Result.map (fun budget ->
+                let items = List.toArray problem.Items
+                let n = items.Length
+                let beta = problem.DiversityWeight
+                let numVars = n + budget.SlackWeights.Length
+                let qubo = Array2D.zeroCreate numVars numVars
+
+                // Objective: -value_i on the diagonal (maximize value) and -β·diversity_ij per
+                // pair (maximize diversity), split symmetrically over [i, j] and [j, i]
+                for i in 0 .. n - 1 do
+                    qubo.[i, i] <- -items.[i].Value
+
+                    for j in i + 1 .. n - 1 do
+                        let diversityBonus = -beta * problem.Diversity.[i, j] / 2.0
+                        qubo.[i, j] <- diversityBonus
+                        qubo.[j, i] <- diversityBonus
+
+                match budget.Limit with
+                | ValueNone -> ()
+                | ValueSome limit ->
+                    let totalValue = problem.Items |> List.sumBy (fun item -> abs item.Value)
+
+                    let totalDiversity =
+                        [
+                            for i in 0 .. n - 1 do
+                                for j in i + 1 .. n - 1 do
+                                    yield abs problem.Diversity.[i, j]
+                        ]
+                        |> List.sum
+
+                    let penalty = 2.0 * (totalValue + abs beta * totalDiversity + 1.0)
+
+                    // Budget equality coefficients: item costs first, then the slack weights
+                    let coefficients =
+                        [ for i in 0 .. n - 1 -> (i, float budget.Costs.[i]) ]
+                        @ (budget.SlackWeights |> List.mapi (fun t weight -> (n + t, float weight)))
+
+                    // λ·(Σ c_v·z_v − B)²; pair terms split symmetrically like the diversity terms
+                    for KeyValue((u, v), value) in Qubo.squaredLinearPenalty penalty coefficients (-float limit) do
+                        if u = v then
+                            qubo.[u, u] <- qubo.[u, u] + value
+                        else
+                            qubo.[u, v] <- qubo.[u, v] + value / 2.0
+                            qubo.[v, u] <- qubo.[v, u] + value / 2.0
+
+                qubo)
+
+        /// tryToQubo for a problem that is known to encode.
+        /// Raises ArgumentException where tryToQubo returns an error.
         let toQubo (problem: Problem) : float[,] =
-            let items = List.toArray problem.Items
-            let n = items.Length
-            let beta = problem.DiversityWeight
-            let budget = problem.Budget
-            let numSlackBits = slackBitsForBound budget
-            let numVars = n + numSlackBits
-            let qubo = Array2D.zeroCreate numVars numVars
+            match tryToQubo problem with
+            | Ok qubo -> qubo
+            | Error err -> invalidArg (nameof problem) err.Message
 
-            // Penalty weight for budget constraint
-            let maxValue = problem.Items |> List.sumBy (fun item -> abs item.Value)
-
-            let maxDiversity =
-                [
-                    for i in 0 .. n - 1 do
-                        for j in i + 1 .. n - 1 do
-                            yield abs problem.Diversity.[i, j]
-                ]
-                |> List.sum
-
-            let penalty = 2.0 * (maxValue + beta * maxDiversity + 1.0)
-
-            // Unified budget-constraint coefficient vector:
-            // item costs first, then slack powers of two
-            let coeffs =
-                [ for i in 0 .. n - 1 -> (i, items.[i].Cost) ]
-                @ [ for t in 0 .. numSlackBits - 1 -> (n + t, pown 2.0 t) ]
-
-            // Linear terms:
-            // From objective: -value_i (maximize value, items only)
-            // From constraint: λ * (c_v² - 2*budget*c_v) for every variable
-            for (v, c) in coeffs do
-                let objective = if v < n then -items.[v].Value else 0.0
-                qubo.[v, v] <- objective + penalty * (c * c - 2.0 * budget * c)
-
-            // Quadratic terms (symmetric split, half at each of [u,v] and [v,u]):
-            // From diversity: -β * diversity_ij (maximize diversity, items only)
-            // From constraint: λ * c_u * c_v per side (total 2λ·c_u·c_v per pair)
-            for (u, cu) in coeffs do
-                for (v, cv) in coeffs do
-                    if u < v then
-                        let diversityBonus =
-                            if v < n then
-                                -beta * problem.Diversity.[u, v] / 2.0
-                            else
-                                0.0
-
-                        let costPenalty = penalty * cu * cv
-                        qubo.[u, v] <- qubo.[u, v] + diversityBonus + costPenalty
-                        qubo.[v, u] <- qubo.[v, u] + diversityBonus + costPenalty
-
-            qubo
-
-        /// Constraint repair: remove items to get within budget (remove lowest value first)
-        let private repairConstraints (problem: Problem) (bits: int[]) : int[] =
+        /// Constraint repair: drop selected items, lowest value per cost first, until the
+        /// selection is within the budget
+        let private repairConstraints (problem: Problem) (budget: IntegerBudget) (bits: int[]) : int[] =
             let repaired = Array.copy bits
 
-            let currentCost =
-                problem.Items
-                |> List.indexed
-                |> List.filter (fun (i, _) -> repaired.[i] = 1)
-                |> List.sumBy (fun (_, item) -> item.Cost)
+            match budget.Limit with
+            | ValueNone -> repaired
+            | ValueSome limit ->
+                let items = List.toArray problem.Items
 
-            if currentCost <= problem.Budget then
-                repaired
-            else
-                // Remove items until within budget (remove lowest value/cost ratio first)
-                let selected =
-                    problem.Items
-                    |> List.indexed
-                    |> List.filter (fun (i, _) -> repaired.[i] = 1)
-                    |> List.sortBy (fun (_, item) ->
-                        // Guard against division by zero - if cost is 0, item is "free" so keep it (high ratio)
-                        if item.Cost <= 0.0 then
-                            Double.MaxValue
-                        else
-                            item.Value / item.Cost) // Remove worst ratio first
+                // Items of zero cost stay: dropping them cannot bring the selection within budget
+                let removalOrder =
+                    [ 0 .. items.Length - 1 ]
+                    |> List.filter (fun i -> repaired.[i] = 1 && budget.Costs.[i] > 0)
+                    |> List.sortBy (fun i -> items.[i].Value / items.[i].Cost)
 
-                let _finalCost =
-                    (currentCost, selected)
-                    ||> List.fold (fun cost (i, item) ->
-                        if cost > problem.Budget then
-                            repaired.[i] <- 0
-                            cost - item.Cost
-                        else
-                            cost)
+                (integerCost budget repaired, removalOrder)
+                ||> List.fold (fun cost i ->
+                    if cost > int64 limit then
+                        repaired.[i] <- 0
+                        cost - int64 budget.Costs.[i]
+                    else
+                        cost)
+                |> ignore
 
                 repaired
 
-        /// Decode bitstring to solution
+        /// Decode bitstring to solution.
+        /// IsFeasible compares cost and budget on the integer cost scale of the QUBO, and on
+        /// the raw cost sum where the costs have no such scale.
         let decode (problem: Problem) (bits: int[]) : Solution =
             let selected =
                 problem.Items |> List.indexed |> List.filter (fun (i, _) -> bits.[i] = 1)
@@ -671,20 +791,29 @@ module DrugDiscoverySolvers =
 
             let totalCost = selectedItems |> List.sumBy (fun item -> item.Cost)
 
+            let isFeasible =
+                match integerBudget problem with
+                | Ok budget -> withinBudget budget bits
+                | Error _ -> totalCost <= problem.Budget
+
             {
                 SelectedItems = selectedItems
                 TotalValue = selectedItems |> List.sumBy (fun item -> item.Value)
                 TotalCost = totalCost
                 DiversityBonus = diversity * problem.DiversityWeight
-                IsFeasible = totalCost <= problem.Budget
+                IsFeasible = isFeasible
                 WasRepaired = false
                 BackendName = ""
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         /// Solve using quantum QAOA with advanced features.
+        /// Sampling.Valid counts the final samples whose item bits are within the budget,
+        /// Sampling.Hits those whose item bits are the returned selection.
         let solveWithConfigAsync
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
@@ -699,25 +828,37 @@ module DrugDiscoverySolvers =
                 elif problem.Budget <= 0.0 then
                     return! Error(QuantumError.ValidationError("budget", "Budget must be positive"))
                 else
-                    let qubo = toQubo problem
+                    let! budget = integerBudget problem
+                    let! qubo = tryToQubo problem
 
-                    let! (bits, optParams, converged) =
-                        QaoaExecutionHelpers.runQaoaAsync backend qubo config cancellationToken
+                    let! run = QuboSplitting.runQaoaAsync backend qubo config cancellationToken
 
-                    let currentCost =
-                        problem.Items
-                        |> List.indexed
-                        |> List.filter (fun (i, _) -> bits.[i] = 1)
-                        |> List.sumBy (fun (_, item) -> item.Cost)
+                    let bits = run.Best
+                    let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                    let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
 
                     // Apply constraint repair if enabled and over budget
                     let finalBits, wasRepaired =
-                        if config.EnableConstraintRepair && currentCost > problem.Budget then
-                            (repairConstraints problem bits, true)
+                        if config.EnableConstraintRepair && not (withinBudget budget bits) then
+                            (repairConstraints problem budget bits, true)
                         else
                             (bits, false)
 
                     let solution = decode problem finalBits
+
+                    // Only the item bits carry the selection; the trailing bits are budget slack.
+                    let itemBits (sample: int[]) =
+                        Array.truncate problem.Items.Length sample
+
+                    // A split run has no single sample set to take statistics from
+                    let sampling =
+                        run.Direct
+                        |> Option.map (fun direct ->
+                            QaoaExecutionHelpers.sampleStatistics
+                                bits.Length
+                                (withinBudget budget)
+                                (fun sample -> itemBits sample = itemBits finalBits)
+                                direct.Samples)
 
                     return
                         { solution with
@@ -726,6 +867,8 @@ module DrugDiscoverySolvers =
                             WasRepaired = wasRepaired
                             OptimizedParameters = optParams
                             OptimizationConverged = converged
+                            Sampling = sampling
+                            Split = run.Split
                         }
             }
 

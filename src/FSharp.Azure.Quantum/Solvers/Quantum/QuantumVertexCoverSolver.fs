@@ -67,6 +67,10 @@ module QuantumVertexCoverSolver =
             OptimizedParameters: (float * float)[] option
             /// Whether Nelder-Mead converged
             OptimizationConverged: bool option
+            /// Standing of this solution among the final samples; None when no single sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+            /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+            Split: QaoaExecutionHelpers.SplitReport option
         }
 
     // ========================================================================
@@ -182,6 +186,8 @@ module QuantumVertexCoverSolver =
             NumShots = 0
             OptimizedParameters = None
             OptimizationConverged = None
+            Sampling = None
+            Split = None
         }
 
     // ========================================================================
@@ -280,6 +286,8 @@ module QuantumVertexCoverSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         | [ single ] -> single
         | sols ->
@@ -301,6 +309,8 @@ module QuantumVertexCoverSolver =
                     |> Option.defaultValue 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = QaoaExecutionHelpers.combineSplitReports (sols |> List.map (fun s -> s.Split))
             }
 
     // ========================================================================
@@ -330,11 +340,13 @@ module QuantumVertexCoverSolver =
                     match toQubo subProblem with
                     | Error err -> return Error err
                     | Ok qubo ->
-                        let! result = runQaoaAsync backend qubo config cancellationToken
-
-                        match result with
+                        match! QuboSplitting.runQaoaAsync backend qubo config cancellationToken with
                         | Error err -> return Error err
-                        | Ok(bits, optParams, converged) ->
+                        | Ok run ->
+                            let bits = run.Best
+                            let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                            let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
+
                             let finalBits, wasRepaired =
                                 if config.EnableConstraintRepair && not (isValid subProblem bits) then
                                     (repairConstraints subProblem bits, true)
@@ -342,6 +354,16 @@ module QuantumVertexCoverSolver =
                                     (bits, false)
 
                             let solution = decodeSolution subProblem finalBits
+
+                            // A split run has no single sample set to take statistics from
+                            let sampling =
+                                run.Direct
+                                |> Option.map (fun direct ->
+                                    sampleStatistics
+                                        bits.Length
+                                        (isValid subProblem)
+                                        (fun sample -> sample = finalBits)
+                                        direct.Samples)
 
                             return
                                 Ok
@@ -351,6 +373,8 @@ module QuantumVertexCoverSolver =
                                         WasRepaired = wasRepaired
                                         OptimizedParameters = optParams
                                         OptimizationConverged = converged
+                                        Sampling = sampling
+                                        Split = run.Split
                                     }
                 }
 
@@ -410,14 +434,10 @@ module QuantumVertexCoverSolver =
                         else
                             // Pick the lighter endpoint (skip if already selected)
                             let pick =
-                                if sel |> Set.contains i then
-                                    None
-                                elif sel |> Set.contains j then
-                                    None
-                                elif vertices.[i].Weight <= vertices.[j].Weight then
-                                    Some i
-                                else
-                                    Some j
+                                if sel |> Set.contains i then None
+                                elif sel |> Set.contains j then None
+                                elif vertices.[i].Weight <= vertices.[j].Weight then Some i
+                                else Some j
 
                             let sel' =
                                 match pick with

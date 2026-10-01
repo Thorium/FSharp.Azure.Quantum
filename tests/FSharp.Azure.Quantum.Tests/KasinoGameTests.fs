@@ -974,6 +974,7 @@ module KasinoGameTests =
                 TotalDeals = 6
                 LastCapturer = None
                 Variant = StandardKasino
+                SweepsFrozen = false
             }
 
         Assert.True(GameLoop.allHandsEmpty state)
@@ -1006,6 +1007,7 @@ module KasinoGameTests =
                 TotalDeals = 6
                 LastCapturer = None
                 Variant = StandardKasino
+                SweepsFrozen = false
             }
 
         Assert.False(GameLoop.allHandsEmpty state)
@@ -1040,6 +1042,7 @@ module KasinoGameTests =
                 TotalDeals = 6
                 LastCapturer = None
                 Variant = StandardKasino
+                SweepsFrozen = false
             }
 
         let afterDeal = GameLoop.dealRound state true
@@ -1080,6 +1083,7 @@ module KasinoGameTests =
                 TotalDeals = 6
                 LastCapturer = None
                 Variant = StandardKasino
+                SweepsFrozen = false
             }
 
         let afterDeal = GameLoop.dealRound state false
@@ -1103,11 +1107,13 @@ module KasinoGameTests =
                     [ ("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0) ]
                     7.0
 
-            let! combos =
-                FSharp.Azure.Quantum.Knapsack.findAllExactCombinationsAsync
-                    problem
-                    None
-                    CancellationToken.None
+            let! found =
+                FSharp.Azure.Quantum.Knapsack.findAllExactCombinationsAsync problem None CancellationToken.None
+
+            let combos =
+                match found with
+                | Ok combos -> combos
+                | Error err -> failwith $"Unexpected error: {err}"
 
             Assert.Equal(2, combos.Length)
         }
@@ -1120,11 +1126,13 @@ module KasinoGameTests =
             let problem =
                 FSharp.Azure.Quantum.Knapsack.createProblem [ ("A", 5.0, 5.0); ("B", 3.0, 3.0) ] 5.0
 
-            let! combos =
-                FSharp.Azure.Quantum.Knapsack.findAllExactCombinationsAsync
-                    problem
-                    None
-                    CancellationToken.None
+            let! found =
+                FSharp.Azure.Quantum.Knapsack.findAllExactCombinationsAsync problem None CancellationToken.None
+
+            let combos =
+                match found with
+                | Ok combos -> combos
+                | Error err -> failwith $"Unexpected error: {err}"
 
             // [A] is the only combo summing to 5
             Assert.Equal(1, combos.Length)
@@ -1141,10 +1149,7 @@ module KasinoGameTests =
                     7.0
 
             let! items =
-                FSharp.Azure.Quantum.Knapsack.findAllCapturedItemsAsync
-                    problem
-                    None
-                    CancellationToken.None
+                FSharp.Azure.Quantum.Knapsack.findAllCapturedItemsAsync problem None CancellationToken.None
 
             // Both combos [A,B] and [C,D] -> union = all 4 items
             Assert.Equal(4, items.Length)
@@ -1160,10 +1165,7 @@ module KasinoGameTests =
                     7.0
 
             let! (combos, union, count) =
-                FSharp.Azure.Quantum.Knapsack.findAllValidCombinationsAsync
-                    problem
-                    None
-                    CancellationToken.None
+                FSharp.Azure.Quantum.Knapsack.findAllValidCombinationsAsync problem None CancellationToken.None
 
             Assert.Equal(2, count)
             Assert.Equal(2, combos.Length)

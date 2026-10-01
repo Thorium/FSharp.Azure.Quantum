@@ -121,6 +121,10 @@ module QuantumSatSolver =
             OptimizedParameters: (float * float)[] option
             /// Whether Nelder-Mead converged
             OptimizationConverged: bool option
+            /// Standing of this solution among the final samples; None when no single sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+            /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+            Split: QaoaExecutionHelpers.SplitReport option
         }
 
     // ========================================================================
@@ -491,6 +495,8 @@ module QuantumSatSolver =
             NumShots = 0
             OptimizedParameters = None
             OptimizationConverged = None
+            Sampling = None
+            Split = None
         }
 
     // ========================================================================
@@ -556,6 +562,8 @@ module QuantumSatSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         | [ single ] -> single
         | _ -> solutions |> List.maxBy (fun s -> s.SatisfiedWeight)
@@ -580,11 +588,13 @@ module QuantumSatSolver =
                     match toQubo subProblem with
                     | Error err -> return Error err
                     | Ok qubo ->
-                        let! result = runQaoaAsync backend qubo config cancellationToken
-
-                        match result with
+                        match! QuboSplitting.runQaoaAsync backend qubo config cancellationToken with
                         | Error err -> return Error err
-                        | Ok(bits, optParams, converged) ->
+                        | Ok run ->
+                            let bits = run.Best
+                            let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                            let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
+
                             let needsRepair =
                                 let assignment =
                                     Array.init subProblem.NumVariables (fun i ->
@@ -600,6 +610,17 @@ module QuantumSatSolver =
 
                             let solution = decodeSolution subProblem finalBits
 
+                            // A split run has no single sample set to take statistics from
+                            let sampling =
+                                run.Direct
+                                |> Option.map (fun direct ->
+                                    sampleStatistics
+                                        bits.Length
+                                        (fun sample -> (decodeSolution subProblem sample).AllSatisfied)
+                                        (fun sample ->
+                                            (decodeSolution subProblem sample).Assignment = solution.Assignment)
+                                        direct.Samples)
+
                             return
                                 Ok
                                     { solution with
@@ -608,6 +629,8 @@ module QuantumSatSolver =
                                         WasRepaired = wasRepaired
                                         OptimizedParameters = optParams
                                         OptimizationConverged = converged
+                                        Sampling = sampling
+                                        Split = run.Split
                                     }
                 }
 
@@ -654,6 +677,8 @@ module QuantumSatSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         else
             let initial = Array.create problem.NumVariables false
@@ -686,4 +711,6 @@ module QuantumSatSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }

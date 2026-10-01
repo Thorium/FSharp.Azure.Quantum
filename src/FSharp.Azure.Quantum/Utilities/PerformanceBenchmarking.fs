@@ -4,6 +4,7 @@ open System
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Core
 open Microsoft.Extensions.Logging
 
@@ -131,7 +132,7 @@ module PerformanceBenchmarking =
     // CLASSICAL TSP BENCHMARKING
     // ============================================================================
 
-    /// Benchmark classical TSP solver
+    /// Benchmark the classical TSP solver (nearest neighbour + 2-opt, TspSolver).
     let benchmarkClassicalTSPAsync
         (cities: (string * float * float) array)
         (repetitions: int)
@@ -150,16 +151,17 @@ module PerformanceBenchmarking =
             let runs = ResizeArray<float * float>()
 
             for _ in 1..repetitions do
+                cancellationToken.ThrowIfCancellationRequested()
                 let sw = System.Diagnostics.Stopwatch.StartNew()
                 let problem = TSP.createProblem (cities |> Array.toList)
-                let! solution = TSP.solveAsync problem None cancellationToken
-                sw.Stop()
 
-                match solution with
-                | Ok tour -> runs.Add((sw.Elapsed.TotalMilliseconds, tour.TotalDistance))
-                | Error err ->
+                try
+                    let solution = TspSolver.solve problem.Cities TspSolver.defaultConfig
+                    sw.Stop()
+                    runs.Add((sw.Elapsed.TotalMilliseconds, solution.TourLength))
+                with ex when not (ex :? OperationCanceledException) ->
                     // Log error but continue - some runs might succeed
-                    logWarning logger $"TSP solve failed: {err.Message}"
+                    logWarning logger $"TSP solve failed: {ex.Message}"
 
             let results = List.ofSeq runs
 
@@ -189,7 +191,7 @@ module PerformanceBenchmarking =
     // CLASSICAL PORTFOLIO BENCHMARKING
     // ============================================================================
 
-    /// Benchmark classical Portfolio solver
+    /// Benchmark the classical Portfolio solver (greedy by return/risk ratio, PortfolioSolver).
     let benchmarkClassicalPortfolioAsync
         (assets: (string * float * float * float) list)
         (budget: float)
@@ -212,18 +214,29 @@ module PerformanceBenchmarking =
             let runs = ResizeArray<float * float>()
 
             for _ in 1..repetitions do
+                cancellationToken.ThrowIfCancellationRequested()
                 let sw = System.Diagnostics.Stopwatch.StartNew()
                 let problem = Portfolio.createProblem assets budget
 
-                let! solution = Portfolio.solveAsync problem None cancellationToken
+                let constraints: PortfolioSolver.Constraints =
+                    {
+                        Budget = budget
+                        MinHolding = 0.0
+                        MaxHolding = budget
+                    }
 
-                sw.Stop()
+                try
+                    let allocation =
+                        PortfolioSolver.solveGreedyByRatio
+                            (List.ofArray problem.Assets)
+                            constraints
+                            PortfolioSolver.defaultConfig
 
-                match solution with
-                | Ok allocation -> runs.Add((sw.Elapsed.TotalMilliseconds, allocation.ExpectedReturn))
-                | Error err ->
+                    sw.Stop()
+                    runs.Add((sw.Elapsed.TotalMilliseconds, allocation.ExpectedReturn))
+                with ex when not (ex :? OperationCanceledException) ->
                     // Log error but continue - some runs might succeed
-                    logWarning logger $"Portfolio solve failed: {err.Message}"
+                    logWarning logger $"Portfolio solve failed: {ex.Message}"
 
             let results = List.ofSeq runs
 
@@ -266,7 +279,10 @@ module PerformanceBenchmarking =
             for size in config.ProblemSizes do
                 cancellationToken.ThrowIfCancellationRequested()
                 let cities = generateRandomCities size (Some(size * 42)) // Deterministic seed
-                let! result = benchmarkClassicalTSPAsync cities config.Repetitions None cancellationToken
+
+                let! result =
+                    benchmarkClassicalTSPAsync cities config.Repetitions None cancellationToken
+
                 results.Add result
 
             return List.ofSeq results

@@ -330,8 +330,7 @@ let averageQuantumSimilaritiesAsync (actives: float array array) (candidates: fl
             match kernel with
             | Ok m ->
                 // m.[candidate, active]
-                Array.init candidates.Length (fun j ->
-                    Array.init actives.Length (fun i -> m.[j, i]) |> Array.average)
+                Array.init candidates.Length (fun j -> Array.init actives.Length (fun i -> m.[j, i]) |> Array.average)
             | Error _ -> Array.create candidates.Length 0.0
     }
 

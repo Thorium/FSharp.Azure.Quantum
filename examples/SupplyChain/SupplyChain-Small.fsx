@@ -2,8 +2,7 @@
 // Supply Chain Optimization Example (Small Test Version)
 // ==============================================================================
 // Simplified 2-stage supply chain to test quantum network flow solver.
-// Routes products from 2 suppliers to 2 customers using 4 qubits
-// (within LocalSimulator's 10-qubit limit).
+// Routes products from 2 suppliers to 2 customers using 4 qubits, one per route.
 //
 // Usage:
 //   dotnet fsi SupplyChain-Small.fsx

@@ -26,7 +26,7 @@ It reports two measures:
 - **Customers served**: customers whose whole demand is delivered.
 - **Demand fill rate**: delivered units over demanded units, one unit per open route, capped at each customer's demand.
 
-The included tiny dataset is intentionally small to fit local simulation (8 routes, 8 qubits).
+The included tiny dataset is intentionally small to fit local simulation (8 routes, 8 qubits): two suppliers, two warehouses, two customers. Its costs set a trap for the greedy baseline. Warehouse W2 has the cheapest route into customer C2 (7, against 8 from W1) but the dearest feeds (14 and 16), so taking the cheapest route into each customer and then feeding the warehouses used costs 31. Sending both customers through W1 costs 23 (S1→W1 4, S2→W1 5, W1→C1 6, W1→C2 8). Of the 255 non-empty route sets 18 are valid flows and 10 of those serve both customers; cost 23 is the unique optimum, and the greedy flow at 31 is the next best.
 
 ### Run
 
@@ -37,14 +37,23 @@ dotnet run --project examples/SupplyChain/NetworkFlowOptimization/NetworkFlowOpt
   --nodes examples/SupplyChain/_data/nodes_tiny.csv \
   --routes examples/SupplyChain/_data/routes_tiny.csv \
   --out runs/supplychain/networkflow \
-  --shots 1000
+  --shots 100
 ```
+
+A run prints both answers and writes the route sets, violations, metrics and a report to the `--out` folder:
+
+```text
+Classical greedy: cost 31, customers served 2 of 2, demand fill rate 100%, violations 0
+QAOA (p = 2, optimised angles, 100 shots on Local Simulator): cost 23, customers served 2 of 2, demand fill rate 100%, violations 0
+```
+
+The solver optimises the QAOA angles for the problem on the simulator (two layers), then samples. In 150 runs at the default 100 shots QAOA returned the cost-23 optimum 147 times and the greedy flow (cost 31) 3 times. At 50 shots it found the optimum in 142 of 150 runs and at 20 shots in 85; picking 20 route sets at random would find it in about 11 runs of 150.
 
 ### Picture
 
 ![Route activation, classical greedy and QAOA](_images/supply-chain-flow.svg)
 
-The picture puts both answers on the same network and opens their routes stage by stage, with dots for the units moving. The greedy baseline serves both customers at cost 33, and so does QAOA (cost 33 in seven of eight runs, 34 once). QAOA samples differ from run to run. Regenerate it from the repository root:
+The picture puts both answers on the same network and opens their routes stage by stage, with dots for the units moving. Routes that only one of the two answers opens are drawn in brown, and each panel lists them with their costs. Both answers serve both customers. The greedy baseline pays 31: it reaches C2 through W2 (S2→W2 14, W2→C2 7). QAOA pays 23, 8 less (−26%): it reaches C2 through W1 (S2→W1 5, W1→C2 8). The headline is computed from the two answers, so a run in which QAOA only matches greedy says that they open the same routes. QAOA samples differ from run to run. Regenerate it from the repository root:
 
 ```bash
 dotnet run --project examples/SupplyChain/NetworkFlowOptimization/NetworkFlowOptimization.fsproj -- --svg

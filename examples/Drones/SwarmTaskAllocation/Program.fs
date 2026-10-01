@@ -1473,6 +1473,8 @@ module Evidence =
                         0.0)
             DeadlineViolations = []
             IsValid = unassigned.IsEmpty
+            WasRepaired = false
+            Sampling = None
         }
 
     /// Tasks placed on the map with their durations (start 0), ready to dispatch.

@@ -17,7 +17,7 @@ combinatorial optimization problem best solved by QUBO/QAOA.
 - Constraints: One-hot (task starts once), dependencies, resource capacity
 
 **Expected Performance**:
-- LocalBackend: max 16 qubits (~3 tasks x 5 time slots, demo only)
+- LocalBackend: 20 qubits in practice (this demo: 3 tasks x 5 time slots = 15)
 - Azure Quantum: 29-80+ qubits (IonQ, Quantinuum, Rigetti)
 - Scales to realistic production problems (100+ tasks)
 
@@ -261,7 +261,7 @@ let problem: SchedulingProblem<unit, unit> =
 
 if not quiet then
     printfn "Initializing quantum backend..."
-    printfn "Note: This uses LocalBackend for demonstration (max 16 qubits)"
+    printfn "Note: This uses LocalBackend for demonstration (20 qubits in practice)"
     printfn "      For large problems (100+ tasks), use Azure Quantum with IonQ/Quantinuum"
     printfn ""
 
@@ -478,7 +478,7 @@ let scheduleResult: (Solution * float * float * float) option =
 
             printfn "────────────────────────────────────────────────────────────────────────────────"
 
-            printfn "LocalBackend:    16 qubits max (~3 tasks × 5 time slots, demo only)"
+            printfn "LocalBackend:    20 qubits in practice (this demo: 3 tasks × 5 time slots = 15)"
             printfn "Azure Quantum:   29-80+ qubits (IonQ, Quantinuum, Rigetti)"
             printfn "                 Scales to realistic production problems (100+ tasks)"
             printfn ""

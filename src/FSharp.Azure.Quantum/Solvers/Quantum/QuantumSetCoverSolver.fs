@@ -78,6 +78,10 @@ module QuantumSetCoverSolver =
             OptimizedParameters: (float * float)[] option
             /// Whether Nelder-Mead converged
             OptimizationConverged: bool option
+            /// Standing of this solution among the final samples; None when no single sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+            /// How the problem was split into circuits that fit the backend; None when it ran as one circuit
+            Split: QaoaExecutionHelpers.SplitReport option
         }
 
     // ========================================================================
@@ -107,7 +111,6 @@ module QuantumSetCoverSolver =
     /// The coverage inequality Sum_{j in T_e} x_j >= 1 becomes the equality
     /// Sum x_j - 1 = s_e with slack s_e in [0, m-1], needing ceil(log2 m) bits
     /// (0 bits when m <= 1: with a single candidate the constraint is x_j = 1).
-    /// Integer bit counting mirrors QuantumBinaryILPSolver.slackBitsForBound.
     let private slackBitsForCoverage (m: int) : int =
         if m <= 1 then
             0
@@ -258,6 +261,8 @@ module QuantumSetCoverSolver =
             NumShots = 0
             OptimizedParameters = None
             OptimizationConverged = None
+            Sampling = None
+            Split = None
         }
 
     // ========================================================================
@@ -355,6 +360,8 @@ module QuantumSetCoverSolver =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
         | [ single ] -> single
         | _ -> solutions |> List.minBy (fun s -> s.TotalCost)
@@ -386,21 +393,25 @@ module QuantumSetCoverSolver =
                     match toQubo subProblem with
                     | Error err -> return Error err
                     | Ok qubo ->
-                        let! result = runQaoaAsync backend qubo config cancellationToken
-
-                        match result with
+                        match! QuboSplitting.runQaoaAsync backend qubo config cancellationToken with
                         | Error err -> return Error err
-                        | Ok(bits, optParams, converged) ->
+                        | Ok run ->
+                            let bits = run.Best
+                            let optParams = run.Direct |> Option.map (fun direct -> direct.Parameters)
+                            let converged = run.Direct |> Option.bind (fun direct -> direct.Converged)
+
                             // Keep only the subset-selection bits: the trailing coverage
                             // slack bits encode the >=1 inequality inside the QUBO and
                             // carry no solution content.
                             let numSubsets = subProblem.Subsets.Length
 
-                            let decisionBits =
-                                if bits.Length > numSubsets then
-                                    bits.[0 .. numSubsets - 1]
+                            let decisionOf (sample: int[]) =
+                                if sample.Length > numSubsets then
+                                    sample.[0 .. numSubsets - 1]
                                 else
-                                    bits
+                                    sample
+
+                            let decisionBits = decisionOf bits
 
                             let finalBits, wasRepaired =
                                 if config.EnableConstraintRepair && not (isValid subProblem decisionBits) then
@@ -410,6 +421,16 @@ module QuantumSetCoverSolver =
 
                             let solution = decodeSolution subProblem finalBits
 
+                            // A split run has no single sample set to take statistics from
+                            let sampling =
+                                run.Direct
+                                |> Option.map (fun direct ->
+                                    sampleStatistics
+                                        bits.Length
+                                        (decisionOf >> isValid subProblem)
+                                        (fun sample -> decisionOf sample = finalBits)
+                                        direct.Samples)
+
                             return
                                 Ok
                                     { solution with
@@ -418,6 +439,8 @@ module QuantumSetCoverSolver =
                                         WasRepaired = wasRepaired
                                         OptimizedParameters = optParams
                                         OptimizationConverged = converged
+                                        Sampling = sampling
+                                        Split = run.Split
                                     }
                 }
 

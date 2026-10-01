@@ -252,7 +252,7 @@ match result with
             (price.Price + price.ConfidenceInterval)
 
         printfn
-            "  Qubits Used:           %d (2^%d = %d price levels)"
+            "  Price Qubits:          %d (2^%d = %d price levels; the circuit adds one payoff qubit)"
             price.QubitsUsed
             price.QubitsUsed
             (1 <<< price.QubitsUsed)

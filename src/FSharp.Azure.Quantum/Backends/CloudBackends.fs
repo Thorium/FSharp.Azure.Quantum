@@ -44,6 +44,8 @@ module CloudBackends =
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 5 minutes)
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
+    ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
+    ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
     type RigettiCloudBackend
         (
             httpClient: HttpClient,
@@ -53,12 +55,22 @@ module CloudBackends =
             ?timeout: TimeSpan,
             ?costLimitUsd: decimal,
             ?couplingMap: QubitRouting.CouplingMap,
-            ?jobBudget: CloudBackendHelpers.JobBudget
+            ?jobBudget: CloudBackendHelpers.JobBudget,
+            [<Struct>] ?maxQubits: int
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
         let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
+
+        // Built-in figure for the target, a default: maxQubits replaces it. A target this
+        // version does not know reports no limit, and the provider decides.
+        let qubitLimit =
+            CloudBackendHelpers.qubitLimit
+                maxQubits
+                (if target.Contains "qpu" then ValueSome 84 // Ankaa-3
+                 elif target.Contains "sim" then ValueSome 20 // conservative provider-simulator default
+                 else ValueNone)
 
         interface IQuantumBackend with
 
@@ -238,12 +250,7 @@ module CloudBackends =
             member _.JobBudget = jobBudget
 
         interface IQubitLimitedBackend with
-            member _.MaxQubits =
-                // Rigetti QVM simulator: effectively unlimited for small circuits
-                // Rigetti QPU Ankaa-3: 84 qubits
-                if target.Contains "qpu" then Some 84
-                elif target.Contains "sim" then Some 20 // conservative provider-simulator default
-                else None
+            member _.MaxQubits = qubitLimit
 
     // ============================================================================
     // IONQ CLOUD BACKEND
@@ -261,6 +268,8 @@ module CloudBackends =
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 5 minutes)
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
+    ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
+    ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
     type IonQCloudBackend
         (
             httpClient: HttpClient,
@@ -269,12 +278,23 @@ module CloudBackends =
             ?shots: int,
             ?timeout: TimeSpan,
             ?costLimitUsd: decimal,
-            ?jobBudget: CloudBackendHelpers.JobBudget
+            ?jobBudget: CloudBackendHelpers.JobBudget,
+            [<Struct>] ?maxQubits: int
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
         let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
+
+        // Built-in figure for the target, a default: maxQubits replaces it. A target this
+        // version does not know reports no limit, and the provider decides.
+        let qubitLimit =
+            CloudBackendHelpers.qubitLimit
+                maxQubits
+                (if target.Contains "aria" then ValueSome 25
+                 elif target.Contains "forte" then ValueSome 36
+                 elif target.Contains "simulator" then ValueSome 20 // conservative provider-simulator default
+                 else ValueNone)
 
         interface IQuantumBackend with
 
@@ -432,14 +452,7 @@ module CloudBackends =
             member _.JobBudget = jobBudget
 
         interface IQubitLimitedBackend with
-            member _.MaxQubits =
-                // IonQ simulator: 29 qubits
-                // IonQ Aria-1: 25 qubits
-                // IonQ Forte: 36 qubits
-                if target.Contains "aria" then Some 25
-                elif target.Contains "forte" then Some 36
-                elif target.Contains "simulator" then Some 20 // conservative provider-simulator default
-                else None
+            member _.MaxQubits = qubitLimit
 
     // ============================================================================
     // QUANTINUUM CLOUD BACKEND
@@ -457,6 +470,8 @@ module CloudBackends =
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 5 minutes)
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
+    ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
+    ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
     type QuantinuumCloudBackend
         (
             httpClient: HttpClient,
@@ -465,12 +480,23 @@ module CloudBackends =
             ?shots: int,
             ?timeout: TimeSpan,
             ?costLimitUsd: decimal,
-            ?jobBudget: CloudBackendHelpers.JobBudget
+            ?jobBudget: CloudBackendHelpers.JobBudget,
+            [<Struct>] ?maxQubits: int
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
         let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
+
+        // Built-in figure for the target, a default: maxQubits replaces it. A target this
+        // version does not know reports no limit, and the provider decides.
+        let qubitLimit =
+            CloudBackendHelpers.qubitLimit
+                maxQubits
+                (if target.Contains "h2" then ValueSome 56
+                 elif target.Contains "h1" then ValueSome 32
+                 elif target.Contains "sim" then ValueSome 20 // conservative provider-simulator default
+                 else ValueNone)
 
         /// Convert ICircuit to OpenQASM 2.0 string for Quantinuum.
         let circuitToOpenQasm (circuit: ICircuit) : Result<string, QuantumError> =
@@ -664,13 +690,7 @@ module CloudBackends =
             member _.JobBudget = jobBudget
 
         interface IQubitLimitedBackend with
-            member _.MaxQubits =
-                // Quantinuum H1-1SC simulator: 32 qubits
-                // Quantinuum H1-1 hardware: 32 qubits
-                // Quantinuum H2: 56 qubits
-                if target.Contains "h2" then Some 56
-                elif target.Contains "h1" then Some 32
-                else Some 20 // conservative provider-simulator default
+            member _.MaxQubits = qubitLimit
 
     // ============================================================================
     // ATOM COMPUTING CLOUD BACKEND
@@ -688,6 +708,8 @@ module CloudBackends =
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 10 minutes, longer for neutral atom hardware)
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
+    ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
+    ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
     type AtomComputingCloudBackend
         (
             httpClient: HttpClient,
@@ -696,12 +718,22 @@ module CloudBackends =
             ?shots: int,
             ?timeout: TimeSpan,
             ?costLimitUsd: decimal,
-            ?jobBudget: CloudBackendHelpers.JobBudget
+            ?jobBudget: CloudBackendHelpers.JobBudget,
+            [<Struct>] ?maxQubits: int
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(10.0)) // Longer default for Atom Computing
         let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
+
+        // Built-in figure for the target, a default: maxQubits replaces it. A target this
+        // version does not know reports no limit, and the provider decides.
+        let qubitLimit =
+            CloudBackendHelpers.qubitLimit
+                maxQubits
+                (if target.Contains "qpu" then ValueSome 100 // Phoenix
+                 elif target.Contains "sim" then ValueSome 20 // conservative provider-simulator default
+                 else ValueNone)
 
         /// Convert ICircuit to OpenQASM 2.0 string for Atom Computing.
         let circuitToOpenQasm (circuit: ICircuit) : Result<string, QuantumError> =
@@ -877,12 +909,7 @@ module CloudBackends =
             member _.JobBudget = jobBudget
 
         interface IQubitLimitedBackend with
-            member _.MaxQubits =
-                // Atom Computing Phoenix: 100+ qubits
-                // Simulator: limited by state vector size
-                if target.Contains "qpu" then Some 100
-                elif target.Contains "sim" then Some 20 // conservative provider-simulator default
-                else None
+            member _.MaxQubits = qubitLimit
 
     /// IQuantumBackend implementation for IQM (superconducting) via Azure Quantum.
     ///
@@ -896,6 +923,8 @@ module CloudBackends =
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 5 minutes)
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
+    ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
+    ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
     type IqmCloudBackend
         (
             httpClient: HttpClient,
@@ -904,12 +933,22 @@ module CloudBackends =
             ?shots: int,
             ?timeout: TimeSpan,
             ?costLimitUsd: decimal,
-            ?jobBudget: CloudBackendHelpers.JobBudget
+            ?jobBudget: CloudBackendHelpers.JobBudget,
+            [<Struct>] ?maxQubits: int
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
         let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
+
+        // Built-in figure for the target, a default: maxQubits replaces it. A target this
+        // version does not know reports no limit, and the provider decides.
+        let qubitLimit =
+            CloudBackendHelpers.qubitLimit
+                maxQubits
+                (if target.Contains "qpu" then ValueSome 20 // Garnet
+                 elif target.Contains "sim" then ValueSome 20 // capped at the hardware's width
+                 else ValueNone)
 
         /// Convert ICircuit to an OpenQASM 2.0 string for IQM.
         let circuitToOpenQasm (circuit: ICircuit) : Result<string, QuantumError> =
@@ -1085,11 +1124,7 @@ module CloudBackends =
             member _.JobBudget = jobBudget
 
         interface IQubitLimitedBackend with
-            member _.MaxQubits =
-                // IQM Garnet: 20 qubits; simulator capped conservatively at the same width.
-                if target.Contains "qpu" then Some 20
-                elif target.Contains "sim" then Some 20
-                else None
+            member _.MaxQubits = qubitLimit
 
     // ============================================================================
     // FACTORY MODULE

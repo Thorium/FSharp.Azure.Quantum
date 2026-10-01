@@ -152,8 +152,8 @@ module Renderer =
         let scoringText =
             "[bold cyan]Scoring:[/]\n"
             + "  Each Ace: 1 point | 10[red]\u2666[/]: 2 points | 2\u2660: 1 point\n"
-            + "  Most cards: 1 point | Most spades: 2 points\n"
-            + "  Sweeps: 1 point each, minus the table's lowest sweep count\n"
+            + "  Most cards: 1 point | Most spades: 2 points (a tie carries the points to the next round)\n"
+            + "  Sweeps: 1 point each, minus the table's lowest sweep count; none once a player has 10 points\n"
             + "[bold cyan]Special values in hand:[/] Ace=14, 2\u2660=15, 10[red]\u2666[/]=16"
 
         let panel =

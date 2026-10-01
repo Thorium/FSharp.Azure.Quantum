@@ -396,8 +396,12 @@ let runVqeAsync (label: string) (description: string) (molecule: Molecule) =
 
 let highSpinResult, lowSpinResult, tripletResult =
     task {
-        let! highSpin = runVqeAsync "Fe2 Septet (M=7)" "S=3, ferromagnetic" (createFe2Dimer 7)
-        let! lowSpin = runVqeAsync "Fe2 Singlet (M=1)" "S=0, antiferromagnetic" (createFe2Dimer 1)
+        let! highSpin =
+            runVqeAsync "Fe2 Septet (M=7)" "S=3, ferromagnetic" (createFe2Dimer 7)
+
+        let! lowSpin =
+            runVqeAsync "Fe2 Singlet (M=1)" "S=0, antiferromagnetic" (createFe2Dimer 1)
+
         let! triplet = runVqeAsync "Fe2 Triplet (M=3)" "S=1, intermediate" (createFe2Dimer 3)
         return highSpin, lowSpin, triplet
     }

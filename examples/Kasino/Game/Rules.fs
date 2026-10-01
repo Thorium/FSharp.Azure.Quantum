@@ -5,8 +5,9 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 
 /// Rules engine for Kasino card game.
-/// Uses the quantum Knapsack solver (iterative QAOA) to find all card captures.
-/// Rule 1 compliant: all capture logic executes via IQuantumBackend.
+/// Uses the library's quantum subset-sum search (iterative QAOA) to find card captures: one
+/// qubit per table card that can be part of a capture. The search samples, so a capture that
+/// is never measured is missed.
 module Rules =
 
     /// A capture option: one valid way to capture cards.
@@ -17,8 +18,18 @@ module Rules =
             Captured: Card list
         } // union of all combos (the cards actually taken)
 
+    /// Widest quantum capture search, in cards (one qubit each). The library splits a wider
+    /// table into searches that fit (SplitSettings.MaxPieceQubits).
+    [<Literal>]
+    let maxQuantumCards = 16
+
     /// Find all subsets of table cards that sum exactly to the hand card's value.
-    /// Uses Knapsack.findAllExactCombinationsAsync with iterative QAOA via IQuantumBackend.
+    ///
+    /// With a backend this is QuantumKnapsackSolver.findAllExactCombinationsAsync: iterative
+    /// QAOA that leaves out the cards worth more than the target and splits a table of more
+    /// than maxQuantumCards cards into halves joined over their partial sums. Without a
+    /// backend the subsets are enumerated classically. A backend error ends the search with
+    /// an exception.
     let findCaptures
         (backend: BackendAbstraction.IQuantumBackend option)
         (handCard: Card)
@@ -27,20 +38,43 @@ module Rules =
         if List.isEmpty tableCards then
             []
         else
-            let targetValue = Cards.handValue handCard
-
-            // Build knapsack items: id encodes position to avoid duplicates
+            // id encodes the table position, so equal cards stay distinct
             let items =
                 tableCards
                 |> List.mapi (fun i c ->
                     let id = sprintf "%d_%s" i (Cards.cardDisplay c)
                     (id, float (Cards.tableValue c.Rank), float (Cards.tableValue c.Rank)))
 
-            let problem = Knapsack.createProblem items (float targetValue)
+            let problem = Knapsack.createProblem items (float (Cards.handValue handCard))
+
+            let search =
+                match backend with
+                | None -> Knapsack.findAllExactCombinationsAsync problem None CancellationToken.None
+                | Some quantum ->
+                    let config =
+                        { Quantum.QuantumKnapsackSolver.defaultSubsetSumConfig with
+                            Splitting =
+                                { QaoaExecutionHelpers.defaultSplitSettings with
+                                    MaxPieceQubits = ValueSome maxQuantumCards
+                                }
+                        }
+
+                    task {
+                        let! found =
+                            Quantum.QuantumKnapsackSolver.findAllExactCombinationsAsync
+                                quantum
+                                problem.Items
+                                problem.Capacity
+                                config
+                                CancellationToken.None
+
+                        return found |> Result.map (fun result -> result.Combinations)
+                    }
+
             let combos =
-                Knapsack.findAllExactCombinationsAsync problem backend CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
+                match search |> Async.AwaitTask |> Async.RunSynchronously with
+                | Ok found -> found
+                | Error err -> failwith $"Capture search failed: {err}"
 
             // Map items back to original cards using positional index
             combos

@@ -242,7 +242,7 @@ dropout check still failed: one fallback passed 2.3 m from a neighbour.
 | `--termination-zones <path>` | `_data/termination_zones.csv` | Accepted areas where one-way aircraft come down |
 | `--rtl-base-m`, `--rtl-step-m` | 60, 10 | Copter fallback layers; fixed-wings step down from the ceiling |
 | `--pilots <n>` | 1 | Pilots declared in the evidence |
-| `--method` | hybrid | `hybrid` or `quantum` TSP |
+| `--method` | hybrid | `hybrid` or `quantum` TSP. `quantum` needs waypoints² qubits, so 4 waypoints at most on the local simulator; the 8 default waypoints need 64 and are refused |
 | `--mavlink` | off | Write ArduPilot missions and the launcher |
 | `--home-alt <m>` | 0 | Ground at the base above mean sea level |
 

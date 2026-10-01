@@ -56,7 +56,7 @@ module RetryTests =
     [<Fact>]
     let ``isTransientError returns true for RateLimited`` () =
         let err =
-            QuantumError.AzureError(AzureQuantumError.RateLimited(System.TimeSpan.FromSeconds 60.0))
+            QuantumError.AzureError(AzureQuantumError.RateLimited(TimeSpan.FromSeconds 60.0))
 
         Assert.True(isTransientError err)
 

@@ -132,7 +132,13 @@ module CoverageOptimizer =
                     $"Partial coverage: {coveredElements}/{problem.UniverseSize} elements covered"
         }
 
-    /// Execute coverage optimization without blocking the calling thread
+    /// Execute coverage optimization without blocking the calling thread.
+    ///
+    /// On a simulator a problem that needs more qubits than the backend runs is split into
+    /// circuits that fit and joined (QuboSplitting, default QaoaExecutionHelpers.SplitSettings);
+    /// it then takes many runs instead of one. A backend that bills every circuit is never
+    /// split here. Call QuantumSetCoverSolver.solveWithConfigAsync to change the settings or to read the
+    /// split report.
     let solveAsync
         (problem: CoverageProblem)
         (cancellationToken: CancellationToken)

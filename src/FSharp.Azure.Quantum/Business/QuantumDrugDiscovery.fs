@@ -55,10 +55,17 @@ type DrugDiscoveryConfiguration =
         VQCLayers: int
         /// VQC-specific: Maximum training epochs (default: 50)
         VQCMaxEpochs: int
-        /// QAOA-specific: Budget constraint for diverse selection (default: 10.0)
+        /// QAOA-specific: Budget constraint for diverse selection (default: 10.0).
+        /// Every molecule costs 1, so this is the largest number of molecules selected
+        /// (a fraction is rounded down). At or above the number of molecules in the batch
+        /// it does not bind; with non-negative activity values the best selection is then
+        /// the whole batch.
         SelectionBudget: float
         /// QAOA-specific: Weight for diversity bonus (default: 0.5)
         DiversityWeight: float
+        /// QAOA-specific: Final measurement shots of the selection circuit (default: 1000,
+        /// the shared QAOA default). The `shots` operation sets it together with Shots.
+        SelectionShots: int
     }
 
 /// A candidate molecule scored by the trained quantum model.
@@ -189,7 +196,6 @@ module internal ProviderDataLoader =
                 | ".csv" -> MolecularData.loadFromCsv path "SMILES" (Some "Label")
                 | _ -> File.ReadAllLines(path) |> Array.toList |> MolecularData.loadFromSmilesList
 
-/// Builder for the Quantum Drug Discovery DSL
 /// Helpers for scoring candidate molecules with a trained quantum model.
 module internal ScreeningScoring =
 
@@ -235,6 +241,20 @@ module internal ScreeningScoring =
                 | None -> Ok(scored.ToArray())
         }
 
+/// Builder for the Quantum Drug Discovery DSL.
+///
+/// Defaults: QuantumKernelSVM, ZZFeatureMap, batch size 10, fingerprint size 8, 100 shots
+/// for the classifier circuits and 1000 final shots for the QAOA selection.
+///
+/// QAOADiverseSelection (DrugDiscoverySolvers.DiverseSelection) takes the first
+/// `set_batch_size` molecules, each at cost 1, and selects among them under
+/// `selection_budget`: one qubit per molecule, plus ⌊log2 budget⌋ + 1 budget slack qubits
+/// when the budget is below the batch size. With the default budget (10.0) and batch size
+/// (10) the budget does not bind: diversity is non-negative, so with non-negative activity
+/// values (0/1 labels, or no labels) the problem is "select every molecule". Set
+/// `selection_budget` below the batch size to select a subset. The result message reports
+/// whether the selection was repaired to fit the budget and how the final samples stood
+/// (see DiverseSelection.Solution.Sampling).
 type QuantumDrugDiscoveryBuilder() =
 
     let defaultConfig =
@@ -252,6 +272,7 @@ type QuantumDrugDiscoveryBuilder() =
             VQCMaxEpochs = 50
             SelectionBudget = 10.0
             DiversityWeight = 0.5
+            SelectionShots = DrugDiscoverySolvers.defaultConfig.FinalShots
         }
 
     member _.Yield(_) = defaultConfig
@@ -484,7 +505,7 @@ type QuantumDrugDiscoveryBuilder() =
                     backend
                     problem
                     { DrugDiscoverySolvers.defaultConfig with
-                        FinalShots = state.Shots
+                        FinalShots = state.SelectionShots
                     }
                     cancellationToken
 
@@ -493,6 +514,13 @@ type QuantumDrugDiscoveryBuilder() =
                 |> Result.map (fun solution ->
                     let selectedIds =
                         solution.SelectedItems |> List.map (fun item -> item.Id) |> String.concat ", "
+
+                    // How the returned selection stood among the final samples
+                    let samplingLine =
+                        match solution.Sampling with
+                        | Some sampling ->
+                            $"\nFinal samples: {sampling.Shots}; returned selection sampled {sampling.Hits} times; within budget {sampling.Valid}"
+                        | None -> ""
                     // Expose the selected diverse set as ranked candidates (by activity value).
                     let ranked =
                         solution.SelectedItems
@@ -513,7 +541,7 @@ type QuantumDrugDiscoveryBuilder() =
 
                     {
                         Message =
-                            $"QAOA Diverse Selection Complete!\nSelected: {solution.SelectedItems.Length} compounds\nTotal Value: {solution.TotalValue:F2}\nDiversity Bonus: {solution.DiversityBonus:F2}\nTotal Cost: {solution.TotalCost:F2}\nFeasible: {solution.IsFeasible}\n\nSelected Compounds: {selectedIds}"
+                            $"QAOA Diverse Selection Complete!\nSelected: {solution.SelectedItems.Length} compounds\nTotal Value: {solution.TotalValue:F2}\nDiversity Bonus: {solution.DiversityBonus:F2}\nTotal Cost: {solution.TotalCost:F2}\nFeasible: {solution.IsFeasible}\nRepaired to fit the budget: {solution.WasRepaired}{samplingLine}\n\nSelected Compounds: {selectedIds}"
                         Method = QAOADiverseSelection
                         MoleculesProcessed = limit
                         RankedCandidates = ranked
@@ -596,6 +624,7 @@ type QuantumDrugDiscoveryBuilder() =
                         )
                 | Some backend, Some labels ->
                     let featureMap = this.MapFeatureMap state.FeatureMap
+
                     return!
                         this.TrainVQCClassifierAsync
                             backend
@@ -668,9 +697,14 @@ type QuantumDrugDiscoveryBuilder() =
     [<CustomOperation("set_batch_size")>]
     member _.SetBatchSize(state: DrugDiscoveryConfiguration, size: int) = { state with BatchSize = size }
 
-    /// Set number of measurement shots
+    /// Set number of measurement shots: the classifier circuits' shots (default 100) and
+    /// the QAOA selection's final shots (default 1000) alike
     [<CustomOperation("shots")>]
-    member _.Shots(state: DrugDiscoveryConfiguration, shots: int) = { state with Shots = shots }
+    member _.Shots(state: DrugDiscoveryConfiguration, shots: int) =
+        { state with
+            Shots = shots
+            SelectionShots = shots
+        }
 
     /// Set the quantum backend
     [<CustomOperation("backend")>]
@@ -685,7 +719,10 @@ type QuantumDrugDiscoveryBuilder() =
     [<CustomOperation("vqc_max_epochs")>]
     member _.VQCMaxEpochs(state: DrugDiscoveryConfiguration, epochs: int) = { state with VQCMaxEpochs = epochs }
 
-    /// Set the budget constraint for QAOA diverse selection (default: 10.0)
+    /// Set the budget constraint for QAOA diverse selection (default: 10.0): the largest
+    /// number of molecules selected, each costing 1. A budget at or above the batch size
+    /// does not bind; with non-negative activity values the problem is then "select every
+    /// molecule".
     [<CustomOperation("selection_budget")>]
     member _.SelectionBudget(state: DrugDiscoveryConfiguration, budget: float) = { state with SelectionBudget = budget }
 

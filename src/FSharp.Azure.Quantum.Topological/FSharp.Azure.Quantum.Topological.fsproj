@@ -6,12 +6,15 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.5.0</Version>
+    <Version>0.5.1</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.5.0: Rebuilt against FSharp.Azure.Quantum v1.5.0 (Task-based API; see its notes)
+    <PackageReleaseNotes>v0.5.1: Rebuilt against FSharp.Azure.Quantum v1.5.1
+- ADDED: the backend reports the logical qubits its anyon budget holds (IQubitLimitedBackend), so solvers refuse, decompose or split a problem that needs more instead of failing when the state is initialised
+
+v0.5.0: Rebuilt against FSharp.Azure.Quantum v1.5.0 (Task-based API; see its notes)
 
 v0.4.16: Rebuilt against FSharp.Azure.Quantum v1.4.16
 - ADDED: quantum Monte Carlo, option pricing and the risk engine run on the topological backend: amplitude estimation reads its logical-qubit probabilities

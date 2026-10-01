@@ -242,7 +242,7 @@ type ColoredNode = {
 }
 
 type ColoringObjective =
-    | MinimizeColors      // Minimize chromatic number
+    | MinimizeColors      // Prefer fewer colors (QUBO: low color-index sum; samples ranked by color count)
     | MinimizeConflicts   // Allow invalid colorings, minimize violations
     | BalanceColors       // Load balancing
 
@@ -408,7 +408,7 @@ val solveAsync : Problem → IQuantumBackend option → CancellationToken → Ta
 - `items` - (id, weight, value) tuples
 - `capacity` - Maximum total weight
 
-Qubits needed: one per item. Ready-made problems: `budgetAllocation`, `cargoLoading`, `taskScheduling`, `randomInstance`.
+Qubits needed: one per item plus ⌈log₂(capacity + 1)⌉ slack bits, with the capacity counted in whole weight units after the weights are rescaled to integers without a common divisor (none when all items fit together). Weights must be non-negative and have at most 6 decimal places; other weights return a `ValidationError`. Ready-made problems: `budgetAllocation`, `cargoLoading`, `taskScheduling`, `randomInstance`.
 
 ### Types
 
@@ -488,6 +488,8 @@ val solveAsync : TspProblem → IQuantumBackend option → CancellationToken →
 
 Qubits needed: cities² (4 cities = 16 qubits), so QAOA on the local simulator is limited to a handful of cities. For larger instances use `HybridSolver.solveTspAsync`, whose classical path has no qubit limit.
 
+`solveAsync` runs `QuantumTspSolver` with its default configuration (two optimised QAOA layers, 1000 final shots). The tour is the shortest one among the measurements that are valid tours (every city in exactly one time slot); it is not guaranteed to be the optimum. When no measurement is a valid tour the result is an `Error` that names the number of shots; no tour is built classically. `QuantumTspSolver.solveAsync` exposes the configuration (`NumLayers`, `FinalShots`, ...) and the sampling statistics; see [What the solver returns](getting-started.md#what-the-solver-returns).
+
 ### Types
 
 ```text
@@ -522,7 +524,7 @@ let problem_tsp = TSP.createProblem stops
 task {
     match! TSP.solveAsync problem_tsp None CancellationToken.None with
     | Ok tour ->
-        printfn "Optimal route: %s" (String.concat " → " tour.Cities)
+        printfn "Route: %s" (String.concat " → " tour.Cities)
         printfn "Total distance: %.2f km" tour.TotalDistance
     | Error err ->
         printfn "Route optimization failed: %s" err.Message
@@ -556,11 +558,11 @@ val solveAsync : PortfolioProblem → IQuantumBackend option → CancellationTok
 - `covariance` - Covariance Σ of the asset returns, rows and columns in asset order
 - `correlation` - Correlation ρ; the covariance is Σᵢⱼ = ρᵢⱼ × riskᵢ × riskⱼ
 
-Qubits needed: one per asset.
+Qubits needed: one per asset that one lot can buy, plus slack bits when the holding limit is below that count.
 
 **Risk and the objective.** Without a covariance the assets are treated as independent and risk = sqrt(Σ (wᵢσᵢ)²), σᵢ = `Risk`. With one, risk = sqrt(wᵀΣw) and the QUBO carries the covariance terms. `solveAsync` returns a `ValidationError` for a covariance that is not square, not one row per asset, not symmetric or not positive semidefinite (tolerance `PortfolioTypes.CovarianceTolerance` × the largest variance).
 
-The QUBO is the discretised mean-variance problem: selecting asset i buys one lot of weight s of the budget, so w = s·x, and QAOA minimises −μᵀw + λ wᵀΣw (λ = risk aversion, 0.5 in `solveAsync`). s is 1/n, raised to MinHolding/Budget or lowered to MaxHolding/Budget when the holding limits require it; with s > 1/n at most ⌊1/s⌋ assets fit the budget. Budget not bought stays uninvested. Shares may be fractional, but an asset is only bought when one lot covers at least one share (the classical greedy has the same rule); unaffordable assets get no qubit. The solver samples p = 1 QAOA (cost Hamiltonian scaled to a largest coefficient of 1 by the shared pipeline) on a grid of angles with γ > 0, the minimising sign, samples again at the angles with the lowest mean energy, and returns the best feasible sample. `QuantumPortfolioSolver.toQubo` builds the QUBO with `ProblemTransformer.encodePortfolioCorrelation`; `QuantumPortfolioSolver.solveWithCovarianceAsync` is the algorithm-level entry point.
+The QUBO is the discretised mean-variance problem: selecting asset i buys one lot of weight s of the budget, so w = s·x, and QAOA minimises −μᵀw + λ wᵀΣw (λ = risk aversion, 0.5 in `solveAsync`). s is 1/n, raised to MinHolding/Budget or lowered to MaxHolding/Budget when the holding limits require it; with s > 1/n at most ⌊1/s⌋ assets fit the budget, and the QUBO then carries a holding-count penalty with a few slack qubits so that its minimum respects that limit. Budget not bought stays uninvested. Shares may be fractional, but an asset is only bought when one lot covers at least one share (the classical greedy has the same rule); unaffordable assets get no qubit. The solver samples p = 1 QAOA (cost Hamiltonian scaled to a largest coefficient of 1 by the shared pipeline) on a grid of angles with γ > 0, the minimising sign, samples again at the angles with the lowest mean energy, and returns the best feasible sample. `QuantumPortfolioSolver.toQubo` builds the QUBO with `ProblemTransformer.encodePortfolioCorrelation`; `QuantumPortfolioSolver.solveWithCovarianceAsync` is the algorithm-level entry point.
 
 `PortfolioTypes` also has `validateCovariance`, `covarianceFromCorrelation`, `portfolioVariance` and `portfolioRisk`.
 
@@ -837,7 +839,19 @@ val CloudBackendFactory.createAtomComputing : httpClient:HttpClient -> workspace
 val CloudBackendFactory.createIqm           : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
 ```
 
-Qubit limits the cloud backends report (`MaxQubits`, from the target name): IonQ Aria 25 / Forte 36, Rigetti QPU 84, Quantinuum H1 32 / H2 56, Atom Computing QPU 100, IQM 20; provider simulator targets 20.
+Qubit limits the cloud backends report (`MaxQubits`) are defaults taken from the target name, as the devices were when this version was released: IonQ Aria 25 / Forte 36, Rigetti QPU 84, Quantinuum H1 32 / H2 56, Atom Computing QPU 100, IQM 20; provider simulator targets 20. A target this version does not know reports no limit, and the provider decides.
+
+Solvers refuse a problem wider than the reported limit before anything is submitted. When a device has grown, or the default is too cautious, pass `maxQubits` to the backend constructor; it replaces the built-in figure (a value below 1 is an `ArgumentException`):
+
+```fsharp
+open System.Net.Http
+open FSharp.Azure.Quantum.Backends
+
+let widerForte (httpClient: HttpClient) (workspaceUrl: string) =
+    CloudBackends.IonQCloudBackend(httpClient, workspaceUrl, "ionq.qpu.forte-1", maxQubits = 64)
+```
+
+The Braket backend takes the same argument, and `BraketBackend.CreateWithDeviceLimitAsync` reads the figure from the device itself.
 
 **Async usage with cloud backends:**
 
@@ -1339,6 +1353,7 @@ type QaoaSolverConfig = {
     EnableOptimization: bool         // Enable Nelder-Mead (false = grid search)
     EnableConstraintRepair: bool     // Enable constraint repair post-processing
     MaxOptimizationIterations: int   // Max Nelder-Mead iterations
+    Splitting: SplitSettings         // When a problem wider than the backend is split (default: on simulators)
 }
 ```
 
@@ -1380,7 +1395,94 @@ val executeQaoaWithGridSearchAsync :
 val executeFromQuboAsync :
     backend:IQuantumBackend → qubo:float[,] → parameters:(float * float)[] → shots:int
     → cancellationToken:CancellationToken → Task<Result<int[][], QuantumError>>
+
+val runQaoaAsync :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → cancellationToken:CancellationToken
+    → Task<Result<int[] * (float * float)[] option * bool option, QuantumError>>
+
+val runQaoaSampledAsync :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → cancellationToken:CancellationToken → Task<Result<QaoaRun, QuantumError>>
+
+val sampleStatistics :
+    numQubits:int → isValid:(int[] → bool) → isReturned:(int[] → bool) → samples:int[][]
+    → SampleStatistics
 ```
+
+`runQaoaAsync` optimises or grid-searches as `config.EnableOptimization` says and returns the lowest-energy sample; `runQaoaSampledAsync` returns the whole run as a `QaoaRun` (`Samples`, `Best`, `Parameters`, `Converged`).
+
+**Sample statistics:** every QAOA solver solution has `Sampling: SampleStatistics option`, the standing of the returned solution among the final samples (`None` when no single sampling run produced it, as after decomposition):
+
+| Member | Meaning |
+|---|---|
+| `Shots`, `Qubits` | Samples drawn in the final run; qubits measured per sample |
+| `Hits` | Samples that decode to the returned solution (0 when only classical repair produced it) |
+| `Valid` | Samples that passed the solver's classical validity check before any repair |
+| `HitRate`, `ValidRate` | `Hits / Shots`, `Valid / Shots` |
+| `UniformRate` | 1 / 2^`Qubits`, the per-shot chance of one given bitstring under random guessing |
+| `ShotsFor confidence` | Shots that return the solution at least once with that confidence at `HitRate` (`int voption`); `ValueNone` when `Hits = 0` |
+
+See [How many shots do I need?](faq#how-many-shots-do-i-need) for how to use them.
+
+**Splitting a problem wider than the backend** (`FSharp.Azure.Quantum.Core.QuboSplitting`, settings in `QaoaExecutionHelpers`):
+
+```text
+type SplitPolicy = Never | OnSimulators | Always      // default OnSimulators
+
+type SplitSettings = {
+    Policy: SplitPolicy             // when a split is allowed
+    MaxPieceQubits: int voption     // widest circuit; ValueNone = the backend's limit. Wider problems are split
+    MaxFixedVariables: int          // conditioning: a piece touching b fixed variables runs 2^b times (default 8, at most 20)
+    MaxShareRuns: int               // blocks: one run per block and share (default 256)
+    MaxBlockItems: int              // blocks: items per block (default 12)
+}
+
+type SplitReport = {
+    Runs: int                       // circuit runs made in place of the single run
+    FixedVariables: int             // conditioning: how many were fixed; 0 for a block split
+    Blocks: int                     // block split; 0 for conditioning
+    WidestPieceQubits: int
+}
+
+val defaultSplitSettings : SplitSettings
+val splitPieceQubits : settings:SplitSettings → backend:IQuantumBackend → problemQubits:int → int voption
+val combineSplitReports : reports:SplitReport option list → SplitReport option
+
+val chooseFixedVariables : maxPieceQubits:int → qubo:float[,] → int list
+
+val solvePiecewiseAsync :
+    limits:ConditioningLimits → qubo:float[,]
+    → solvePiece:(float[,] → Task<Result<int[], QuantumError>>)
+    → cancellationToken:CancellationToken → Task<Result<PiecewiseSolution, QuantumError>>
+
+val trySolveByConditioningAsync :
+    settings:SplitSettings → backend:IQuantumBackend → qubo:float[,]
+    → solvePiece:(float[,] → Task<Result<int[], QuantumError>>)
+    → cancellationToken:CancellationToken → Task<Result<SplitAttempt, QuantumError>>
+
+val runQaoaAsync :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → cancellationToken:CancellationToken → Task<Result<QaoaSplitRun, QuantumError>>
+
+val shareRuns : maxBlockItems:int → weights:int[] → capacity:int → int64
+
+val solveSharesAsync :
+    limits:ShareLimits → values:float[] → weights:int[] → capacity:int
+    → sampleBlock:(float[,] → Task<Result<int[][], QuantumError>>)
+    → cancellationToken:CancellationToken → Task<Result<SharesSolution, QuantumError>>
+```
+
+- `SplitSettings` is the `Splitting` field of `QaoaSolverConfig`, `QuantumMaxCutSolver.QaoaConfig` and `QuantumKnapsackSolver.QaoaConfig`. `OnSimulators` splits on backends that do not bill every circuit; `Always` also splits on Azure Quantum and Braket backends, where every piece is a billed job.
+- `splitPieceQubits` answers whether a problem of that width is split on that backend, and with what piece width: `ValueNone` means it runs as one circuit.
+- `solvePiecewiseAsync` fixes the variables `chooseFixedVariables` picks and solves every remaining piece (a connected component, one circuit each) with `solvePiece` once per assignment of the fixed variables that piece is coupled to. It returns the assignment of all fixed variables with the lowest energy of the whole QUBO. `MaxFixedVariables` outside 0 to 20 is a `ValidationError`; a QUBO too dense to cut is refused before any piece runs.
+- `trySolveByConditioningAsync` applies the settings: `SplitAttempt.Solved(bits, report)` when it split, `SplitAttempt.RunAsOneCircuit` when the problem fits, the policy forbids a split, or the QUBO needs more than `MaxFixedVariables` while the backend can still hold it; a `ValidationError` naming the limit when it can neither be split nor held.
+- `runQaoaAsync` is QAOA on a QUBO of any width: `Direct = Some run` when it ran as one circuit, `Split = Some report` when it was split.
+- `solveSharesAsync` solves a knapsack-shaped selection block by block: `sampleBlock` is run on `exactShareQubo` for every block and exact share of the capacity (`shareRuns` in all), every sample feeds the block's table (`harvest`), and the tables are joined (`joinTables`). `QuantumKnapsackSolver.solveInBlocksAsync backend problem config maxBlockItems cancellationToken` is the knapsack entry point.
+- `QuantumKnapsackSolver.findAllExactCombinationsAsync` (every subset that sums to a target) splits by halves under the same settings (`SubsetSumConfig.Splitting`): a subset is a subset of one half summing to t joined with a subset of the other half summing to target − t.
+- Solutions of the solvers that can split carry `Split: SplitReport option`. A solution joined from several connected components carries their reports added up (`combineSplitReports`).
+
+See [My problem is wider than the backend](faq#my-problem-is-wider-than-the-backend-can-it-still-run-on-it).
 
 **Parameters:**
 - `qubo` — Dense QUBO matrix (`float[,]`)
@@ -1644,10 +1746,9 @@ open System.Threading
 open FSharp.Azure.Quantum.Quantum
 
 // Configure MaxCut QAOA behavior
-let maxCutConfig : QuantumMaxCutSolver.QaoaConfig = {
-    NumShots = 500                   // Number of measurement shots
-    InitialParameters = (0.5, 0.5)   // Starting (gamma, beta)
-}
+let maxCutConfig : QuantumMaxCutSolver.QaoaConfig =
+    { QuantumMaxCutSolver.defaultConfig with
+        NumShots = 500 }             // InitialParameters (gamma, beta) and Splitting keep their defaults
 
 // The solver-level problem has only vertices and edges
 let solverProblem : QuantumMaxCutSolver.MaxCutProblem =
@@ -1786,4 +1887,4 @@ val exportToFileWithConfigAsync : config:QasmConfig -> circuit:Circuit -> filePa
 
 ---
 
-**Last Updated**: 2026-09-30 (package version 1.4.15)
+**Last Updated**: 2026-10-01 (package version 1.5.1)

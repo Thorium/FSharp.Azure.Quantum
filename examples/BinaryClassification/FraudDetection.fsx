@@ -361,9 +361,7 @@ if shouldRun 2 then
 
         task {
             for i in 0 .. testTransactions.Length - 1 do
-                let! predicted = BinaryClassifier.predictAsync testTransactions.[i] classifier CancellationToken.None
-
-                match predicted with
+                match! BinaryClassifier.predictAsync testTransactions.[i] classifier CancellationToken.None with
                 | Ok pred ->
                     let status = if pred.IsPositive then "FRAUD" else "OK"
 

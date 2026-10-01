@@ -259,8 +259,10 @@ let asymmetric = array2D [
     [0.0; 10.0]
     [5.0; 0.0]   // 10 ≠ 5
 ]
-// No error or warning: the TSP solvers assume symmetric distances,
-// so tour lengths on this matrix are not meaningful
+// No error or warning: the classical TSP solver (2-opt) assumes symmetric
+// distances, so its tours on this matrix are not meaningful.
+// QuantumTspSolver charges distances.[from, to] for every step, the return
+// to the first city included, and so accepts one-way distances.
 ```
 
 **✅ Fix:** Make matrix symmetric
@@ -502,23 +504,24 @@ task {
     | Ok solution ->
         printfn "Best tour: %A" solution.Tour
         printfn "Tour length: %.2f" solution.TourLength
-        printfn "Optimized parameters (gamma, beta): %A" solution.OptimizedParameters
+        printfn "Layer parameters (gamma, beta): %A" solution.LayerParameters // one pair per layer
         printfn "Optimization converged: %A" solution.OptimizationConverged    // bool option
-        printfn "Iterations: %A" solution.OptimizationIterations              // int option
-    | Error err -> printfn "Error: %s" err.Message
+        printfn "Valid tours among the shots: %A" (solution.Sampling |> Option.map (fun s -> s.Valid))
+    | Error err -> printfn "Error: %s" err.Message                             // e.g. no valid tour in 1000 shots
 }
 
 // Option 2: Custom configuration for fine-tuning
 let customConfig = {
+    NumLayers = 2                    // QAOA layers (p)
     OptimizationShots = 100          // Samples per step when the backend has no state vector
     FinalShots = 1000                // High shots for accurate final result
     EnableOptimization = true        // Enable variational loop
-    InitialParameters = (0.5, 0.5)   // Starting guess for (gamma, beta)
+    InitialParameters = (0.5, 0.5)   // (gamma, beta) of every layer when optimization is disabled
     MaxOptimizationIterations = 1000 // Cap the variational loop
 }
 let result = runTsp customConfig CancellationToken.None
 
-// Option 3: No variational loop at all — one circuit at the initial parameters.
+// Option 3: No variational loop at all — one single-layer circuit at the initial parameters.
 // Use this when the backend is expensive (e.g. topological), since every
 // optimizer iteration is a full circuit execution.
 let fastResult = runTsp fastConfig CancellationToken.None
@@ -526,10 +529,34 @@ let fastResult = runTsp fastConfig CancellationToken.None
 
 `QuantumTspSolver.solveAsync` is the only entry point: a fixed shot count without optimization, or the default configuration on a `LocalBackend`, are both expressed through its `QuantumTspConfig` argument.
 
+### What the solver returns
+
+The QUBO has one variable per (city, time slot) pair and charges every step of the closed tour, the return to the first city included, at `distances.[from, to]`. Its constraint penalty is twice the largest distance, so the lowest-energy bitstrings are the shortest tours at any distance scale.
+
+A measurement is a tour only when it is a permutation matrix: one city in every time slot and one slot for every city. Other measurements are dropped; nothing is repaired or filled in. `solution.Sampling` gives the count of valid measurements (`Valid`) and of those that are the returned tour (`Hits`); the rotations and, for symmetric distances, the two directions of one cycle count as the same tour. The returned tour is the shortest one measured, which need not be the optimum.
+
+When no measurement is a tour, the result is an `Error` that names the number of shots. Raise `FinalShots` or `NumLayers`; the solver does not fall back to a classical tour. See [Measured tour rates](#measured-tour-rates) for what to expect on the local simulator.
+
+### Measured tour rates
+
+Per-shot probabilities on the local simulator, computed from the state vector of the final circuit (two instances per size; "uniform" is a random bitstring):
+
+| Cities (qubits) | Configuration | Valid tour | Uniform | Optimal tour | Uniform |
+|---|---|---|---|---|---|
+| 3 (9) | `fastConfig` (1 layer, fixed angles) | 7–9% | 1.2% | 6–7% | 0.6–1.2% |
+| 3 (9) | `defaultConfig` (2 optimised layers) | 15–23% | 1.2% | 15–17% | 0.6–1.2% |
+| 4 (16) | `fastConfig` | 2.0–2.1% | 0.037% | 0.8–0.9% | 0.012% |
+| 4 (16) | `defaultConfig` | 4.1–4.6% | 0.037% | 1.7–2.1% | 0.012% |
+| 4 (16) | `defaultConfig` with `NumLayers = 3` (one instance) | 14% | 0.037% | 6.6% | 0.012% |
+
+At 4 cities the default 1000 final shots hold about 45 valid tours, and the chance that none of them is optimal is negligible; with 200 shots it is 1.5–3.5%. A run with 50 shots has no valid tour about one time in ten. The default optimisation takes one to two minutes at 4 cities (16 qubits) and several minutes with three layers; 3 cities take under a second.
+
+Only n! of the 2^(n²) bitstrings are tours, so the share of valid shots falls quickly with the number of cities. These figures say nothing about instances wider than the simulator can run.
+
 ### How QAOA Parameter Optimization Works
 
 **Variational Quantum-Classical Loop:**
-1. **Classical optimizer** proposes QAOA parameters (gamma, beta)
+1. **Classical optimizer** proposes QAOA parameters (gamma, beta) for every layer
 2. **Quantum backend** executes the QAOA circuit with those parameters
 3. **Score the parameters** - the expected QUBO energy of the circuit: exact from the amplitudes on a state-vector backend, otherwise the mean over `OptimizationShots` samples
 4. **Optimizer updates** parameters based on gradient-free Nelder-Mead simplex method
@@ -543,9 +570,10 @@ let fastResult = runTsp fastConfig CancellationToken.None
 
 **Configuration Guidelines:**
 - `OptimizationShots = 100` - Samples per optimizer step on backends without a state vector (increase for noisy hardware)
-- `FinalShots = 1000` - Accurate result (decrease for faster demos)
-- `EnableOptimization = true` - Enable variational loop (disable for testing)
-- `InitialParameters = (0.5, 0.5)` - Starting guess; the optimizer searches γ ∈ [0, π], β ∈ [0, π/2] in units of the cost Hamiltonian scaled to a largest coefficient of 1
+- `FinalShots = 1000` - Accurate result (decrease for faster demos); see [How many shots do I need?](faq#how-many-shots-do-i-need)
+- `NumLayers = 2` - QAOA layers; more layers put more probability on valid tours and make every circuit deeper
+- `EnableOptimization = true` - Enable variational loop (disable for testing). The optimizer starts from a fixed ramp schedule and searches γ ∈ [0, π], β ∈ [0, π/2] per layer, in units of the cost Hamiltonian scaled to a largest coefficient of 1
+- `InitialParameters = (0.5, 0.5)` - The (γ, β) used in every layer when optimization is disabled; use it with `NumLayers = 1` as `fastConfig` does
 - `MaxOptimizationIterations = 1000` - Upper bound on Nelder–Mead iterations; each one runs a full circuit
 
 **Performance:** every optimizer iteration executes the circuit once (with `OptimizationShots` shots on hardware), so the extra cost is iterations × `OptimizationShots`. Measure on your own problem before relying on the variational loop on a paid backend.

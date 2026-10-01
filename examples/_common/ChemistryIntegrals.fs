@@ -193,7 +193,9 @@ module ChemistryIntegrals =
                                         IntegralProvider = provider
                                     }
 
-                                let! vqe = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+                                let! vqe =
+                                    GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+
                                 return vqe |> Result.mapError (fun err -> err.Message)
                         }
 

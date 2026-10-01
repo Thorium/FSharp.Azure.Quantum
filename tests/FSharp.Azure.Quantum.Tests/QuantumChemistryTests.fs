@@ -450,7 +450,11 @@ module GroundStateEnergyTests =
 
             // Act
             let! result =
-                GroundStateEnergy.estimateEnergyWithAsync GroundStateMethod.ClassicalDFT h2 config CancellationToken.None
+                GroundStateEnergy.estimateEnergyWithAsync
+                    GroundStateMethod.ClassicalDFT
+                    h2
+                    config
+                    CancellationToken.None
 
             // Assert
             match result with
@@ -488,11 +492,8 @@ module GroundStateEnergyTests =
                 }
 
             // Act
-            let! result =
-                GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
-
             // Assert
-            match result with
+            match! GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None with
             | Ok r -> Assert.NotEqual(TabulatedReference, r.Source)
             | Error e -> Assert.Fail($"Auto-detect should work: {e.Message}")
         }
@@ -620,8 +621,7 @@ module GroundStateEnergyTests =
                 }
 
             // Act
-            let! result =
-                GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
+            let! result = GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
 
             // Assert
             Assert.True(result |> Result.isOk, "Should accept initial parameters")
@@ -1197,11 +1197,7 @@ module MolecularInputTests =
                 // Molecule.fromFciDumpFileAsync will fail with MissingGeometry error
 
                 // Assert
-                match!
-                    FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync
-                        tempFile
-                        CancellationToken.None
-                with
+                match! FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile CancellationToken.None with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok moleculeData ->
                     // Should extract NORB=2, NELEC=2 from header metadata
@@ -1233,11 +1229,7 @@ module MolecularInputTests =
                 // Act - Use MoleculeFormats directly
 
                 // Assert
-                match!
-                    FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync
-                        tempFile
-                        CancellationToken.None
-                with
+                match! FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile CancellationToken.None with
                 | Ok _ -> Assert.True(false, "Should require NORB parameter")
                 | Error err -> Assert.Contains("NORB", err.Message)
             finally
@@ -2521,9 +2513,10 @@ module VqeIntegralPathTests =
 
     [<Fact>]
     let ``Readout mitigation with the right single-qubit calibration recovers the noiseless energy`` () : Task =
+        // Qubit 0 is occupied in the H2 Hartree-Fock state |1100>, so misreading it biases <Z0>.
+        let p01, p10 = 0.05, 0.35
+
         task {
-            // Qubit 0 is occupied in the H2 Hartree-Fock state |1100>, so misreading it biases <Z0>.
-            let p01, p10 = 0.05, 0.35
             let hartreeFock = [| 0.0; 0.0; 0.0; 0.0; 0.0 |]
 
             let energyAt (backend: IQuantumBackend) mitigation =
@@ -2566,20 +2559,34 @@ module VqeIntegralPathTests =
                     let runs = List.ofSeq runs
 
                     return
-                        runs |> List.averageBy (fun r -> r.Energy), runs |> List.forall (fun r -> r.ErrorMitigationApplied)
+                        runs |> List.averageBy (fun r -> r.Energy),
+                        runs |> List.forall (fun r -> r.ErrorMitigationApplied)
                 }
 
             let! unmitigated, unmitigatedFlag = mean None
 
-            let! mitigated, mitigatedFlag = mean (Some(readout (singleQubitCalibration 0 p01 p10)))
+            let! mitigated, mitigatedFlag =
+                mean (Some(readout (singleQubitCalibration 0 p01 p10)))
 
             let! wrongQubit, _ = mean (Some(readout (singleQubitCalibration 3 p01 p10)))
 
             Assert.False(unmitigatedFlag)
             Assert.True(mitigatedFlag, "mitigation on sampled measurements must be reported as applied")
-            Assert.True(abs (unmitigated - exact) > 0.05, $"readout noise must bias the energy: {unmitigated} vs {exact}")
-            Assert.True(abs (mitigated - exact) < 0.03, $"mitigated {mitigated} Ha must recover the noiseless {exact} Ha")
-            Assert.True(abs (wrongQubit - exact) > 0.05, $"a calibration of the wrong qubit must not fix it: {wrongQubit}")
+
+            Assert.True(
+                abs (unmitigated - exact) > 0.05,
+                $"readout noise must bias the energy: {unmitigated} vs {exact}"
+            )
+
+            Assert.True(
+                abs (mitigated - exact) < 0.03,
+                $"mitigated {mitigated} Ha must recover the noiseless {exact} Ha"
+            )
+
+            Assert.True(
+                abs (wrongQubit - exact) > 0.05,
+                $"a calibration of the wrong qubit must not fix it: {wrongQubit}"
+            )
         }
         :> Task
 
@@ -2685,7 +2692,9 @@ module VqeIntegralPathTests =
 
             let backend = CountingBackend(LocalBackend())
 
-            match! energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) (Some tooLarge)) with
+            match!
+                energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) (Some tooLarge))
+            with
             | Ok r -> Assert.Fail($"22 qubits exceeds the budget, got {r.Energy} from {r.Source}")
             | Error e ->
                 Assert.Contains($"max {Types.NisqPracticalQubits}", e.Message)
@@ -3334,7 +3343,9 @@ module ChemistryAdmissionTests =
 
             match! solve "cc-pvdz" with
             | Ok r ->
-                Assert.Fail($"cc-pVDZ must not silently run in another basis, got {r.GroundStateEnergy} from {r.Source}")
+                Assert.Fail(
+                    $"cc-pVDZ must not silently run in another basis, got {r.GroundStateEnergy} from {r.Source}"
+                )
             | Error e -> Assert.Contains("6-31G", e.Message)
         }
         :> Task
@@ -3432,7 +3443,11 @@ module ChemistryAdmissionTests =
     let ``ClassicalDFT is deterministic and matches by composition`` () : Task =
         task {
             let classical m =
-                GroundStateEnergy.estimateEnergyWithAsync GroundStateMethod.ClassicalDFT m (config None) CancellationToken.None
+                GroundStateEnergy.estimateEnergyWithAsync
+                    GroundStateMethod.ClassicalDFT
+                    m
+                    (config None)
+                    CancellationToken.None
 
             let renamed =
                 { Molecule.createH2 0.74 with
@@ -3465,7 +3480,11 @@ module ChemistryAdmissionTests =
     let ``ClassicalDFT refuses states its table does not describe`` () : Task =
         task {
             let classical m =
-                GroundStateEnergy.estimateEnergyWithAsync GroundStateMethod.ClassicalDFT m (config None) CancellationToken.None
+                GroundStateEnergy.estimateEnergyWithAsync
+                    GroundStateMethod.ClassicalDFT
+                    m
+                    (config None)
+                    CancellationToken.None
 
             let h2 = Molecule.createH2 0.7414
 
@@ -3481,7 +3500,8 @@ module ChemistryAdmissionTests =
                     Molecule.createLiH 2.5
                 ] do
                 match! classical m with
-                | Ok r -> Assert.Fail($"charge {m.Charge}, multiplicity {m.Multiplicity}: got the table value {r.Energy}")
+                | Ok r ->
+                    Assert.Fail($"charge {m.Charge}, multiplicity {m.Multiplicity}: got the table value {r.Energy}")
                 | Error e -> Assert.Contains("not the state the table describes", e.Message)
 
             match! classical (Molecule.createLiH 1.595) with
@@ -3549,12 +3569,14 @@ module ChemistryAdmissionTests =
                             OneElectron =
                                 {
                                     NumOrbitals = n
-                                    Integrals = Array2D.init n n (fun i j -> if i = j then -1.0 + 0.1 * float i else 0.01)
+                                    Integrals =
+                                        Array2D.init n n (fun i j -> if i = j then -1.0 + 0.1 * float i else 0.01)
                                 }
                             TwoElectron =
                                 {
                                     NumOrbitals = n
-                                    Integrals = Array4D.init n n n n (fun p q r s -> if p = q && r = s then 0.5 else 0.001)
+                                    Integrals =
+                                        Array4D.init n n n n (fun p q r s -> if p = q && r = s then 0.5 else 0.001)
                                 }
                             ReferenceEnergy = None
                         }
@@ -3754,7 +3776,8 @@ module WholeCircuitUccsdTests =
                 }
                 : ChemistryVQE.ChemistryVQEConfig
 
-            let! gateByGateRun = ChemistryVQE.runWithAsync (Some parameters) None gateByGate CancellationToken.None
+            let! gateByGateRun =
+                ChemistryVQE.runWithAsync (Some parameters) None gateByGate CancellationToken.None
 
             let exactEnergy =
                 match gateByGateRun with
@@ -3766,7 +3789,11 @@ module WholeCircuitUccsdTests =
             match
                 ChemistryVQE.uccsdCircuit 2 4 parameters
                 |> Result.bind (fun circuit ->
-                    ChemistryVQE.sampledExpectation (WholeCircuitBackend(0, 1) :> IQuantumBackend) None circuit hamiltonian)
+                    ChemistryVQE.sampledExpectation
+                        (WholeCircuitBackend(0, 1) :> IQuantumBackend)
+                        None
+                        circuit
+                        hamiltonian)
             with
             | Ok e ->
                 Assert.Equal(exactEnergy, e.Energy, 10)
@@ -3819,9 +3846,7 @@ module WholeCircuitUccsdTests =
 
             let backend = WholeCircuitBackend(shots, 7)
 
-            match!
-                VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None
-            with
+            match! VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None with
             | Ok r ->
                 match r.Estimation with
                 | SampledCircuits(circuitsPerEnergy, shotsPerCircuit, executed) ->
@@ -3862,9 +3887,7 @@ module WholeCircuitUccsdTests =
             let backend =
                 Backends.DensityMatrixSimulator.NoisyLocalBackend(Backends.DensityMatrixSimulator.noiseless)
 
-            match!
-                VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None
-            with
+            match! VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None with
             | Ok r ->
                 match r.Estimation with
                 | SampledCircuits(5, None, _) -> ()
@@ -3936,7 +3959,10 @@ module WholeCircuitUccsdTests =
                 |> Result.defaultWith (fun e -> failwith e.Message)
 
             let! minimumRun =
-                VQE.runAsync placeholder (providerConfig file (Backends.LocalBackend.LocalBackend() :> IQuantumBackend) 100) CancellationToken.None
+                VQE.runAsync
+                    placeholder
+                    (providerConfig file (Backends.LocalBackend.LocalBackend() :> IQuantumBackend) 100)
+                    CancellationToken.None
 
             let minimum =
                 match minimumRun with
@@ -3978,7 +4004,12 @@ module WholeCircuitUccsdTests =
             let backend = WholeCircuitBackend(0, 1)
             let watch = System.Diagnostics.Stopwatch.StartNew()
 
-            match! VQE.runAsync placeholder (providerConfig (bundled "ethane-cas-4-4") (backend :> IQuantumBackend) 200) CancellationToken.None with
+            match!
+                VQE.runAsync
+                    placeholder
+                    (providerConfig (bundled "ethane-cas-4-4") (backend :> IQuantumBackend) 200)
+                    CancellationToken.None
+            with
             | Ok r -> Assert.Fail $"expected the budget refusal, got {r.Energy}"
             | Error e ->
                 Assert.Contains("MaxWholeCircuitJobs", e.Message)
@@ -4004,7 +4035,10 @@ module WholeCircuitUccsdTests =
                 trueEnergy integrals (let rng = Random 42 in Array.init 52 (fun _ -> (rng.NextDouble() - 0.5) * 0.01))
 
             match!
-                VQE.runAsync placeholder (providerConfig file (WholeCircuitBackend(0, 1) :> IQuantumBackend) 10) CancellationToken.None
+                VQE.runAsync
+                    placeholder
+                    (providerConfig file (WholeCircuitBackend(0, 1) :> IQuantumBackend) 10)
+                    CancellationToken.None
             with
             | Error e -> Assert.Fail e.Message
             | Ok r ->
@@ -4047,9 +4081,7 @@ module WholeCircuitUccsdTests =
         task {
             let backend = SlowWholeCircuitBackend(2.0)
 
-            match!
-                VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None
-            with
+            match! VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None with
             | Ok r -> Assert.Fail $"expected the time refusal, got {r.Energy}"
             | Error e ->
                 Assert.Contains("planned circuits would take", e.Message)

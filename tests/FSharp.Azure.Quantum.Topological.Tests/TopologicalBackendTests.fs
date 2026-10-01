@@ -598,3 +598,36 @@ module TopologicalBackendTests =
             Assert.Equal(local.StandardError, topological.StandardError, 6)
         }
         :> Task
+
+    [<Fact>]
+    let ``the backend reports the logical qubits its anyon budget holds`` () =
+        let limitOf (backend: IQuantumBackend) = UnifiedBackend.getMaxQubits backend
+
+        // Ising: 2n + 2 sigma anyons for n qubits
+        Assert.Equal(Some 4, limitOf (TopologicalUnifiedBackendFactory.createIsing 10))
+        Assert.Equal(Some 4, limitOf (TopologicalUnifiedBackendFactory.createIsing 11))
+        Assert.Equal(Some 8, limitOf (TopologicalUnifiedBackendFactory.createIsing 18))
+        Assert.Equal(Some 0, limitOf (TopologicalUnifiedBackendFactory.createIsing 3))
+        // Fibonacci: 2n tau anyons for n qubits
+        Assert.Equal(Some 6, limitOf (TopologicalUnifiedBackendFactory.createFibonacci 12))
+
+        // The reported limit is exactly what InitializeState accepts.
+        for backend in
+            [
+                TopologicalUnifiedBackendFactory.createIsing 10
+                TopologicalUnifiedBackendFactory.createIsing 14
+                TopologicalUnifiedBackendFactory.createFibonacci 8
+            ] do
+            match limitOf backend with
+            | Some limit ->
+                Assert.True((backend.InitializeState limit).IsOk, $"{limit} qubits should initialise")
+                Assert.True((backend.InitializeState(limit + 1)).IsError, $"{limit + 1} qubits should be refused")
+            | None -> Assert.Fail("the topological backend reports a limit")
+
+    [<Fact>]
+    let ``a problem wider than the anyon budget is offered for splitting`` () =
+        let backend = TopologicalUnifiedBackendFactory.createIsing 10 // 4 logical qubits
+        let settings = QaoaExecutionHelpers.defaultSplitSettings
+
+        Assert.Equal(ValueSome 4, QaoaExecutionHelpers.splitPieceQubits settings backend 9)
+        Assert.Equal(ValueNone, QaoaExecutionHelpers.splitPieceQubits settings backend 4)

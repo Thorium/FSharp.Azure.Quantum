@@ -244,7 +244,10 @@ module SimilaritySearch =
     // ========================================================================
 
     /// Build similarity search index, asynchronously
-    let buildAsync (problem: SearchProblem<'T>) (cancellationToken: CancellationToken) : Task<QuantumResult<SearchIndex<'T>>> =
+    let buildAsync
+        (problem: SearchProblem<'T>)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SearchIndex<'T>>> =
         match validate problem with
         | Error e -> Task.FromResult(Error e)
         | Ok() ->
@@ -306,7 +309,7 @@ module SimilaritySearch =
                     kernelResult
                     |> Result.map (fun (kernelMatrix, quantumConfig) ->
                         if problem.Verbose then
-                            logInfo problem.Logger (sprintf "[OK] Index built in %A" stopwatch.Elapsed)
+                            logInfo problem.Logger $"[OK] Index built in %A{stopwatch.Elapsed}"
 
                         {
                             Items = problem.Items

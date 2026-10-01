@@ -308,32 +308,30 @@ module TaskSchedulingTests =
                     tasks [ taskA; taskB ]
                     resources [ worker ]
                     objective MinimizeMakespan
-                    timeHorizon (hours 6.0) // generous real-time horizon; solver discretises into bounded slots
+                    timeHorizon (minutes 60.0) // 6 slots of 10 minutes: 2 tasks x 6 slots = 12 qubits
                 }
 
             // Act - Use quantum solver
             let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
 
-            // Assert - Quantum solver should execute successfully
-            // Note: QAOA with initial parameters may not always find optimal solution
-            // This test verifies the quantum solver executes without error
+            // Assert - a sampled schedule comes back, and it never overloads the worker
             match! solveQuantumAsync backend problem CancellationToken.None with
             | Error msg -> Assert.Fail($"Quantum solver failed: %s{msg.Message}")
             | Ok solution ->
-                // Solution found - quantum execution successful
-                Assert.NotEmpty(solution.Assignments)
                 Assert.Equal(2, solution.Assignments.Length)
+                let a = solution.Assignments |> List.find (fun x -> x.TaskId = "A")
+                let b = solution.Assignments |> List.find (fun x -> x.TaskId = "B")
 
-                // Verify makespan is reasonable (not infinite)
                 Assert.True(
-                    solution.Makespan.TotalMinutes > 0.0
-                    && solution.Makespan.TotalMinutes < 100000.0
+                    a.EndTime <= b.StartTime || b.EndTime <= a.StartTime,
+                    $"A (%.0f{a.StartTime.TotalMinutes}-%.0f{a.EndTime.TotalMinutes}) and B (%.0f{b.StartTime.TotalMinutes}-%.0f{b.EndTime.TotalMinutes}) overlap on the single worker"
                 )
+
+                // Both tasks in turn take at least 25 minutes
+                Assert.True(solution.Makespan.TotalMinutes >= 25.0 - 1e-6)
         }
         :> Task
 
-    // TODO: Add parameter optimization to improve solution quality
-    // For now, just verify quantum solver can execute
     // ============================================================================
     // TEST 9: Deadline Constraint
     // ============================================================================
@@ -936,3 +934,350 @@ module TaskSchedulingTests =
             | other -> Assert.Fail($"expected a validation error for an unplaceable task, got %A{other}")
         }
         :> Task
+
+    // ============================================================================
+    // QUBO MINIMUM = FEASIBLE ONE-HOT SCHEDULE (every bitstring enumerated, no circuit)
+    // ============================================================================
+
+    /// A slot-grid instance: tasks as (id, duration in slots, resource needs). Feasibility is
+    /// checked here on slot indices, independently of the solver's own feasibility code.
+    type private GridInstance =
+        {
+            Tasks: (string * int * (string * float) list) list
+            Capacities: (string * float) list
+            Dependencies: (string * string) list
+            Slots: int
+        }
+
+    [<Literal>]
+    let private gridSlotMinutes = 10.0
+
+    let private gridProblem (instance: GridInstance) : SchedulingProblem<unit, unit> =
+        {
+            Tasks =
+                instance.Tasks
+                |> List.map (fun (id, slots, needs) ->
+                    ({
+                        Id = id
+                        Value = None
+                        Duration = minutes (float slots * gridSlotMinutes)
+                        EarliestStart = None
+                        Deadline = None
+                        ResourceRequirements = Map.ofList needs
+                        Priority = 1.0
+                        Properties = Map.empty
+                    }
+                    : ScheduledTask<unit>))
+            Resources =
+                instance.Capacities
+                |> List.map (fun (id, capacity) ->
+                    ({
+                        Id = id
+                        Value = None
+                        Capacity = capacity
+                        AvailableWindows = [ (0.0, 1e6) ]
+                        CostPerUnit = 1.0
+                        Properties = Map.empty
+                    }
+                    : Resource<unit>))
+            Dependencies =
+                instance.Dependencies
+                |> List.map (fun (pred, succ) -> FinishToStart(pred, succ, System.TimeSpan.Zero))
+            Objective = MinimizeMakespan
+            TimeHorizon = System.TimeSpan.Zero
+        }
+
+    /// Start slot per task when every task has exactly one start bit set.
+    let private strictStarts (instance: GridInstance) (bits: int[]) : int[] option =
+        let perTask =
+            instance.Tasks
+            |> List.mapi (fun t _ ->
+                [ 0 .. instance.Slots - 1 ]
+                |> List.filter (fun slot -> bits.[t * instance.Slots + slot] = 1))
+
+        if perTask |> List.forall (fun starts -> starts.Length = 1) then
+            Some(perTask |> List.map List.head |> List.toArray)
+        else
+            None
+
+    let private gridFeasible (instance: GridInstance) (starts: int[]) : bool =
+        let index id =
+            instance.Tasks |> List.findIndex (fun (taskId, _, _) -> taskId = id)
+
+        let slotsOf t =
+            let (_, slots, _) = instance.Tasks.[t]
+            slots
+
+        let dependenciesHold =
+            instance.Dependencies
+            |> List.forall (fun (pred, succ) -> starts.[index succ] >= starts.[index pred] + slotsOf (index pred))
+
+        let capacitiesHold =
+            instance.Capacities
+            |> List.forall (fun (resourceId, capacity) ->
+                [
+                    0 .. instance.Slots + (instance.Tasks |> List.sumBy (fun (_, slots, _) -> slots))
+                ]
+                |> List.forall (fun slot ->
+                    let usage =
+                        instance.Tasks
+                        |> List.mapi (fun t (_, slots, needs) ->
+                            if starts.[t] <= slot && slot < starts.[t] + slots then
+                                needs
+                                |> List.sumBy (fun (id, amount) -> if id = resourceId then amount else 0.0)
+                            else
+                                0.0)
+                        |> List.sum
+
+                    usage <= capacity + 1e-9))
+
+        dependenciesHold && capacitiesHold
+
+    let private completionSlots (instance: GridInstance) (starts: int[]) : int[] =
+        instance.Tasks
+        |> List.mapi (fun t (_, slots, _) -> starts.[t] + slots)
+        |> List.toArray
+
+    /// Start slots of every minimum-energy state; fails when one is not strictly one-hot
+    /// or not a feasible schedule.
+    let private minimumEnergySchedules (instance: GridInstance) : int[][] =
+        let problem = gridProblem instance
+
+        let qubo =
+            match FSharp.Azure.Quantum.TaskScheduling.QuboEncoding.toQubo problem instance.Slots gridSlotMinutes with
+            | Ok matrix -> Qubo.toDenseArray matrix.NumVariables matrix.Q
+            | Error err -> failwith $"toQubo failed: %A{err}"
+
+        let n = Array2D.length1 qubo
+        Assert.Equal(instance.Tasks.Length * instance.Slots, n)
+
+        let states =
+            Array.init (1 <<< n) (fun index -> Array.init n (fun q -> (index >>> q) &&& 1))
+
+        let energies = states |> Array.map (QaoaExecutionHelpers.evaluateQubo qubo)
+        let lowest = Array.min energies
+
+        Array.zip states energies
+        |> Array.filter (fun (_, e) -> e <= lowest + 1e-9 * max 1.0 (abs lowest))
+        |> Array.map (fun (state, _) ->
+            match strictStarts instance state with
+            | None -> failwith $"minimum-energy state %A{state} is not one-hot per task"
+            | Some starts ->
+                Assert.True(gridFeasible instance starts, $"minimum-energy schedule %A{starts} is infeasible")
+                starts)
+
+    /// Smallest sum of completion slots over all feasible one-hot schedules.
+    let private bestCompletionSum (instance: GridInstance) : int =
+        let rec schedules (t: int) : int list list =
+            if t = instance.Tasks.Length then
+                [ [] ]
+            else
+                [
+                    for start in 0 .. instance.Slots - 1 do
+                        for rest in schedules (t + 1) -> start :: rest
+                ]
+
+        schedules 0
+        |> List.map List.toArray
+        |> List.filter (gridFeasible instance)
+        |> List.map (completionSlots instance >> Array.sum)
+        |> List.min
+
+    let private chainInstance =
+        {
+            Tasks = [ ("A", 1, []); ("B", 1, []) ]
+            Capacities = []
+            Dependencies = [ ("A", "B") ]
+            Slots = 2
+        }
+
+    let private sharedResourceInstance =
+        {
+            Tasks = [ ("A", 1, [ ("m", 1.0) ]); ("B", 1, [ ("m", 1.0) ]); ("C", 1, [ ("m", 1.0) ]) ]
+            Capacities = [ ("m", 2.0) ]
+            Dependencies = [ ("A", "B") ]
+            Slots = 3
+        }
+
+    let private unequalDurationInstance =
+        {
+            Tasks = [ ("A", 2, [ ("m", 1.0) ]); ("B", 1, []); ("C", 1, [ ("m", 1.0) ]) ]
+            Capacities = [ ("m", 1.0) ]
+            Dependencies = [ ("A", "B") ]
+            Slots = 4
+        }
+
+    [<Fact>]
+    let ``QUBO minimum-energy states are one-hot feasible schedules with the smallest completion-time sum`` () =
+        for instance in [ chainInstance; sharedResourceInstance; unequalDurationInstance ] do
+            let minima = minimumEnergySchedules instance
+            Assert.NotEmpty minima
+            let best = bestCompletionSum instance
+
+            for starts in minima do
+                Assert.Equal(best, completionSlots instance starts |> Array.sum)
+
+    [<Fact>]
+    let ``QUBO minimum-energy states can differ in makespan`` () =
+        // A (2 slots) -> B, A and C share a unit resource: A,C-then-B and C-then-A-then-B both
+        // have completion-time sum 8, with makespans 3 and 4 slots.
+        let makespans =
+            minimumEnergySchedules unequalDurationInstance
+            |> Array.map (completionSlots unequalDurationInstance >> Array.max)
+            |> Array.distinct
+            |> Array.sort
+
+        Assert.Equal<int[]>([| 3; 4 |], makespans)
+
+    // ============================================================================
+    // QUANTUM SOLVER: STRICT DECODE FIRST, REPAIR DECODE REPORTED
+    // ============================================================================
+
+    /// Backend that prepares one basis state whatever circuit it is given, so that every
+    /// sample is that bitstring (bit q = qubit q).
+    let private fixedSampleBackend (bits: int[]) : Core.BackendAbstraction.IQuantumBackend =
+        let inner = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+
+        let prepared () =
+            let circuit =
+                bits
+                |> Array.indexed
+                |> Array.fold
+                    (fun acc (qubit, bit) ->
+                        if bit = 1 then
+                            CircuitBuilder.addGate (CircuitBuilder.X qubit) acc
+                        else
+                            acc)
+                    (CircuitBuilder.empty bits.Length)
+
+            Core.CircuitAbstraction.CircuitWrapper(circuit) :> Core.CircuitAbstraction.ICircuit
+
+        { new Core.BackendAbstraction.IQuantumBackend with
+            member _.Name = "fixed sample"
+            member _.NativeStateType = inner.NativeStateType
+            member _.SupportsOperation op = inner.SupportsOperation op
+            member _.InitializeState n = inner.InitializeState n
+            member _.ApplyOperation op state = inner.ApplyOperation op state
+            member _.ApplyOperationAsync op state ct = inner.ApplyOperationAsync op state ct
+            member _.ExecuteToState _ = inner.ExecuteToState(prepared ())
+
+            member _.ExecuteToStateAsync _ ct =
+                inner.ExecuteToStateAsync (prepared ()) ct
+        }
+
+    /// A -> B, 10 minutes each: a grid of 2 slots, variables A@0, A@1, B@0, B@1.
+    let private chainProblem = gridProblem chainInstance
+
+    [<Fact>]
+    let ``solveQuantum returns a strictly valid sample unrepaired and counts it`` () : Task =
+        task {
+            // A at slot 0, B at slot 1: one start bit per task, dependency kept
+            let backend = fixedSampleBackend [| 1; 0; 0; 1 |]
+
+            match! solveQuantumAsync backend chainProblem CancellationToken.None with
+            | Error err -> Assert.Fail($"solveQuantum failed: %A{err}")
+            | Ok solution ->
+                Assert.False(solution.WasRepaired)
+                Assert.Equal(20.0, solution.Makespan.TotalMinutes, 6)
+
+                let b = solution.Assignments |> List.find (fun x -> x.TaskId = "B")
+                Assert.Equal(10.0, b.StartTime.TotalMinutes, 6)
+
+                match solution.Sampling with
+                | None -> Assert.Fail("Sampling should be reported")
+                | Some sampling ->
+                    Assert.Equal(QaoaExecutionHelpers.defaultConfig.FinalShots, sampling.Shots)
+                    Assert.Equal(4, sampling.Qubits)
+                    Assert.Equal(sampling.Shots, sampling.Valid)
+                    Assert.Equal(sampling.Shots, sampling.Hits)
+        }
+
+    [<Fact>]
+    let ``solveQuantum uses the repair decode only when no sample is valid, and says so`` () : Task =
+        task {
+            // A has both start bits set, B starts at slot 1: not one-hot, so no sample is valid.
+            // The repair decode gives A its earliest slot, which is a feasible schedule.
+            let backend = fixedSampleBackend [| 1; 1; 0; 1 |]
+
+            match! solveQuantumAsync backend chainProblem CancellationToken.None with
+            | Error err -> Assert.Fail($"solveQuantum failed: %A{err}")
+            | Ok solution ->
+                Assert.True(solution.WasRepaired)
+                Assert.Equal(20.0, solution.Makespan.TotalMinutes, 6)
+
+                match solution.Sampling with
+                | None -> Assert.Fail("Sampling should be reported")
+                | Some sampling ->
+                    Assert.Equal(QaoaExecutionHelpers.defaultConfig.FinalShots, sampling.Shots)
+                    Assert.Equal(0, sampling.Valid)
+                    Assert.Equal(0, sampling.Hits)
+
+            // With the repair decode switched off the same samples give no schedule
+            let strictOnly =
+                { QaoaExecutionHelpers.defaultConfig with
+                    EnableConstraintRepair = false
+                }
+
+            match! solveQuantumWithConfigAsync backend chainProblem strictOnly CancellationToken.None with
+            | Error(QuantumError.OperationError(_, reason)) -> Assert.Contains("No valid solutions", reason)
+            | other -> Assert.Fail($"expected no valid solution without the repair decode, got %A{other}")
+        }
+
+    [<Fact>]
+    let ``solveQuantum returns an error when neither decode gives a feasible schedule`` () : Task =
+        task {
+            // Both tasks at slot 0 only: B starts before A finishes, under either decode
+            let backend = fixedSampleBackend [| 1; 0; 1; 0 |]
+
+            match! solveQuantumAsync backend chainProblem CancellationToken.None with
+            | Error(QuantumError.OperationError(_, reason)) -> Assert.Contains("No valid solutions", reason)
+            | other -> Assert.Fail($"expected no valid solution, got %A{other}")
+        }
+
+    [<Fact>]
+    let ``solveQuantumWithConfig samples as configured and its statistics are consistent`` () : Task =
+        task {
+            let problem = gridProblem sharedResourceInstance
+
+            let config =
+                { QaoaExecutionHelpers.defaultConfig with
+                    NumLayers = 1
+                    FinalShots = 300
+                }
+
+            let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+
+            match! solveQuantumWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solveQuantumWithConfig failed: %A{err}")
+            | Ok solution ->
+                // Whatever was sampled, the schedule returned is feasible on the grid
+                let starts =
+                    sharedResourceInstance.Tasks
+                    |> List.map (fun (id, _, _) ->
+                        let assignment = solution.Assignments |> List.find (fun a -> a.TaskId = id)
+                        int (System.Math.Round(assignment.StartTime.TotalMinutes / gridSlotMinutes)))
+                    |> List.toArray
+
+                Assert.True(gridFeasible sharedResourceInstance starts, $"schedule %A{starts} is infeasible")
+
+                match solution.Sampling with
+                | None -> Assert.Fail("Sampling should be reported")
+                | Some sampling ->
+                    Assert.Equal(300, sampling.Shots)
+                    Assert.Equal(9, sampling.Qubits)
+
+                    if solution.WasRepaired then
+                        Assert.Equal(0, sampling.Valid)
+                        Assert.Equal(0, sampling.Hits)
+                    else
+                        Assert.True(sampling.Hits >= 1)
+                        Assert.True(sampling.Valid >= sampling.Hits)
+        }
+
+    [<Fact>]
+    let ``Classical solver reports no repair and no sampling`` () =
+        match ClassicalSolver.solve chainProblem with
+        | Error err -> Assert.Fail($"Scheduling failed: %A{err}")
+        | Ok solution ->
+            Assert.False(solution.WasRepaired)
+            Assert.True(solution.Sampling.IsNone)

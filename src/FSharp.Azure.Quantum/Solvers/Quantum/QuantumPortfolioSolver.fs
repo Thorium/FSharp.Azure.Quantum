@@ -103,6 +103,9 @@ module QuantumPortfolioSolver =
             /// QUBO objective value (energy)
             BestEnergy: float
 
+            /// Standing of this solution among the final samples; None when no sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+
             /// Selected assets (binary: 1 = included, 0 = excluded)
             SelectedAssets: Map<string, bool>
         }
@@ -147,6 +150,24 @@ module QuantumPortfolioSolver =
         chosen.Length <= maxHoldings problem
         && chosen |> List.forall (fun (_, asset) -> isAffordable problem asset)
 
+    /// Indices of the assets one lot can buy, in asset order.
+    let private affordableIndices (problem: PortfolioProblem) : int list =
+        problem.Assets
+        |> List.indexed
+        |> List.filter (fun (_, asset) -> isAffordable problem asset)
+        |> List.map fst
+
+    /// Slack weights of the holding-count constraint Σx + slack = maxHoldings:
+    /// Qubo.boundedSlackWeights maxHoldings when fewer assets fit the budget than are
+    /// affordable, otherwise none (every selection of affordable assets then fits).
+    let holdingSlackWeights (problem: PortfolioProblem) : int list =
+        let limit = maxHoldings problem
+
+        if limit < (affordableIndices problem).Length then
+            Qubo.boundedSlackWeights limit
+        else
+            []
+
     /// Covariance used by the encoding: the given matrix, or diag(Riskᵢ²) when there is none.
     let private effectiveCovariance (problem: PortfolioProblem) : float[,] =
         match problem.Covariance with
@@ -158,7 +179,8 @@ module QuantumPortfolioSolver =
                 if i = j then assets.[i].Risk * assets.[i].Risk else 0.0)
 
     /// Mean-variance objective -(μᵀw - λ wᵀΣw) of a selection, with w = lotWeight × x.
-    /// toQubo's matrix gives every selection of affordable assets this value.
+    /// toQubo's matrix gives every feasible selection (isFeasibleSelection) this value, with
+    /// the slack bits of the holding-count constraint set to match when there are any.
     let meanVarianceEnergy (problem: PortfolioProblem) (selection: int array) : float =
         let s = lotWeight problem
         let weights = Array.init problem.Assets.Length (fun i -> s * float selection.[i])
@@ -172,6 +194,134 @@ module QuantumPortfolioSolver =
             PortfolioTypes.portfolioVariance weights (effectiveCovariance problem)
 
         -(expectedReturn - problem.RiskAversion * variance)
+
+    /// Mean-variance terms of the discretised problem over the asset variables (upper
+    /// triangle), with the penalty that keeps unaffordable assets out; validates the problem.
+    let private meanVarianceTerms (problem: PortfolioProblem) : Result<Map<int * int, float>, QuantumError> =
+        let numAssets = problem.Assets.Length
+        let c = problem.Constraints
+
+        if numAssets = 0 then
+            Error(QuantumError.ValidationError("numAssets", "Portfolio problem has no assets"))
+        elif c.Budget <= 0.0 then
+            Error(QuantumError.ValidationError("Budget", $"Budget must be positive: {c.Budget}"))
+        elif c.MaxHolding <= 0.0 then
+            Error(QuantumError.ValidationError("MaxHolding", $"MaxHolding must be positive: {c.MaxHolding}"))
+        elif c.MinHolding > c.MaxHolding then
+            Error(
+                QuantumError.ValidationError(
+                    "MinHolding",
+                    $"MinHolding ({c.MinHolding}) cannot exceed MaxHolding ({c.MaxHolding})"
+                )
+            )
+        elif c.MinHolding > c.Budget then
+            Error(
+                QuantumError.ValidationError(
+                    "MinHolding",
+                    $"MinHolding ({c.MinHolding}) cannot exceed Budget ({c.Budget})"
+                )
+            )
+        else
+            let covarianceCheck =
+                match problem.Covariance with
+                | Some sigma -> PortfolioTypes.validateCovariance numAssets sigma
+                | None -> Ok()
+
+            match covarianceCheck with
+            | Error err -> Error err
+            | Ok() ->
+                let s = lotWeight problem
+
+                let scaledReturns =
+                    problem.Assets |> List.map (fun a -> s * a.ExpectedReturn) |> List.toArray
+
+                let dense =
+                    ProblemTransformer.encodePortfolioCorrelation
+                        scaledReturns
+                        (effectiveCovariance problem)
+                        (problem.RiskAversion * s * s)
+
+                let q = dense.Coefficients
+                let assets = problem.Assets |> List.toArray
+
+                // Including an unaffordable asset costs more than any combination of its
+                // own and pair terms can gain.
+                let penalty i =
+                    if isAffordable problem assets.[i] then
+                        0.0
+                    else
+                        let pairs =
+                            Seq.init numAssets id
+                            |> Seq.filter (fun j -> j <> i)
+                            |> Seq.sumBy (fun j -> abs q.[i, j] + abs q.[j, i])
+
+                        2.0 * (abs q.[i, i] + pairs) + 1e-12
+
+                // Symmetric xᵀQx → upper triangle: the pair (i, j) carries Q[i,j] + Q[j,i].
+                let terms =
+                    [
+                        for i in 0 .. numAssets - 1 do
+                            let diagonal = q.[i, i] + penalty i
+
+                            if diagonal <> 0.0 then
+                                yield ((i, i), diagonal)
+
+                            for j in i + 1 .. numAssets - 1 do
+                                let pair = q.[i, j] + q.[j, i]
+
+                                if pair <> 0.0 then
+                                    yield ((i, j), pair)
+                    ]
+
+                Ok(Map.ofList terms)
+
+    /// Adds the holding-count constraint to upper-triangle terms over the asset variables.
+    ///
+    /// When fewer assets fit the budget than are affordable (holdingSlackWeights is not
+    /// empty), the QUBO gets A·(Σ x_i + Σ_t c_t z_t − maxHoldings)² over the affordable
+    /// assets x_i and slack bits z_t (variables numAssets, numAssets + 1, …) with the weights
+    /// c_t = holdingSlackWeights. The slack reaches exactly 0 .. maxHoldings, so the term is
+    /// zero for some slack setting exactly when at most maxHoldings assets are selected.
+    ///
+    /// A = 2·max_i (|Q_ii| + Σ_j |Q_ij|) over the affordable assets, or 1 when that is 0.
+    /// Removing one asset from a selection that holds too many lowers the penalty by at
+    /// least A and changes the other terms by at most A / 2, so every minimum holds at most
+    /// maxHoldings assets.
+    let private withHoldingLimit
+        (problem: PortfolioProblem)
+        (terms: Map<int * int, float>)
+        : GraphOptimization.QuboMatrix =
+        let numAssets = problem.Assets.Length
+        let slackWeights = holdingSlackWeights problem
+
+        if slackWeights.IsEmpty then
+            { NumVariables = numAssets; Q = terms }
+        else
+            let affordable = affordableIndices problem
+
+            let coefficient i j =
+                terms |> Map.tryFind (min i j, max i j) |> Option.defaultValue 0.0
+
+            let largestMarginal =
+                affordable
+                |> List.map (fun i ->
+                    abs (coefficient i i)
+                    + (affordable |> List.sumBy (fun j -> if j = i then 0.0 else abs (coefficient i j))))
+                |> List.max
+
+            let weight = if largestMarginal > 0.0 then 2.0 * largestMarginal else 1.0
+
+            let linearTerms =
+                (affordable |> List.map (fun i -> (i, 1.0)))
+                @ (slackWeights
+                   |> List.mapi (fun t slackWeight -> (numAssets + t, float slackWeight)))
+
+            {
+                NumVariables = numAssets + slackWeights.Length
+                Q =
+                    Qubo.squaredLinearPenalty weight linearTerms (-(float (maxHoldings problem)))
+                    |> Map.fold (fun acc key value -> Qubo.combineTerms key value acc) terms
+            }
 
     /// Encode portfolio optimization as QUBO
     ///
@@ -189,93 +339,20 @@ module QuantumPortfolioSolver =
     ///
     /// Each lot lies within [MinHolding, MaxHolding]. An asset whose price exceeds one lot gets
     /// a diagonal penalty larger than anything its selection could gain, so the QUBO minimum
-    /// never holds it. When lots are larger than 1/n, at most maxHoldings assets fit the
-    /// budget; the QUBO does not encode that limit, so the solver keeps the best feasible
-    /// sample (isFeasibleSelection). With 1/n lots and affordable assets the minimum of xᵀQx is
-    /// the discretised mean-variance optimum (see meanVarianceEnergy).
+    /// never holds it.
+    ///
+    /// Variables 0 .. n-1 are the assets. When lots are larger than 1/n and fewer assets fit
+    /// the budget than are affordable, the QUBO also carries the holding-count constraint
+    /// A·(Σ x_i + slack − maxHoldings)² with the slack bits as variables n, n+1, …
+    /// (holdingSlackWeights gives their weights), so that no minimum holds more than
+    /// maxHoldings assets.
+    ///
+    /// The minimum of xᵀQx is the best feasible selection (isFeasibleSelection) by
+    /// meanVarianceEnergy, the empty selection included: when every asset lowers the
+    /// utility the minimum is the empty selection.
     let toQubo (problem: PortfolioProblem) : Result<GraphOptimization.QuboMatrix, QuantumError> =
         try
-            let numAssets = problem.Assets.Length
-            let c = problem.Constraints
-
-            if numAssets = 0 then
-                Error(QuantumError.ValidationError("numAssets", "Portfolio problem has no assets"))
-            elif c.Budget <= 0.0 then
-                Error(QuantumError.ValidationError("Budget", $"Budget must be positive: {c.Budget}"))
-            elif c.MaxHolding <= 0.0 then
-                Error(QuantumError.ValidationError("MaxHolding", $"MaxHolding must be positive: {c.MaxHolding}"))
-            elif c.MinHolding > c.MaxHolding then
-                Error(
-                    QuantumError.ValidationError(
-                        "MinHolding",
-                        $"MinHolding ({c.MinHolding}) cannot exceed MaxHolding ({c.MaxHolding})"
-                    )
-                )
-            elif c.MinHolding > c.Budget then
-                Error(
-                    QuantumError.ValidationError(
-                        "MinHolding",
-                        $"MinHolding ({c.MinHolding}) cannot exceed Budget ({c.Budget})"
-                    )
-                )
-            else
-                let covarianceCheck =
-                    match problem.Covariance with
-                    | Some sigma -> PortfolioTypes.validateCovariance numAssets sigma
-                    | None -> Ok()
-
-                match covarianceCheck with
-                | Error err -> Error err
-                | Ok() ->
-                    let s = lotWeight problem
-
-                    let scaledReturns =
-                        problem.Assets |> List.map (fun a -> s * a.ExpectedReturn) |> List.toArray
-
-                    let dense =
-                        ProblemTransformer.encodePortfolioCorrelation
-                            scaledReturns
-                            (effectiveCovariance problem)
-                            (problem.RiskAversion * s * s)
-
-                    let q = dense.Coefficients
-                    let assets = problem.Assets |> List.toArray
-
-                    // Including an unaffordable asset costs more than any combination of its
-                    // own and pair terms can gain.
-                    let penalty i =
-                        if isAffordable problem assets.[i] then
-                            0.0
-                        else
-                            let pairs =
-                                Seq.init numAssets id
-                                |> Seq.filter (fun j -> j <> i)
-                                |> Seq.sumBy (fun j -> abs q.[i, j] + abs q.[j, i])
-
-                            2.0 * (abs q.[i, i] + pairs) + 1e-12
-
-                    // Symmetric xᵀQx → upper triangle: the pair (i, j) carries Q[i,j] + Q[j,i].
-                    let terms =
-                        [
-                            for i in 0 .. numAssets - 1 do
-                                let diagonal = q.[i, i] + penalty i
-
-                                if diagonal <> 0.0 then
-                                    yield ((i, i), diagonal)
-
-                                for j in i + 1 .. numAssets - 1 do
-                                    let pair = q.[i, j] + q.[j, i]
-
-                                    if pair <> 0.0 then
-                                        yield ((i, j), pair)
-                        ]
-
-                    Ok
-                        {
-                            NumVariables = numAssets
-                            Q = Map.ofList terms
-                        }
-
+            meanVarianceTerms problem |> Result.map (withHoldingLimit problem)
         with ex ->
             Error(QuantumError.OperationError("QuboEncoding", $"Failed to encode portfolio as QUBO: %s{ex.Message}"))
 
@@ -342,7 +419,8 @@ module QuantumPortfolioSolver =
     ///   - For closing positions (selling): rate * price_i * (1 - x_i)
     ///   - Fixed costs: fixed_cost * |change|
     ///
-    /// Variables: x_i = 1 if asset i is included in new portfolio
+    /// Variables: x_i = 1 if asset i is included in new portfolio, followed by the slack bits
+    /// of the holding-count constraint when there is one (see toQubo)
     ///
     /// The base QUBO is in fractions of the budget (see toQubo), so every dollar cost is
     /// divided by Budget; a buy costs BuyCostRate on one lot (lotWeight × Budget).
@@ -367,10 +445,11 @@ module QuantumPortfolioSolver =
             elif costs.FixedCostPerTrade < 0.0 then
                 Error(QuantumError.ValidationError("TransactionCosts", "Fixed cost must be non-negative"))
             else
-                // First get the base QUBO terms
-                match toQubo problem with
+                // First get the mean-variance terms; the holding-count constraint is added
+                // last, so that its weight accounts for the cost terms
+                match meanVarianceTerms problem with
                 | Error err -> Error err
-                | Ok baseQubo ->
+                | Ok baseTerms ->
 
                     // ================================================================
                     // TRANSACTION COST TERMS
@@ -469,7 +548,7 @@ module QuantumPortfolioSolver =
                     // ================================================================
 
                     let allTerms =
-                        (baseQubo.Q |> Map.toList) @ transactionCostTerms @ turnoverPenaltyTerms
+                        (baseTerms |> Map.toList) @ transactionCostTerms @ turnoverPenaltyTerms
 
                     // Aggregate terms with same indices
                     let aggregatedTerms =
@@ -480,11 +559,7 @@ module QuantumPortfolioSolver =
                             key, totalCoeff)
                         |> Map.ofList
 
-                    Ok
-                        {
-                            NumVariables = numAssets
-                            Q = aggregatedTerms
-                        }
+                    Ok(withHoldingLimit problem aggregatedTerms)
 
         with ex ->
             Error(
@@ -610,6 +685,7 @@ module QuantumPortfolioSolver =
                             NumShots = 0 // Will be set by caller
                             ElapsedMs = 0.0 // Will be set by caller
                             BestEnergy = meanVarianceEnergy problem bitstring
+                            Sampling = None
                             SelectedAssets = selectedAssets
                         }
 
@@ -647,20 +723,17 @@ module QuantumPortfolioSolver =
     let internal angleGridBetas =
         [| Math.PI / 8.0; Math.PI / 4.0; 3.0 * Math.PI / 8.0 |]
 
-    /// The QUBO restricted to the affordable assets, with the asset index of each variable;
-    /// unaffordable assets need no qubit.
+    /// The QUBO the circuit runs: the affordable assets first, then the slack bits of the
+    /// holding-count constraint (the QUBO variables after the assets). Unaffordable assets
+    /// need no qubit. Returns the matrix and the asset index of each of its first variables;
+    /// the matrix is wider than that array by the number of slack bits.
     let internal circuitQubo (problem: PortfolioProblem) (qubo: GraphOptimization.QuboMatrix) : float[,] * int[] =
         let dense = Qubo.toDenseArray qubo.NumVariables qubo.Q
-        let assets = problem.Assets |> List.toArray
+        let numAssets = problem.Assets.Length
+        let kept = affordableIndices problem |> List.toArray
+        let variables = Array.append kept [| numAssets .. qubo.NumVariables - 1 |]
 
-        let kept =
-            [|
-                for i in 0 .. assets.Length - 1 do
-                    if isAffordable problem assets.[i] then
-                        yield i
-            |]
-
-        Array2D.init kept.Length kept.Length (fun a b -> dense.[kept.[a], kept.[b]]), kept
+        Array2D.init variables.Length variables.Length (fun a b -> dense.[variables.[a], variables.[b]]), kept
 
     /// The (γ, β) pair whose samples have the lowest mean QUBO energy. A function of its own
     /// rather than a lambda inside sampleWithAngleGridAsync: there the lambda keeps the task
@@ -787,8 +860,9 @@ module QuantumPortfolioSolver =
                     let circuitMatrix, kept = circuitQubo problem quboMatrix
 
                     let handleMeasurements (measurements: int array array) =
-                        // Step 3: map the circuit's bits back to assets and keep the best
-                        // feasible selection (minimum energy = maximum utility)
+                        // Step 3: map the circuit's asset bits back to assets (the slack bits
+                        // after them carry no selection) and keep the best feasible selection
+                        // (minimum energy = maximum utility)
                         let toSelection (bits: int array) =
                             let selection = Array.zeroCreate<int> numAssets
                             kept |> Array.iteri (fun a i -> selection.[i] <- bits.[a])
@@ -798,7 +872,8 @@ module QuantumPortfolioSolver =
                             measurements
                             |> Array.map toSelection
                             |> Array.distinct
-                            |> Array.choose (decodeSolution problem)
+                            |> Array.choose (fun selection ->
+                                decodeSolution problem selection |> Option.map (fun sol -> selection, sol))
 
                         if portfolioResults.Length = 0 then
                             Error(
@@ -808,7 +883,22 @@ module QuantumPortfolioSolver =
                                 )
                             )
                         else
-                            let bestSolution = portfolioResults |> Array.minBy (fun sol -> sol.BestEnergy)
+                            let bestSelection, bestSolution =
+                                portfolioResults |> Array.minBy (fun (_, sol) -> sol.BestEnergy)
+
+                            // The final run's samples are the last NumShots of the pooled measurements.
+                            let finalRun =
+                                measurements.[max 0 (measurements.Length - config.NumShots) ..]
+                                |> Array.map toSelection
+
+                            let feasibleSelections = portfolioResults |> Array.map fst |> Set.ofArray
+
+                            let sampling =
+                                QaoaExecutionHelpers.sampleStatistics
+                                    (Array2D.length1 circuitMatrix)
+                                    feasibleSelections.Contains
+                                    (fun selection -> selection = bestSelection)
+                                    finalRun
 
                             let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
@@ -817,6 +907,7 @@ module QuantumPortfolioSolver =
                                     BackendName = backend.Name
                                     NumShots = config.NumShots
                                     ElapsedMs = elapsedMs
+                                    Sampling = Some sampling
                                 }
 
                     if kept.Length = 0 then
@@ -859,14 +950,18 @@ module QuantumPortfolioSolver =
     /// Solve portfolio optimization using quantum backend via QAOA (asynchronous)
     ///
     /// Full Pipeline:
-    /// 1. Portfolio problem → QUBO matrix (mean-variance encoding, see toQubo)
-    /// 2. QUBO over the affordable assets → p = 1 QAOA circuit (cost Hamiltonian normalised
-    ///    to a largest |coefficient| of 1 by QaoaExecutionHelpers)
+    /// 1. Portfolio problem → QUBO matrix (mean-variance encoding, with the holding-count
+    ///    constraint when lots limit the number of holdings; see toQubo)
+    /// 2. QUBO over the affordable assets and the slack bits → p = 1 QAOA circuit (cost
+    ///    Hamiltonian normalised to a largest |coefficient| of 1 by QaoaExecutionHelpers)
     /// 3. Sample the circuit at InitialParameters and on a (γ, β) grid (angleGridGammas,
     ///    angleGridBetas; NumShots / 10 shots each, at least 50), then NumShots shots at the
     ///    pair with the lowest mean sampled energy
     /// 4. Decode every sample → portfolio allocations
-    /// 5. Return the feasible sample (isFeasibleSelection) with the lowest mean-variance energy
+    /// 5. Return the non-empty feasible sample (isFeasibleSelection) with the lowest
+    ///    mean-variance energy. When every asset lowers the utility the QUBO minimum is the
+    ///    empty selection, which is not a portfolio; the result is then the best non-empty
+    ///    feasible sample, with a positive BestEnergy.
     ///
     /// The assets are treated as independent (Σ = diag(Riskᵢ²)); use
     /// solveWithCovarianceAsync to account for correlations.

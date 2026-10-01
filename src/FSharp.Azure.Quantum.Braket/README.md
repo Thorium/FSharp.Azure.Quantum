@@ -54,6 +54,25 @@ The backend exports the circuit to OpenQASM 3.0, submits the task, polls to comp
 result JSON from S3, and returns an approximate `QuantumState` built from the measurement
 histogram. Failures come back as `Error (QuantumError ...)` rather than exceptions.
 
+### Qubit limits
+
+The backend reports a qubit limit (`IQubitLimitedBackend`), and solvers refuse or split a wider
+problem before a task is submitted. `Braket.Devices.maxQubits` holds the figures of the devices
+this module names as they were when this version was released; a device it does not name reports
+no limit. To use a device at its current width:
+
+```fsharp
+// read the figure from the device itself (one GetDevice call, needs braket:GetDevice)
+let! live = BraketBackend.CreateWithDeviceLimitAsync(braket, s3, s3Config, Braket.Devices.ionqForte1, shots = 1000)
+
+// or state it
+let stated = BraketBackend(braket, s3, s3Config, Braket.Devices.ionqForte1, shots = 1000, maxQubits = 64)
+```
+
+`CreateWithDeviceLimitAsync` returns `Result<BraketBackend, QuantumError>`; a device whose
+capabilities name no qubit count keeps the built-in figure. `deviceQubitsAsync braket deviceArn ct`
+returns the reported count alone.
+
 ### Neutral-atom analog programs (QuEra Aquila)
 
 ```fsharp

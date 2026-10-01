@@ -14,7 +14,8 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// ALGORITHM-LEVEL API (for advanced users):
 /// This module provides direct access to quantum K-coloring solving via QAOA.
 /// Graph coloring assigns colors to vertices such that no adjacent vertices
-/// share the same color, minimizing the total number of colors used.
+/// share the same color, within the K colors given. Fewer distinct colors are
+/// preferred among the measured samples (see ColoringGoal.MinimizeColors).
 ///
 /// RULE 1 COMPLIANCE:
 /// ✅ Requires IQuantumBackend parameter (explicit quantum execution)
@@ -39,7 +40,9 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///
 ///   ∀ (i,j) ∈ E: c_i ≠ c_j  (adjacent vertices have different colors)
 ///
-///   Minimize: Number of colors used (chromatic number)
+///   Soft goal (default): low color indices. The QUBO minimises the sum of the color
+///   indices, not the number of colors used; it does not compute the chromatic number.
+///   Among valid samples the one with the fewest distinct colors is returned.
 ///
 /// Example:
 ///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
@@ -95,13 +98,21 @@ module QuantumGraphColoringSolver =
 
             /// QUBO objective value (energy)
             BestEnergy: float
+
+            /// Standing of this solution among the final samples; None when no sampling run produced it
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
         }
 
     /// Soft goal of a coloring. It shapes the QUBO and the ranking of measured samples.
     [<RequireQualifiedAccess; Struct>]
     type ColoringGoal =
-        /// Prefer fewer distinct colors: a cost that grows with the color index, and
-        /// among valid samples the one using the fewest colors wins.
+        /// Prefer fewer distinct colors. The QUBO carries a cost that grows with the color
+        /// index, so its minimum is the valid coloring with the smallest SUM of color
+        /// indices, which is not always one with the fewest distinct colors (a square with
+        /// one vertex fixed to color 2 and K = 3: index sum 3 needs three colors, the
+        /// two-color coloring has index sum 4). The number of distinct colors is not a
+        /// quadratic function of the one-hot variables. It is applied when ranking the
+        /// measured samples: among valid samples the one using the fewest colors wins.
         | MinimizeColors
         /// Prefer the fewest conflicting edges, with no color-count preference:
         /// samples are ranked by conflict count, then by QUBO energy.
@@ -233,7 +244,9 @@ module QuantumGraphColoringSolver =
     ///
     /// SOFT TERMS (see ColoringPreferences for their scaling):
     ///
-    /// 3. MinimizeColors: 0.2 × P × c / (n × (K - 1)) on x_{i,c} (higher color indices cost more)
+    /// 3. MinimizeColors: 0.2 × P × c / (n × (K - 1)) on x_{i,c} (higher color indices cost
+    ///    more). This minimises the sum of the color indices over the vertices, not the
+    ///    number of distinct colors; selectBest ranks the samples by the distinct count.
     ///    BalanceColors: λ × Σ_c (Σ_i x_{i,c})² with λ = 0.2 × P / n²
     ///    MinimizeConflicts: no color-count term
     ///
@@ -298,7 +311,7 @@ module QuantumGraphColoringSolver =
                                 // Penalise the other colour bits AND reward the fixed bit
                                 // with a strong negative diagonal term. Penalising the
                                 // others alone leaves nothing forcing the fixed bit to 1 —
-                                // the colour-count objective then actively pushes it to 0
+                                // the colour-index cost then actively pushes it to 0
                                 // and the pre-assignment is silently dropped at decode.
                                 [ 0 .. numColors - 1 ]
                                 |> List.fold
@@ -524,6 +537,7 @@ module QuantumGraphColoringSolver =
             NumShots = 0
             ElapsedMs = 0.0
             BestEnergy = 0.0
+            Sampling = None
         }
 
     /// Decode binary solution to color assignments
@@ -821,6 +835,18 @@ module QuantumGraphColoringSolver =
                             // Step 10: Pick the best sample for the goal
                             let bestSolution = selectBest problem preferences solutions
 
+                            let sampling: QaoaExecutionHelpers.SampleStatistics =
+                                {
+                                    Shots = solutions.Length
+                                    Qubits = quboMatrix.NumVariables
+                                    Hits =
+                                        solutions
+                                        |> Array.filter (fun sol ->
+                                            sol.ColorAssignments = bestSolution.ColorAssignments)
+                                        |> Array.length
+                                    Valid = solutions |> Array.filter (fun sol -> sol.IsValid) |> Array.length
+                                }
+
                             let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
                             return
@@ -829,6 +855,7 @@ module QuantumGraphColoringSolver =
                                         BackendName = backend.Name
                                         NumShots = config.NumShots
                                         ElapsedMs = elapsedMs
+                                        Sampling = Some sampling
                                     }
 
             with ex when not (ex :? OperationCanceledException) ->

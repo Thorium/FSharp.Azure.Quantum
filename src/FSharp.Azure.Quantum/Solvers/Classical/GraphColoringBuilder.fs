@@ -23,7 +23,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///
 /// WHAT IS GRAPH COLORING:
 /// Assign colors to graph vertices such that no adjacent vertices share the same color,
-/// while minimizing the total number of colors used (chromatic number).
+/// preferring colorings that use fewer of the available colors (see ColoringObjective).
 ///
 /// USE CASES:
 /// - Register allocation: Assign CPU registers to variables (no conflicts)
@@ -81,9 +81,11 @@ module GraphColoring =
     /// </summary>
     [<Struct>]
     type ColoringObjective =
-        /// Minimize the total number of colors used (chromatic number): a small cost that
-        /// grows with the color index, among valid samples the fewest colors wins, and the
-        /// greedy coloring reuses a color already in use before opening a new one
+        /// Prefer fewer colors. The QUBO carries a small cost that grows with the color
+        /// index, so its minimum has the smallest sum of color indices, which is not always
+        /// a coloring with the fewest colors; among valid samples the fewest colors wins,
+        /// and the greedy coloring reuses a color already in use before opening a new one.
+        /// The result is not guaranteed to reach the chromatic number.
         | MinimizeColors
         /// Minimize conflicts (allow invalid colorings, penalize conflicts): no color-count
         /// preference, and samples are ranked by conflict count
@@ -210,10 +212,7 @@ module GraphColoring =
                                     $"Avoid colors not in available colors: %A{invalidAvoidColors}"
                                 )
                             )
-                        | _ when
-                            not (problem.ConflictPenalty > 0.0)
-                            || Double.IsInfinity problem.ConflictPenalty
-                            ->
+                        | _ when not (problem.ConflictPenalty > 0.0) || Double.IsInfinity problem.ConflictPenalty ->
                             Error(
                                 QuantumError.ValidationError(
                                     "ConflictPenalty",

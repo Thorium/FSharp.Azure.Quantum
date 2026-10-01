@@ -43,6 +43,10 @@ module ShorsTypes =
 
             /// Number of QPE attempts made
             Attempts: int
+
+            /// Width of the circuit that measured the period: counting qubits plus the work
+            /// registers of the route the backend took
+            QubitsUsed: int
         }
 
     /// How the factors of a Shor's algorithm result were obtained.

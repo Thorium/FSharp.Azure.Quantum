@@ -510,11 +510,14 @@ if not quiet then
 let problem = toInfluenceProblem proteins interactions k synergyWeight
 
 let startTime = DateTime.Now
+
 let solveResult =
     InfluenceMaximization.solveWithConfigAsync
         backend
         problem
-        { defaultConfig with FinalShots = shots }
+        { defaultConfig with
+            FinalShots = shots
+        }
         CancellationToken.None
     |> Async.AwaitTask
     |> Async.RunSynchronously

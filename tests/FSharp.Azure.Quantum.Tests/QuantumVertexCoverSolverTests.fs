@@ -232,6 +232,8 @@ module RoundTripTests =
                 NumShots = 0
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         // Assert
@@ -653,6 +655,8 @@ module DecomposeRecombineTests =
                 NumShots = 100
                 OptimizedParameters = None
                 OptimizationConverged = None
+                Sampling = None
+                Split = None
             }
 
         let combined = recombine [ solution ]

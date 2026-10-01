@@ -303,7 +303,11 @@ if runRemZne then
         printfn "-----------------------"
         printfn ""
 
-    match measureCalibrationMatrixAsync "ionq" 2 remConfig fullNoisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+    match
+        measureCalibrationMatrixAsync "ionq" 2 remConfig fullNoisyExecutor CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Error err ->
         if not quiet then
             printfn "[ERROR] REM calibration failed: %s" err
@@ -334,26 +338,31 @@ if runRemZne then
                 match! fullNoisyExecutor circ shots with
                 | Error err -> return Error err
                 | Ok histogram ->
-                    match correctReadoutErrors histogram remCalibration remConfig with
-                    | Error err -> return Error $"REM failed: %s{err}"
-                    | Ok corrected ->
-                        // Convert histogram to expectation value (simplified energy mapping)
-                        let expectation =
-                            corrected.Histogram
-                            |> Map.toList
-                            |> List.sumBy (fun (bitstring, count) ->
-                                let prob = count / float shots
-                                let energy = if bitstring = "00" then -1.2 else -1.0
-                                prob * energy)
+                    return
+                        match correctReadoutErrors histogram remCalibration remConfig with
+                        | Error err -> Error $"REM failed: %s{err}"
+                        | Ok corrected ->
+                            // Convert histogram to expectation value (simplified energy mapping)
+                            let expectation =
+                                corrected.Histogram
+                                |> Map.toList
+                                |> List.sumBy (fun (bitstring, count) ->
+                                    let prob = count / float shots
+                                    let energy = if bitstring = "00" then -1.2 else -1.0
+                                    prob * energy)
 
-                        return Ok expectation
+                            Ok expectation
             }
 
         if not quiet then
             printfn "Running ZNE with REM-corrected measurements..."
             printfn ""
 
-        match ZeroNoiseExtrapolation.mitigateAsync vqeCircuit zneConfig combinedExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+        match
+            ZeroNoiseExtrapolation.mitigateAsync vqeCircuit zneConfig combinedExecutor CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err ->
             if not quiet then
                 printfn "[ERROR] ZNE failed: %s" err
@@ -450,7 +459,11 @@ if runRemZnePec then
 
     // Run PEC on the circuit
     match
-        ProbabilisticErrorCancellation.mitigateAsync vqeCircuit pecConfig noisyExpectationExecutor CancellationToken.None
+        ProbabilisticErrorCancellation.mitigateAsync
+            vqeCircuit
+            pecConfig
+            noisyExpectationExecutor
+            CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
     with
@@ -472,7 +485,11 @@ if runRemZnePec then
 
         let zneConfig = defaultIonQConfig |> withNoiseScalings zneScalings
 
-        match ZeroNoiseExtrapolation.mitigateAsync vqeCircuit zneConfig noisyExpectationExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
+        match
+            ZeroNoiseExtrapolation.mitigateAsync vqeCircuit zneConfig noisyExpectationExecutor CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err ->
             if not quiet then
                 printfn "[ERROR] ZNE failed: %s" err
@@ -681,22 +698,25 @@ let runCircuitWithAdaptiveEM
                         match! fullNoisyExecutor c shots with
                         | Error e -> return Error e
                         | Ok hist ->
-                            match correctReadoutErrors hist cal remCfg with
-                            | Error e -> return Error e
-                            | Ok corr ->
-                                let exp =
-                                    corr.Histogram
-                                    |> Map.toList
-                                    |> List.sumBy (fun (bs, cnt) ->
-                                        let prob = cnt / float shots
-                                        let energy = if bs = "00" then -1.2 else -1.0
-                                        prob * energy)
+                            return
+                                match correctReadoutErrors hist cal remCfg with
+                                | Error e -> Error e
+                                | Ok corr ->
+                                    let exp =
+                                        corr.Histogram
+                                        |> Map.toList
+                                        |> List.sumBy (fun (bs, cnt) ->
+                                            let prob = cnt / float shots
+                                            let energy = if bs = "00" then -1.2 else -1.0
+                                            prob * energy)
 
-                                return Ok exp
+                                    Ok exp
                     }
 
                 let zneCfg = defaultIonQConfig
-                let! zneResult = ZeroNoiseExtrapolation.mitigateAsync circ zneCfg combinedExec CancellationToken.None
+
+                let! zneResult =
+                    ZeroNoiseExtrapolation.mitigateAsync circ zneCfg combinedExec CancellationToken.None
 
                 return
                     match zneResult with
@@ -733,7 +753,9 @@ let runCircuitWithAdaptiveEM
                 ProbabilisticErrorCancellation.mitigateAsync circ pecCfg noisyExpectationExecutor CancellationToken.None
 
             let zneCfg = defaultIonQConfig
-            let! zneResult = ZeroNoiseExtrapolation.mitigateAsync circ zneCfg noisyExpectationExecutor CancellationToken.None
+
+            let! zneResult =
+                ZeroNoiseExtrapolation.mitigateAsync circ zneCfg noisyExpectationExecutor CancellationToken.None
 
             return
                 match pecResult, zneResult with
@@ -762,7 +784,11 @@ if not quiet then
     printfn ""
 
 // Run the configured strategy
-match runCircuitWithAdaptiveEM vqeCircuit "ionq" Production |> Async.AwaitTask |> Async.RunSynchronously with
+match
+    runCircuitWithAdaptiveEM vqeCircuit "ionq" Production
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok energy ->
     if not quiet then
         printfn "Production run result: %.4f Hartree (error: %.4f)" energy (abs (energy - trueEnergy))
