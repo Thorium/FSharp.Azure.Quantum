@@ -269,7 +269,7 @@ module QaoaSimulator =
                 Error
                     $"Parameters array length ({circuit.Parameters.Length}) must equal Depth * 2 ({circuit.Depth * 2})"
             else
-                let startTime = DateTime.Now
+                let stopwatch = System.Diagnostics.Stopwatch.StartNew()
 
                 // Extract gammas and betas from parameters array
                 let gammas =
@@ -323,8 +323,7 @@ module QaoaSimulator =
                         (bitstring, count))
                     |> Map.ofSeq
 
-                let endTime = DateTime.Now
-                let executionTimeMs = (endTime - startTime).TotalMilliseconds
+                let executionTimeMs = stopwatch.Elapsed.TotalMilliseconds
 
                 Ok
                     {

@@ -194,6 +194,7 @@ module QuantumVertexCoverSolver =
     /// doesn't uncover any edge.
     let private repairConstraints (problem: Problem) (bits: int[]) : int[] =
         let normalizedEdges = normalizeEdges problem.Edges
+        let vertices = problem.Vertices |> List.toArray
 
         // Phase 1: ensure every edge is covered
         let afterCover =
@@ -203,7 +204,7 @@ module QuantumVertexCoverSolver =
                     if acc.[i] = 0 && acc.[j] = 0 then
                         let updated = Array.copy acc
 
-                        if problem.Vertices.[i].Weight <= problem.Vertices.[j].Weight then
+                        if vertices.[i].Weight <= vertices.[j].Weight then
                             updated.[i] <- 1
                         else
                             updated.[j] <- 1
@@ -252,9 +253,11 @@ module QuantumVertexCoverSolver =
             match parts with
             | [ _ ] -> [ problem ] // Single component — no benefit to splitting
             | components ->
+                let vertices = problem.Vertices |> List.toArray
+
                 components
                 |> List.map (fun (globalIndices, localEdges) ->
-                    let localVertices = globalIndices |> List.map (fun gi -> problem.Vertices.[gi])
+                    let localVertices = globalIndices |> List.map (fun gi -> vertices.[gi])
 
                     {
                         Vertices = localVertices
@@ -310,72 +313,74 @@ module QuantumVertexCoverSolver =
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Result<Solution, QuantumError> =
+        : Task<Result<Solution, QuantumError>> =
 
-        if problem.Vertices.IsEmpty then
-            Error(QuantumError.ValidationError("vertices", "Problem has no vertices"))
+        let numVertices = problem.Vertices.Length
+
+        if numVertices = 0 then
+            Task.FromResult(Error(QuantumError.ValidationError("vertices", "Problem has no vertices")))
         elif
             problem.Edges
-            |> List.exists (fun (i, j) ->
-                i < 0
-                || j < 0
-                || i >= problem.Vertices.Length
-                || j >= problem.Vertices.Length
-                || i = j)
+            |> List.exists (fun (i, j) -> i < 0 || j < 0 || i >= numVertices || j >= numVertices || i = j)
         then
-            Error(QuantumError.ValidationError("edges", "Edge index out of range or self-loop"))
+            Task.FromResult(Error(QuantumError.ValidationError("edges", "Edge index out of range or self-loop")))
         else
-            let solveSingle (subProblem: Problem) =
-                match toQubo subProblem with
-                | Error err -> Error err
-                | Ok qubo ->
-                    let result =
-                        if config.EnableOptimization then
-                            executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                        else
-                            // Sequential (maxConcurrency = 1) grid search, as before
-                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
-                                .GetAwaiter()
-                                .GetResult()
-                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+            let solveSingle (subProblem: Problem) : Task<Result<Solution, QuantumError>> =
+                task {
+                    match toQubo subProblem with
+                    | Error err -> return Error err
+                    | Ok qubo ->
+                        let! result =
+                            if config.EnableOptimization then
+                                task {
+                                    let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
 
-                    match result with
-                    | Error err -> Error err
-                    | Ok(bits, optParams, converged) ->
-                        let finalBits, wasRepaired =
-                            if config.EnableConstraintRepair && not (isValid subProblem bits) then
-                                (repairConstraints subProblem bits, true)
+                                    return
+                                        optimized
+                                        |> Result.map (fun (bits, optParams, converged) ->
+                                            (bits, Some optParams, Some converged))
+                                }
                             else
-                                (bits, false)
+                                task {
+                                    // Sequential (maxConcurrency = 1) grid search, as before
+                                    let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
 
-                        let solution = decodeSolution subProblem finalBits
+                                    return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+                                }
 
-                        Ok
-                            { solution with
-                                BackendName = backend.Name
-                                NumShots = config.FinalShots
-                                WasRepaired = wasRepaired
-                                OptimizedParameters = optParams
-                                OptimizationConverged = converged
-                            }
+                        match result with
+                        | Error err -> return Error err
+                        | Ok(bits, optParams, converged) ->
+                            let finalBits, wasRepaired =
+                                if config.EnableConstraintRepair && not (isValid subProblem bits) then
+                                    (repairConstraints subProblem bits, true)
+                                else
+                                    (bits, false)
 
-            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
+                            let solution = decodeSolution subProblem finalBits
 
-    /// Solve vertex cover using QAOA with full configuration control.
-    /// Automatically decomposes into connected components when the problem
-    /// exceeds backend qubit capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (config: Config)
-        : Result<Solution, QuantumError> =
-        solveWithConfigCore backend problem config CancellationToken.None
+                            return
+                                Ok
+                                    { solution with
+                                        BackendName = backend.Name
+                                        NumShots = config.FinalShots
+                                        WasRepaired = wasRepaired
+                                        OptimizedParameters = optParams
+                                        OptimizationConverged = converged
+                                    }
+                }
+
+            ProblemDecomposition.solveWithDecompositionAsync
+                backend
+                problem
+                estimateQubits
+                decompose
+                recombine
+                solveSingle
 
     /// Solve vertex cover using QAOA with full configuration control (async).
-    /// Wraps the synchronous solveWithConfig in a task; will become truly async
-    /// once ProblemDecomposition supports async solve functions.
+    /// Automatically decomposes into connected components when the problem
+    /// exceeds backend qubit capacity.
     let solveWithConfigAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -384,25 +389,8 @@ module QuantumVertexCoverSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfigCore backend problem config cancellationToken
+            return! solveWithConfigCore backend problem config cancellationToken
         }
-
-    /// Solve vertex cover using QAOA with default configuration.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (shots: int)
-        : Result<Solution, QuantumError> =
-
-        let config =
-            { defaultConfig with
-                FinalShots = shots
-            }
-
-        solveWithConfigAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // CLASSICAL SOLVER (Rule 1: private — not exposed without backend)
@@ -419,13 +407,14 @@ module QuantumVertexCoverSolver =
                     BackendName = "Classical Greedy"
                 }
         else
-            let n = problem.Vertices.Length
+            let vertices = problem.Vertices |> List.toArray
+            let n = vertices.Length
             let normalizedEdges = normalizeEdges problem.Edges
 
             // Sort edges by the minimum-weight endpoint (greedy heuristic)
             let sortedEdges =
                 normalizedEdges
-                |> List.sortBy (fun (i, j) -> min problem.Vertices.[i].Weight problem.Vertices.[j].Weight)
+                |> List.sortBy (fun (i, j) -> min vertices.[i].Weight vertices.[j].Weight)
 
             // Greedily cover edges using fold with immutable Set
             let selected =
@@ -441,7 +430,7 @@ module QuantumVertexCoverSolver =
                                     None
                                 elif sel |> Set.contains j then
                                     None
-                                elif problem.Vertices.[i].Weight <= problem.Vertices.[j].Weight then
+                                elif vertices.[i].Weight <= vertices.[j].Weight then
                                     Some i
                                 else
                                     Some j

@@ -4,7 +4,7 @@
 
 The Graph Coloring domain builder is an F# computation expression API for graph coloring problems: assign a color to every node so that no two conflicting nodes share one. It offers progressive disclosure - inline nodes for simple cases, a `coloredNode { }` builder when a node needs more detail.
 
-`GraphColoring.solve` is quantum-first: it encodes the problem as a QUBO (one binary variable per node-color pair, with one-hot and conflict penalties) and samples it with a single-layer QAOA circuit on the backend you pass, or on `LocalBackend` when you pass `None`. See [Problem Size and Performance](#problem-size-and-performance) for what that means for problem size.
+`GraphColoring.solveAsync` is quantum-first: it encodes the problem as a QUBO (one binary variable per node-color pair, with one-hot and conflict penalties) and samples it with a single-layer QAOA circuit on the backend you pass, or on `LocalBackend` when you pass `None`. See [Problem Size and Performance](#problem-size-and-performance) for what that means for problem size.
 
 **Key Use Cases:**
 - **Compiler Register Allocation** - Assign variables to CPU registers
@@ -38,6 +38,7 @@ dotnet add package FSharp.Azure.Quantum
 ### Hello World - Simple Graph Coloring
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.GraphColoring
 
 // Problem: Color 3 nodes (triangle) with minimal colors
@@ -49,19 +50,21 @@ let problem = graphColoring {
 }
 
 // 3 colors, default backend (LocalBackend): 3 nodes x 3 colors = 9 qubits
-match solve problem 3 None with
-| Ok solution ->
-    printfn "Used %d colors" solution.ColorsUsed
-    printfn "Valid: %b" solution.IsValid
+task {
+    match! solveAsync problem 3 None CancellationToken.None with
+    | Ok solution ->
+        printfn "Used %d colors" solution.ColorsUsed
+        printfn "Valid: %b" solution.IsValid
 
-    for (nodeId, color) in Map.toList solution.Assignments do
-        printfn "%s → %s" nodeId color
-    // One possible output:
-    // A → Red
-    // B → Green
-    // C → Blue
-| Error err ->
-    eprintfn "Coloring failed: %s" err.Message
+        for (nodeId, color) in Map.toList solution.Assignments do
+            printfn "%s → %s" nodeId color
+        // One possible output:
+        // A → Red
+        // B → Green
+        // C → Blue
+    | Error err ->
+        eprintfn "Coloring failed: %s" err.Message
+}
 ```
 
 The solver returns the best sample it measured (valid colorings first, then fewest colors). The result is sampled, so always check `IsValid`.
@@ -86,9 +89,11 @@ let problem = graphColoring {
 }
 
 // Try 3 of the 4 colors: 4 nodes x 3 colors = 12 qubits
-match solve problem 3 None with
-| Ok solution -> printfn "Solution found with %d colors" solution.ColorsUsed
-| Error err -> eprintfn "Error: %s" err.Message
+task {
+    match! solveAsync problem 3 None CancellationToken.None with
+    | Ok solution -> printfn "Solution found with %d colors" solution.ColorsUsed
+    | Error err -> eprintfn "Error: %s" err.Message
+}
 ```
 
 **Characteristics:**
@@ -157,7 +162,7 @@ let problem = graphColoring {
 }
 ```
 
-**How `solve` uses each option** (P is the solver's penalty weight, 10.0; n is the number of nodes):
+**How `solveAsync` uses each option** (P is the solver's penalty weight, 10.0; n is the number of nodes):
 
 | Option | Effect |
 |--------|--------|
@@ -171,7 +176,7 @@ let problem = graphColoring {
 | `priority` | Tie-break only: among samples that rank equal on the objective and QUBO energy, the one giving higher-priority nodes earlier colors wins; the greedy coloring (graphs without conflicts, `approximateChromaticNumber`) visits nodes in descending priority. |
 | `property` | Metadata for your own use; not read by the solver. |
 
-**Guarantee:** the soft terms are never negative and total at most 0.5 × P on any valid coloring, while breaking a constraint costs at least P (one color per node), 10 × P (a fixed color) or `conflictPenalty` × P (a conflict). So with `conflictPenalty` ≥ 1 (the default), and generally above 0.5, the lowest-energy state of the QUBO is a valid coloring whenever one exists with the encoded colors. At 0.5 or below, a coloring with conflicts can have lower energy than every valid one; use that with `MinimizeConflicts` when conflicts are acceptable. A conflict listed from both ends (`A` lists `B` and `B` lists `A`) is one edge. The number of colors the solver encodes is the `numColors` argument of `solve`, capped by the number of colors and `maxColors`.
+**Guarantee:** the soft terms are never negative and total at most 0.5 × P on any valid coloring, while breaking a constraint costs at least P (one color per node), 10 × P (a fixed color) or `conflictPenalty` × P (a conflict). So with `conflictPenalty` ≥ 1 (the default), and generally above 0.5, the lowest-energy state of the QUBO is a valid coloring whenever one exists with the encoded colors. At 0.5 or below, a coloring with conflicts can have lower energy than every valid one; use that with `MinimizeConflicts` when conflicts are acceptable. A conflict listed from both ends (`A` lists `B` and `B` lists `A`) is one edge. The number of colors the solver encodes is the `numColors` argument of `solveAsync`, capped by the number of colors and `maxColors`.
 
 ---
 
@@ -267,7 +272,7 @@ The builder validates the problem when the expression is evaluated and **throws*
 ```text
 val node : id:string -> conflicts:string list -> ColoredNode
 val singleNode : coloredNode:ColoredNode -> GraphColoringProblem
-val solve : problem:GraphColoringProblem -> numColors:int -> backend:IQuantumBackend option -> QuantumResult<ColoringSolution>
+val solveAsync : problem:GraphColoringProblem -> numColors:int -> backend:IQuantumBackend option -> cancellationToken:CancellationToken -> Task<QuantumResult<ColoringSolution>>
 val validate : problem:GraphColoringProblem -> QuantumResult<unit>
 val isValidSolution : problem:GraphColoringProblem -> solution:ColoringSolution -> bool
 val approximateChromaticNumber : problem:GraphColoringProblem -> int
@@ -277,7 +282,7 @@ val frequencyAssignment : towers:string list -> interferences:(string * string) 
 val examScheduling : exams:string list -> studentConflicts:(string * string) list -> timeSlots:string list -> GraphColoringProblem
 ```
 
-- `solve problem numColors backend` uses `numColors` colors, capped by the number of colors and `maxColors`. `None` for the backend means `LocalBackend`. A graph with no conflicts at all runs no circuit: each node gets its fixed color; otherwise it prefers a color it does not avoid, and among those, under `MinimizeColors`, a color already in use (a new color only when none is), under `BalanceColors` the smallest class so far. The solution has `IsQuantum = false` and `BackendName = QuantumGraphColoringSolver.NoCircuitBackendName`. Errors (validation, backend failures) come back as `Error`.
+- `solveAsync problem numColors backend cancellationToken` uses `numColors` colors, capped by the number of colors and `maxColors`. `None` for the backend means `LocalBackend`. A graph with no conflicts at all runs no circuit: each node gets its fixed color; otherwise it prefers a color it does not avoid, and among those, under `MinimizeColors`, a color already in use (a new color only when none is), under `BalanceColors` the smallest class so far. The solution has `IsQuantum = false` and `BackendName = QuantumGraphColoringSolver.NoCircuitBackendName`. Errors (validation, backend failures) come back as `Error`.
 - `approximateChromaticNumber` runs a classical greedy coloring (fixed colors first, then nodes in descending priority, each reusing a free color already in use before opening a new one; `avoidColors`, `objective` and `maxColors` are ignored here) and returns the number of colors it used (an upper bound, not the exact chromatic number); it falls back to the number of available colors if greedy fails.
 - `registerAllocation`, `frequencyAssignment` and `examScheduling` build a problem from a list of IDs and a list of conflicting pairs, without going through the builder's validation. `registerAllocation` also sets `MaxColors` to the number of registers.
 - `describeSolution` formats a solution as readable text.
@@ -289,9 +294,11 @@ let exams =
         [("Math", "Physics"); ("Math", "Chemistry")]
         ["Mon"; "Tue"; "Wed"]
 
-match solve exams 3 None with
-| Ok solution -> printfn "%s" (describeSolution solution)
-| Error err -> eprintfn "Error: %s" err.Message
+task {
+    match! solveAsync exams 3 None CancellationToken.None with
+    | Ok solution -> printfn "%s" (describeSolution solution)
+    | Error err -> eprintfn "Error: %s" err.Message
+}
 ```
 
 ---
@@ -302,6 +309,7 @@ There is no separate C# builder for graph coloring; C# calls the same functions.
 
 ```csharp
 using System;
+using System.Threading;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using FSharp.Azure.Quantum;
@@ -312,7 +320,7 @@ var problem = GraphColoring.examScheduling(
     ListModule.OfSeq(new[] { Tuple.Create("Math", "Physics"), Tuple.Create("Math", "Chemistry") }),
     ListModule.OfSeq(new[] { "Mon", "Tue", "Wed" }));
 
-var result = GraphColoring.solve(problem, 3, FSharpOption<BackendAbstraction.IQuantumBackend>.None);
+var result = await GraphColoring.solveAsync(problem, 3, FSharpOption<BackendAbstraction.IQuantumBackend>.None, CancellationToken.None);
 
 if (result.IsOk)
 {
@@ -325,7 +333,7 @@ else
 }
 ```
 
-The generic `GraphOptimization` module (`GraphOptimizationBuilder`) describes graph problems and encodes them as QUBO matrices (`toQubo`, `decodeSolution`), but it does not solve them; use `GraphColoring.solve` to get a coloring.
+The generic `GraphOptimization` module (`GraphOptimizationBuilder`) describes graph problems and encodes them as QUBO matrices (`toQubo`, `decodeSolution`), but it does not solve them; use `GraphColoring.solveAsync` to get a coloring.
 
 ---
 
@@ -338,6 +346,7 @@ The qubit count of each example is nodes × colors used; all of these stay well 
 **Problem:** Assign 5 live variables to 3 CPU registers (5 × 3 = 15 qubits).
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.GraphColoring
 
 // Variable interference graph (from liveness analysis)
@@ -353,25 +362,27 @@ let problem = graphColoring {
     objective MinimizeColors
 }
 
-match solve problem 3 None with
-| Ok solution ->
-    if solution.IsValid then
-        printfn "Register allocation successful!"
-        printfn "Registers used: %d" solution.ColorsUsed
+task {
+    match! solveAsync problem 3 None CancellationToken.None with
+    | Ok solution ->
+        if solution.IsValid then
+            printfn "Register allocation successful!"
+            printfn "Registers used: %d" solution.ColorsUsed
 
-        for (var, reg) in Map.toList solution.Assignments do
-            printfn "  %s → %s" var reg
+            for (var, reg) in Map.toList solution.Assignments do
+                printfn "  %s → %s" var reg
 
-        // Output assembly with register assignments
-        printfn "\nGenerated Assembly:"
-        printfn "  MOV %s, 42     ; v1 = 42" (solution.Assignments.["v1"])
-        printfn "  ADD %s, %s     ; v2 = v1 + ..."
-            (solution.Assignments.["v2"])
-            (solution.Assignments.["v1"])
-    else
-        printfn "No conflict-free assignment in the samples - spill or add registers"
-| Error err ->
-    eprintfn "Register allocation failed: %s" err.Message
+            // Output assembly with register assignments
+            printfn "\nGenerated Assembly:"
+            printfn "  MOV %s, 42     ; v1 = 42" (solution.Assignments.["v1"])
+            printfn "  ADD %s, %s     ; v2 = v1 + ..."
+                (solution.Assignments.["v2"])
+                (solution.Assignments.["v1"])
+        else
+            printfn "No conflict-free assignment in the samples - spill or add registers"
+    | Error err ->
+        eprintfn "Register allocation failed: %s" err.Message
+}
 ```
 
 ---
@@ -403,16 +414,18 @@ let problem = graphColoring {
     objective MinimizeColors
 }
 
-match solve problem 3 None with
-| Ok solution ->
-    printfn "Frequency Plan:"
-    for tower in towers do
-        let freq = solution.Assignments.[tower.Id]
-        printfn "  %s: %s" tower.Id freq
+task {
+    match! solveAsync problem 3 None CancellationToken.None with
+    | Ok solution ->
+        printfn "Frequency Plan:"
+        for tower in towers do
+            let freq = solution.Assignments.[tower.Id]
+            printfn "  %s: %s" tower.Id freq
 
-    printfn "\nFrequencies needed: %d" solution.ColorsUsed
-| Error err ->
-    eprintfn "Frequency allocation failed: %s" err.Message
+        printfn "\nFrequencies needed: %d" solution.ColorsUsed
+    | Error err ->
+        eprintfn "Frequency allocation failed: %s" err.Message
+}
 ```
 
 ---
@@ -445,15 +458,17 @@ let problem = graphColoring {
     objective MinimizeColors
 }
 
-match solve problem 3 None with
-| Ok solution ->
-    printfn "Exam Schedule:"
-    for exam in exams do
-        let timeSlot = solution.Assignments.[exam.Course]
-        printfn "  %s: %s" exam.Course timeSlot
+task {
+    match! solveAsync problem 3 None CancellationToken.None with
+    | Ok solution ->
+        printfn "Exam Schedule:"
+        for exam in exams do
+            let timeSlot = solution.Assignments.[exam.Course]
+            printfn "  %s: %s" exam.Course timeSlot
 
-    printfn "\nTime slots needed: %d" solution.ColorsUsed
-| Error err -> eprintfn "Error: %s" err.Message
+        printfn "\nTime slots needed: %d" solution.ColorsUsed
+    | Error err -> eprintfn "Error: %s" err.Message
+}
 ```
 
 ---
@@ -490,7 +505,7 @@ let problem = graphColoring {
 }
 ```
 
-A 100-node problem builds fine, but it is far too large for `solve` on a simulator (100 × 3 = 300 qubits); see [Problem Size and Performance](#problem-size-and-performance).
+A 100-node problem builds fine, but it is far too large for `solveAsync` on a simulator (100 × 3 = 300 qubits); see [Problem Size and Performance](#problem-size-and-performance).
 
 ### Mixing Inline and Builder Nodes
 
@@ -540,15 +555,16 @@ let problem = graphColoring {
 
 ## Problem Size and Performance
 
-**Algorithm:** `solve` builds a QUBO with one variable per (node, color) pair and runs a single QAOA layer with fixed angles (γ = β = 0.5) and 1000 shots. It decodes every shot and returns the best one for the objective: under `MinimizeColors` valid colorings first (fewest colors), under `BalanceColors` valid colorings first (most even classes), under `MinimizeConflicts` the fewest conflicts; ties go to the lowest QUBO energy, then to `priority`. There is no angle optimisation, so small, sparse graphs give the best results.
+**Algorithm:** `solveAsync` builds a QUBO with one variable per (node, color) pair and runs a single QAOA layer with fixed angles (γ = β = 0.5) and 1000 shots. It decodes every shot and returns the best one for the objective: under `MinimizeColors` valid colorings first (fewest colors), under `BalanceColors` valid colorings first (most even classes), under `MinimizeConflicts` the fewest conflicts; ties go to the lowest QUBO energy, then to `priority`. There is no angle optimisation, so small, sparse graphs give the best results.
 
 **Qubits:** nodes × the encoded color count (`numColors` capped by the number of colors and `maxColors`). On `LocalBackend` this must fit `StateVector.maxQubits`, which is derived from available memory and capped at 30; the state vector needs 16 bytes × 2^qubits. In practice keep problems around 20 qubits or fewer (for example 6 nodes × 3 colors, or 5 nodes × 4 colors). Larger problems need a cloud backend or a classical method.
 
-**Graphs without conflicts:** no circuit runs; see `solve` above.
+**Graphs without conflicts:** no circuit runs; see `solveAsync` above.
 
-**Classical alternative:** for graphs too large to simulate, `HybridSolver.solveGraphColoring` with a forced `Classical` method runs a greedy coloring (fixed colors placed first, then vertices in order, each taking a color no neighbor uses, preferring one already in use, then the lowest index). A graph without edges runs no circuit even when `Quantum` is forced, so the solution reports `Method = Classical` and says why in `Reasoning`. It takes the lower-level `QuantumGraphColoringSolver.GraphColoringProblem` (color indices instead of names):
+**Classical alternative:** for graphs too large to simulate, `HybridSolver.solveGraphColoringAsync` with a forced `Classical` method runs a greedy coloring (fixed colors placed first, then vertices in order, each taking a color no neighbor uses, preferring one already in use, then the lowest index). A graph without edges runs no circuit even when `Quantum` is forced, so the solution reports `Method = Classical` and says why in `Reasoning`. It takes the lower-level `QuantumGraphColoringSolver.GraphColoringProblem` (color indices instead of names):
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Quantum
 
@@ -559,9 +575,11 @@ let bigProblem : QuantumGraphColoringSolver.GraphColoringProblem = {
     FixedColors = Map.empty
 }
 
-match HybridSolver.solveGraphColoring bigProblem 3 None None (Some HybridSolver.Classical) with
-| Ok solution -> printfn "Greedy used %d colors" solution.Result.ColorsUsed
-| Error err -> eprintfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveGraphColoringAsync bigProblem 3 None None (Some HybridSolver.Classical) CancellationToken.None with
+    | Ok solution -> printfn "Greedy used %d colors" solution.Result.ColorsUsed
+    | Error err -> eprintfn "Error: %s" err.Message
+}
 ```
 
 ---

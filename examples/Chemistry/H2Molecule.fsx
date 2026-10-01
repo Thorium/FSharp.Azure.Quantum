@@ -93,6 +93,7 @@ References:
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
 
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
@@ -222,7 +223,10 @@ let runGroundState (label: string) (distance: float) (method: GroundStateMethod)
         printfn "Method: %A" method
         printfn "Running calculation..."
 
-    let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
+    let result =
+        GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Ok vqeResult ->
@@ -386,7 +390,9 @@ let scanResults =
             }
 
         let scanResult =
-            GroundStateEnergy.estimateEnergy h2Scan scanConfig |> Async.RunSynchronously
+            GroundStateEnergy.estimateEnergyAsync h2Scan scanConfig CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         match scanResult with
         | Ok vqeResult ->
@@ -446,7 +452,9 @@ let convConfig =
     }
 
 let convResult =
-    GroundStateEnergy.estimateEnergy h2Conv convConfig |> Async.RunSynchronously
+    GroundStateEnergy.estimateEnergyAsync h2Conv convConfig CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 match convResult with
 | Ok vqeResult ->

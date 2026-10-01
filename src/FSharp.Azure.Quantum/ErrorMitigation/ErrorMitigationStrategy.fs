@@ -52,7 +52,7 @@ module ErrorMitigationStrategy =
             /// When None, strategy selection still recommends readout mitigation where
             /// appropriate, but applyStrategy passes counts through uncorrected. For actual
             /// correction, supply real calibration data measured via
-            /// ReadoutErrorMitigation.measureCalibrationMatrix.
+            /// ReadoutErrorMitigation.measureCalibrationMatrixAsync.
             Calibration: ReadoutErrorMitigation.CalibrationMatrix option
         }
 
@@ -368,7 +368,7 @@ module ErrorMitigationStrategy =
     /// Only readout error mitigation can be applied post-hoc to a finished histogram; it
     /// corrects the measured counts with the inverse confusion matrix. Zero-Noise Extrapolation
     /// and Probabilistic Error Cancellation are circuit-level techniques; for those use
-    /// ZeroNoiseExtrapolation.mitigate / ProbabilisticErrorCancellation.mitigate with a circuit
+    /// ZeroNoiseExtrapolation.mitigateAsync / ProbabilisticErrorCancellation.mitigateAsync with a circuit
     /// executor. A readout component selected without calibration data has no confusion
     /// matrix to invert, so the counts pass through with CorrectionApplied = false. See
     /// applyStrategyWith for the key convention and the handling of ZNE/PEC components.

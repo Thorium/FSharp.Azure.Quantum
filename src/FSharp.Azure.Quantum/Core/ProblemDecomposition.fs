@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Core
 
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 
 /// Generic problem decomposition orchestrator for QAOA solvers.
@@ -136,6 +137,50 @@ module ProblemDecomposition =
                 |> List.rev // Restore original order
                 |> recombineFn)
 
+    /// Execute a decomposition plan asynchronously by solving sub-problems and recombining.
+    ///
+    /// Sub-problems are solved one after another, in order, stopping at the first error.
+    ///
+    /// Parameters:
+    ///   solveFn     - function to solve a single (sub-)problem
+    ///   recombineFn - function to merge sub-solutions into one
+    ///   plan        - the decomposition plan (RunDirect or RunDecomposed)
+    ///
+    /// Returns Ok solution or Error if any sub-problem fails.
+    let executeAsync
+        (solveFn: 'Problem -> Task<Result<'Solution, QuantumError>>)
+        (recombineFn: 'Solution list -> 'Solution)
+        (plan: DecompositionPlan<'Problem>)
+        : Task<Result<'Solution, QuantumError>> =
+
+        match plan with
+        | RunDirect problem -> solveFn problem
+
+        | RunDecomposed subProblems ->
+            task {
+                let mutable solutions: 'Solution list = []
+                let mutable failure: QuantumError option = None
+                let mutable remaining = subProblems
+
+                while failure.IsNone && not remaining.IsEmpty do
+                    let! result = solveFn remaining.Head
+
+                    match result with
+                    | Ok solution -> solutions <- solution :: solutions
+                    | Error err -> failure <- Some err
+
+                    remaining <- remaining.Tail
+
+                match failure with
+                | Some err -> return Error err
+                | None ->
+                    return
+                        solutions
+                        |> List.rev // Restore original order
+                        |> recombineFn
+                        |> Ok
+            }
+
     // ========================================================================
     // COMBINED PLAN + EXECUTE CONVENIENCE
     // ========================================================================
@@ -167,6 +212,34 @@ module ProblemDecomposition =
             plan AdaptiveToBackend backend estimateQubits decomposeFn problem
 
         execute solveFn recombineFn decompositionPlan
+
+    /// Plan and execute decomposition in one call, asynchronously.
+    ///
+    /// Same planning as solveWithDecomposition; sub-problems are solved one after
+    /// another through executeAsync.
+    ///
+    /// Parameters:
+    ///   backend        - quantum backend
+    ///   problem        - the problem to solve
+    ///   estimateQubits - qubit estimation function
+    ///   decomposeFn    - problem decomposition function
+    ///   recombineFn    - solution recombination function
+    ///   solveFn        - single-problem async solver function
+    ///
+    /// Returns Ok solution or Error.
+    let solveWithDecompositionAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: 'Problem)
+        (estimateQubits: 'Problem -> int)
+        (decomposeFn: 'Problem -> 'Problem list)
+        (recombineFn: 'Solution list -> 'Solution)
+        (solveFn: 'Problem -> Task<Result<'Solution, QuantumError>>)
+        : Task<Result<'Solution, QuantumError>> =
+
+        let decompositionPlan =
+            plan AdaptiveToBackend backend estimateQubits decomposeFn problem
+
+        executeAsync solveFn recombineFn decompositionPlan
 
     // ========================================================================
     // GRAPH DECOMPOSITION HELPERS

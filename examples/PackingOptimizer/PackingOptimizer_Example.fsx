@@ -153,7 +153,7 @@ if runAll || exampleName = "shipping" then
             item "Crate-C" 20.0
             item "Crate-D" 55.0
             item "Crate-E" 30.0
-            item "Crate-F" 40.0
+            item "Crate-F" 15.0
 
             backend quantumBackend
             shots cliShots
@@ -216,10 +216,10 @@ if runAll || exampleName = "storage" then
             item "UserData" 180.0
             item "Logs" 120.0
             item "Analytics" 200.0
-            item "Backups" 150.0
+            item "Backups" 100.0
             item "MediaAssets" 280.0
             item "Configs" 30.0
-            item "Temp" 90.0
+            item "Temp" 50.0
 
             backend quantumBackend
             shots cliShots

@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Examples.Kasino
 
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 
@@ -17,7 +18,7 @@ module Rules =
         } // union of all combos (the cards actually taken)
 
     /// Find all subsets of table cards that sum exactly to the hand card's value.
-    /// Uses Knapsack.findAllExactCombinations with iterative QAOA via IQuantumBackend.
+    /// Uses Knapsack.findAllExactCombinationsAsync with iterative QAOA via IQuantumBackend.
     let findCaptures
         (backend: BackendAbstraction.IQuantumBackend option)
         (handCard: Card)
@@ -36,7 +37,10 @@ module Rules =
                     (id, float (Cards.tableValue c.Rank), float (Cards.tableValue c.Rank)))
 
             let problem = Knapsack.createProblem items (float targetValue)
-            let combos = Knapsack.findAllExactCombinations problem backend
+            let combos =
+                Knapsack.findAllExactCombinationsAsync problem backend CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
 
             // Map items back to original cards using positional index
             combos

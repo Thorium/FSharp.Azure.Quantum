@@ -4,8 +4,10 @@ open FSharp.Azure.Quantum.Core
 
 open System
 open System.Collections.Generic
+open System.Threading
+open System.Threading.Tasks
 open Azure.Identity
-open Microsoft.Azure.Quantum
+open Azure.Quantum.Jobs
 
 /// Azure Quantum Workspace Integration
 module AzureQuantumWorkspace =
@@ -14,37 +16,36 @@ module AzureQuantumWorkspace =
     // HELPER: Async Enumerable to List
     // ========================================================================
 
-    /// Convert IAsyncEnumerable to list using F# async
+    /// Convert IAsyncEnumerable to list as a Task
     ///
     /// Properly handles disposal in both success and error cases.
     /// If both enumeration and disposal fail, preserves the original exception.
-    let private asyncEnumerableToList (enumerable: IAsyncEnumerable<'T>) : Async<'T list> =
-        async {
+    let private asyncEnumerableToList
+        (enumerable: IAsyncEnumerable<'T>)
+        (cancellationToken: CancellationToken)
+        : Task<'T list> =
+        task {
             let results = ResizeArray<'T>()
-            let enumerator = enumerable.GetAsyncEnumerator()
+            let enumerator = enumerable.GetAsyncEnumerator cancellationToken
             let mutable enumerationException: exn option = None
 
             try
-                let rec loop () =
-                    async {
-                        let! moveNext = enumerator.MoveNextAsync().AsTask() |> Async.AwaitTask
+                let mutable moveNext = true
 
-                        if moveNext then
-                            results.Add enumerator.Current
-                            return! loop ()
-                        else
-                            return ()
-                    }
+                while moveNext do
+                    let! next = enumerator.MoveNextAsync().AsTask()
+                    moveNext <- next
 
-                do! loop ()
+                    if moveNext then
+                        results.Add enumerator.Current
 
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 // Store the enumeration exception
                 enumerationException <- Some ex
 
             // Always dispose, even if enumeration failed
             try
-                do! enumerator.DisposeAsync().AsTask() |> Async.AwaitTask
+                do! enumerator.DisposeAsync().AsTask()
             with disposeEx ->
                 // If we had an enumeration exception, preserve it
                 // Otherwise, throw the disposal exception
@@ -56,12 +57,13 @@ module AzureQuantumWorkspace =
                     )
                 | None ->
                     // No enumeration error, so disposal error is the primary issue
-                    return raise disposeEx
+                    raise disposeEx
 
             // If we had an enumeration exception, throw it now
-            match enumerationException with
-            | Some ex -> return raise ex
-            | None -> return results |> Seq.toList
+            return
+                match enumerationException with
+                | Some ex -> raise ex
+                | None -> results |> Seq.toList
         }
 
     // ========================================================================
@@ -103,8 +105,8 @@ module AzureQuantumWorkspace =
         let credential =
             defaultArg config.Credential (DefaultAzureCredential() :> Azure.Core.TokenCredential)
 
-        let workspace =
-            Workspace(
+        let client =
+            QuantumJobClient(
                 config.SubscriptionId,
                 config.ResourceGroupName,
                 config.WorkspaceName,
@@ -120,12 +122,12 @@ module AzureQuantumWorkspace =
 
         member _.Config = config
 
-        member _.ListQuotasAsync() : Async<QuotaInfo list> =
+        member _.ListQuotasAsync(cancellationToken: CancellationToken) : Task<QuotaInfo list> =
             throwIfDisposed ()
 
-            async {
-                let quotasEnumerable = workspace.ListQuotasAsync()
-                let! quotasList = asyncEnumerableToList quotasEnumerable
+            task {
+                let quotasEnumerable = client.GetQuotasAsync cancellationToken
+                let! quotasList = asyncEnumerableToList quotasEnumerable cancellationToken
 
                 return
                     quotasList
@@ -161,11 +163,11 @@ module AzureQuantumWorkspace =
                         })
             }
 
-        member this.GetTotalQuotaAsync() : Async<QuotaInfo> =
+        member this.GetTotalQuotaAsync(cancellationToken: CancellationToken) : Task<QuotaInfo> =
             throwIfDisposed ()
 
-            async {
-                let! quotas = this.ListQuotasAsync()
+            task {
+                let! quotas = this.ListQuotasAsync cancellationToken
 
                 let totalLimit =
                     quotas
@@ -197,26 +199,26 @@ module AzureQuantumWorkspace =
                     }
             }
 
-        member this.GetProviderQuotaAsync(provider: string) : Async<QuotaInfo option> =
+        member this.GetProviderQuotaAsync(provider: string, cancellationToken: CancellationToken) : Task<QuotaInfo option> =
             throwIfDisposed ()
 
-            async {
-                let! quotas = this.ListQuotasAsync()
+            task {
+                let! quotas = this.ListQuotasAsync cancellationToken
                 return quotas |> List.tryFind (fun q -> q.Provider = provider)
             }
 
-        member _.ListProvidersAsync() : Async<ProviderStatus list> =
+        member _.ListProvidersAsync(cancellationToken: CancellationToken) : Task<ProviderStatus list> =
             throwIfDisposed ()
 
-            async {
-                let providersEnumerable = workspace.ListProvidersStatusAsync()
-                let! providersList = asyncEnumerableToList providersEnumerable
+            task {
+                let providersEnumerable = client.GetProviderStatusAsync cancellationToken
+                let! providersList = asyncEnumerableToList providersEnumerable cancellationToken
 
                 return
                     providersList
                     |> List.map (fun p ->
                         {
-                            ProviderId = p.ProviderId
+                            ProviderId = p.Id
                             CurrentAvailability =
                                 if p.CurrentAvailability.HasValue then
                                     Some(p.CurrentAvailability.Value.ToString())
@@ -226,9 +228,9 @@ module AzureQuantumWorkspace =
                         })
             }
 
-        member _.InnerWorkspace =
+        member _.InnerClient =
             throwIfDisposed ()
-            workspace
+            client
 
         // ========================================================================
         // IDISPOSABLE IMPLEMENTATION
@@ -239,7 +241,7 @@ module AzureQuantumWorkspace =
             if not disposed then
                 if disposing then
                     // Dispose managed resources
-                    // Note: Microsoft.Azure.Quantum.Workspace doesn't implement IDisposable
+                    // Note: Azure.Quantum.Jobs.QuantumJobClient does not implement IDisposable
                     // Some credentials (like DefaultAzureCredential) may implement IDisposable
                     match box credential with
                     | :? IDisposable as disposable -> disposable.Dispose()
@@ -300,5 +302,5 @@ module AzureQuantumWorkspace =
             | _, Error msg, _, _
             | _, _, Error msg, _
             | _, _, _, Error msg -> Error msg
-        with ex ->
+        with ex when not (ex :? OperationCanceledException) ->
             Error(QuantumError.OperationError("Workspace creation", $"Failed: {ex.Message}"))

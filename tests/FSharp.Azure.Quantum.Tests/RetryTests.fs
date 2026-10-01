@@ -206,34 +206,30 @@ module RetryTests =
     // ========================================================================
 
     [<Fact>]
-    let ``executeWithRetry returns Ok on first success`` () =
+    let ``executeWithRetryAsync returns Ok on first success`` () =
         task {
             let config = { defaultConfig with MaxAttempts = 3 }
-            let operation (_ct: CancellationToken) = async { return Ok 42 }
+            let operation (_ct: CancellationToken) = task { return Ok 42 }
 
-            let! r =
-                executeWithRetry config operation CancellationToken.None
-                |> Async.StartImmediateAsTask
+            let! r = executeWithRetryAsync config operation CancellationToken.None
 
             Assert.Equal(Ok 42, r)
         }
         :> Task
 
     [<Fact>]
-    let ``executeWithRetry returns Error for non-transient error`` () =
+    let ``executeWithRetryAsync returns Error for non-transient error`` () =
         task {
             let config = { defaultConfig with MaxAttempts = 3 }
             let mutable attempts = 0
 
             let operation (_ct: CancellationToken) =
-                async {
+                task {
                     attempts <- attempts + 1
                     return Error(QuantumError.ValidationError("x", "bad"))
                 }
 
-            let! r =
-                executeWithRetry config operation CancellationToken.None
-                |> Async.StartImmediateAsTask
+            let! r = executeWithRetryAsync config operation CancellationToken.None
 
             Assert.Equal(1, attempts)
 
@@ -244,7 +240,7 @@ module RetryTests =
         :> Task
 
     [<Fact>]
-    let ``executeWithRetry retries on transient error then succeeds`` () =
+    let ``executeWithRetryAsync retries on transient error then succeeds`` () =
         task {
             let config =
                 { defaultConfig with
@@ -256,18 +252,17 @@ module RetryTests =
             let mutable attempts = 0
 
             let operation (_ct: CancellationToken) =
-                async {
+                task {
                     attempts <- attempts + 1
 
-                    if attempts < 3 then
-                        return Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable None))
-                    else
-                        return Ok "success"
+                    return
+                        if attempts < 3 then
+                            Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable None))
+                        else
+                            Ok "success"
                 }
 
-            let! r =
-                executeWithRetry config operation CancellationToken.None
-                |> Async.StartImmediateAsTask
+            let! r = executeWithRetryAsync config operation CancellationToken.None
 
             Assert.Equal(3, attempts)
             Assert.Equal(Ok "success", r)
@@ -275,7 +270,7 @@ module RetryTests =
         :> Task
 
     [<Fact>]
-    let ``executeWithRetry stops after MaxAttempts`` () =
+    let ``executeWithRetryAsync stops after MaxAttempts`` () =
         task {
             let config =
                 { defaultConfig with
@@ -287,14 +282,12 @@ module RetryTests =
             let mutable attempts = 0
 
             let operation (_ct: CancellationToken) =
-                async {
+                task {
                     attempts <- attempts + 1
                     return Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable None))
                 }
 
-            let! r =
-                executeWithRetry config operation CancellationToken.None
-                |> Async.StartImmediateAsTask
+            let! r = executeWithRetryAsync config operation CancellationToken.None
 
             Assert.Equal(2, attempts)
 
@@ -305,14 +298,14 @@ module RetryTests =
         :> Task
 
     [<Fact>]
-    let ``executeWithRetry respects cancellation`` () =
+    let ``executeWithRetryAsync respects cancellation`` () =
         task {
             let config = { defaultConfig with MaxAttempts = 10 }
             use cts = new CancellationTokenSource()
             do! cts.CancelAsync()
-            let operation (_ct: CancellationToken) = async { return Ok 1 }
+            let operation (_ct: CancellationToken) = task { return Ok 1 }
 
-            match! executeWithRetry config operation cts.Token |> Async.StartImmediateAsTask with
+            match! executeWithRetryAsync config operation cts.Token with
             | Error(QuantumError.OperationError(_, msg)) -> Assert.Contains("cancelled", msg.ToLower())
             | _ -> failwith "Expected cancellation error"
         }

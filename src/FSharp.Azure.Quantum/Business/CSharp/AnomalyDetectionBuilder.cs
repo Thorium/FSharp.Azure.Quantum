@@ -133,12 +133,13 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         }
 
         /// <summary>
-        /// Build and train the anomaly detector.
+        /// Build and train the anomaly detector without blocking the calling thread.
         /// Returns a trained detector ready to check for anomalies.
         /// </summary>
+        /// <param name="cancellationToken">Cancels training.</param>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
         /// <returns>A trained <see cref="IAnomalyDetector"/> instance.</returns>
-        public IAnomalyDetector Build()
+        public async Task<IAnomalyDetector> BuildAsync(CancellationToken cancellationToken = default)
         {
             // Build F# problem specification
             var problem = new AnomalyDetector.DetectionProblem(
@@ -155,7 +156,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 FSharpOption<System.Threading.CancellationToken>.None);
 
             // Train detector
-            var result = AnomalyDetector.train(problem);
+            var result = await AnomalyDetector.trainAsync(problem, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -220,18 +221,20 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     public interface IAnomalyDetector
     {
         /// <summary>
-        /// Check if a sample is anomalous.
+        /// Check if a sample is anomalous without blocking the calling thread.
         /// </summary>
         /// <param name="sample">Feature vector to check.</param>
+        /// <param name="cancellationToken">Cancels the check.</param>
         /// <returns>Anomaly detection result.</returns>
-        AnomalyResult Check(double[] sample);
+        Task<AnomalyResult> CheckAsync(double[] sample, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Check multiple samples for anomalies.
+        /// Check multiple samples for anomalies without blocking the calling thread.
         /// </summary>
         /// <param name="samples">Samples to check.</param>
+        /// <param name="cancellationToken">Cancels the checks.</param>
         /// <returns>Batch detection results.</returns>
-        BatchResults CheckBatch(double[][] samples);
+        Task<BatchResults> CheckBatchAsync(double[][] samples, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Explain why a sample is anomalous.
@@ -349,9 +352,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             _detector = detector;
         }
 
-        public AnomalyResult Check(double[] sample)
+        public async Task<AnomalyResult> CheckAsync(double[] sample, CancellationToken cancellationToken = default)
         {
-            var result = AnomalyDetector.check(sample, _detector);
+            var result = await AnomalyDetector.checkAsync(sample, _detector, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -369,9 +372,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             };
         }
 
-        public BatchResults CheckBatch(double[][] samples)
+        public async Task<BatchResults> CheckBatchAsync(double[][] samples, CancellationToken cancellationToken = default)
         {
-            var result = AnomalyDetector.checkBatch(samples, _detector);
+            var result = await AnomalyDetector.checkBatchAsync(samples, _detector, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {

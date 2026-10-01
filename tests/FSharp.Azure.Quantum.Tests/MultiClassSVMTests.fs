@@ -1,5 +1,7 @@
 module FSharp.Azure.Quantum.Tests.MultiClassSVMTests
 
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
@@ -41,80 +43,95 @@ let createFourClassDataset () =
     (trainData, trainLabels)
 
 [<Fact>]
-let ``MultiClassSVM train should succeed with 3 classes`` () =
-    let featureMap = FeatureMapType.ZZFeatureMap 1
-    let (trainData, trainLabels) = createThreeClassDataset ()
-    let config = QuantumKernelSVM.defaultConfig
-    let shots = 1000
+let ``MultiClassSVM train should succeed with 3 classes`` () : Task =
+    task {
+        let featureMap = FeatureMapType.ZZFeatureMap 1
+        let (trainData, trainLabels) = createThreeClassDataset ()
+        let config = QuantumKernelSVM.defaultConfig
+        let shots = 1000
 
-    match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
-    | Error e -> Assert.Fail($"Training failed: {e}")
-    | Ok model ->
-        Assert.Equal(3, model.NumClasses)
-        Assert.Equal(3, model.BinaryModels.Length)
-        Assert.Equal<seq<int>>([| 0; 1; 2 |], model.ClassLabels)
-
-[<Fact; Trait("Category", "Slow")>]
-let ``MultiClassSVM train should succeed with 4 classes`` () =
-    let featureMap = FeatureMapType.ZZFeatureMap 1
-    let (trainData, trainLabels) = createFourClassDataset ()
-    let config = QuantumKernelSVM.defaultConfig
-    let shots = 1000
-
-    match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
-    | Error e -> Assert.Fail($"Training failed: {e}")
-    | Ok model ->
-        Assert.Equal(4, model.NumClasses)
-        Assert.Equal(4, model.BinaryModels.Length)
-        Assert.Equal<seq<int>>([| 0; 1; 2; 3 |], model.ClassLabels)
-
-[<Fact>]
-let ``MultiClassSVM predict should classify training samples`` () =
-    let featureMap = FeatureMapType.ZZFeatureMap 1
-    let (trainData, trainLabels) = createThreeClassDataset ()
-    let config = QuantumKernelSVM.defaultConfig
-    let shots = 1000
-
-    match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
-    | Error e -> Assert.Fail($"Training failed: {e}")
-    | Ok model ->
-        match MultiClassSVM.predict backend model trainData.[0] shots with
-        | Error e -> Assert.Fail($"Prediction failed: {e}")
-        | Ok prediction ->
-            Assert.Equal(3, prediction.DecisionValues.Length)
-            Assert.True(prediction.Label >= 0 && prediction.Label <= 2)
+        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        | Error e -> Assert.Fail($"Training failed: {e}")
+        | Ok model ->
+            Assert.Equal(3, model.NumClasses)
+            Assert.Equal(3, model.BinaryModels.Length)
+            Assert.Equal<seq<int>>([| 0; 1; 2 |], model.ClassLabels)
+    }
+    :> Task
 
 [<Fact; Trait("Category", "Slow")>]
-let ``MultiClassSVM evaluate should compute accuracy`` () =
-    let featureMap = FeatureMapType.ZZFeatureMap 1
-    let (trainData, trainLabels) = createThreeClassDataset ()
-    let config = QuantumKernelSVM.defaultConfig
-    let shots = 1000
+let ``MultiClassSVM train should succeed with 4 classes`` () : Task =
+    task {
+        let featureMap = FeatureMapType.ZZFeatureMap 1
+        let (trainData, trainLabels) = createFourClassDataset ()
+        let config = QuantumKernelSVM.defaultConfig
+        let shots = 1000
 
-    match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
-    | Error e -> Assert.Fail($"Training failed: {e}")
-    | Ok model ->
-        match MultiClassSVM.evaluate backend model trainData trainLabels shots with
-        | Error e -> Assert.Fail($"Evaluation failed: {e}")
-        | Ok accuracy ->
-            Assert.True(accuracy >= 0.0 && accuracy <= 1.0)
-            Assert.True(accuracy >= 0.4) // Reasonable threshold
+        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        | Error e -> Assert.Fail($"Training failed: {e}")
+        | Ok model ->
+            Assert.Equal(4, model.NumClasses)
+            Assert.Equal(4, model.BinaryModels.Length)
+            Assert.Equal<seq<int>>([| 0; 1; 2; 3 |], model.ClassLabels)
+    }
+    :> Task
 
 [<Fact>]
-let ``MultiClassSVM confusionMatrix should have correct dimensions`` () =
-    let featureMap = FeatureMapType.ZZFeatureMap 1
-    let (trainData, trainLabels) = createThreeClassDataset ()
-    let config = QuantumKernelSVM.defaultConfig
-    let shots = 1000
+let ``MultiClassSVM predict should classify training samples`` () : Task =
+    task {
+        let featureMap = FeatureMapType.ZZFeatureMap 1
+        let (trainData, trainLabels) = createThreeClassDataset ()
+        let config = QuantumKernelSVM.defaultConfig
+        let shots = 1000
 
-    match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
-    | Error e -> Assert.Fail($"Training failed: {e}")
-    | Ok model ->
-        let predictions = [| 0; 1; 2; 0; 1; 2 |]
-        let trueLabels = [| 0; 1; 2; 1; 2; 0 |]
-        let confMatrix = MultiClassSVM.confusionMatrix model predictions trueLabels
-        Assert.Equal(3, Array2D.length1 confMatrix)
-        Assert.Equal(3, Array2D.length2 confMatrix)
+        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        | Error e -> Assert.Fail($"Training failed: {e}")
+        | Ok model ->
+            match! MultiClassSVM.predictAsync backend model trainData.[0] shots CancellationToken.None with
+            | Error e -> Assert.Fail($"Prediction failed: {e}")
+            | Ok prediction ->
+                Assert.Equal(3, prediction.DecisionValues.Length)
+                Assert.True(prediction.Label >= 0 && prediction.Label <= 2)
+    }
+    :> Task
+
+[<Fact; Trait("Category", "Slow")>]
+let ``MultiClassSVM evaluate should compute accuracy`` () : Task =
+    task {
+        let featureMap = FeatureMapType.ZZFeatureMap 1
+        let (trainData, trainLabels) = createThreeClassDataset ()
+        let config = QuantumKernelSVM.defaultConfig
+        let shots = 1000
+
+        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        | Error e -> Assert.Fail($"Training failed: {e}")
+        | Ok model ->
+            match! MultiClassSVM.evaluateAsync backend model trainData trainLabels shots CancellationToken.None with
+            | Error e -> Assert.Fail($"Evaluation failed: {e}")
+            | Ok accuracy ->
+                Assert.True(accuracy >= 0.0 && accuracy <= 1.0)
+                Assert.True(accuracy >= 0.4) // Reasonable threshold
+    }
+    :> Task
+
+[<Fact>]
+let ``MultiClassSVM confusionMatrix should have correct dimensions`` () : Task =
+    task {
+        let featureMap = FeatureMapType.ZZFeatureMap 1
+        let (trainData, trainLabels) = createThreeClassDataset ()
+        let config = QuantumKernelSVM.defaultConfig
+        let shots = 1000
+
+        match! MultiClassSVM.trainAsync backend featureMap trainData trainLabels config shots CancellationToken.None with
+        | Error e -> Assert.Fail($"Training failed: {e}")
+        | Ok model ->
+            let predictions = [| 0; 1; 2; 0; 1; 2 |]
+            let trueLabels = [| 0; 1; 2; 1; 2; 0 |]
+            let confMatrix = MultiClassSVM.confusionMatrix model predictions trueLabels
+            Assert.Equal(3, Array2D.length1 confMatrix)
+            Assert.Equal(3, Array2D.length2 confMatrix)
+    }
+    :> Task
 
 [<Fact>]
 let ``MultiClassSVM perClassMetrics should return valid metrics`` () =

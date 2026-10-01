@@ -4,11 +4,10 @@ module FSharp.Azure.Quantum.Tests.QaoaConventionTests
 // independent state-vector simulations, and every QAOA solver's default angles checked
 // against uniform sampling with exact probabilities (no sampling, so no flakiness).
 
-#nowarn "44" // sync executeQaoaWithGridSearch
-
 open System
 open System.Numerics
 open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -372,103 +371,105 @@ let private assertSolverCircuit (label: string) (recorder: RecordingBackend) (qu
     Assert.Equal(expected, circuit)
 
 [<Fact>]
-let ``fixed-angle solvers execute the normalised default circuit`` () =
+let ``fixed-angle solvers execute the normalised default circuit`` () : Task =
     let run (solve: BackendAbstraction.IQuantumBackend -> Threading.Tasks.Task<Result<'T, QuantumError>>) =
-        let recorder = RecordingBackend()
-
-        solve (recorder :> BackendAbstraction.IQuantumBackend)
-        |> fun t -> t.GetAwaiter().GetResult() |> ok |> ignore
-
-        recorder
-
-    let maxCut: QuantumMaxCutSolver.MaxCutProblem =
-        {
-            Vertices = [ for i in 0..5 -> string i ]
-            Edges =
-                [ for i in 0..5 -> edge (string i) (string ((i + 1) % 6)) 1.0 ]
-                @ [ edge "0" "3" 1.0 ]
+        task {
+            let recorder = RecordingBackend()
+            let! result = solve (recorder :> BackendAbstraction.IQuantumBackend)
+            result |> ok |> ignore
+            return recorder
         }
 
-    let recorder =
-        run (fun b -> QuantumMaxCutSolver.solveAsync b maxCut QuantumMaxCutSolver.defaultConfig CancellationToken.None)
+    task {
+        let maxCut: QuantumMaxCutSolver.MaxCutProblem =
+            {
+                Vertices = [ for i in 0..5 -> string i ]
+                Edges =
+                    [ for i in 0..5 -> edge (string i) (string ((i + 1) % 6)) 1.0 ]
+                    @ [ edge "0" "3" 1.0 ]
+            }
 
-    assertSolverCircuit "MaxCut" recorder (QuantumMaxCutSolver.toQubo maxCut |> ok |> dense)
+        let! recorder =
+            run (fun b -> QuantumMaxCutSolver.solveAsync b maxCut QuantumMaxCutSolver.defaultConfig CancellationToken.None)
 
-    let knapsack: QuantumKnapsackSolver.KnapsackProblem =
-        {
-            Items =
-                [
-                    { Id = "a"; Weight = 2.0; Value = 3.0 }
-                    { Id = "b"; Weight = 3.0; Value = 4.0 }
-                    { Id = "c"; Weight = 4.0; Value = 5.0 }
-                ]
-            Capacity = 5.0
-        }
+        assertSolverCircuit "MaxCut" recorder (QuantumMaxCutSolver.toQubo maxCut |> ok |> dense)
 
-    let recorder =
-        run (fun b ->
-            QuantumKnapsackSolver.solveAsync b knapsack QuantumKnapsackSolver.defaultConfig CancellationToken.None)
+        let knapsack: QuantumKnapsackSolver.KnapsackProblem =
+            {
+                Items =
+                    [
+                        { Id = "a"; Weight = 2.0; Value = 3.0 }
+                        { Id = "b"; Weight = 3.0; Value = 4.0 }
+                        { Id = "c"; Weight = 4.0; Value = 5.0 }
+                    ]
+                Capacity = 5.0
+            }
 
-    assertSolverCircuit "Knapsack" recorder (QuantumKnapsackSolver.toQubo knapsack |> ok |> dense)
+        let! recorder =
+            run (fun b ->
+                QuantumKnapsackSolver.solveAsync b knapsack QuantumKnapsackSolver.defaultConfig CancellationToken.None)
 
-    let recorder =
-        run (fun b -> QuantumTspSolver.solveAsync b tsp3 QuantumTspSolver.fastConfig CancellationToken.None)
+        assertSolverCircuit "Knapsack" recorder (QuantumKnapsackSolver.toQubo knapsack |> ok |> dense)
 
-    assertSolverCircuit "TSP" recorder (tspQubo tsp3)
+        let! recorder =
+            run (fun b -> QuantumTspSolver.solveAsync b tsp3 QuantumTspSolver.fastConfig CancellationToken.None)
 
-    let ue a b : Edge<unit> =
-        {
-            Source = a
-            Target = b
-            Weight = 1.0
-            Directed = false
-            Value = None
-            Properties = Map.empty
-        }
+        assertSolverCircuit "TSP" recorder (tspQubo tsp3)
 
-    let coloring: QuantumGraphColoringSolver.GraphColoringProblem =
-        {
-            Vertices = [ "a"; "b"; "c" ]
-            Edges = [ ue "a" "b"; ue "b" "c" ]
-            NumColors = 2
-            FixedColors = Map.empty
-        }
+        let ue a b : Edge<unit> =
+            {
+                Source = a
+                Target = b
+                Weight = 1.0
+                Directed = false
+                Value = None
+                Properties = Map.empty
+            }
 
-    let coloringConfig = QuantumGraphColoringSolver.defaultConfig 2
+        let coloring: QuantumGraphColoringSolver.GraphColoringProblem =
+            {
+                Vertices = [ "a"; "b"; "c" ]
+                Edges = [ ue "a" "b"; ue "b" "c" ]
+                NumColors = 2
+                FixedColors = Map.empty
+            }
 
-    let recorder =
-        run (fun b -> QuantumGraphColoringSolver.solveAsync b coloring coloringConfig CancellationToken.None)
+        let coloringConfig = QuantumGraphColoringSolver.defaultConfig 2
 
-    let coloringQubo, _ =
-        QuantumGraphColoringSolver.toQubo coloring coloringConfig.PenaltyWeight |> ok
+        let! recorder =
+            run (fun b -> QuantumGraphColoringSolver.solveAsync b coloring coloringConfig CancellationToken.None)
 
-    assertSolverCircuit "GraphColoring" recorder (dense coloringQubo)
+        let coloringQubo, _ =
+            QuantumGraphColoringSolver.toQubo coloring coloringConfig.PenaltyWeight |> ok
 
-    let de s t w : Edge<float> = { edge s t w with Directed = true }
+        assertSolverCircuit "GraphColoring" recorder (dense coloringQubo)
 
-    let flow: QuantumNetworkFlowSolver.NetworkFlowProblem =
-        {
-            Sources = [ "S" ]
-            Sinks = [ "T" ]
-            IntermediateNodes = [ "A"; "B" ]
-            Edges =
-                [
-                    de "S" "A" 1.0
-                    de "S" "B" 3.0
-                    de "A" "T" 1.0
-                    de "B" "T" 1.0
-                    de "A" "B" 0.5
-                ]
-            Capacities = Map [ "A", 1; "B", 1 ]
-            Demands = Map [ "T", 1 ]
-            Supplies = Map [ "S", 1 ]
-        }
+        let de s t w : Edge<float> = { edge s t w with Directed = true }
 
-    let recorder =
-        run (fun b ->
-            QuantumNetworkFlowSolver.solveAsync b flow QuantumNetworkFlowSolver.defaultConfig CancellationToken.None)
+        let flow: QuantumNetworkFlowSolver.NetworkFlowProblem =
+            {
+                Sources = [ "S" ]
+                Sinks = [ "T" ]
+                IntermediateNodes = [ "A"; "B" ]
+                Edges =
+                    [
+                        de "S" "A" 1.0
+                        de "S" "B" 3.0
+                        de "A" "T" 1.0
+                        de "B" "T" 1.0
+                        de "A" "B" 0.5
+                    ]
+                Capacities = Map [ "A", 1; "B", 1 ]
+                Demands = Map [ "T", 1 ]
+                Supplies = Map [ "S", 1 ]
+            }
 
-    assertSolverCircuit "NetworkFlow" recorder (QuantumNetworkFlowSolver.toQubo flow |> ok |> dense)
+        let! recorder =
+            run (fun b ->
+                QuantumNetworkFlowSolver.solveAsync b flow QuantumNetworkFlowSolver.defaultConfig CancellationToken.None)
+
+        assertSolverCircuit "NetworkFlow" recorder (QuantumNetworkFlowSolver.toQubo flow |> ok |> dense)
+    }
 
 // ============================================================================
 // SOLVER DEFAULTS VS UNIFORM SAMPLING (exact probabilities)
@@ -582,57 +583,58 @@ module TaskSchedulingQubo =
     open FSharp.Azure.Quantum.TaskScheduling.Builders
 
     [<Fact>]
-    let ``TaskScheduling fixed angles beat uniform sampling on its QUBO`` () =
-        let problem =
-            scheduling {
-                tasks
-                    [
-                        scheduledTask {
-                            taskId "A"
-                            duration (minutes 60.0)
-                        }
-                        scheduledTask {
-                            taskId "B"
-                            duration (minutes 60.0)
-                            after "A"
-                        }
-                        scheduledTask {
-                            taskId "C"
-                            duration (minutes 60.0)
-                        }
-                    ]
+    let ``TaskScheduling fixed angles beat uniform sampling on its QUBO`` () : Task =
+        task {
+            let problem =
+                scheduling {
+                    tasks
+                        [
+                            scheduledTask {
+                                taskId "A"
+                                duration (minutes 60.0)
+                            }
+                            scheduledTask {
+                                taskId "B"
+                                duration (minutes 60.0)
+                                after "A"
+                            }
+                            scheduledTask {
+                                taskId "C"
+                                duration (minutes 60.0)
+                            }
+                        ]
 
-                objective MinimizeMakespan
-            }
+                    objective MinimizeMakespan
+                }
 
-        let qubo =
-            QuboEncoding.toQubo problem 3 60.0
-            |> ok
-            |> fun q -> Qubo.toDenseArray q.NumVariables q.Q
+            let qubo =
+                QuboEncoding.toQubo problem 3 60.0
+                |> ok
+                |> fun q -> Qubo.toDenseArray q.NumVariables q.Q
 
-        Assert.Equal(9, Array2D.length1 qubo)
-        // QuantumSolver runs p = 1 at (0.5, 0.5) on the normalised Hamiltonian
-        assertBeatsUniform "TaskScheduling" qubo [| (0.5, 0.5) |]
+            Assert.Equal(9, Array2D.length1 qubo)
+            // QuantumSolver runs p = 1 at (0.5, 0.5) on the normalised Hamiltonian
+            assertBeatsUniform "TaskScheduling" qubo [| (0.5, 0.5) |]
 
-        let recorder = RecordingBackend()
+            let recorder = RecordingBackend()
 
-        QuantumSolver.solveAsync (recorder :> BackendAbstraction.IQuantumBackend) problem
-        |> Async.RunSynchronously
-        |> ok
-        |> ignore
+            let! solved =
+                QuantumSolver.solveAsync (recorder :> BackendAbstraction.IQuantumBackend) problem CancellationToken.None
+            solved |> ok |> ignore
 
-        let circuit = Seq.last recorder.Circuits
-        Assert.Equal<(float * float)[]>([| (0.5, 0.5) |], circuit.Layers |> Array.map (fun l -> (l.Gamma, l.Beta)))
+            let circuit = Seq.last recorder.Circuits
+            Assert.Equal<(float * float)[]>([| (0.5, 0.5) |], circuit.Layers |> Array.map (fun l -> (l.Gamma, l.Beta)))
 
-        Assert.Equal(
-            1.0,
-            circuit.ProblemHamiltonian.Terms
-            |> Array.map (fun t -> abs t.Coefficient)
-            |> Array.max,
-            12
-        )
+            Assert.Equal(
+                1.0,
+                circuit.ProblemHamiltonian.Terms
+                |> Array.map (fun t -> abs t.Coefficient)
+                |> Array.max,
+                12
+            )
 
-        Assert.All(circuit.MixerHamiltonian.Terms, (fun t -> Assert.Equal(-1.0, t.Coefficient)))
+            Assert.All(circuit.MixerHamiltonian.Terms, (fun t -> Assert.Equal(-1.0, t.Coefficient)))
+        }
 
 [<Fact>]
 let ``TSP fixed angles beat uniform sampling for 3 and 4 cities`` () =
@@ -651,16 +653,15 @@ let ``TSP fixed angles beat uniform sampling for 3 and 4 cities`` () =
     assertBeatsUniform "TSP 4 cities (16 qubits)" (tspQubo tsp4) angles
 
 [<Fact>]
-let ``TSP default optimisation returns angles that beat uniform sampling`` () =
-    let solution =
-        (QuantumTspSolver.solveAsync (backend ()) tsp3 QuantumTspSolver.defaultConfig CancellationToken.None)
-            .GetAwaiter()
-            .GetResult()
-        |> ok
+let ``TSP default optimisation returns angles that beat uniform sampling`` () : Task =
+    task {
+        let! solved = QuantumTspSolver.solveAsync (backend ()) tsp3 QuantumTspSolver.defaultConfig CancellationToken.None
+        let solution = solved |> ok
 
-    match solution.OptimizedParameters with
-    | Some angles -> assertBeatsUniform "TSP 3 cities, optimised" (tspQubo tsp3) [| angles |]
-    | None -> Assert.Fail "defaultConfig optimises the angles"
+        match solution.OptimizedParameters with
+        | Some angles -> assertBeatsUniform "TSP 3 cities, optimised" (tspQubo tsp3) [| angles |]
+        | None -> Assert.Fail "defaultConfig optimises the angles"
+    }
 
 let private lit v neg : QuantumSatSolver.Literal = { Variable = v; IsNegated = neg }
 
@@ -799,37 +800,65 @@ let private helperQubos () : (string * float[,]) list =
     ]
 
 [<Fact>]
-let ``QaoaExecutionHelpers grid search (fastConfig, p = 1) picks angles that beat uniform sampling`` () =
-    for (name, qubo) in helperQubos () do
-        Assert.True(Array2D.length1 qubo <= 12, $"{name} has {Array2D.length1 qubo} qubits")
+let ``QaoaExecutionHelpers grid search (fastConfig, p = 1) picks angles that beat uniform sampling`` () : Task =
+    task {
+        for (name, qubo) in helperQubos () do
+            Assert.True(Array2D.length1 qubo <= 12, $"{name} has {Array2D.length1 qubo} qubits")
 
-        match QaoaExecutionHelpers.executeQaoaWithGridSearch (backend ()) qubo QaoaExecutionHelpers.fastConfig with
-        | Ok(_, angles) -> assertBeatsUniform $"{name} grid" qubo angles
-        | Error err -> Assert.Fail($"{name}: {err}")
+            let! result =
+                QaoaExecutionHelpers.executeQaoaWithGridSearchAsync
+                    (backend ())
+                    qubo
+                    QaoaExecutionHelpers.fastConfig
+                    1
+                    CancellationToken.None
+
+            match result with
+            | Ok(_, angles) -> assertBeatsUniform $"{name} grid" qubo angles
+            | Error err -> Assert.Fail($"{name}: {err}")
+    }
 
 [<Fact>]
-let ``QaoaExecutionHelpers Nelder-Mead (defaultConfig, p = 2) returns angles that beat uniform sampling`` () =
-    for (name, qubo) in helperQubos () do
-        match QaoaExecutionHelpers.executeQaoaWithOptimization (backend ()) qubo QaoaExecutionHelpers.defaultConfig with
-        | Ok(_, angles, _) -> assertBeatsUniform $"{name} Nelder-Mead" qubo angles
-        | Error err -> Assert.Fail($"{name}: {err}")
+let ``QaoaExecutionHelpers Nelder-Mead (defaultConfig, p = 2) returns angles that beat uniform sampling`` () : Task =
+    task {
+        for (name, qubo) in helperQubos () do
+            let! result =
+                QaoaExecutionHelpers.executeQaoaWithOptimizationAsync
+                    (backend ())
+                    qubo
+                    QaoaExecutionHelpers.defaultConfig
+                    CancellationToken.None
+
+            match result with
+            | Ok(_, angles, _) -> assertBeatsUniform $"{name} Nelder-Mead" qubo angles
+            | Error err -> Assert.Fail($"{name}: {err}")
+    }
 
 [<Fact>]
-let ``QaoaExecutionHelpers Nelder-Mead improves on its starting point`` () =
-    // The objective is the exact expectation on a state-vector backend, so the optimum is
-    // reproducible and no worse than the p = 2 ramp start (γ 0.1875 → 0.5625, β 0.5625 → 0.1875).
-    let _, qubo = helperQubos () |> List.find (fun (name, _) -> name = "SetCover")
-    let e = energies qubo
+let ``QaoaExecutionHelpers Nelder-Mead improves on its starting point`` () : Task =
+    task {
+        // The objective is the exact expectation on a state-vector backend, so the optimum is
+        // reproducible and no worse than the p = 2 ramp start (γ 0.1875 → 0.5625, β 0.5625 → 0.1875).
+        let _, qubo = helperQubos () |> List.find (fun (name, _) -> name = "SetCover")
+        let e = energies qubo
 
-    let start =
-        quality e (solverProbabilities qubo [| (0.1875, 0.5625); (0.5625, 0.1875) |])
+        let start =
+            quality e (solverProbabilities qubo [| (0.1875, 0.5625); (0.5625, 0.1875) |])
 
-    match QaoaExecutionHelpers.executeQaoaWithOptimization (backend ()) qubo QaoaExecutionHelpers.defaultConfig with
-    | Ok(_, angles, converged) ->
-        Assert.True(converged)
-        let optimised = quality e (solverProbabilities qubo angles)
-        Assert.True(optimised.Expected < start.Expected - 1e-6, $"{optimised.Expected} vs start {start.Expected}")
-    | Error err -> Assert.Fail($"{err}")
+        let! result =
+            QaoaExecutionHelpers.executeQaoaWithOptimizationAsync
+                (backend ())
+                qubo
+                QaoaExecutionHelpers.defaultConfig
+                CancellationToken.None
+
+        match result with
+        | Ok(_, angles, converged) ->
+            Assert.True(converged)
+            let optimised = quality e (solverProbabilities qubo angles)
+            Assert.True(optimised.Expected < start.Expected - 1e-6, $"{optimised.Expected} vs start {start.Expected}")
+        | Error err -> Assert.Fail($"{err}")
+    }
 
 [<Fact>]
 let ``Portfolio default and grid-chosen angles beat uniform sampling`` () =

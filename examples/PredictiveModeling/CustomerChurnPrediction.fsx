@@ -34,6 +34,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.PredictiveModel
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -289,7 +290,11 @@ if shouldRun 1 then
              >()
 
         for (name, features) in testCustomers do
-            match PredictiveModel.predictCategory features model None None with
+            match
+                PredictiveModel.predictCategoryAsync features model None None CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Error err ->
                 if not quiet then
                     printfn "%s: Prediction failed: %A" name err
@@ -395,7 +400,11 @@ if shouldRun 2 then
         // Evaluate on test set
         let testYInt = testY |> Array.map int
 
-        match PredictiveModel.evaluateMultiClass testX testYInt model with
+        match
+            PredictiveModel.evaluateMultiClassAsync testX testYInt model CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err ->
             if not quiet then
                 printfn "Evaluation failed: %A" err
@@ -561,7 +570,11 @@ if shouldRun 3 then
         let revPredictions = ResizeArray<{| Name: string; PredictedLTV: float |}>()
 
         for (name, features, action) in testCases do
-            match PredictiveModel.predict features model None None with
+            match
+                PredictiveModel.predictAsync features model None None CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Error err ->
                 if not quiet then
                     printfn "%s: Prediction failed: %A" name err
@@ -615,7 +628,11 @@ if shouldRun 4 then
 
     /// Production-ready churn assessment function
     let assessCustomerChurn (customerFeatures: float array) (model: PredictiveModel.Model) =
-        match PredictiveModel.predictCategory customerFeatures model None None with
+        match
+            PredictiveModel.predictCategoryAsync customerFeatures model None None CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error _ -> None
         | Ok prediction ->
             let riskLevel, actionPriority, recommendedAction =

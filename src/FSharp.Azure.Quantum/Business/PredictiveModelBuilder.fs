@@ -422,13 +422,6 @@ module PredictiveModel =
                 return Error(QuantumError.Other "Classical models don't support persistence currently")
         }
 
-    /// Save model to file
-    [<System.Obsolete("Use saveAsync for better performance and to avoid blocking threads")>]
-    let save (path: string) (model: Model) : QuantumResult<unit> =
-        saveAsync path model CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Load model from file (async, task-based)
     let loadAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
         async {
@@ -689,13 +682,6 @@ module PredictiveModel =
         }
         |> Async.StartImmediateAsTask
 
-    /// Load model from file
-    [<System.Obsolete("Use loadAsync for better performance and to avoid blocking threads")>]
-    let load (path: string) : QuantumResult<Model> =
-        loadAsync path CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ========================================================================
     // TRAINING - Core business logic
     // ========================================================================
@@ -847,8 +833,8 @@ module PredictiveModel =
                                         ProgressReporter = problem.ProgressReporter
                                     }
 
-                                return
-                                    VQC.trainRegression
+                                let! vqcTrainingResult =
+                                    VQC.trainRegressionAsync
                                         backend
                                         featureMap
                                         varForm
@@ -856,6 +842,10 @@ module PredictiveModel =
                                         vqcFeatures
                                         problem.TrainTargets
                                         vqcConfig
+                                        cancellationToken
+
+                                return
+                                    vqcTrainingResult
                                     |> Result.mapError (fun e ->
                                         QuantumError.ValidationError("Input", $"Both HHL and VQC regression failed: {e}"))
                                     |> Result.map (fun vqcResult ->
@@ -929,8 +919,19 @@ module PredictiveModel =
                                     ProgressReporter = problem.ProgressReporter
                                 }
 
+                            let! multiClassTrainingResult =
+                                VQC.trainMultiClassAsync
+                                    backend
+                                    featureMap
+                                    varForm
+                                    initParams
+                                    vqcFeatures
+                                    labels
+                                    vqcConfig
+                                    cancellationToken
+
                             return
-                                VQC.trainMultiClass backend featureMap varForm initParams vqcFeatures labels vqcConfig
+                                multiClassTrainingResult
                                 |> Result.mapError (fun e ->
                                     QuantumError.ValidationError("Input", $"VQC multi-class training failed: {e}"))
                                 |> Result.map (fun multiClassResult ->
@@ -973,8 +974,15 @@ module PredictiveModel =
                                 Verbose = problem.Verbose
                                 Logger = problem.Logger
                             }
-                        match
-                            MultiClassSVM.train backend featureMap problem.TrainFeatures labels svmConfig problem.Shots
+                        match!
+                            MultiClassSVM.trainAsync
+                                backend
+                                featureMap
+                                problem.TrainFeatures
+                                labels
+                                svmConfig
+                                problem.Shots
+                                cancellationToken
                         with
                         | Error e ->
                             return Error(QuantumError.ValidationError("Input", $"Hybrid multi-class training failed: {e}"))
@@ -1022,13 +1030,6 @@ module PredictiveModel =
             let! model = trainModel problem cancellationToken
             return! saveModelIfRequestedAsync problem.SavePath problem.Verbose problem.Logger cancellationToken model
         }
-
-    /// Train a predictive model
-    [<System.Obsolete("Use trainAsync for non-blocking execution against cloud backends")>]
-    let train (problem: PredictionProblem) : QuantumResult<Model> =
-        trainAsync problem CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // PREDICTION - Use trained model
@@ -1138,24 +1139,6 @@ module PredictiveModel =
                     return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
         }
 
-    /// Predict continuous value (regression)
-    ///
-    /// Parameters:
-    ///   features - Input features for prediction
-    ///   model - Trained regression model
-    ///   backend - Quantum backend (defaults to LocalBackend if None)
-    ///   shots - Number of measurement shots for quantum circuits (default: 1000)
-    [<System.Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
-    let predict
-        (features: float array)
-        (model: Model)
-        (backend: IQuantumBackend option)
-        (shots: int option)
-        : QuantumResult<RegressionPrediction> =
-        predictAsync features model backend shots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Predict category (multi-class)
     ///
     /// Parameters:
@@ -1256,24 +1239,6 @@ module PredictiveModel =
                     return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
         }
 
-    /// Predict category (multi-class)
-    ///
-    /// Parameters:
-    ///   features - Input features for prediction
-    ///   model - Trained multi-class model
-    ///   backend - Quantum backend (defaults to LocalBackend if None)
-    ///   shots - Number of measurement shots for quantum circuits (default: 1000)
-    [<System.Obsolete("Use predictCategoryAsync for non-blocking execution against cloud backends")>]
-    let predictCategory
-        (features: float array)
-        (model: Model)
-        (backend: IQuantumBackend option)
-        (shots: int option)
-        : QuantumResult<CategoryPrediction> =
-        predictCategoryAsync features model backend shots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ========================================================================
     // EVALUATION - Measure model performance
     // ========================================================================
@@ -1327,17 +1292,6 @@ module PredictiveModel =
                 with ex ->
                     return Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
         }
-
-    /// Evaluate regression model
-    [<System.Obsolete("Use evaluateRegressionAsync for non-blocking execution against cloud backends")>]
-    let evaluateRegression
-        (testX: float array array)
-        (testY: float array)
-        (model: Model)
-        : QuantumResult<RegressionMetrics> =
-        evaluateRegressionAsync testX testY model CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Evaluate multi-class model
     let evaluateMultiClassAsync
@@ -1419,17 +1373,6 @@ module PredictiveModel =
                 with ex ->
                     return Error(QuantumError.ValidationError("Input", $"Evaluation failed: {ex.Message}"))
         }
-
-    /// Evaluate multi-class model
-    [<System.Obsolete("Use evaluateMultiClassAsync for non-blocking execution against cloud backends")>]
-    let evaluateMultiClass
-        (testX: float array array)
-        (testY: int array)
-        (model: Model)
-        : QuantumResult<MultiClassMetrics> =
-        evaluateMultiClassAsync testX testY model CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

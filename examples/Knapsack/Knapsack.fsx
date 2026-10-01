@@ -78,6 +78,7 @@ Usage:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Examples.Common
 
@@ -272,7 +273,11 @@ let solveAndReport
             problem.TotalWeight
             problem.TotalValue
 
-    match Knapsack.solve problem None with
+    match
+        Knapsack.solveAsync problem None CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok solution ->
         printSolution "  Quantum QAOA solution:" solution capacity
 
@@ -338,7 +343,11 @@ match inputPath with
         |> Option.iter allResults.Add
 
         // Quantum solver comparison (local simulator)
-        match Knapsack.solve (Knapsack.budgetAllocation builtInProjects 300000.0) None with
+        match
+            Knapsack.solveAsync (Knapsack.budgetAllocation builtInProjects 300000.0) None CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Ok quantumSol when not quiet ->
             printfn "  Quantum solver comparison (local simulator):"
 
@@ -386,7 +395,11 @@ match inputPath with
             printfn "    Feasible: %b (weight %.0f <= %.0f)" isFeasible tw testProblem.Capacity
             printfn "    Value: %.0f | Efficiency: %.1f value/weight" tv eff
 
-            match Knapsack.solve testProblem None with
+            match
+                Knapsack.solveAsync testProblem None CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok optSol ->
                 printfn
                     "  Quantum solver (local simulator): %A -> Value: %.0f"
@@ -407,7 +420,11 @@ match inputPath with
         if not quiet then
             printfn "Generated: %d items, capacity %.0f" randomProblem.ItemCount randomProblem.Capacity
 
-        match Knapsack.solve randomProblem None with
+        match
+            Knapsack.solveAsync randomProblem None CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Ok solution ->
             printSolution "  Quantum QAOA solution:" solution randomProblem.Capacity
 
@@ -475,7 +492,11 @@ match inputPath with
         if not quiet then
             printfn "Generated: %d items, capacity %.0f" randomProblem.ItemCount randomProblem.Capacity
 
-        match Knapsack.solve randomProblem None with
+        match
+            Knapsack.solveAsync randomProblem None CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Ok solution ->
             printSolution "  Quantum QAOA solution:" solution randomProblem.Capacity
 

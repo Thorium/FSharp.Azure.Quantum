@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
@@ -29,24 +30,16 @@ module OptionPricingTests =
     [<Fact>]
     let ``priceEuropeanCall should return valid result with LocalBackend`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-                    let! result =
-                        OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 6 5 200 backend
+            let! result =
+                OptionPricing.priceEuropeanCallAsync 100.0 105.0 0.05 0.2 1.0 6 5 200 backend CancellationToken.None
 
-                    return
-                        match result with
-                        | Ok price ->
-                            Assert.True(price.Price >= 0.0, "Option price should be non-negative")
-                            Assert.Equal(6, price.QubitsUsed)
-                            true
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result with
+            | Ok price ->
+                Assert.True(price.Price >= 0.0, "Option price should be non-negative")
+                Assert.Equal(6, price.QubitsUsed)
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
@@ -68,7 +61,6 @@ module OptionPricingTests =
                     shots 100
                     backend quantumBackend
                 }
-                |> Async.StartImmediateAsTask
 
             result
             |> Result.map (fun price -> Assert.Equal(4, price.QubitsUsed))
@@ -84,7 +76,6 @@ module OptionPricingTests =
                     spotPrice 100.0
                     strikePrice 105.0
                 }
-                |> Async.StartImmediateAsTask
 
             match result with
             | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Backend", param)
@@ -95,112 +86,80 @@ module OptionPricingTests =
     [<Fact>]
     let ``price should reject numQubits less than 2`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let params' = createMarketParams 100.0 105.0 0.05 0.2 1.0
-                    let! result = OptionPricing.price OptionPricing.EuropeanCall params' 1 5 200 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let params' = createMarketParams 100.0 105.0 0.05 0.2 1.0
 
-                    return
-                        match result with
-                        | Error(QuantumError.ValidationError(param, _)) ->
-                            Assert.Equal("numQubits", param)
-                            true
-                        | _ -> failwith "Should return ValidationError for numQubits < 2"
-                }
+            let! result =
+                OptionPricing.priceAsync OptionPricing.EuropeanCall params' 1 5 200 backend CancellationToken.None
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result with
+            | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("numQubits", param)
+            | _ -> failwith "Should return ValidationError for numQubits < 2"
         }
         :> Task
 
     [<Fact>]
     let ``price should reject negative spot price`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let params' = createMarketParams -100.0 105.0 0.05 0.2 1.0
-                    let! result = OptionPricing.price OptionPricing.EuropeanCall params' 6 5 200 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let params' = createMarketParams -100.0 105.0 0.05 0.2 1.0
 
-                    return
-                        match result with
-                        | Error(QuantumError.ValidationError(param, _)) ->
-                            Assert.Equal("SpotPrice", param)
-                            true
-                        | _ -> failwith "Should return ValidationError for negative spot"
-                }
+            let! result =
+                OptionPricing.priceAsync OptionPricing.EuropeanCall params' 6 5 200 backend CancellationToken.None
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result with
+            | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("SpotPrice", param)
+            | _ -> failwith "Should return ValidationError for negative spot"
         }
         :> Task
 
     [<Fact>]
     let ``priceEuropeanPut should return valid result`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let! result = OptionPricing.priceEuropeanPut 100.0 105.0 0.05 0.2 1.0 6 5 200 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-                    return
-                        match result with
-                        | Ok price ->
-                            Assert.True(price.Price >= 0.0)
-                            Assert.Equal(6, price.QubitsUsed)
-                            true
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
+            let! result =
+                OptionPricing.priceEuropeanPutAsync 100.0 105.0 0.05 0.2 1.0 6 5 200 backend CancellationToken.None
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result with
+            | Ok price ->
+                Assert.True(price.Price >= 0.0)
+                Assert.Equal(6, price.QubitsUsed)
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
     [<Fact>]
     let ``Call option should have non-negative price`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let! result = OptionPricing.priceEuropeanCall 50.0 100.0 0.05 0.2 1.0 6 5 200 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-                    return
-                        match result with
-                        | Ok price ->
-                            Assert.True(price.Price >= 0.0)
-                            true
-                        | Error err -> failwith $"Pricing failed: {err}"
-                }
+            let! result =
+                OptionPricing.priceEuropeanCallAsync 50.0 100.0 0.05 0.2 1.0 6 5 200 backend CancellationToken.None
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result with
+            | Ok price -> Assert.True(price.Price >= 0.0)
+            | Error err -> failwith $"Pricing failed: {err}"
         }
         :> Task
 
     [<Fact>]
     let ``Pricing with different qubit counts should work`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let params' = createMarketParams 100.0 105.0 0.05 0.2 1.0
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let params' = createMarketParams 100.0 105.0 0.05 0.2 1.0
 
-                    let! result4 = OptionPricing.price OptionPricing.EuropeanCall params' 4 3 200 backend
-                    let! result8 = OptionPricing.price OptionPricing.EuropeanCall params' 8 3 200 backend
+            let! result4 =
+                OptionPricing.priceAsync OptionPricing.EuropeanCall params' 4 3 200 backend CancellationToken.None
 
-                    return
-                        match result4, result8 with
-                        | Ok price4, Ok price8 ->
-                            Assert.Equal(4, price4.QubitsUsed)
-                            Assert.Equal(8, price8.QubitsUsed)
-                            true
-                        | _ -> failwith "Both should succeed"
-                }
+            let! result8 =
+                OptionPricing.priceAsync OptionPricing.EuropeanCall params' 8 3 200 backend CancellationToken.None
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result4, result8 with
+            | Ok price4, Ok price8 ->
+                Assert.Equal(4, price4.QubitsUsed)
+                Assert.Equal(8, price8.QubitsUsed)
+            | _ -> failwith "Both should succeed"
         }
         :> Task
 
@@ -211,240 +170,202 @@ module OptionPricingTests =
     [<Fact>]
     let ``greeksEuropeanCall should return all Greeks with LocalBackend`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let! result = OptionPricing.greeksEuropeanCall 100.0 100.0 0.05 0.2 1.0 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-                    return
-                        match result with
-                        | Ok greeks ->
-                            // Price should be non-negative
-                            Assert.True(greeks.Price >= 0.0, $"Price should be non-negative, got {greeks.Price}")
+            let! result =
+                OptionPricing.greeksEuropeanCallAsync 100.0 100.0 0.05 0.2 1.0 backend CancellationToken.None
 
-                            // Delta for ATM call should be roughly 0.5 (can be anywhere in [0,1])
-                            Assert.True(
-                                greeks.Delta >= -0.5 && greeks.Delta <= 1.5,
-                                $"Delta should be roughly in [0,1], got {greeks.Delta}"
-                            )
+            match result with
+            | Ok greeks ->
+                // Price should be non-negative
+                Assert.True(greeks.Price >= 0.0, $"Price should be non-negative, got {greeks.Price}")
 
-                            // Gamma should be non-negative (curvature is positive for vanilla options)
-                            Assert.True(
-                                greeks.Gamma >= -1.0,
-                                $"Gamma should be roughly non-negative, got {greeks.Gamma}"
-                            )
+                // Delta for ATM call should be roughly 0.5 (can be anywhere in [0,1])
+                Assert.True(
+                    greeks.Delta >= -0.5 && greeks.Delta <= 1.5,
+                    $"Delta should be roughly in [0,1], got {greeks.Delta}"
+                )
 
-                            // Vega should be non-negative (higher vol = higher option value)
-                            Assert.True(greeks.Vega >= -0.1, $"Vega should be roughly non-negative, got {greeks.Vega}")
+                // Gamma should be non-negative (curvature is positive for vanilla options)
+                Assert.True(greeks.Gamma >= -1.0, $"Gamma should be roughly non-negative, got {greeks.Gamma}")
 
-                            // Theta is usually negative (time decay)
-                            // But allow some flexibility for numerical noise
-                            Assert.True(
-                                greeks.Theta >= -10.0 && greeks.Theta <= 10.0,
-                                $"Theta should be reasonable, got {greeks.Theta}"
-                            )
+                // Vega should be non-negative (higher vol = higher option value)
+                Assert.True(greeks.Vega >= -0.1, $"Vega should be roughly non-negative, got {greeks.Vega}")
 
-                            // Rho for a call is positive and of order K·T·e^(-rT)·N(d2) (≈ 50 for this
-                            // ATM 1y option); the genuine quantum payoff now reproduces this realistic
-                            // magnitude rather than the near-zero value the old fudge produced.
-                            Assert.True(
-                                greeks.Rho >= -1.0 && greeks.Rho <= 110.0,
-                                $"Rho should be reasonable, got {greeks.Rho}"
-                            )
+                // Theta is usually negative (time decay)
+                // But allow some flexibility for numerical noise
+                Assert.True(
+                    greeks.Theta >= -10.0 && greeks.Theta <= 10.0,
+                    $"Theta should be reasonable, got {greeks.Theta}"
+                )
 
-                            // Method should indicate quantum
-                            Assert.Contains("Quantum", greeks.Method)
+                // Rho for a call is positive and of order K·T·e^(-rT)·N(d2) (≈ 50 for this
+                // ATM 1y option); the genuine quantum payoff now reproduces this realistic
+                // magnitude rather than the near-zero value the old fudge produced.
+                Assert.True(
+                    greeks.Rho >= -1.0 && greeks.Rho <= 110.0,
+                    $"Rho should be reasonable, got {greeks.Rho}"
+                )
 
-                            // Should have made 8 pricing calls
-                            Assert.Equal(8, greeks.PricingCalls)
+                // Method should indicate quantum
+                Assert.Contains("Quantum", greeks.Method)
 
-                            true
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+                // Should have made 8 pricing calls
+                Assert.Equal(8, greeks.PricingCalls)
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
     [<Fact>]
     let ``greeksEuropeanPut should return all Greeks with LocalBackend`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let! result = OptionPricing.greeksEuropeanPut 100.0 100.0 0.05 0.2 1.0 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-                    return
-                        match result with
-                        | Ok greeks ->
-                            // Price should be non-negative
-                            Assert.True(greeks.Price >= 0.0, $"Price should be non-negative, got {greeks.Price}")
+            let! result =
+                OptionPricing.greeksEuropeanPutAsync 100.0 100.0 0.05 0.2 1.0 backend CancellationToken.None
 
-                            // Delta for put should be roughly in [-1, 0]
-                            Assert.True(
-                                greeks.Delta >= -1.5 && greeks.Delta <= 0.5,
-                                $"Put Delta should be roughly in [-1,0], got {greeks.Delta}"
-                            )
+            match result with
+            | Ok greeks ->
+                // Price should be non-negative
+                Assert.True(greeks.Price >= 0.0, $"Price should be non-negative, got {greeks.Price}")
 
-                            // All confidence intervals should be non-negative
-                            Assert.True(greeks.ConfidenceIntervals.Delta >= 0.0, "Delta CI should be non-negative")
-                            Assert.True(greeks.ConfidenceIntervals.Gamma >= 0.0, "Gamma CI should be non-negative")
-                            Assert.True(greeks.ConfidenceIntervals.Vega >= 0.0, "Vega CI should be non-negative")
-                            Assert.True(greeks.ConfidenceIntervals.Theta >= 0.0, "Theta CI should be non-negative")
-                            Assert.True(greeks.ConfidenceIntervals.Rho >= 0.0, "Rho CI should be non-negative")
+                // Delta for put should be roughly in [-1, 0]
+                Assert.True(
+                    greeks.Delta >= -1.5 && greeks.Delta <= 0.5,
+                    $"Put Delta should be roughly in [-1,0], got {greeks.Delta}"
+                )
 
-                            true
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+                // All confidence intervals should be non-negative
+                Assert.True(greeks.ConfidenceIntervals.Delta >= 0.0, "Delta CI should be non-negative")
+                Assert.True(greeks.ConfidenceIntervals.Gamma >= 0.0, "Gamma CI should be non-negative")
+                Assert.True(greeks.ConfidenceIntervals.Vega >= 0.0, "Vega CI should be non-negative")
+                Assert.True(greeks.ConfidenceIntervals.Theta >= 0.0, "Theta CI should be non-negative")
+                Assert.True(greeks.ConfidenceIntervals.Rho >= 0.0, "Rho CI should be non-negative")
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
     [<Fact>]
     let ``calculateGreeks should validate config SpotBump`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let params' = createMarketParams 100.0 105.0 0.05 0.2 1.0
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let params' = createMarketParams 100.0 105.0 0.05 0.2 1.0
 
-                    let invalidConfig =
-                        { OptionPricing.defaultGreeksConfig with
-                            SpotBump = -0.01
-                        }
-
-                    let! result =
-                        OptionPricing.calculateGreeks OptionPricing.EuropeanCall params' invalidConfig 6 5 backend
-
-                    return
-                        match result with
-                        | Error(QuantumError.ValidationError(param, _)) ->
-                            Assert.Equal("SpotBump", param)
-                            true
-                        | _ -> failwith "Should return ValidationError for invalid SpotBump"
+            let invalidConfig =
+                { OptionPricing.defaultGreeksConfig with
+                    SpotBump = -0.01
                 }
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            let! result =
+                OptionPricing.calculateGreeksAsync
+                    OptionPricing.EuropeanCall
+                    params'
+                    invalidConfig
+                    6
+                    5
+                    backend
+                    CancellationToken.None
+
+            match result with
+            | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("SpotBump", param)
+            | _ -> failwith "Should return ValidationError for invalid SpotBump"
         }
         :> Task
 
     [<Fact>]
     let ``calculateGreeks should validate TimeToExpiry vs TimeBump`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    // Expiry is 1 day, but TimeBump is also 1 day (1/365)
-                    let params' = createMarketParams 100.0 105.0 0.05 0.2 (1.0 / 365.0)
-                    let config = OptionPricing.defaultGreeksConfig // TimeBump = 1/365
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            // Expiry is 1 day, but TimeBump is also 1 day (1/365)
+            let params' = createMarketParams 100.0 105.0 0.05 0.2 (1.0 / 365.0)
+            let config = OptionPricing.defaultGreeksConfig // TimeBump = 1/365
 
-                    let! result =
-                        OptionPricing.calculateGreeks OptionPricing.EuropeanCall params' config 6 5 backend
+            let! result =
+                OptionPricing.calculateGreeksAsync
+                    OptionPricing.EuropeanCall
+                    params'
+                    config
+                    6
+                    5
+                    backend
+                    CancellationToken.None
 
-                    return
-                        match result with
-                        | Error(QuantumError.ValidationError(param, _)) ->
-                            Assert.Equal("TimeToExpiry", param)
-                            true
-                        | _ -> failwith "Should return ValidationError when TimeToExpiry <= TimeBump"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result with
+            | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("TimeToExpiry", param)
+            | _ -> failwith "Should return ValidationError when TimeToExpiry <= TimeBump"
         }
         :> Task
 
     [<Fact>]
     let ``calculateGreeks with custom config should work`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let params' = createMarketParams 100.0 100.0 0.05 0.2 1.0
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let params' = createMarketParams 100.0 100.0 0.05 0.2 1.0
 
-                    let customConfig =
-                        {
-                            OptionPricing.SpotBump = 0.02 // 2% spot bump
-                            OptionPricing.VolatilityBump = 0.02 // 2% vol bump
-                            OptionPricing.TimeBump = 7.0 / 365.0 // 1 week
-                            OptionPricing.RateBump = 0.005 // 0.5% rate bump
-                        }
-
-                    let! result =
-                        OptionPricing.calculateGreeks OptionPricing.EuropeanCall params' customConfig 6 5 backend
-
-                    return
-                        match result with
-                        | Ok greeks ->
-                            // Should have calculated all Greeks
-                            Assert.True(greeks.Price >= 0.0)
-                            Assert.Equal(8, greeks.PricingCalls)
-                            true
-                        | Error err -> failwith $"Should succeed with custom config, got error: {err}"
+            let customConfig =
+                {
+                    OptionPricing.SpotBump = 0.02 // 2% spot bump
+                    OptionPricing.VolatilityBump = 0.02 // 2% vol bump
+                    OptionPricing.TimeBump = 7.0 / 365.0 // 1 week
+                    OptionPricing.RateBump = 0.005 // 0.5% rate bump
                 }
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            let! result =
+                OptionPricing.calculateGreeksAsync
+                    OptionPricing.EuropeanCall
+                    params'
+                    customConfig
+                    6
+                    5
+                    backend
+                    CancellationToken.None
+
+            match result with
+            | Ok greeks ->
+                // Should have calculated all Greeks
+                Assert.True(greeks.Price >= 0.0)
+                Assert.Equal(8, greeks.PricingCalls)
+            | Error err -> failwith $"Should succeed with custom config, got error: {err}"
         }
         :> Task
 
     [<Fact; Trait("Category", "Slow")>]
     let ``Greeks for deep ITM call should have Delta near 1`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    // Deep in-the-money: Spot=150, Strike=100 (50% ITM)
-                    let! result = OptionPricing.greeksEuropeanCall 150.0 100.0 0.05 0.2 1.0 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            // Deep in-the-money: Spot=150, Strike=100 (50% ITM)
+            let! result =
+                OptionPricing.greeksEuropeanCallAsync 150.0 100.0 0.05 0.2 1.0 backend CancellationToken.None
 
-                    return
-                        match result with
-                        | Ok greeks ->
-                            // Deep ITM call should have delta closer to 1 than ATM
-                            // Allow wide range due to quantum noise, but should trend toward 1
-                            Assert.True(
-                                greeks.Delta >= 0.0 && greeks.Delta <= 2.0,
-                                $"Deep ITM call Delta should trend toward 1, got {greeks.Delta}"
-                            )
-
-                            true
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result with
+            | Ok greeks ->
+                // Deep ITM call should have delta closer to 1 than ATM
+                // Allow wide range due to quantum noise, but should trend toward 1
+                Assert.True(
+                    greeks.Delta >= 0.0 && greeks.Delta <= 2.0,
+                    $"Deep ITM call Delta should trend toward 1, got {greeks.Delta}"
+                )
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
     [<Fact>]
     let ``Greeks for deep OTM call should have Delta near 0`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    // Deep out-of-the-money: Spot=50, Strike=100 (50% OTM)
-                    let! result = OptionPricing.greeksEuropeanCall 50.0 100.0 0.05 0.2 1.0 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            // Deep out-of-the-money: Spot=50, Strike=100 (50% OTM)
+            let! result =
+                OptionPricing.greeksEuropeanCallAsync 50.0 100.0 0.05 0.2 1.0 backend CancellationToken.None
 
-                    return
-                        match result with
-                        | Ok greeks ->
-                            // Deep OTM call should have delta closer to 0
-                            // Allow wide range due to quantum noise
-                            Assert.True(
-                                greeks.Delta >= -1.0 && greeks.Delta <= 1.0,
-                                $"Deep OTM call Delta should trend toward 0, got {greeks.Delta}"
-                            )
-
-                            true
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+            match result with
+            | Ok greeks ->
+                // Deep OTM call should have delta closer to 0
+                // Allow wide range due to quantum noise
+                Assert.True(
+                    greeks.Delta >= -1.0 && greeks.Delta <= 1.0,
+                    $"Deep OTM call Delta should trend toward 0, got {greeks.Delta}"
+                )
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
@@ -457,26 +378,17 @@ module OptionPricingTests =
         // Tests that the comparator oracle correctly marks most states as ITM
         // when strike is far below spot (deep ITM call)
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    // Deep ITM: Spot=200, Strike=50 → almost all states in-the-money
-                    let! result = OptionPricing.priceEuropeanCall 200.0 50.0 0.05 0.2 1.0 4 3 200 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            // Deep ITM: Spot=200, Strike=50 → almost all states in-the-money
+            let! result =
+                OptionPricing.priceEuropeanCallAsync 200.0 50.0 0.05 0.2 1.0 4 3 200 backend CancellationToken.None
 
-                    return
-                        match result with
-                        | Ok price ->
-                            Assert.True(
-                                price.Price > 0.0,
-                                $"Deep ITM call should have positive price, got {price.Price}"
-                            )
+            match result with
+            | Ok price ->
+                Assert.True(price.Price > 0.0, $"Deep ITM call should have positive price, got {price.Price}")
 
-                            Assert.Equal(4, price.QubitsUsed)
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+                Assert.Equal(4, price.QubitsUsed)
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
@@ -485,26 +397,17 @@ module OptionPricingTests =
         // Tests that the comparator oracle correctly marks most states as ITM
         // when strike is far above spot (deep ITM put)
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    // Deep ITM put: Spot=50, Strike=200 → almost all states in-the-money
-                    let! result = OptionPricing.priceEuropeanPut 50.0 200.0 0.05 0.2 1.0 4 3 200 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            // Deep ITM put: Spot=50, Strike=200 → almost all states in-the-money
+            let! result =
+                OptionPricing.priceEuropeanPutAsync 50.0 200.0 0.05 0.2 1.0 4 3 200 backend CancellationToken.None
 
-                    return
-                        match result with
-                        | Ok price ->
-                            Assert.True(
-                                price.Price > 0.0,
-                                $"Deep ITM put should have positive price, got {price.Price}"
-                            )
+            match result with
+            | Ok price ->
+                Assert.True(price.Price > 0.0, $"Deep ITM put should have positive price, got {price.Price}")
 
-                            Assert.Equal(4, price.QubitsUsed)
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+                Assert.Equal(4, price.QubitsUsed)
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
@@ -513,85 +416,62 @@ module OptionPricingTests =
         // The comparator oracle should correctly shift the boundary
         // as spot price changes, producing monotonically increasing call prices
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let strike = 100.0
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let strike = 100.0
 
-                    let! result80 =
-                        OptionPricing.priceEuropeanCall 80.0 strike 0.05 0.2 1.0 4 3 200 backend
+            let! result80 =
+                OptionPricing.priceEuropeanCallAsync 80.0 strike 0.05 0.2 1.0 4 3 200 backend CancellationToken.None
 
-                    let! result120 =
-                        OptionPricing.priceEuropeanCall 120.0 strike 0.05 0.2 1.0 4 3 200 backend
+            let! result120 =
+                OptionPricing.priceEuropeanCallAsync 120.0 strike 0.05 0.2 1.0 4 3 200 backend CancellationToken.None
 
-                    return
-                        match result80, result120 with
-                        | Ok price80, Ok price120 ->
-                            // Higher spot must give a higher (non-decreasing) call price: the S=120 call
-                            // is in-the-money (strike 100) while the S=80 call is out-of-the-money, so the
-                            // ITM price must dominate. A tiny tolerance absorbs quantum sampling noise.
-                            let noiseTolerance = 1e-6
+            match result80, result120 with
+            | Ok price80, Ok price120 ->
+                // Higher spot must give a higher (non-decreasing) call price: the S=120 call
+                // is in-the-money (strike 100) while the S=80 call is out-of-the-money, so the
+                // ITM price must dominate. A tiny tolerance absorbs quantum sampling noise.
+                let noiseTolerance = 1e-6
 
-                            Assert.True(
-                                price120.Price >= price80.Price - noiseTolerance,
-                                $"Call price should be monotonic non-decreasing in spot: S=120 ({price120.Price:F4}) should be >= S=80 ({price80.Price:F4})"
-                            )
-                        | Error e, _ -> failwith $"S=80 pricing failed: {e}"
-                        | _, Error e -> failwith $"S=120 pricing failed: {e}"
-                }
-
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+                Assert.True(
+                    price120.Price >= price80.Price - noiseTolerance,
+                    $"Call price should be monotonic non-decreasing in spot: S=120 ({price120.Price:F4}) should be >= S=80 ({price80.Price:F4})"
+                )
+            | Error e, _ -> failwith $"S=80 pricing failed: {e}"
+            | _, Error e -> failwith $"S=120 pricing failed: {e}"
         }
         :> Task
 
     [<Fact>]
     let ``Asian call option prices with comparator oracle`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let! result = OptionPricing.priceAsianCall 100.0 100.0 0.05 0.2 1.0 4 4 3 200 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-                    return
-                        match result with
-                        | Ok price ->
-                            Assert.True(
-                                price.Price >= 0.0,
-                                $"Asian call price should be non-negative, got {price.Price}"
-                            )
+            let! result =
+                OptionPricing.priceAsianCallAsync 100.0 100.0 0.05 0.2 1.0 4 4 3 200 backend CancellationToken.None
 
-                            Assert.Equal(4, price.QubitsUsed)
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
+            match result with
+            | Ok price ->
+                Assert.True(price.Price >= 0.0, $"Asian call price should be non-negative, got {price.Price}")
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+                Assert.Equal(4, price.QubitsUsed)
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
     [<Fact>]
     let ``Asian put option prices with comparator oracle`` () =
         task {
-            let test =
-                async {
-                    let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                    let! result = OptionPricing.priceAsianPut 100.0 100.0 0.05 0.2 1.0 4 4 3 200 backend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-                    return
-                        match result with
-                        | Ok price ->
-                            Assert.True(
-                                price.Price >= 0.0,
-                                $"Asian put price should be non-negative, got {price.Price}"
-                            )
+            let! result =
+                OptionPricing.priceAsianPutAsync 100.0 100.0 0.05 0.2 1.0 4 4 3 200 backend CancellationToken.None
 
-                            Assert.Equal(4, price.QubitsUsed)
-                        | Error err -> failwith $"Should succeed, got error: {err}"
-                }
+            match result with
+            | Ok price ->
+                Assert.True(price.Price >= 0.0, $"Asian put price should be non-negative, got {price.Price}")
 
-            let! _ = test |> Async.StartImmediateAsTask
-            ()
+                Assert.Equal(4, price.QubitsUsed)
+            | Error err -> failwith $"Should succeed, got error: {err}"
         }
         :> Task
 
@@ -613,8 +493,7 @@ module OptionPricingTests =
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
             match!
-                OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend
-                |> Async.StartImmediateAsTask
+                OptionPricing.priceEuropeanCallAsync 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend CancellationToken.None
             with
             | Ok price ->
                 let expected = gridCallPrice ()
@@ -631,8 +510,7 @@ module OptionPricingTests =
             let backend = SampledWholeCircuit.Backend(4000, 3)
 
             match!
-                OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend
-                |> Async.StartImmediateAsTask
+                OptionPricing.priceEuropeanCallAsync 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend CancellationToken.None
             with
             | Ok price ->
                 let expected = gridCallPrice ()
@@ -690,8 +568,14 @@ module OptionPricingTests =
             let price, delta, vega, rho = blackScholes isCall spot strike 0.05 0.2 1.0
 
             match!
-                OptionPricing.calculateGreeks optionType market OptionPricing.defaultGreeksConfig 6 5 backend
-                |> Async.StartImmediateAsTask
+                OptionPricing.calculateGreeksAsync
+                    optionType
+                    market
+                    OptionPricing.defaultGreeksConfig
+                    6
+                    5
+                    backend
+                    CancellationToken.None
             with
             | Ok greeks ->
                 // 6 qubits = 64 price levels. Previously Delta was only checked to lie in
@@ -714,14 +598,14 @@ module OptionPricingTests =
             let gamma = MathNet.Numerics.Distributions.Normal.PDF(0.0, 1.0, d1) / (100.0 * 0.2)
 
             match!
-                OptionPricing.calculateGreeks
+                OptionPricing.calculateGreeksAsync
                     OptionPricing.EuropeanCall
                     market
                     OptionPricing.defaultGreeksConfig
                     8
                     5
                     backend
-                |> Async.StartImmediateAsTask
+                    CancellationToken.None
             with
             | Ok greeks ->
                 // 256 levels; the second difference of the payoff kinks limits Gamma (was -4.6%).

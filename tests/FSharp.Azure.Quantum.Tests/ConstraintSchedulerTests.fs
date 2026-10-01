@@ -410,9 +410,7 @@ module ConstraintSchedulerTests =
                     Shots = 100
                 }
 
-            let! result = ConstraintScheduler.solveAsync problem CancellationToken.None
-
-            match result with
+            match! ConstraintScheduler.solveAsync problem CancellationToken.None with
             | Ok r ->
                 match r.BestSchedule with
                 | Some s -> Assert.Equal(2, s.Assignments.Length)
@@ -446,9 +444,7 @@ module ConstraintSchedulerTests =
                     Shots = 100
                 }
 
-            let! result = ConstraintScheduler.solveAsync problem CancellationToken.None
-
-            match result with
+            match! ConstraintScheduler.solveAsync problem CancellationToken.None with
             | Ok r ->
                 match r.BestSchedule with
                 | Some s ->

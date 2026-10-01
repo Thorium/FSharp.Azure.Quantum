@@ -276,15 +276,17 @@ module SocialNetworkAnalyzer =
                 | Error err -> Error err
                 | Ok groverResult ->
                     // Decode bitstring solutions to communities
+                    let people = problem.People |> List.toArray
+
                     let communities =
                         groverResult.Solutions
                         |> List.map (fun bitstring ->
                             // Extract selected people from bitstring
                             let selectedIndices =
-                                [ 0 .. problem.People.Length - 1 ]
+                                [ 0 .. people.Length - 1 ]
                                 |> List.filter (fun i -> (bitstring >>> i) &&& 1 = 1)
 
-                            let members = selectedIndices |> List.map (fun idx -> problem.People.[idx])
+                            let members = selectedIndices |> List.map (fun idx -> people.[idx])
 
                             let strength = calculateStrength members problem.Connections
 
@@ -453,12 +455,14 @@ module SocialNetworkAnalyzer =
                         }
                         cancellationToken
 
+                let people = problem.People |> List.toArray
+
                 let pairings =
                     solution.SelectedEdges
                     |> List.map (fun edge ->
                         {
-                            Person1 = problem.People.[edge.Source]
-                            Person2 = problem.People.[edge.Target]
+                            Person1 = people.[edge.Source]
+                            Person2 = people.[edge.Target]
                             Weight = edge.Weight
                         })
 
@@ -687,13 +691,6 @@ module SocialNetworkAnalyzer =
                                         $"Found {pairings.Length} optimal pairings"
                             }
         }
-
-    /// Execute social network analysis
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve (problem: SocialNetworkProblem) : QuantumResult<SocialNetworkResult> =
-        solveAsync problem CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

@@ -128,9 +128,7 @@ module PackingOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = PackingOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
             | Ok r ->
                 Assert.Equal(3, r.TotalItems)
                 Assert.True(r.BinsUsed > 0)
@@ -153,9 +151,7 @@ module PackingOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = PackingOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Items", _)) -> ()
             | other -> Assert.Fail($"Expected Items validation error, got: %A{other}")
         }
@@ -172,9 +168,7 @@ module PackingOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = PackingOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("BinCapacity", _)) -> ()
             | other -> Assert.Fail($"Expected BinCapacity validation error, got: %A{other}")
         }
@@ -191,9 +185,7 @@ module PackingOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = PackingOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("BinCapacity", _)) -> ()
             | other -> Assert.Fail($"Expected BinCapacity validation error, got: %A{other}")
         }
@@ -210,9 +202,7 @@ module PackingOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = PackingOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("ItemSize", _)) -> ()
             | other -> Assert.Fail($"Expected ItemSize validation error, got: %A{other}")
         }
@@ -229,9 +219,7 @@ module PackingOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = PackingOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("ItemSize", _)) -> ()
             | other -> Assert.Fail($"Expected ItemSize validation error, got: %A{other}")
         }
@@ -248,9 +236,7 @@ module PackingOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = PackingOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("ItemSize", _)) -> ()
             | other -> Assert.Fail($"Expected ItemSize validation error, got: %A{other}")
         }
@@ -310,9 +296,7 @@ module PackingOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = PackingOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! PackingOptimizer.solveAsync problem CancellationToken.None with
             | Ok r ->
                 Assert.Equal(1, r.TotalItems)
                 Assert.True(r.BinsUsed >= 1)

@@ -44,10 +44,8 @@ module PortfolioBuilderTests =
             let problem = Portfolio.createProblem assets 10000.0
 
             // Act
-            let! result = Portfolio.solveAsync problem None CancellationToken.None
-
             // Assert
-            match result with
+            match! Portfolio.solveAsync problem None CancellationToken.None with
             | Ok allocation ->
                 Assert.True(allocation.TotalValue > 0.0)
                 Assert.True(allocation.TotalValue <= 10000.0)
@@ -88,10 +86,8 @@ module PortfolioBuilderTests =
             let assets = [ ("AAPL", 0.12, 0.15, 150.0); ("GOOGL", 0.10, 0.12, 2800.0) ]
 
             // Act
-            let! result = Portfolio.solveDirectlyAsync assets 10000.0 None CancellationToken.None
-
             // Assert
-            match result with
+            match! Portfolio.solveDirectlyAsync assets 10000.0 None CancellationToken.None with
             | Ok allocation ->
                 Assert.True(allocation.IsValid)
                 Assert.True(allocation.TotalValue > 0.0)
@@ -141,10 +137,8 @@ module PortfolioBuilderTests =
             let problem = Portfolio.createProblem assets 15000.0
 
             // Act
-            let! result = Portfolio.solveAsync problem None CancellationToken.None
-
             // Assert
-            match result with
+            match! Portfolio.solveAsync problem None CancellationToken.None with
             | Ok allocation ->
                 Assert.True(allocation.IsValid)
                 Assert.True(allocation.Allocations.Length > 0)
@@ -167,10 +161,8 @@ module PortfolioBuilderTests =
             let problem = Portfolio.createProblem assets 10000.0
 
             // Act
-            let! result = Portfolio.solveAsync problem None CancellationToken.None
-
             // Assert
-            match result with
+            match! Portfolio.solveAsync problem None CancellationToken.None with
             | Ok allocation ->
                 Assert.True(allocation.ExpectedReturn > 0.0)
                 Assert.True(allocation.Risk > 0.0)

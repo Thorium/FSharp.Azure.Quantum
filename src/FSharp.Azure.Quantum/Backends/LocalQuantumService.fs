@@ -910,9 +910,9 @@ type internal LocalJobEntry =
         mutable Polls: int
         mutable Reported: JobStatus
         mutable History: JobStatus list // most recent first
-        mutable BeginTime: DateTimeOffset option
-        mutable EndTime: DateTimeOffset option
-        mutable CancelTime: DateTimeOffset option
+        mutable BeginTime: DateTimeOffset voption
+        mutable EndTime: DateTimeOffset voption
+        mutable CancelTime: DateTimeOffset voption
     }
 
 /// Reply produced by the service's router.
@@ -920,7 +920,7 @@ type internal LocalServiceReply =
     {
         Status: int
         Body: string
-        RetryAfterSeconds: int option
+        RetryAfterSeconds: int voption
     }
 
 /// Local emulator of the Azure Quantum workspace REST API that runs jobs on the library's
@@ -980,7 +980,7 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         {
             Status = status
             Body = body
-            RetryAfterSeconds = None
+            RetryAfterSeconds = ValueNone
         }
 
     let errorReply (status: int) (code: string) (message: string) =
@@ -1044,13 +1044,13 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         w.WriteString("creationTime", timestamp job.Created)
 
         job.BeginTime
-        |> Option.iter (fun t -> w.WriteString("beginExecutionTime", timestamp t))
+        |> ValueOption.iter (fun t -> w.WriteString("beginExecutionTime", timestamp t))
 
         job.EndTime
-        |> Option.iter (fun t -> w.WriteString("endExecutionTime", timestamp t))
+        |> ValueOption.iter (fun t -> w.WriteString("endExecutionTime", timestamp t))
 
         job.CancelTime
-        |> Option.iter (fun t -> w.WriteString("cancellationTime", timestamp t))
+        |> ValueOption.iter (fun t -> w.WriteString("cancellationTime", timestamp t))
 
         match job.Reported with
         | JobStatus.Failed(code, message) ->
@@ -1093,10 +1093,10 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
             && job.BeginTime.IsNone
             && status <> JobStatus.Cancelled
         then
-            job.BeginTime <- Some now
+            job.BeginTime <- ValueSome now
 
         if isTerminal status && job.EndTime.IsNone && status <> JobStatus.Cancelled then
-            job.EndTime <- Some now
+            job.EndTime <- ValueSome now
 
         job.Reported <- status
 
@@ -1130,7 +1130,7 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                 Error $"Job {job.Id} is already {statusText job.Reported}"
             else
                 let now = DateTimeOffset.UtcNow
-                job.CancelTime <- Some now
+                job.CancelTime <- ValueSome now
                 report job JobStatus.Cancelled now
                 Ok(jobJson job))
 
@@ -1270,7 +1270,7 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                       (int status)
                       "InjectedRejection"
                       "LocalQuantumService rejected this submission (injected fault)" with
-                    RetryAfterSeconds = Some 1
+                    RetryAfterSeconds = ValueSome 1
                 }
             | None ->
                 match bodyId, target with
@@ -1327,9 +1327,9 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                                     Polls = 0
                                     Reported = JobStatus.Waiting
                                     History = [ JobStatus.Waiting ]
-                                    BeginTime = None
-                                    EndTime = None
-                                    CancelTime = None
+                                    BeginTime = ValueNone
+                                    EndTime = ValueNone
+                                    CancelTime = ValueNone
                                 }
 
                             if jobs.TryAdd(urlJobId, entry) then
@@ -1518,7 +1518,7 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                     response.StatusCode <- result.Status
 
                     result.RetryAfterSeconds
-                    |> Option.iter (fun s -> response.AddHeader("Retry-After", string s))
+                    |> ValueOption.iter (fun s -> response.AddHeader("Retry-After", string s))
 
                     if result.Body <> "" then
                         let bytes = Encoding.UTF8.GetBytes result.Body
@@ -1528,13 +1528,17 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                 with _ ->
                     try
                         response.StatusCode <- 500
-                    with _ ->
-                        ()
+                    with
+                    // The response is already closed, or its headers were already sent.
+                    | :? ObjectDisposedException
+                    | :? InvalidOperationException -> ()
             finally
                 try
                     response.Close()
-                with _ ->
-                    ()
+                with
+                // Best-effort release: the client may have gone away, or the response was closed twice.
+                | :? HttpListenerException
+                | :? ObjectDisposedException -> ()
         }
 
     let acceptLoop () : Task =
@@ -1632,8 +1636,9 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
             try
                 listener.Stop()
                 listener.Close()
-            with _ ->
-                ()
+            with
+            | :? ObjectDisposedException
+            | :? HttpListenerException -> ()
 
     interface IDisposable with
         member this.Dispose() = this.Stop()
@@ -1667,7 +1672,7 @@ module LocalQuantumService =
         }
 
     let private freePort () =
-        let probe = new TcpListener(IPAddress.Loopback, 0)
+        use probe = new TcpListener(IPAddress.Loopback, 0)
         probe.Start()
         let port = (probe.LocalEndpoint :?> IPEndPoint).Port
         probe.Stop()

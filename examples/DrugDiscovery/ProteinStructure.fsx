@@ -114,6 +114,7 @@ References:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -753,7 +754,8 @@ for ligand in pdb.Ligands do
         let startTime = DateTime.Now
 
         let result =
-            GroundStateEnergy.estimateEnergy fragmentMolecule config
+            GroundStateEnergy.estimateEnergyAsync fragmentMolecule config CancellationToken.None
+            |> Async.AwaitTask
             |> Async.RunSynchronously
 
         let elapsed = (DateTime.Now - startTime).TotalSeconds

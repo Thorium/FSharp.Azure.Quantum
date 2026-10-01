@@ -91,6 +91,7 @@ START: What are you trying to do?
 
 **Code Example:**
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 
@@ -103,9 +104,11 @@ let problem = graphColoring {
 }
 
 // Backend None = the local simulator (3 nodes × 2 colors = 6 qubits)
-match GraphColoring.solve problem 2 None with
-| Ok solution -> printfn "Solution: %A" solution.Assignments
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 2 None CancellationToken.None with
+    | Ok solution -> printfn "Solution: %A" solution.Assignments
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Cost:** Free ✅
@@ -166,7 +169,7 @@ match Primitives.sample ionqBackend ghz 1000 with
 | Error err -> printfn "Error: %s" err.Message
 ```
 
-Chemistry solvers take the same backend through `SolverConfig.Backend`. With `Method = GroundStateMethod.VQE`, `GroundStateEnergy.estimateEnergy` runs every energy evaluation on that backend. It uses integrals from `SolverConfig.IntegralProvider`, or STO-3G integrals the library computes for molecules of H and He atoms (see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md)). On a simulator that applies gates one at a time, the UCCSD-VQE computes exact expectation values. A backend that accepts only whole circuits, such as IonQ, Quantinuum, Rigetti, IQM, Atom Computing, Braket or `NoisyLocalBackend`, gets complete circuits instead:
+Chemistry solvers take the same backend through `SolverConfig.Backend`. With `Method = GroundStateMethod.VQE`, `GroundStateEnergy.estimateEnergyAsync` runs every energy evaluation on that backend. It uses integrals from `SolverConfig.IntegralProvider`, or STO-3G integrals the library computes for molecules of H and He atoms (see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md)). On a simulator that applies gates one at a time, the UCCSD-VQE computes exact expectation values. A backend that accepts only whole circuits, such as IonQ, Quantinuum, Rigetti, IQM, Atom Computing, Braket or `NoisyLocalBackend`, gets complete circuits instead:
 
 - the Hartree-Fock reference and the Trotterised UCCSD rotations, built from H, X, RX, RY, RZ and CNOT;
 - one circuit per qubit-wise commuting group of Hamiltonian terms for every energy (5 for H₂/STO-3G);
@@ -204,7 +207,7 @@ The other algorithms take a cloud backend the same way, each as whole-circuit jo
 | `Primitives.observe`, ADAPT-VQE, ADAPT-QAOA | One circuit per commuting group of Pauli terms for every energy; parameter-shift gradients |
 | QML (VQC, quantum kernels) | One circuit per forward pass or kernel entry; kernels keep at most 8 in flight |
 | Quantum Monte Carlo, option pricing, risk engine | Maximum-likelihood amplitude estimation: one circuit per Grover power (0, 1, 2, 4, …), probabilities from the job's counts |
-| `QRNG.generateWithBackend` | One job of one shot: create the backend with `shots = 1` |
+| `QRNG.generateWithBackendAsync` | One job of one shot: create the backend with `shots = 1` |
 
 A cloud backend returns an `Error`, never a guess, for what a circuit job cannot do: start from a state other than \|0…0⟩, read the gates of an opaque custom oracle function, `HamiltonianSimulation.simulate` of a given state (use `simulateFromPreparation`), and the Shor 9-qubit and Steane code round trips.
 
@@ -262,12 +265,14 @@ let edges = [
 
 let maxCutProblem = MaxCut.createProblem vertices edges
 
-match MaxCut.solve maxCutProblem (Some rigettiBackend) with
-| Ok solution ->
-    printfn "Max cut value: %.2f" solution.CutValue
-    printfn "Partition S: %A" solution.PartitionS
-| Error err ->
-    printfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync maxCutProblem (Some rigettiBackend) CancellationToken.None with
+    | Ok solution ->
+        printfn "Max cut value: %.2f" solution.CutValue
+        printfn "Partition S: %A" solution.PartitionS
+    | Error err ->
+        printfn "Error: %s" err.Message
+}
 ```
 
 For QPUs with limited connectivity, `CloudBackendFactory.createRigettiRouted` takes the device coupling map and inserts the SWAP gates for you.
@@ -311,25 +316,28 @@ For QPUs with limited connectivity, `CloudBackendFactory.createRigettiRouted` ta
 
 **Code Example:**
 
-The D-Wave backend implements `IQuantumBackend`, so QUBO-based solvers such as `MaxCut.solve` accept it: the solver's QAOA circuit is converted back to a QUBO and annealed.
+The D-Wave backend implements `IQuantumBackend`, so QUBO-based solvers such as `MaxCut.solveAsync` accept it: the solver's QAOA circuit is converted back to a QUBO and annealed.
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 // Reads DWAVE_API_TOKEN (required), DWAVE_ENDPOINT and DWAVE_SOLVER (default "Advantage_system6.1")
-match RealDWaveBackend.createFromEnv () with
-| Error err -> printfn "D-Wave not configured: %s" err.Message
-| Ok dwave ->
-    use dwave = dwave
-    let ring =
-        MaxCut.createProblem
-            [ for i in 1 .. 20 -> $"N{i}" ]
-            [ for i in 1 .. 20 -> ($"N{i}", $"N{i % 20 + 1}", 1.0) ]
+task {
+    match RealDWaveBackend.createFromEnv () with
+    | Error err -> printfn "D-Wave not configured: %s" err.Message
+    | Ok dwave ->
+        use dwave = dwave
+        let ring =
+            MaxCut.createProblem
+                [ for i in 1 .. 20 -> $"N{i}" ]
+                [ for i in 1 .. 20 -> ($"N{i}", $"N{i % 20 + 1}", 1.0) ]
 
-    match MaxCut.solve ring (Some(dwave :> IQuantumBackend)) with
-    | Ok solution -> printfn "Cut value: %.1f" solution.CutValue
-    | Error err -> printfn "Error: %s" err.Message
+        match! MaxCut.solveAsync ring (Some(dwave :> IQuantumBackend)) CancellationToken.None with
+        | Ok solution -> printfn "Cut value: %.1f" solution.CutValue
+        | Error err -> printfn "Error: %s" err.Message
+}
 
 // Offline testing: a mock annealer with the same interface
 let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
@@ -494,7 +502,7 @@ let mitigationStrategy = ErrorMitigationStrategy.selectStrategy rigettiCriteria
 printfn "%s" mitigationStrategy.Reasoning  // medium circuit with budget: ZNE + readout
 ```
 
-Mitigation is applied to results, not to a backend: ZNE and PEC run your circuit through an executor (`ZeroNoiseExtrapolation.mitigate`, `ProbabilisticErrorCancellation.mitigate`), and REM corrects measured histograms (`ReadoutErrorMitigation.correctReadoutErrors`). The chemistry solvers accept a strategy in `SolverConfig.ErrorMitigation` and apply its readout part to their measurement counts. See [Error Mitigation](error-mitigation.md) for complete examples.
+Mitigation is applied to results, not to a backend: ZNE and PEC run your circuit through an executor (`ZeroNoiseExtrapolation.mitigateAsync`, `ProbabilisticErrorCancellation.mitigateAsync`), and REM corrects measured histograms (`ReadoutErrorMitigation.correctReadoutErrors`). The chemistry solvers accept a strategy in `SolverConfig.ErrorMitigation` and apply its readout part to their measurement counts. See [Error Mitigation](error-mitigation.md) for complete examples.
 
 ---
 

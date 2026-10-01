@@ -273,8 +273,8 @@ module QuantumPatternMatcher =
                     { problem with
                         SearchSpace = Choice1Of2 items
                     }
-                with :? System.InvalidCastException ->
-                    failwith "searchSpace expects either 'T list (items) or int (size)"
+                with :? System.InvalidCastException as ex ->
+                    raise (System.Exception("searchSpace expects either 'T list (items) or int (size)", ex))
 
             | _ -> failwith "searchSpace expects either 'T list (items) or int (size)"
 

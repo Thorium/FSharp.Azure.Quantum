@@ -5,6 +5,8 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
@@ -109,7 +111,7 @@ module AnomalyDetector =
             ProgressReporter: Core.Progress.IProgressReporter option
 
             /// Optional cancellation token for early termination
-            CancellationToken: System.Threading.CancellationToken option
+            CancellationToken: CancellationToken option
         }
 
     /// Trained anomaly detector
@@ -388,10 +390,11 @@ module AnomalyDetector =
     // TRAINING
     // ========================================================================
 
-    /// Train anomaly detector using one-class quantum kernel SVM
-    let train (problem: DetectionProblem) : QuantumResult<Detector> =
-        validate problem
-        |> Result.bind (fun () ->
+    /// Train anomaly detector using one-class quantum kernel SVM, asynchronously
+    let trainAsync (problem: DetectionProblem) (cancellationToken: CancellationToken) : Task<QuantumResult<Detector>> =
+        match validate problem with
+        | Error e -> Task.FromResult(Error e)
+        | Ok() ->
 
             let startTime = DateTime.UtcNow
             let numFeatures = problem.NormalData.[0].Length
@@ -427,16 +430,7 @@ module AnomalyDetector =
             // i.e. the squared distance to the mean of the training points in the
             // quantum feature space. (A binary SVM is degenerate here: with all
             // labels identical the SMO bounds collapse and no alpha can move.)
-            (QuantumKernels.computeKernelMatrixAsync
-                backend
-                featureMap
-                problem.NormalData
-                problem.Shots
-                System.Threading.CancellationToken.None)
-                .GetAwaiter()
-                .GetResult()
-            |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Training failed: {e}"))
-            |> Result.map (fun kernelMatrix ->
+            let buildDetector (kernelMatrix: float[,]) : Detector =
 
                 let n = problem.NormalData.Length
                 let nf = float n
@@ -518,7 +512,22 @@ module AnomalyDetector =
                             logWarning problem.Logger $"[WARN] Failed to save detector: {msg.Message}"
                         // Don't fail the entire training just because save failed
 
-                detector))
+                detector
+
+            task {
+                let! kernelMatrixResult =
+                    QuantumKernels.computeKernelMatrixAsync
+                        backend
+                        featureMap
+                        problem.NormalData
+                        problem.Shots
+                        cancellationToken
+
+                return
+                    kernelMatrixResult
+                    |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Training failed: {e}"))
+                    |> Result.map buildDetector
+            }
 
     // ========================================================================
     // DETECTION
@@ -530,43 +539,34 @@ module AnomalyDetector =
     /// with a sigmoid centred on the training-set reference distance, so
     /// scores above 0.5 lie outside the learned boundary of normal behaviour
     /// (higher score = more anomalous).
-    let private computeAnomalyScore
+    let private computeAnomalyScoreAsync
         (backend: IQuantumBackend)
         (detector: Detector)
         (sample: float array)
         (shots: int)
-        : QuantumResult<float> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float>> =
 
         let trainData = detector.Model.TrainData
 
-        // Kernel between the sample and every training point
-        let kernelResults =
-            trainData
-            |> Array.map (fun x ->
-                (QuantumKernels.computeKernelAsync
-                    backend
-                    detector.Model.FeatureMap
-                    sample
-                    x
-                    shots
-                    System.Threading.CancellationToken.None)
-                    .GetAwaiter()
-                    .GetResult())
+        quantumResultTask {
+            // Kernel between the sample and every training point, one after another;
+            // the first failing kernel's error is the result
+            let crossKernelSum = ref 0.0
 
-        match
-            kernelResults
-            |> Array.tryPick (function
-                | Error e -> Some e
-                | Ok _ -> None)
-        with
-        | Some e -> Error e
-        | None ->
-            let meanCross =
-                (kernelResults
-                 |> Array.sumBy (function
-                     | Ok k -> k
-                     | Error _ -> 0.0))
-                / float trainData.Length
+            for x in trainData do
+                let! k =
+                    QuantumKernels.computeKernelAsync
+                        backend
+                        detector.Model.FeatureMap
+                        sample
+                        x
+                        shots
+                        cancellationToken
+
+                crossKernelSum.Value <- crossKernelSum.Value + k
+
+            let meanCross = crossKernelSum.Value / float trainData.Length
 
             // k(x,x) = 1 for fidelity kernels: |⟨φ(x)|φ(x)⟩|² = 1
             let distance = sqrt (max 0.0 (1.0 - 2.0 * meanCross + detector.KernelMean))
@@ -575,10 +575,15 @@ module AnomalyDetector =
             let scale = max detector.DistanceScale 1e-6
             let score = 1.0 / (1.0 + exp (-(distance - detector.ReferenceDistance) / scale))
 
-            Ok score
+            return score
+        }
 
-    /// Check if sample is anomalous
-    let check (sample: float array) (detector: Detector) : QuantumResult<AnomalyResult> =
+    /// Check if sample is anomalous, asynchronously
+    let checkAsync
+        (sample: float array)
+        (detector: Detector)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<AnomalyResult>> =
         // Reuse the backend the detector was trained on so inference runs on the same
         // quantum kernel; fall back to a local simulator only for disk-loaded detectors.
         let backend =
@@ -586,38 +591,36 @@ module AnomalyDetector =
             | Some b -> b
             | None -> LocalBackend.LocalBackend() :> IQuantumBackend
 
-        computeAnomalyScore backend detector sample detector.Shots
-        |> Result.map (fun score ->
+        quantumResultTask {
+            let! score = computeAnomalyScoreAsync backend detector sample detector.Shots cancellationToken
 
             let isAnomaly = score > detector.Threshold
 
-            {
-                IsAnomaly = isAnomaly
-                IsNormal = not isAnomaly
-                AnomalyScore = score
-                Confidence = abs (score - detector.Threshold) / (1.0 - detector.Threshold)
-            })
+            return
+                {
+                    IsAnomaly = isAnomaly
+                    IsNormal = not isAnomaly
+                    AnomalyScore = score
+                    Confidence = abs (score - detector.Threshold) / (1.0 - detector.Threshold)
+                }
+        }
 
-    /// Check multiple samples
-    let checkBatch (samples: float array array) (detector: Detector) : QuantumResult<BatchResults> =
+    /// Check multiple samples, asynchronously. Samples are checked one after another;
+    /// the first failing sample's error is the result.
+    let checkBatchAsync
+        (samples: float array array)
+        (detector: Detector)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<BatchResults>> =
 
-        let results = samples |> Array.map (fun s -> check s detector)
+        quantumResultTask {
+            let results = ResizeArray<AnomalyResult>(samples.Length)
 
-        // Check for errors
-        let firstError =
-            results
-            |> Array.tryPick (Result.map (fun _ -> None) >> Result.defaultWith (fun e -> Some e))
+            for sample in samples do
+                let! result = checkAsync sample detector cancellationToken
+                results.Add result
 
-        match firstError with
-        | Some e -> Error e
-        | None ->
-
-            let anomalyResults =
-                results
-                |> Array.map (fun r ->
-                    r
-                    |> Result.defaultWith (fun _ ->
-                        failwith $"Unreachable, calling checkBatch with samples: {samples}, detector: {detector}"))
+            let anomalyResults = results.ToArray()
 
             let anomalyCount =
                 anomalyResults |> Array.filter (fun r -> r.IsAnomaly) |> Array.length
@@ -631,7 +634,7 @@ module AnomalyDetector =
                 |> Array.sortByDescending snd
                 |> Array.take (min 10 samples.Length)
 
-            Ok
+            return
                 {
                     TotalItems = samples.Length
                     AnomaliesDetected = anomalyCount
@@ -639,6 +642,7 @@ module AnomalyDetector =
                     Results = anomalyResults
                     TopAnomalies = topAnomalies
                 }
+        }
 
     // ========================================================================
     // EXPLANATION
@@ -702,9 +706,12 @@ module AnomalyDetector =
 
         member _.Delay(f: unit -> DetectionProblem) = f
 
-        member _.Run(f: unit -> DetectionProblem) : QuantumResult<Detector> =
+        /// The `anomalyDetection { ... }` expression yields a task: write
+        /// `let! detector = anomalyDetection { ... }` inside `task { }`. The
+        /// `cancellationToken` operation, when given, cancels training.
+        member _.Run(f: unit -> DetectionProblem) : Task<QuantumResult<Detector>> =
             let problem = f ()
-            train problem
+            trainAsync problem (problem.CancellationToken |> Option.defaultValue CancellationToken.None)
 
         member _.Combine(p1: DetectionProblem, p2: DetectionProblem) =
             { p2 with
@@ -788,7 +795,7 @@ module AnomalyDetector =
         /// <summary>Set a cancellation token for early termination of training.</summary>
         /// <param name="token">Cancellation token</param>
         [<CustomOperation("cancellationToken")>]
-        member _.CancellationToken(problem: DetectionProblem, token: System.Threading.CancellationToken) =
+        member _.CancellationToken(problem: DetectionProblem, token: CancellationToken) =
             { problem with
                 CancellationToken = Some token
             }

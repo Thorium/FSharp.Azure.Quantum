@@ -4,7 +4,7 @@
 
 Most library functions that can fail return `QuantumResult<'T>`, which is `Result<'T, QuantumError>`. The `quantumResult` computation expression removes the nested `match` expressions you otherwise write to pass errors along: each `let!` continues with the `Ok` value and stops at the first `Error`.
 
-`quantumResult` is defined in `FSharp.Azure.Quantum.Core` and is available after `open FSharp.Azure.Quantum.Core`. The same namespace also has a general `result` builder for `Result<'T, 'E>` with any error type.
+`quantumResult` is defined in `FSharp.Azure.Quantum.Core` and is available after `open FSharp.Azure.Quantum.Core`. The same namespace also has a general `result` builder for `Result<'T, 'E>` with any error type, and `quantumResultTask`, the asynchronous twin of `quantumResult` for steps that return `Task<QuantumResult<'T>>` (see [Asynchronous Steps: quantumResultTask](#asynchronous-steps-quantumresulttask)).
 
 ## Setup for the Examples
 
@@ -117,20 +117,29 @@ let factor (n: int) : QuantumResult<int * int> =
 
 ### Example 2: Training and Prediction
 
-The ML builders train when they are evaluated and return a `QuantumResult`, as do the prediction functions:
+The ML builders train when they are evaluated and yield a `Task<QuantumResult<_>>`, as do the prediction functions, so the steps go in `quantumResultTask { }`:
 
 ```fsharp
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.BinaryClassifier
 
-let trainAndPredict (features: float[][]) (labels: int[]) (sample: float[]) : QuantumResult<int> =
-    quantumResult {
+let trainAndPredict
+    (features: float[][])
+    (labels: int[])
+    (sample: float[])
+    (ct: CancellationToken)
+    : Task<QuantumResult<int>> =
+    quantumResultTask {
+        // Inside the builder, `cancellationToken` names its custom operation.
         let! model = binaryClassification {
             trainWith features labels
             maxEpochs 50
+            cancellationToken ct
         }
 
-        let! prediction = BinaryClassifier.predict sample model
+        let! prediction = BinaryClassifier.predictAsync sample model ct
         return prediction.Label
     }
 ```
@@ -177,7 +186,61 @@ let safeExecute (backend: IQuantumBackend) (circuit: ICircuit) : QuantumResult<Q
     }
 ```
 
-> **Async alternative:** `backend.ExecuteToStateAsync circuit cancellationToken` returns `Task<QuantumResult<QuantumState>>`. Use it inside `task { }` to execute without blocking and to cancel through the token.
+> **Async alternative:** `backend.ExecuteToStateAsync circuit cancellationToken` returns `Task<QuantumResult<QuantumState>>`. Use it inside `quantumResultTask { }` (below) to execute without blocking and to cancel through the token.
+
+### Asynchronous Steps: quantumResultTask
+
+`quantumResultTask { }` is the asynchronous twin of `quantumResult { }`: the block is a `Task<QuantumResult<'T>>` that starts when it is evaluated, like `task { }`. Its `let!`, `do!` and `return!` accept:
+
+- `Task<QuantumResult<'T>>` (the library's `...Async` functions and the business builders)
+- `Async<QuantumResult<'T>>`
+- a plain `QuantumResult<'T>` (the synchronous steps above)
+- `Task<'T>` or `Async<'T>`, which cannot fail with a `QuantumError`, so their value is bound as `Ok`
+
+The first `Error` short-circuits the rest of the block, as in `quantumResult`. An exception faults the task unless a `try ... with` inside the block catches it; since `return` wraps its argument in `Ok`, a handler that turns the exception into an `Error` writes `return! Error ...`.
+
+```fsharp
+open System.Threading
+open System.Threading.Tasks
+
+let processWorkflowAsync
+    (angles: float array)
+    (backend: IQuantumBackend)
+    (cancellationToken: CancellationToken)
+    : Task<QuantumResult<float>> =
+    quantumResultTask {
+        let! validAngles = validateInput angles // QuantumResult
+        let! circuit = buildCircuit validAngles
+        let! state = backend.ExecuteToStateAsync circuit cancellationToken // Task<QuantumResult<_>>
+        return! probabilityOfOne 1000 state
+    }
+
+let safeExecuteAsync
+    (backend: IQuantumBackend)
+    (circuit: ICircuit)
+    (cancellationToken: CancellationToken)
+    : Task<QuantumResult<QuantumState>> =
+    quantumResultTask {
+        try
+            return! backend.ExecuteToStateAsync circuit cancellationToken
+        with ex ->
+            return! Error(QuantumError.OperationError("Execution", $"Failed: {ex.Message}"))
+    }
+```
+
+From ordinary task code, bind the result with `let!` and match on it:
+
+```fsharp
+task {
+    let! result = processWorkflowAsync [| 0.5; 1.0 |] localBackend CancellationToken.None
+
+    match result with
+    | Ok probability -> printfn "P(1) = %.3f" probability
+    | Error err -> printfn "Failed: %s" err.Message
+}
+```
+
+`for`, `while`, `use` and `try ... finally` work in `quantumResultTask` as they do in `quantumResult`.
 
 ### Loops and Iteration
 
@@ -384,4 +447,4 @@ The `quantumResult` computation expression:
 - Keeps full type safety: every step returns `QuantumResult<'T>`
 - Supports `for` and `while` loops, `try ... with`, `try ... finally` and `use`
 
-Use it whenever two or more operations that return `QuantumResult<'T>` run in sequence.
+Use it whenever two or more operations that return `QuantumResult<'T>` run in sequence, and `quantumResultTask` when any of them returns a `Task<QuantumResult<'T>>`.

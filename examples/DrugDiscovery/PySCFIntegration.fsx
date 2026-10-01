@@ -52,6 +52,7 @@
 
 open System
 open Python.Runtime
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
@@ -695,7 +696,9 @@ let computeMolecule (info: MoleculeInfo) : MoleculeResult =
                 printfn "  [%s] Running VQE..." info.Name
 
             let vqeResult =
-                GroundStateEnergy.estimateEnergy info.Molecule config |> Async.RunSynchronously
+                GroundStateEnergy.estimateEnergyAsync info.Molecule config CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
 
             let elapsed = (DateTime.Now - startTime).TotalSeconds
 

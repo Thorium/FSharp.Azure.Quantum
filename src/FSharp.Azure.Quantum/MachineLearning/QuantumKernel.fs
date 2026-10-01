@@ -104,16 +104,13 @@ module QuantumKernels =
 
     /// Kernel circuits a sampling backend (IShotSamplingBackend: cloud hardware, where every
     /// circuit is a separately queued and billed job) has in flight at once. Simulators are not
-    /// limited.
+    /// limited. The shared bound: see BackendAbstraction.JobThrottle.
     [<Literal>]
-    let MaxConcurrentSampledJobs = 8
+    let MaxConcurrentSampledJobs = JobThrottle.MaxConcurrentSampledJobs
 
     /// Circuits in flight at once on `backend`: MaxConcurrentSampledJobs on a sampling backend,
     /// unlimited otherwise.
-    let private maxConcurrency (backend: IQuantumBackend) : int =
-        match backend with
-        | :? IShotSamplingBackend -> MaxConcurrentSampledJobs
-        | _ -> Int32.MaxValue
+    let private maxConcurrency (backend: IQuantumBackend) : int = JobThrottle.maxConcurrency backend
 
     /// Start `jobs` with at most `limit` running at once, results in job order.
     let private throttled
@@ -121,24 +118,7 @@ module QuantumKernels =
         (cancellationToken: CancellationToken)
         (jobs: (unit -> Task<'T>)[])
         : Task<'T[]> =
-        if limit >= jobs.Length then
-            jobs |> Array.map (fun job -> job ()) |> Task.WhenAll
-        else
-            task {
-                use gate = new SemaphoreSlim(limit, limit)
-
-                let run (job: unit -> Task<'T>) =
-                    task {
-                        do! gate.WaitAsync cancellationToken
-
-                        try
-                            return! job ()
-                        finally
-                            gate.Release() |> ignore
-                    }
-
-                return! jobs |> Array.map run |> Task.WhenAll
-            }
+        JobThrottle.throttled limit cancellationToken jobs
 
     /// Ok when `shots` can be honoured on `backend`: positive, and on a shot-sampling backend
     /// equal to the shots it measures per job (see the module notes).
@@ -166,15 +146,6 @@ module QuantumKernels =
 
             float allZeroCount / float shots
 
-    /// Execute kernel circuit and measure probability of |0...0⟩ state
-    [<Obsolete("Use measureKernelCircuitAsync for non-blocking I/O against cloud backends.")>]
-    let private measureKernelCircuit (backend: IQuantumBackend) (circuit: Circuit) (shots: int) : QuantumResult<float> =
-
-        // Execute via the shared primitive (Primitives.getState), then read P(|0…0⟩).
-        FSharp.Azure.Quantum.Primitives.getState backend circuit
-        |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Quantum backend execution failed: {e}"))
-        |> Result.map (fun state -> allZeroProbability backend state shots)
-
     /// Execute kernel circuit and measure probability of |0...0⟩ state asynchronously.
     /// Uses backend.ExecuteToStateAsync for non-blocking I/O.
     let private measureKernelCircuitAsync
@@ -193,38 +164,6 @@ module QuantumKernels =
                 | Error e -> Error(QuantumError.ValidationError("Input", $"Quantum backend execution failed: {e}"))
                 | Ok state -> Ok(allZeroProbability backend state shots)
         }
-
-    /// Compute quantum kernel value K(x, y) = |⟨φ(x)|φ(y)⟩|²
-    ///
-    /// Parameters:
-    ///   backend - Quantum backend for circuit execution
-    ///   featureMap - Quantum feature map (e.g., AngleEncoding)
-    ///   x - First feature vector
-    ///   y - Second feature vector
-    ///   shots - Number of measurement shots: samples of the exact state on a simulator; on a
-    ///           shot-sampling backend it must equal the backend's Shots (else an Error)
-    ///
-    /// Returns:
-    ///   Kernel value in [0, 1] or error message
-    [<Obsolete("Use computeKernelAsync for non-blocking I/O against cloud backends.")>]
-    let computeKernel
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (x: float array)
-        (y: float array)
-        (shots: int)
-        : QuantumResult<float> =
-
-        match validateShots backend shots with
-        | Error e -> Error e
-        | Ok() when x.Length = 0 -> Error(QuantumError.Other "Feature vectors cannot be empty")
-        | Ok() ->
-            result {
-                let! circuit = buildKernelCircuit featureMap x y
-
-                return!
-                    (measureKernelCircuitAsync backend circuit shots CancellationToken.None).GetAwaiter().GetResult()
-            }
 
     /// Compute quantum kernel value K(x, y) = |⟨φ(x)|φ(y)⟩|² asynchronously.
     /// Uses backend.ExecuteToStateAsync for non-blocking I/O. On a shot-sampling backend
@@ -250,83 +189,6 @@ module QuantumKernels =
     // ========================================================================
     // KERNEL MATRIX COMPUTATION
     // ========================================================================
-
-    /// Compute full kernel matrix for a dataset
-    ///
-    /// For dataset X = [x₁, x₂, ..., xₙ], computes matrix K where
-    /// K[i,j] = K(xᵢ, xⱼ) = |⟨φ(xᵢ)|φ(xⱼ)⟩|²
-    ///
-    /// The matrix is symmetric: K[i,j] = K[j,i]
-    ///
-    /// Parameters:
-    ///   backend - Quantum backend for circuit execution
-    ///   featureMap - Quantum feature map
-    ///   data - Array of feature vectors
-    ///   shots - Number of measurement shots per kernel evaluation
-    ///
-    /// Returns:
-    ///   Kernel matrix (n × n) or error message
-    [<Obsolete("Use computeKernelMatrixAsync for genuine task-based parallelism with cloud backends.")>]
-    let computeKernelMatrix
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (data: float array array)
-        (shots: int)
-        : QuantumResult<float[,]> =
-
-        // Shots are checked once, before any circuit is submitted.
-        match validateShots backend shots with
-        | Error e -> Error e
-        | Ok() when data.Length = 0 -> Error(QuantumError.Other "Dataset cannot be empty")
-        | Ok() ->
-            let n = data.Length
-
-            // Compute all unique kernel entries in parallel
-            // For symmetric matrix, only compute upper triangle (i,j) where j >= i
-            let uniquePairs =
-                [|
-                    for i in 0 .. n - 1 do
-                        for j in i .. n - 1 do
-                            yield (i, j)
-                |]
-
-            let computations =
-                uniquePairs
-                |> Array.map (fun (i, j) ->
-                    async {
-                        let! result =
-                            computeKernelAsync backend featureMap data.[i] data.[j] shots CancellationToken.None
-                            |> Async.AwaitTask
-
-                        return (i, j, result)
-                    })
-
-            // A sampling backend gets at most MaxConcurrentSampledJobs circuits at once.
-            let kernelEntries =
-                match maxConcurrency backend with
-                | Int32.MaxValue -> computations |> Async.Parallel |> Async.RunSynchronously
-                | limit ->
-                    Async.Parallel(computations, maxDegreeOfParallelism = limit)
-                    |> Async.RunSynchronously
-
-            // Check for errors first
-            match kernelEntries |> Array.tryFind (fun (_, _, r) -> Result.isError r) with
-            | Some(i, j, Error e) ->
-                Error(QuantumError.ValidationError("Input", $"Kernel computation failed at ({i},{j}): {e}"))
-            | _ ->
-                // Build symmetric matrix from successful results
-                let kernelMatrix = Array2D.zeroCreate n n
-
-                for (i, j, result) in kernelEntries do
-                    match result with
-                    | Ok kernelValue ->
-                        kernelMatrix.[i, j] <- kernelValue
-
-                        if i <> j then
-                            kernelMatrix.[j, i] <- kernelValue
-                    | Error _ -> () // Already handled above
-
-                Ok kernelMatrix
 
     /// Compute full kernel matrix for a dataset using Task.WhenAll.
     /// All upper-triangle kernel entries are computed concurrently via
@@ -384,87 +246,6 @@ module QuantumKernels =
 
                         Ok kernelMatrix
         }
-
-    /// Compute kernel matrix between train and test sets
-    ///
-    /// For train set X_train = [x₁, ..., xₘ] and test set X_test = [y₁, ..., yₙ],
-    /// computes matrix K where K[i,j] = K(yᵢ, xⱼ)
-    ///
-    /// This is used for prediction: test samples (rows) vs train samples (columns)
-    ///
-    /// Parameters:
-    ///   backend - Quantum backend
-    ///   featureMap - Quantum feature map
-    ///   trainData - Training feature vectors (m samples)
-    ///   testData - Test feature vectors (n samples)
-    ///   shots - Number of shots per kernel evaluation
-    ///
-    /// Returns:
-    ///   Kernel matrix (n × m) where n = test samples, m = train samples
-    [<Obsolete("Use computeKernelMatrixTrainTestAsync for genuine task-based parallelism with cloud backends.")>]
-    let computeKernelMatrixTrainTest
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (trainData: float array array)
-        (testData: float array array)
-        (shots: int)
-        : QuantumResult<float[,]> =
-
-        // Shots are checked once, before any circuit is submitted.
-        match validateShots backend shots with
-        | Error e -> Error e
-        | Ok() when trainData.Length = 0 -> Error(QuantumError.Other "Training dataset cannot be empty")
-        | Ok() when testData.Length = 0 -> Error(QuantumError.Other "Test dataset cannot be empty")
-        | Ok() ->
-            let nTest = testData.Length
-            let nTrain = trainData.Length
-
-            // 🚀 PARALLELIZED: Compute all kernel entries in parallel
-            // Each test-train pair is independent
-            let allPairs =
-                [|
-                    for i in 0 .. nTest - 1 do
-                        for j in 0 .. nTrain - 1 do
-                            yield (i, j)
-                |]
-
-            let computations =
-                allPairs
-                |> Array.map (fun (i, j) ->
-                    async {
-                        let! result =
-                            computeKernelAsync
-                                backend
-                                featureMap
-                                testData.[i]
-                                trainData.[j]
-                                shots
-                                CancellationToken.None
-                            |> Async.AwaitTask
-
-                        return (i, j, result)
-                    })
-
-            // A sampling backend gets at most MaxConcurrentSampledJobs circuits at once.
-            let kernelEntries =
-                match maxConcurrency backend with
-                | Int32.MaxValue -> computations |> Async.Parallel |> Async.RunSynchronously
-                | limit ->
-                    Async.Parallel(computations, maxDegreeOfParallelism = limit)
-                    |> Async.RunSynchronously
-
-            // Check for errors first
-            match kernelEntries |> Array.tryFind (fun (i, j, result) -> Result.isError result) with
-            | Some(i, j, Error e) ->
-                Error(QuantumError.ValidationError("Input", $"Kernel computation failed at test[{i}], train[{j}]: {e}"))
-            | _ ->
-                // Build matrix from successful results
-                let kernelMatrix = Array2D.zeroCreate nTest nTrain
-
-                for (i, j, result) in kernelEntries do
-                    result |> Result.iter (fun kernelValue -> kernelMatrix.[i, j] <- kernelValue) // Already handled above
-
-                Ok kernelMatrix
 
     /// Compute kernel matrix between train and test sets using Task.WhenAll.
     /// All test-train kernel pairs are computed concurrently; a sampling backend (cloud) gets

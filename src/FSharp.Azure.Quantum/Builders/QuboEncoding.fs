@@ -336,6 +336,8 @@ module QuboEncoding =
         qubo
 
     let decodeSolution (variables: Variable list) (binarySolution: int list) : Solution =
+        let solutionBits = List.toArray binarySolution
+
         // Decode binary solution back to variable assignments using fold to track offset
         let (assignments, _) =
             variables
@@ -343,7 +345,7 @@ module QuboEncoding =
                 (fun (accAssignments, offset) var ->
                     match var.VarType with
                     | BinaryVar ->
-                        let value = binarySolution.[offset]
+                        let value = solutionBits.[offset]
                         let assignment = { Name = var.Name; Value = value }
                         (assignment :: accAssignments, offset + 1)
 
@@ -351,7 +353,7 @@ module QuboEncoding =
                         // Use BoundedInteger decoding (binary representation)
                         let encoding = VariableEncoding.BoundedInteger(min, max)
                         let numBits = VariableEncoding.qubitCount encoding
-                        let bits = binarySolution.[offset .. offset + numBits - 1]
+                        let bits = solutionBits.[offset .. offset + numBits - 1] |> Array.toList
 
                         // Decode using BoundedInteger (LSB first binary encoding)
                         let value = VariableEncoding.decode encoding bits
@@ -361,7 +363,7 @@ module QuboEncoding =
 
                     | CategoricalVar categories ->
                         let numBits = categories.Length
-                        let bits = binarySolution.[offset .. offset + numBits - 1]
+                        let bits = solutionBits.[offset .. offset + numBits - 1] |> Array.toList
 
                         // Find which category is selected
                         let categoryIndex =

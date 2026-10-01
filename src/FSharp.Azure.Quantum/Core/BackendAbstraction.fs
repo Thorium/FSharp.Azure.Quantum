@@ -470,6 +470,45 @@ module BackendAbstraction =
         /// Shots per submitted circuit.
         abstract member Shots: int
 
+    /// Bounded fan-out of circuit jobs against one backend. On a sampling backend
+    /// (IShotSamplingBackend: cloud hardware, where every circuit is a separately queued and
+    /// billed job) at most MaxConcurrentSampledJobs run at once; simulators are not limited.
+    /// Every batch helper that fans out over one backend (kernel matrices, SVM predictions,
+    /// Primitives.sampleBatchAsync) goes through this, so the limit holds per batch.
+    module JobThrottle =
+
+        /// Circuit jobs a sampling backend has in flight at once.
+        [<Literal>]
+        let MaxConcurrentSampledJobs = 8
+
+        /// Jobs in flight at once on `backend`: MaxConcurrentSampledJobs on a sampling backend,
+        /// unlimited otherwise.
+        let maxConcurrency (backend: IQuantumBackend) : int =
+            match backend with
+            | :? IShotSamplingBackend -> MaxConcurrentSampledJobs
+            | _ -> System.Int32.MaxValue
+
+        /// Start `jobs` with at most `limit` running at once, results in job order.
+        let throttled (limit: int) (cancellationToken: CancellationToken) (jobs: (unit -> Task<'T>)[]) : Task<'T[]> =
+            if limit >= jobs.Length then
+                jobs |> Array.map (fun job -> job ()) |> Task.WhenAll
+            else
+                task {
+                    use gate = new SemaphoreSlim(limit, limit)
+
+                    let run (job: unit -> Task<'T>) =
+                        task {
+                            do! gate.WaitAsync cancellationToken
+
+                            try
+                                return! job ()
+                            finally
+                                gate.Release() |> ignore
+                        }
+
+                    return! jobs |> Array.map run |> Task.WhenAll
+                }
+
     /// Backend capabilities descriptor
     ///
     /// Describes what features a backend supports.

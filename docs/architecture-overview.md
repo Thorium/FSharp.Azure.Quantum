@@ -70,13 +70,13 @@ LAYER 4: Execution Backends
 - Use quantum algorithms directly (QAOA)
 - Take an optional backend: `None` means a new LocalBackend (simulation)
 - Recommended whenever the problem fits the backend
-- Example: `GraphColoring.solve problem 4 None` → LocalBackend (default)
+- Example: `GraphColoring.solveAsync problem 4 None cancellationToken` → LocalBackend (default)
 
 **Classical Solvers** (`TspSolver`, `PortfolioSolver`, and the classical paths of the MaxCut/Knapsack/Graph Coloring solvers):
 - Use CPU heuristics (Nearest Neighbor, Greedy, 2-opt)
 - **Only reached via HybridSolver** - their solve functions are internal
 - Used for problems below the advisor's thresholds, or when forced with `Some HybridSolver.Classical`
-- Example: `HybridSolver.solveTsp distances None None None` → Routes automatically
+- Example: `HybridSolver.solveTspAsync distances None None None cancellationToken` → Routes automatically
 
 ### Why Both?
 
@@ -97,7 +97,7 @@ High-Level Builders (`GraphColoring`, `MaxCut`, `TSP`, `Portfolio`, ...) provide
 
 **Direct Quantum Routing (Default):**
 ```
-User → GraphColoring.solve problem numColors backend
+User → GraphColoring.solveAsync problem numColors backend cancellationToken
          ↓
        Encode as QUBO
          ↓
@@ -107,14 +107,14 @@ User → GraphColoring.solve problem numColors backend
          ↓
        Decode Bitstring → Color Assignments
          ↓
-       Return QuantumResult<ColoringSolution>
+       Return Task<QuantumResult<ColoringSolution>>
 ```
 
 Problems that need more qubits than the backend offers return an `Error` naming the qubit count; only the solvers behind the business builders decompose automatically.
 
 **HybridSolver Routing (Optional):**
 ```
-User → HybridSolver.solveGraphColoring problem numColors budget timeout forceMethod
+User → HybridSolver.solveGraphColoringAsync problem numColors budget timeout forceMethod cancellationToken
          ↓
        forceMethod set? → run that method
          ↓
@@ -124,10 +124,10 @@ User → HybridSolver.solveGraphColoring problem numColors budget timeout forceM
          ↓
        Execute chosen method
          ↓
-       Return QuantumResult<HybridSolver.Solution<_>> with Method + Reasoning
+       Return Task<QuantumResult<HybridSolver.Solution<_>>> with Method + Reasoning
 ```
 
-The plain `solveX` functions pass no backend, so they only use quantum when forced; use the `solveXWithBackend` variants to let the advisor route to quantum.
+The plain `solveXAsync` functions pass no backend, so they only use quantum when forced; use the `solveXWithBackendAsync` variants to let the advisor route to quantum.
 
 **Benefits:**
 - ✅ **Direct Builders**: Simple quantum API, consistent across problem types
@@ -137,6 +137,7 @@ The plain `solveX` functions pass no backend, so they only use quantum when forc
 
 **Example:**
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 open FSharp.Azure.Quantum.Quantum
@@ -149,9 +150,11 @@ let problem = graphColoring {
     node "R4" ["R2"]
     colors ["Red"; "Green"; "Blue"]
 }
-match GraphColoring.solve problem 3 None with  // None = LocalBackend
-| Ok solution -> printfn "Colors Used: %d" solution.ColorsUsed
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 None CancellationToken.None with  // None = LocalBackend
+    | Ok solution -> printfn "Colors Used: %d" solution.ColorsUsed
+    | Error err -> printfn "Error: %s" err.Message
+}
 
 // HybridSolver (Optional) takes the solver-level problem type
 let hybridProblem: QuantumGraphColoringSolver.GraphColoringProblem =
@@ -163,12 +166,14 @@ let hybridProblem: QuantumGraphColoringSolver.GraphColoringProblem =
       NumColors = 3
       FixedColors = Map.empty }
 
-match HybridSolver.solveGraphColoring hybridProblem 3 None None None with
-| Ok solution -> 
-    printfn "Method: %A" solution.Method  // Shows Classical or Quantum
-    printfn "Reasoning: %s" solution.Reasoning
-    printfn "Colors Used: %d" solution.Result.ColorsUsed
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveGraphColoringAsync hybridProblem 3 None None None CancellationToken.None with
+    | Ok solution -> 
+        printfn "Method: %A" solution.Method  // Shows Classical or Quantum
+        printfn "Reasoning: %s" solution.Reasoning
+        printfn "Colors Used: %d" solution.Result.ColorsUsed
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ## Folder Structure
@@ -207,7 +212,7 @@ The topological and AWS Braket backends live in separate projects, `src/FSharp.A
 
 **Q: Should I use the high-level builders or HybridSolver?**
 
-A: **Use high-level builders directly** (`GraphColoring.solve`, `MaxCut.solve`, etc.) when you want quantum execution. They provide:
+A: **Use high-level builders directly** (`GraphColoring.solveAsync`, `MaxCut.solveAsync`, etc.) when you want quantum execution. They provide:
 - Consistent quantum API across problem types
 - LocalBackend simulation (free, memory-derived width)
 
@@ -270,20 +275,22 @@ let runAsync (backend: IQuantumBackend option) (ct: CancellationToken) =
 
 **Result Type Pattern**: Explicit error handling
 ```fsharp
-match GraphColoring.solve problem 3 None with
-| Ok solution -> 
-    // Process successful result
-    printfn "Colors used: %d" solution.ColorsUsed
-| Error err -> 
-    // Handle error gracefully
-    printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 None CancellationToken.None with
+    | Ok solution -> 
+        // Process successful result
+        printfn "Colors used: %d" solution.ColorsUsed
+    | Error err -> 
+        // Handle error gracefully
+        printfn "Error: %s" err.Message
+}
 ```
 
 ## Extending the Library
 
 **Add a High-Level Builder** (Recommended):
 1. Add a quantum solver under `Solvers/Quantum/` that encodes the problem as a QUBO/Ising model and runs QAOA (see `QuantumMaxCutSolver.fs`)
-2. Add the domain builder (computation expression or `createProblem` helpers and `solve`) next to the existing ones, e.g. `Solvers/Classical/MaxCutBuilder.fs`
+2. Add the domain builder (computation expression or `createProblem` helpers and `solveAsync`) next to the existing ones, e.g. `Solvers/Classical/MaxCutBuilder.fs`
 3. Use `ProblemDecomposition` if the problem can be split when it exceeds the backend's qubits
 4. Add to C# interop (`Builders/BuildersCSharpExtensions.fs`) if needed
 

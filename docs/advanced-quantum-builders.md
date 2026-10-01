@@ -1000,7 +1000,7 @@ match tGateProblem with
 
 ### Complexity
 
-QPE with n counting qubits resolves φ to 1/2^n using n controlled-U^(2^k) applications and an inverse QFT. Its advantage comes when U is a Hamiltonian evolution that a quantum computer can apply efficiently but a classical computer cannot simulate; the single-qubit gates here are for learning how QPE works. For a molecular Hamiltonian, `GroundStateMethod.QPE` (`QuantumChemistry.QPE.run`) phase-estimates the Trotterised e^(−iHt) of the molecule's integrals and reports every peak of the outcome distribution; see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md#quantum-phase-estimation-of-a-molecular-energy).
+QPE with n counting qubits resolves φ to 1/2^n using n controlled-U^(2^k) applications and an inverse QFT. Its advantage comes when U is a Hamiltonian evolution that a quantum computer can apply efficiently but a classical computer cannot simulate; the single-qubit gates here are for learning how QPE works. For a molecular Hamiltonian, `GroundStateMethod.QPE` (`QuantumChemistry.QPE.runAsync`) phase-estimates the Trotterised e^(−iHt) of the molecule's integrals and reports every peak of the outcome distribution; see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md#quantum-phase-estimation-of-a-molecular-energy).
 
 ### Precision vs. Qubits
 

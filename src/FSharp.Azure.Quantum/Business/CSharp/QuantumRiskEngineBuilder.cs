@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Microsoft.FSharp.Collections;
-using Microsoft.FSharp.Control;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.QuantumRiskEngineDSL;
 using static FSharp.Azure.Quantum.Core.BackendAbstraction;
@@ -149,16 +148,6 @@ public class QuantumRiskEngineBuilder
     }
 
     /// <summary>
-    /// Builds a risk configuration from the current settings and executes the risk engine.
-    /// </summary>
-    /// <returns>A computed <see cref="RiskReport"/>.</returns>
-    [Obsolete("Use BuildAndRunAsync for non-blocking execution against cloud backends")]
-    public RiskReport BuildAndRun()
-    {
-        return BuildAndRunAsync().GetAwaiter().GetResult();
-    }
-
-    /// <summary>
     /// Builds a risk configuration from the current settings and executes the risk engine
     /// without blocking the calling thread.
     /// </summary>
@@ -187,10 +176,7 @@ public class QuantumRiskEngineBuilder
             ? CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken.Value, cancellationToken)
             : null;
         var token = linked?.Token ?? cancellationToken;
-        var result = await FSharpAsync.StartAsTask(
-            RiskEngine.executeAsync(config),
-            FSharpOption<TaskCreationOptions>.None,
-            FSharpOption<CancellationToken>.Some(token)).ConfigureAwait(false);
+        var result = await RiskEngine.executeAsync(config, token).ConfigureAwait(false);
 
         if (result.IsError)
         {

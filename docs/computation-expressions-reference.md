@@ -8,9 +8,10 @@ Computation expressions give a declarative way to describe quantum problems, cir
 
 - **Problem builders** (`constraintSolver`, `patternMatcher`, `quantumTreeSearch`, `graphColoring`, `circuit`) return the problem or circuit and throw an exception if validation fails.
 - **Validated problem builders** (`periodFinder`, `phaseEstimator`, `quantumArithmetic`, `linearSystemSolver`) return `Result<Problem, QuantumError>`; pass the `Ok` value to the module's solve function.
-- **Run-on-evaluation builders** (the ML builders, `coverageOptimizer`, `resourcePairing`, `packingOptimizer`, `constraintScheduler`, `socialNetwork`, `quantumRiskEngine`, `drugDiscovery`) do the work when the CE is evaluated and return a `QuantumResult<_>` (that is, `Result<_, QuantumError>`).
+- **Run-on-evaluation builders** (the ML builders, `anomalyDetection`, `similaritySearch`, `coverageOptimizer`, `resourcePairing`, `packingOptimizer`, `constraintScheduler`, `socialNetwork`, `quantumRiskEngine`, `drugDiscovery`) start the work when the CE is evaluated and return a `Task<QuantumResult<_>>` (`QuantumResult<_>` is `Result<_, QuantumError>`); bind it with `let!` inside `task { }` or `quantumResultTask { }`.
 - **Configuration builders** (`coloredNode`, `resource`, `scheduledTask`, `scheduling`) return the record they build. `quantumChemistry` returns a `ChemistryProblem` and throws if a required operation is missing.
-- `optionPricing` returns `Async<QuantumResult<OptionPrice>>`; `topological` returns a program to pass to `TopologicalBuilder.execute`.
+- `optionPricing` runs when evaluated and returns `Task<QuantumResult<OptionPrice>>`; `topological` returns a program to pass to `TopologicalBuilder.execute`.
+- **Result builders** (`quantumResult`, `quantumResultTask`) chain steps that return `QuantumResult<_>` or `Task<QuantumResult<_>>`; see [Chaining Results](#chaining-results-quantumresult-and-quantumresulttask).
 
 ## Quick Reference Table
 
@@ -53,6 +54,7 @@ The examples on this page share these opens and a local simulator backend:
 
 ```fsharp
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -127,7 +129,7 @@ let node1 = coloredNode {
 
 **Module**: `FSharp.Azure.Quantum.GraphColoring`
 
-**Purpose**: Define a complete graph coloring problem. Returns a `GraphColoringProblem` (validated; invalid problems throw). Solve it with `GraphColoring.solve problem numColors backendOption`.
+**Purpose**: Define a complete graph coloring problem. Returns a `GraphColoringProblem` (validated; invalid problems throw). Solve it with `GraphColoring.solveAsync problem numColors backendOption cancellationToken`.
 
 **Example**:
 ```fsharp
@@ -139,9 +141,11 @@ let coloring = graphColoring {
     objective MinimizeColors
 }
 
-match GraphColoring.solve coloring 3 None with
-| Ok solution -> printfn "Colors used: %d, valid: %b" solution.ColorsUsed solution.IsValid
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync coloring 3 None CancellationToken.None with
+    | Ok solution -> printfn "Colors used: %d, valid: %b" solution.ColorsUsed solution.IsValid
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -497,7 +501,7 @@ let task2 = scheduledTask<string> {
 
 **Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders` (also re-exported from `FSharp.Azure.Quantum`)
 
-**Purpose**: Define a complete scheduling problem. Returns a `SchedulingProblem<'TTask, 'TResource>`; solve it with `solveQuantum backend problem` (returns `Async<QuantumResult<Solution>>`).
+**Purpose**: Define a complete scheduling problem. Returns a `SchedulingProblem<'TTask, 'TResource>`; solve it with `solveQuantumAsync backend problem cancellationToken` (returns `Task<QuantumResult<Solution>>`).
 
 **Example**:
 ```fsharp
@@ -508,9 +512,11 @@ let schedulingProblem = scheduling<string, string> {
     timeHorizon (hours 12.0)
 }
 
-match solveQuantum localBackend schedulingProblem |> Async.RunSynchronously with
-| Ok solution -> printfn "Makespan: %O" solution.Makespan
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! solveQuantumAsync localBackend schedulingProblem CancellationToken.None with
+    | Ok solution -> printfn "Makespan: %O" solution.Makespan
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -525,7 +531,7 @@ match solveQuantum localBackend schedulingProblem |> Async.RunSynchronously with
 
 **Module**: `FSharp.Azure.Quantum.Business.ConstraintScheduler`
 
-**Purpose**: Assign tasks to resources under hard constraints (conflicts, required resources, precedence) and weighted preferences. Solves when evaluated and returns `QuantumResult<SchedulingResult>`.
+**Purpose**: Assign tasks to resources under hard constraints (conflicts, required resources, precedence) and weighted preferences. Solves when evaluated and returns `Task<QuantumResult<SchedulingResult>>`.
 
 **Example**:
 ```fsharp
@@ -540,9 +546,11 @@ let shiftPlan = constraintScheduler {
     optimizeFor MinimizeCost
 }
 
-match shiftPlan with
-| Ok result -> printfn "%s" result.Message
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! shiftPlan with
+    | Ok result -> printfn "%s" result.Message
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -565,7 +573,7 @@ match shiftPlan with
 
 **Module**: `FSharp.Azure.Quantum.Business.AnomalyDetector`
 
-**Purpose**: Detect outliers with a quantum-kernel detector trained on normal examples only. Trains when evaluated and returns `QuantumResult<Detector>`.
+**Purpose**: Detect outliers with a quantum-kernel detector trained on normal examples only. Trains when evaluated and returns `Task<QuantumResult<Detector>>`.
 
 **Example**:
 ```fsharp
@@ -577,20 +585,22 @@ let normalTransactions : float[][] =
 
 let suspiciousTransaction = [| 0.90; 0.95 |]
 
-let detector = anomalyDetection {
-    trainOnNormalData normalTransactions
-    sensitivity High
-    contaminationRate 0.1
-    shots 1000
-}
+task {
+    let! detector = anomalyDetection {
+        trainOnNormalData normalTransactions
+        sensitivity High
+        contaminationRate 0.1
+        shots 1000
+    }
 
-match detector with
-| Ok model ->
-    match AnomalyDetector.check suspiciousTransaction model with
-    | Ok result when result.IsAnomaly -> printfn "Anomaly detected. Score: %.2f" result.AnomalyScore
-    | Ok _ -> printfn "Looks normal"
-    | Error err -> printfn "Check failed: %s" err.Message
-| Error err -> printfn "Training failed: %s" err.Message
+    match detector with
+    | Ok model ->
+        match! AnomalyDetector.checkAsync suspiciousTransaction model CancellationToken.None with
+        | Ok result when result.IsAnomaly -> printfn "Anomaly detected. Score: %.2f" result.AnomalyScore
+        | Ok _ -> printfn "Looks normal"
+        | Error err -> printfn "Check failed: %s" err.Message
+    | Error err -> printfn "Training failed: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -605,7 +615,7 @@ match detector with
 - `progressReporter` - Progress reporter (default: none)
 - `cancellationToken` - Cancellation token (default: none)
 
-Other functions: `AnomalyDetector.checkBatch`, `explain`, `save`, `load`.
+Other functions: `AnomalyDetector.checkBatchAsync`, `explain`, `save`, `load`.
 
 **Use Cases**: fraud detection, security monitoring, quality control, system monitoring.
 
@@ -615,7 +625,7 @@ Other functions: `AnomalyDetector.checkBatch`, `explain`, `save`, `load`.
 
 **Module**: `FSharp.Azure.Quantum.Business.AutoML`
 
-**Purpose**: Try several model types, architectures and hyperparameters and return the best model. Runs the search when evaluated and returns `QuantumResult<AutoMLResult>`.
+**Purpose**: Try several model types, architectures and hyperparameters and return the best model. Runs the search when evaluated and returns `Task<QuantumResult<AutoMLResult>>`.
 
 **Example**:
 ```fsharp
@@ -642,13 +652,15 @@ let autoMLResult = autoML {
     verbose true
 }
 
-match autoMLResult with
-| Ok best ->
-    printfn "Best model: %s (score %.2f)" best.BestModelType best.Score
-    match AutoML.predict [| 0.2; 0.2 |] best with
-    | Ok prediction -> printfn "Prediction: %A" prediction
-    | Error err -> printfn "Prediction failed: %s" err.Message
-| Error err -> printfn "AutoML failed: %s" err.Message
+task {
+    match! autoMLResult with
+    | Ok best ->
+        printfn "Best model: %s (score %.2f)" best.BestModelType best.Score
+        match! AutoML.predictAsync [| 0.2; 0.2 |] best CancellationToken.None with
+        | Ok prediction -> printfn "Prediction: %A" prediction
+        | Error err -> printfn "Prediction failed: %s" err.Message
+    | Error err -> printfn "AutoML failed: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -675,7 +687,7 @@ match autoMLResult with
 
 **Module**: `FSharp.Azure.Quantum.Business.BinaryClassifier`
 
-**Purpose**: Classify items into two categories. Trains when evaluated and returns `QuantumResult<Classifier>`.
+**Purpose**: Classify items into two categories. Trains when evaluated and returns `Task<QuantumResult<Classifier>>`.
 
 **Example**:
 ```fsharp
@@ -692,13 +704,15 @@ let classifier = binaryClassification {
     shots 1000
 }
 
-match classifier with
-| Ok model ->
-    match BinaryClassifier.predict [| 0.9; 0.9 |] model with
-    | Ok prediction when prediction.IsPositive -> printfn "Positive (confidence %.2f)" prediction.Confidence
-    | Ok _ -> printfn "Negative"
-    | Error err -> printfn "Prediction failed: %s" err.Message
-| Error err -> printfn "Training failed: %s" err.Message
+task {
+    match! classifier with
+    | Ok model ->
+        match! BinaryClassifier.predictAsync [| 0.9; 0.9 |] model CancellationToken.None with
+        | Ok prediction when prediction.IsPositive -> printfn "Positive (confidence %.2f)" prediction.Confidence
+        | Ok _ -> printfn "Negative"
+        | Error err -> printfn "Prediction failed: %s" err.Message
+    | Error err -> printfn "Training failed: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -715,7 +729,7 @@ match classifier with
 - `progressReporter` - Progress reporter (default: none)
 - `cancellationToken` - Cancellation token (default: none)
 
-Other functions: `BinaryClassifier.evaluate`, `save`, `load`.
+Other functions: `BinaryClassifier.evaluateAsync`, `saveAsync`, `load`.
 
 **Use Cases**: fraud detection, spam filtering, churn prediction (yes/no), credit approval, pass/fail quality control.
 
@@ -725,7 +739,7 @@ Other functions: `BinaryClassifier.evaluate`, `save`, `load`.
 
 **Module**: `FSharp.Azure.Quantum.Business.PredictiveModel`
 
-**Purpose**: Predict continuous values (regression) or categories (multi-class classification). Trains when evaluated and returns `QuantumResult<Model>`.
+**Purpose**: Predict continuous values (regression) or categories (multi-class classification). Trains when evaluated and returns `Task<QuantumResult<Model>>`.
 
 **Example**:
 ```fsharp
@@ -751,16 +765,18 @@ let churnModel = predictiveModel {
     shots 1000
 }
 
-match churnModel with
-| Ok model ->
-    match PredictiveModel.predictCategory [| 0.8; 0.9 |] model None None with
-    | Ok prediction when prediction.Category = 0 -> printfn "Customer will stay"
-    | Ok prediction -> printfn "Churn risk, category %d" prediction.Category
-    | Error err -> printfn "Prediction failed: %s" err.Message
-| Error err -> printfn "Training failed: %s" err.Message
+task {
+    match! churnModel with
+    | Ok model ->
+        match! PredictiveModel.predictCategoryAsync [| 0.8; 0.9 |] model None None CancellationToken.None with
+        | Ok prediction when prediction.Category = 0 -> printfn "Customer will stay"
+        | Ok prediction -> printfn "Churn risk, category %d" prediction.Category
+        | Error err -> printfn "Prediction failed: %s" err.Message
+    | Error err -> printfn "Training failed: %s" err.Message
+}
 ```
 
-`PredictiveModel.predict features model backend shots` returns a regression prediction; `predictCategory` returns a category. Pass `None` for the backend and shots to use the model's own settings.
+`PredictiveModel.predictAsync features model backend shots cancellationToken` returns a regression prediction; `predictCategoryAsync` returns a category. Pass `None` for the backend and shots to use the model's own settings.
 
 **Custom Operations**:
 - `trainWith features targets` - Features (`float[][]`) and targets (`float[]`; class indices for multi-class)
@@ -787,7 +803,7 @@ match churnModel with
 
 **Module**: `FSharp.Azure.Quantum.Business.SimilaritySearch`
 
-**Purpose**: Index items by feature vectors and find similar items. Builds the index when evaluated and returns `QuantumResult<SearchIndex<'T>>`.
+**Purpose**: Index items by feature vectors and find similar items. Builds the index when evaluated and returns `Task<QuantumResult<SearchIndex<'T>>>`.
 
 **Example**:
 ```fsharp
@@ -800,21 +816,23 @@ let productCatalog : (Product * float[])[] =
        { Sku = "B" }, [| 0.8; 0.2 |]
        { Sku = "C" }, [| 0.1; 0.9 |] |]
 
-let finder = similaritySearch<Product> {
-    indexItems productCatalog
-    similarityMetric Cosine
-    threshold 0.7
-    shots 1000
-}
+task {
+    let! finder = similaritySearch<Product> {
+        indexItems productCatalog
+        similarityMetric Cosine
+        threshold 0.7
+        shots 1000
+    }
 
-match finder with
-| Ok index ->
-    match SimilaritySearch.findSimilar { Sku = "query" } [| 0.85; 0.15 |] 2 index with
-    | Ok results ->
-        for m in results.Matches do
-            printfn "  %s: %.2f similar" m.Item.Sku m.Similarity
-    | Error err -> printfn "Search failed: %s" err.Message
-| Error err -> printfn "Indexing failed: %s" err.Message
+    match finder with
+    | Ok index ->
+        match! SimilaritySearch.findSimilarAsync { Sku = "query" } [| 0.85; 0.15 |] 2 index CancellationToken.None with
+        | Ok results ->
+            for m in results.Matches do
+                printfn "  %s: %.2f similar" m.Item.Sku m.Similarity
+        | Error err -> printfn "Search failed: %s" err.Message
+    | Error err -> printfn "Indexing failed: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -829,7 +847,7 @@ match finder with
 - `progressReporter` - Progress reporter (default: none)
 - `cancellationToken` - Cancellation token (default: none)
 
-Other functions: `SimilaritySearch.findAllSimilar`, `findDuplicates`, `cluster`, `save`, `load`.
+Other functions: `SimilaritySearch.findAllSimilarAsync`, `findDuplicatesAsync`, `cluster`, `save`, `load`.
 
 **Use Cases**: product recommendations, duplicate detection, content similarity, clustering.
 
@@ -839,10 +857,11 @@ Other functions: `SimilaritySearch.findAllSimilar`, `findDuplicates`, `cluster`,
 
 **Module**: `FSharp.Azure.Quantum.Business.OptionPricing`
 
-**Purpose**: Price European and Asian options with quantum Monte Carlo (amplitude estimation). Returns `Async<QuantumResult<OptionPrice>>`.
+**Purpose**: Price European and Asian options with quantum Monte Carlo (amplitude estimation). Returns `Task<QuantumResult<OptionPrice>>`.
 
 **Example**:
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business.OptionPricing
 
 let pricing = optionPricing {
@@ -858,9 +877,11 @@ let pricing = optionPricing {
     backend localBackend
 }
 
-match pricing |> Async.RunSynchronously with
-| Ok price -> printfn "Option price: %.4f (±%.4f)" price.Price price.ConfidenceInterval
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! pricing with
+    | Ok price -> printfn "Option price: %.4f (±%.4f)" price.Price price.ConfidenceInterval
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -884,15 +905,19 @@ match pricing |> Async.RunSynchronously with
 
 **Notes**:
 - Uses Möttönen state preparation to encode the price distribution.
-- The price is the maximum-likelihood amplitude estimate (`QuantumMonteCarlo.estimateBoundedExpectation`) over Grover powers 0, 1, 2, 4, … up to `iterations`, and the interval is 1.96 × its standard error. On a cloud backend every power is one whole-circuit job and its probability comes from the job's counts; the method name then says "whole circuits sampled at N shots".
+- The price is the maximum-likelihood amplitude estimate (`QuantumMonteCarlo.estimateBoundedExpectationAsync`) over Grover powers 0, 1, 2, 4, … up to `iterations`, and the interval is 1.96 × its standard error. On a cloud backend every power is one whole-circuit job and its probability comes from the job's counts; the method name then says "whole circuits sampled at N shots".
 - In theory amplitude estimation needs O(1/ε) oracle queries for accuracy ε, where classical Monte Carlo needs O(1/ε²) samples. The local simulator does not show that advantage; the `Speedup` field of the result is the theoretical factor, not a measured one.
 
 **Greeks Calculation**:
 ```fsharp
+open System.Threading
+
 // Option sensitivities (Delta, Gamma, Vega, Theta, Rho)
-match OptionPricing.greeksEuropeanCall 100.0 105.0 0.05 0.2 1.0 localBackend |> Async.RunSynchronously with
-| Ok greeks -> printfn "Delta %.4f, Gamma %.4f, Vega %.4f" greeks.Delta greeks.Gamma greeks.Vega
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! OptionPricing.greeksEuropeanCallAsync 100.0 105.0 0.05 0.2 1.0 localBackend CancellationToken.None with
+    | Ok greeks -> printfn "Delta %.4f, Gamma %.4f, Vega %.4f" greeks.Delta greeks.Gamma greeks.Vega
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ---
@@ -901,7 +926,7 @@ match OptionPricing.greeksEuropeanCall 100.0 105.0 0.05 0.2 1.0 localBackend |> 
 
 **Module**: `FSharp.Azure.Quantum.Business` (the builder is auto-opened)
 
-**Purpose**: Portfolio risk metrics. Runs synchronously when evaluated and returns `QuantumResult<RiskReport>`.
+**Purpose**: Portfolio risk metrics. Runs when evaluated and returns `Task<QuantumResult<RiskReport>>`.
 
 **Example**:
 ```fsharp
@@ -914,16 +939,18 @@ let riskReport = quantumRiskEngine {
     backend localBackend
 }
 
-match riskReport with
-| Ok report -> printfn "VaR: %A, CVaR: %A" report.VaR report.CVaR
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! riskReport with
+    | Ok report -> printfn "VaR: %A, CVaR: %A" report.VaR report.CVaR
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Custom Operations**:
 - `load_market_data` - Path to a file of returns. Without it the engine uses generated sample returns
 - `set_confidence_level` - Confidence level (default 0.95)
 - `set_simulation_paths` - Number of simulation paths (default 10000)
-- `use_amplitude_estimation` - Use quantum amplitude estimation (default false); each metric is estimated with `QuantumMonteCarlo.estimateBoundedExpectation`, as whole-circuit jobs on a cloud backend
+- `use_amplitude_estimation` - Use quantum amplitude estimation (default false); each metric is estimated with `QuantumMonteCarlo.estimateBoundedExpectationAsync`, as whole-circuit jobs on a cloud backend
 - `use_error_mitigation` - Enable error mitigation (default false)
 - `calculate_metric` - Add a metric: `ValueAtRisk` | `ConditionalVaR` | `ExpectedShortfall` | `Volatility`
 - `cancellation_token` - Cancellation token
@@ -938,7 +965,7 @@ match riskReport with
 
 **Module**: `FSharp.Azure.Quantum.Business` (the builder is auto-opened)
 
-**Purpose**: Virtual screening of candidate molecules. Runs when evaluated and returns `QuantumResult<ScreeningResult>`.
+**Purpose**: Virtual screening of candidate molecules. Runs when evaluated and returns `Task<QuantumResult<ScreeningResult>>`.
 
 **Example**:
 ```fsharp
@@ -950,9 +977,11 @@ let screening = drugDiscovery {
     shots 100
 }
 
-match screening with
-| Ok result -> printfn "%s (%d molecules)" result.Message result.MoleculesProcessed
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! screening with
+    | Ok result -> printfn "%s (%d molecules)" result.Message result.MoleculesProcessed
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -991,9 +1020,11 @@ let program = topological isingBackend {
     return outcome
 }
 
-match (TopologicalBuilder.execute isingBackend program).Result with
-| Ok particle -> printfn "Measured: %A" particle
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! TopologicalBuilder.execute isingBackend program with
+    | Ok particle -> printfn "Measured: %A" particle
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Builder functions** (use with `do!` for operations and `let!` for values):
@@ -1018,10 +1049,11 @@ match (TopologicalBuilder.execute isingBackend program).Result with
 
 **Module**: `FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder`
 
-**Purpose**: Ground state energy calculations with VQE, or with quantum phase estimation (`groundStateMethod GroundStateMethod.QPE`). The CE returns a `ChemistryProblem` and throws if `molecule` (or a `molecule_from_*` operation) or `basis` is missing, or `ansatz` is missing for VQE. `solve problem` returns `Async<Result<ChemistryResult, QuantumError>>`.
+**Purpose**: Ground state energy calculations with VQE, or with quantum phase estimation (`groundStateMethod GroundStateMethod.QPE`). The CE returns a `ChemistryProblem` and throws if `molecule` (or a `molecule_from_*` operation) or `basis` is missing, or `ansatz` is missing for VQE. `solveAsync problem cancellationToken` returns `Task<Result<ChemistryResult, QuantumError>>`.
 
 **Example**:
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 
 // H2 at 0.74 Å bond length
@@ -1031,13 +1063,16 @@ let h2Problem = quantumChemistry {
     ansatz UCCSD
 }
 
-match solve h2Problem |> Async.RunSynchronously with
-| Ok result -> printfn "Ground state energy: %.6f Ha" result.GroundStateEnergy
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! solveAsync h2Problem CancellationToken.None with
+    | Ok result -> printfn "Ground state energy: %.6f Ha" result.GroundStateEnergy
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 The same molecule by quantum phase estimation (12 qubits, about 7 s on the local simulator):
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry
 
 let h2Qpe = quantumChemistry {
@@ -1046,17 +1081,19 @@ let h2Qpe = quantumChemistry {
     groundStateMethod GroundStateMethod.QPE
 }
 
-match solve h2Qpe |> Async.RunSynchronously with
-| Ok result ->
-    printfn "QPE energy: %.6f Ha (%A)" result.GroundStateEnergy result.Source
-    result.Notes |> List.iter (printfn "  %s")
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! solveAsync h2Qpe CancellationToken.None with
+    | Ok result ->
+        printfn "QPE energy: %.6f Ha (%A)" result.GroundStateEnergy result.Source
+        result.Notes |> List.iter (printfn "  %s")
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Custom Operations**:
 - `molecule mol` - Molecule instance
-- `molecule_from_xyz path` - Load the molecule from an XYZ file (read in `solve`)
-- `molecule_from_fcidump path` - Run VQE on an FCIDump file's integrals (read in `solve`; the molecule is a placeholder, since the file has no geometry)
+- `molecule_from_xyz path` - Load the molecule from an XYZ file (read in `solveAsync`)
+- `molecule_from_fcidump path` - Run VQE on an FCIDump file's integrals (read in `solveAsync`; the molecule is a placeholder, since the file has no geometry)
 - `molecule_from_provider provider name` - Load the molecule from a dataset provider
 - `molecule_from_name name` - Load the molecule from the built-in molecule library
 - `basis basisSet` - Basis set name (required)
@@ -1065,9 +1102,9 @@ match solve h2Qpe |> Async.RunSynchronously with
 - `maxIterations n` - Maximum VQE iterations (default: 100)
 - `initialParameters params` - Initial UCCSD amplitudes for a warm start (the count must match the ansatz)
 - `integralProvider provider` - Molecular integrals for VQE (a PySCF/Psi4 wrapper, `FciDumpIntegrals.fromFile`, ...)
-- `groundStateMethod method` - `GroundStateMethod.QPE` runs quantum phase estimation of the Trotterised time evolution (`QPE.runWith QPE.defaultSettings` in the problem's basis; no `ansatz` needed); `VQE`, `Automatic` or no method runs UCCSD-VQE
+- `groundStateMethod method` - `GroundStateMethod.QPE` runs quantum phase estimation of the Trotterised time evolution (`QPE.runWithAsync QPE.defaultSettings` in the problem's basis; no `ansatz` needed); `VQE`, `Automatic` or no method runs UCCSD-VQE
 
-**Current behaviour of `solve`**: it runs UCCSD-VQE on the local simulator, or quantum phase estimation with `groundStateMethod GroundStateMethod.QPE` (see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md) for its design and accuracy). The integrals come from `integralProvider`, else from the `molecule_from_fcidump` file, else from `VQE.run`'s own selection. That selection is integrals the library computes for molecules of H and He atoms, an `Error` for H2O and LiH, and the empirical prototype Hamiltonian otherwise. `basis` chooses the basis of the computed integrals. STO-3G and 6-31G are supported; any other basis is an `Error`. Integrals from a provider or an FCIDUMP file carry their own basis. The result's `Source` says which integrals were used. The `ansatz` value and the optimizer name are stored in the problem (`ansatz` is required), but `solve` does not use them yet: with integrals it runs UCCSD with its own BFGS optimizer. `maxIterations` and `initialParameters` are used. `optimizer` copies the iteration count at the point where it appears, so put `maxIterations` before `optimizer`.
+**Current behaviour of `solveAsync`**: it runs UCCSD-VQE on the local simulator, or quantum phase estimation with `groundStateMethod GroundStateMethod.QPE` (see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md) for its design and accuracy). The integrals come from `integralProvider`, else from the `molecule_from_fcidump` file, else from `VQE.runAsync`'s own selection. That selection is integrals the library computes for molecules of H and He atoms, an `Error` for H2O and LiH, and the empirical prototype Hamiltonian otherwise. `basis` chooses the basis of the computed integrals. STO-3G and 6-31G are supported; any other basis is an `Error`. Integrals from a provider or an FCIDUMP file carry their own basis. The result's `Source` says which integrals were used. The `ansatz` value and the optimizer name are stored in the problem (`ansatz` is required), but `solveAsync` does not use them yet: with integrals it runs UCCSD with its own BFGS optimizer. `maxIterations` and `initialParameters` are used. `optimizer` copies the iteration count at the point where it appears, so put `maxIterations` before `optimizer`.
 
 **Pre-built molecules**:
 ```fsharp
@@ -1114,7 +1151,7 @@ let fromLibrary = quantumChemistry {
 
 **Module**: `FSharp.Azure.Quantum.Business.CoverageOptimizer`
 
-**Purpose**: Set coverage: select the cheapest options that together cover every required element (shifts, facilities, service packages). Solves when evaluated and returns `QuantumResult<CoverageResult>`.
+**Purpose**: Set coverage: select the cheapest options that together cover every required element (shifts, facilities, service packages). Solves when evaluated and returns `Task<QuantumResult<CoverageResult>>`.
 
 **Example**:
 ```fsharp
@@ -1130,11 +1167,13 @@ let coverage = coverageOptimizer {
     backend localBackend
 }
 
-match coverage with
-| Ok r ->
-    printfn "Selected %d options, total cost: %.2f" r.SelectedOptions.Length r.TotalCost
-    printfn "Coverage: %d/%d elements" r.ElementsCovered r.TotalElements
-| Error err -> printfn "Coverage optimization failed: %s" err.Message
+task {
+    match! coverage with
+    | Ok r ->
+        printfn "Selected %d options, total cost: %.2f" r.SelectedOptions.Length r.TotalCost
+        printfn "Coverage: %d/%d elements" r.ElementsCovered r.TotalElements
+    | Error err -> printfn "Coverage optimization failed: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -1154,7 +1193,7 @@ match coverage with
 
 **Module**: `FSharp.Azure.Quantum.Business.ResourcePairing`
 
-**Purpose**: 1:1 pairing of participants that maximizes total compatibility. Solves when evaluated and returns `QuantumResult<PairingResult>`.
+**Purpose**: 1:1 pairing of participants that maximizes total compatibility. Solves when evaluated and returns `Task<QuantumResult<PairingResult>>`.
 
 **Example**:
 ```fsharp
@@ -1172,12 +1211,14 @@ let pairing = resourcePairing {
     backend localBackend
 }
 
-match pairing with
-| Ok r ->
-    printfn "Found %d pairings, total score: %.2f" r.Pairings.Length r.TotalScore
-    for p in r.Pairings do
-        printfn "  %s <-> %s (%.2f)" p.Participant1 p.Participant2 p.Weight
-| Error err -> printfn "Resource pairing failed: %s" err.Message
+task {
+    match! pairing with
+    | Ok r ->
+        printfn "Found %d pairings, total score: %.2f" r.Pairings.Length r.TotalScore
+        for p in r.Pairings do
+            printfn "  %s <-> %s (%.2f)" p.Participant1 p.Participant2 p.Weight
+    | Error err -> printfn "Resource pairing failed: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -1197,7 +1238,7 @@ match pairing with
 
 **Module**: `FSharp.Azure.Quantum.Business.PackingOptimizer`
 
-**Purpose**: Bin packing: assign items to bins so that as few bins as possible are used. Solves when evaluated and returns `QuantumResult<PackingResult>`.
+**Purpose**: Bin packing: assign items to bins so that as few bins as possible are used. Solves when evaluated and returns `Task<QuantumResult<PackingResult>>`.
 
 **Example**:
 ```fsharp
@@ -1214,12 +1255,14 @@ let packing = packingOptimizer {
     backend localBackend
 }
 
-match packing with
-| Ok r ->
-    printfn "Packed %d items into %d bins" r.ItemsAssigned r.BinsUsed
-    for a in r.Assignments do
-        printfn "  %s (size %.1f) -> Bin %d" a.Item.Id a.Item.Size a.BinIndex
-| Error err -> printfn "Packing optimization failed: %s" err.Message
+task {
+    match! packing with
+    | Ok r ->
+        printfn "Packed %d items into %d bins" r.ItemsAssigned r.BinsUsed
+        for a in r.Assignments do
+            printfn "  %s (size %.1f) -> Bin %d" a.Item.Id a.Item.Size a.BinIndex
+    | Error err -> printfn "Packing optimization failed: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -1238,7 +1281,7 @@ match packing with
 
 **Module**: `FSharp.Azure.Quantum.Business.SocialNetworkAnalyzer`
 
-**Purpose**: Find communities, a minimum monitor set, or pairings in a network of people. Solves when evaluated and returns `QuantumResult<SocialNetworkResult>`.
+**Purpose**: Find communities, a minimum monitor set, or pairings in a network of people. Solves when evaluated and returns `Task<QuantumResult<SocialNetworkResult>>`.
 
 **Example**:
 ```fsharp
@@ -1250,9 +1293,11 @@ let analysis = socialNetwork {
     findLargestCommunity
 }
 
-match analysis with
-| Ok result -> printfn "%s" result.Message
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! analysis with
+    | Ok result -> printfn "%s" result.Message
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **Custom Operations**:
@@ -1323,6 +1368,31 @@ let onBackend (qpu: IQuantumBackend) = periodFinder {
 | `periodFinder`, `linearSystemSolver` | not used | |
 | ML builders, `optionPricing`, `coverageOptimizer`, `resourcePairing`, `packingOptimizer`, `constraintScheduler` | 1000 | |
 | `quantumRiskEngine`, `drugDiscovery` | 100 | |
+
+### Chaining Results: quantumResult and quantumResultTask
+
+`quantumResult { }` (in `FSharp.Azure.Quantum.Core`) chains steps that return `QuantumResult<'T>`: each `let!` continues with the `Ok` value and the first `Error` ends the computation. `quantumResultTask { }` is its asynchronous twin and yields a `Task<QuantumResult<'T>>`:
+
+- `let!`, `do!` and `return!` take a `Task<QuantumResult<'T>>` (the `...Async` functions and the run-on-evaluation builders above, `optionPricing` included), an `Async<QuantumResult<'T>>`, a plain `QuantumResult<'T>` (the validated problem builders), or a `Task<'T>` / `Async<'T>`, whose value is bound as `Ok`.
+- The first `Error` short-circuits the rest of the block.
+- An exception faults the task unless a `try ... with` inside the block catches it; the handler returns an error with `return! Error ...`.
+
+```fsharp
+open System.Threading.Tasks
+
+let bestPrediction (ct: CancellationToken) : Task<QuantumResult<AutoML.Prediction>> =
+    quantumResultTask {
+        let! best = autoML {
+            trainWith features labels
+            maxTrials 5
+            cancellationToken ct
+        }
+
+        return! AutoML.predictAsync [| 0.2; 0.2 |] best ct
+    }
+```
+
+Inside the ML builders, `cancellationToken` is the name of a custom operation, so the token parameter above is called `ct`. See the [QuantumResult Builder Guide](quantumresult-builder-guide.md) for more.
 
 ### Progress Reporting and Cancellation
 

@@ -378,7 +378,7 @@ module MolecularData =
                             }
                         else
                             let ringNum =
-                                if token.StartsWith "%" then
+                                if token.StartsWith '%' then
                                     Int32.Parse(token.AsSpan 1)
                                 else
                                     Int32.Parse(token)

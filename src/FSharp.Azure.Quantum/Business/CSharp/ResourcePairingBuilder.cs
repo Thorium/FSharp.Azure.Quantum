@@ -133,17 +133,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             return PairingResultWrapper.Convert(result.ResultValue);
         }
 
-        /// <summary>
-        /// Builds and executes the pairing optimization, blocking until it completes.
-        /// Returns a C#-native result with no F# types exposed.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
-        /// <returns>A <see cref="PairingOptimizationResult"/> with the optimal pairings.</returns>
-        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
-        public PairingOptimizationResult Build()
-        {
-            return BuildAsync().GetAwaiter().GetResult();
-        }
     }
 
     // ========================================================================

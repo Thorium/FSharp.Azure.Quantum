@@ -19,7 +19,7 @@ Every builder runs its quantum path on the backend you give it, or on the local 
 
 **Target Audience:** Business analysts, data scientists and application developers who want to try quantum methods without quantum expertise.
 
-All builders live under `FSharp.Azure.Quantum.Business`. Most return a `QuantumResult<'T>` (`Result<'T, QuantumError>`) from the computation expression itself: the work (training, search, optimization) runs when the expression is evaluated.
+All builders live under `FSharp.Azure.Quantum.Business`. Most return a `Task<QuantumResult<'T>>` (a task of `Result<'T, QuantumError>`) from the computation expression itself: the work (training, search, optimization) runs when the expression is evaluated, and you bind the result with `let!` inside `task { }`.
 
 ## Available Builders
 
@@ -59,6 +59,7 @@ AutoML tries several model types, architectures and hyperparameter settings on y
 ### API Reference
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.AutoML
 
@@ -69,29 +70,31 @@ let features = [|
 |]
 let labels = [| 0.0; 0.0; 0.0; 0.0; 0.0; 1.0; 1.0; 1.0; 1.0; 1.0 |]
 
-// Minimal usage - "zero config ML"
-let result = autoML {
-    trainWith features labels
+task {
+    // Minimal usage - "zero config ML"
+    let! result = autoML {
+        trainWith features labels
+    }
+
+    match result with
+    | Ok automlResult ->
+        printfn "Best Model: %s" automlResult.BestModelType
+        printfn "Architecture: %A" automlResult.BestArchitecture
+        printfn "Validation Score: %.2f%%" (automlResult.Score * 100.0)
+        printfn "Search Time: %.1fs" automlResult.TotalSearchTime.TotalSeconds
+
+        // Use the best model for predictions
+        let newData = [| 0.75; 0.85 |]
+        match! AutoML.predictAsync newData automlResult CancellationToken.None with
+        | Ok (BinaryPrediction p) -> printfn "Class %d (confidence %.2f)" p.Label p.Confidence
+        | Ok other -> printfn "Prediction: %A" other
+        | Error err -> eprintfn "Prediction failed: %s" err.Message
+
+    | Error err -> eprintfn "AutoML failed: %s" err.Message
 }
-
-match result with
-| Ok automlResult ->
-    printfn "Best Model: %s" automlResult.BestModelType
-    printfn "Architecture: %A" automlResult.BestArchitecture
-    printfn "Validation Score: %.2f%%" (automlResult.Score * 100.0)
-    printfn "Search Time: %.1fs" automlResult.TotalSearchTime.TotalSeconds
-
-    // Use the best model for predictions
-    let newData = [| 0.75; 0.85 |]
-    match AutoML.predict newData automlResult with
-    | Ok (BinaryPrediction p) -> printfn "Class %d (confidence %.2f)" p.Label p.Confidence
-    | Ok other -> printfn "Prediction: %A" other
-    | Error err -> eprintfn "Prediction failed: %s" err.Message
-
-| Error err -> eprintfn "AutoML failed: %s" err.Message
 ```
 
-`AutoML.predict` returns a `Prediction` union with one case per model type: `BinaryPrediction`, `CategoryPrediction`, `RegressionPrediction`, `AnomalyPrediction` and `SimilarityPrediction`. The trained model itself is in `automlResult.Model`.
+`AutoML.predictAsync` yields a `Prediction` union with one case per model type: `BinaryPrediction`, `CategoryPrediction`, `RegressionPrediction`, `AnomalyPrediction` and `SimilarityPrediction`. The trained model itself is in `automlResult.Model`.
 
 ### Configuration Options
 
@@ -166,6 +169,7 @@ Classify data into two categories (e.g., fraud/legitimate, spam/ham, churn/retai
 ### API Reference
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business.BinaryClassifier
 
 // Features: [amount, time_of_day, merchant_category, distance_from_home, frequency]
@@ -175,29 +179,31 @@ let trainFeatures = [|
 |]
 let trainLabels = [| 0; 0; 0; 1; 1; 1 |]  // int labels: 0 or 1
 
-// Minimal configuration - smart defaults
-let classifierResult = binaryClassification {
-    trainWith trainFeatures trainLabels
+task {
+    // Minimal configuration - smart defaults
+    let! classifierResult = binaryClassification {
+        trainWith trainFeatures trainLabels
+    }
+
+    match classifierResult with
+    | Ok classifier ->
+        printfn "Training accuracy: %.2f%%" (classifier.Metadata.TrainingAccuracy * 100.0)
+
+        // Classify new data
+        let newTransaction = [| 600.0; 14.5; 7.0; 80.0; 12.0 |]
+
+        match! BinaryClassifier.predictAsync newTransaction classifier CancellationToken.None with
+        | Ok prediction ->
+            printfn "Class: %d (confidence: %.2f%%)"
+                prediction.Label
+                (prediction.Confidence * 100.0)
+        | Error err -> eprintfn "Error: %s" err.Message
+
+    | Error err -> eprintfn "Training failed: %s" err.Message
 }
-
-match classifierResult with
-| Ok classifier ->
-    printfn "Training accuracy: %.2f%%" (classifier.Metadata.TrainingAccuracy * 100.0)
-
-    // Classify new data
-    let newTransaction = [| 600.0; 14.5; 7.0; 80.0; 12.0 |]
-
-    match BinaryClassifier.predict newTransaction classifier with
-    | Ok prediction ->
-        printfn "Class: %d (confidence: %.2f%%)"
-            prediction.Label
-            (prediction.Confidence * 100.0)
-    | Error err -> eprintfn "Error: %s" err.Message
-
-| Error err -> eprintfn "Training failed: %s" err.Message
 ```
 
-Note the argument order: `BinaryClassifier.predict sample classifier`. `BinaryClassifier.evaluate testFeatures testLabels classifier` returns accuracy, precision, recall and the confusion counts.
+Note the argument order: `BinaryClassifier.predictAsync sample classifier cancellationToken`. `BinaryClassifier.evaluateAsync testFeatures testLabels classifier cancellationToken` returns accuracy, precision, recall and the confusion counts.
 
 ### Configuration Options
 
@@ -253,31 +259,36 @@ let fraudulentTransactions = [|
 let trainX = Array.append normalTransactions fraudulentTransactions
 let trainY = Array.append (Array.create normalTransactions.Length 0) (Array.create fraudulentTransactions.Length 1)
 
-// Train fraud detector
-let fraudResult = binaryClassification {
-    trainWith trainX trainY
-    architecture Quantum
+task {
+    // Train fraud detector
+    let! fraudResult = binaryClassification {
+        trainWith trainX trainY
+        architecture Quantum
+    }
+
+    match fraudResult with
+    | Ok model ->
+        // Score transactions with the trained model
+        let scoreTransaction transaction (cancellationToken: CancellationToken) =
+            task {
+                match! BinaryClassifier.predictAsync transaction model cancellationToken with
+                | Ok pred when pred.IsPositive && pred.Confidence > 0.8 ->
+                    return "BLOCK - High fraud risk"
+                | Ok pred when pred.IsPositive && pred.Confidence > 0.5 ->
+                    return "REVIEW - Medium fraud risk"
+                | Ok _ ->
+                    return "APPROVE - Low fraud risk"
+                | Error _ ->
+                    return "ERROR - Manual review required"
+            }
+
+        // Score new transaction
+        let newTx = [| 650.0; 2.5; 8.0; 180.0; 18.0 |]
+        let! verdict = scoreTransaction newTx CancellationToken.None
+        printfn "%s" verdict
+
+    | Error err -> eprintfn "Training failed: %s" err.Message
 }
-
-match fraudResult with
-| Ok model ->
-    // Score transactions with the trained model
-    let scoreTransaction transaction =
-        match BinaryClassifier.predict transaction model with
-        | Ok pred when pred.IsPositive && pred.Confidence > 0.8 ->
-            "BLOCK - High fraud risk"
-        | Ok pred when pred.IsPositive && pred.Confidence > 0.5 ->
-            "REVIEW - Medium fraud risk"
-        | Ok _ ->
-            "APPROVE - Low fraud risk"
-        | Error _ ->
-            "ERROR - Manual review required"
-
-    // Score new transaction
-    let newTx = [| 650.0; 2.5; 8.0; 180.0; 18.0 |]
-    printfn "%s" (scoreTransaction newTx)
-
-| Error err -> eprintfn "Training failed: %s" err.Message
 ```
 
 There is no class-weight option; with imbalanced data, rebalance the training set (e.g. oversample the minority class) and tune the confidence cut-offs as above.
@@ -303,6 +314,7 @@ Identify unusual patterns that don't conform to expected behavior. The detector 
 ### API Reference
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business.AnomalyDetector
 
 // Normal operation samples: [cpu_percent, memory_mb, network_kb_s, disk_io_ops]
@@ -315,31 +327,33 @@ let normalData = [|
     [| 43.0; 3980.0; 4950.0; 97.0 |];  [| 51.0; 4250.0; 5600.0; 112.0 |]
 |]
 
-// Train on normal data only
-let detectorResult = anomalyDetection {
-    trainOnNormalData normalData  // Only normal samples, no labels
+task {
+    // Train on normal data only
+    let! detectorResult = anomalyDetection {
+        trainOnNormalData normalData  // Only normal samples, no labels
 
-    // How strict is "anomaly"?
-    sensitivity Medium            // Low, Medium, High, VeryHigh
-    contaminationRate 0.05        // Expected fraction of anomalies in the training data (0.0-0.5)
+        // How strict is "anomaly"?
+        sensitivity Medium            // Low, Medium, High, VeryHigh
+        contaminationRate 0.05        // Expected fraction of anomalies in the training data (0.0-0.5)
+    }
+
+    match detectorResult with
+    | Ok detector ->
+        // Check new data point
+        let newSample = [| 95.0; 8000.0; 15000.0; 200.0 |]  // High CPU usage
+
+        match! AnomalyDetector.checkAsync newSample detector CancellationToken.None with
+        | Ok result ->
+            if result.IsAnomaly then
+                printfn "ANOMALY DETECTED"
+                printfn "  Anomaly score: %.4f" result.AnomalyScore
+                printfn "  Confidence: %.2f" result.Confidence
+            else
+                printfn "Normal behavior (score: %.4f)" result.AnomalyScore
+        | Error err -> eprintfn "Detection error: %s" err.Message
+
+    | Error err -> eprintfn "Training failed: %s" err.Message
 }
-
-match detectorResult with
-| Ok detector ->
-    // Check new data point
-    let newSample = [| 95.0; 8000.0; 15000.0; 200.0 |]  // High CPU usage
-
-    match AnomalyDetector.check newSample detector with
-    | Ok result ->
-        if result.IsAnomaly then
-            printfn "ANOMALY DETECTED"
-            printfn "  Anomaly score: %.4f" result.AnomalyScore
-            printfn "  Confidence: %.2f" result.Confidence
-        else
-            printfn "Normal behavior (score: %.4f)" result.AnomalyScore
-    | Error err -> eprintfn "Detection error: %s" err.Message
-
-| Error err -> eprintfn "Training failed: %s" err.Message
 ```
 
 ### Configuration Options
@@ -353,7 +367,7 @@ match detectorResult with
 | `backend` | Quantum backend | `LocalBackend` |
 | `saveModelTo`, `note`, `verbose`, `progressReporter`, `cancellationToken` | Bookkeeping | none |
 
-Other functions: `AnomalyDetector.checkBatch samples detector` (counts, rate and the most anomalous indices), `AnomalyDetector.explain sample detector trainingData` (per-feature contributions), `save`/`load`. The detector uses up to 8 qubits.
+Other functions: `AnomalyDetector.checkBatchAsync samples detector cancellationToken` (counts, rate and the most anomalous indices), `AnomalyDetector.explain sample detector trainingData` (per-feature contributions), `save`/`load`. The detector uses up to 8 qubits.
 
 ### Example: Network Intrusion Detection
 
@@ -361,30 +375,34 @@ Other functions: `AnomalyDetector.checkBatch samples detector` (counts, rate and
 let sendAlert (message: string) = eprintfn "ALERT: %s" message
 let logWarning (message: string) = eprintfn "WARN: %s" message
 
-let intrusionResult = anomalyDetection {
-    trainOnNormalData normalData
-    sensitivity High
+task {
+    let! intrusionResult = anomalyDetection {
+        trainOnNormalData normalData
+        sensitivity High
+    }
+
+    match intrusionResult with
+    | Ok detector ->
+        // Real-time monitoring
+        let monitorMetrics currentMetrics (cancellationToken: CancellationToken) =
+            task {
+                match! AnomalyDetector.checkAsync currentMetrics detector cancellationToken with
+                | Ok result when result.IsAnomaly && result.AnomalyScore > 0.9 ->
+                    sendAlert "CRITICAL: Possible intrusion detected"
+                | Ok result when result.IsAnomaly ->
+                    logWarning $"Unusual activity (score: {result.AnomalyScore})"
+                | Ok _ ->
+                    ()
+                | Error err ->
+                    logWarning err.Message
+            }
+
+        // Check current server state
+        let current = [| 98.0; 7800.0; 25000.0; 500.0 |]  // Suspicious!
+        do! monitorMetrics current CancellationToken.None
+
+    | Error err -> eprintfn "Setup failed: %s" err.Message
 }
-
-match intrusionResult with
-| Ok detector ->
-    // Real-time monitoring
-    let monitorMetrics currentMetrics =
-        match AnomalyDetector.check currentMetrics detector with
-        | Ok result when result.IsAnomaly && result.AnomalyScore > 0.9 ->
-            sendAlert "CRITICAL: Possible intrusion detected"
-        | Ok result when result.IsAnomaly ->
-            logWarning $"Unusual activity (score: {result.AnomalyScore})"
-        | Ok _ ->
-            ()
-        | Error err ->
-            logWarning err.Message
-
-    // Check current server state
-    let current = [| 98.0; 7800.0; 25000.0; 500.0 |]  // Suspicious!
-    monitorMetrics current
-
-| Error err -> eprintfn "Setup failed: %s" err.Message
 ```
 
 ### Working Example
@@ -408,6 +426,7 @@ Forecast future outcomes based on historical patterns: continuous values (regres
 ### API Reference
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business.PredictiveModel
 
 // Features: [tenure_months, monthly_spend, support_calls, satisfaction]
@@ -417,31 +436,33 @@ let historicalData = [|
 |]
 let historicalRevenue = [| 1800.0; 270.0; 4320.0; 720.0; 90.0; 7200.0 |]
 
-// Train a regression model
-let revenueModel = predictiveModel {
-    trainWith historicalData historicalRevenue
-    problemType Regression
+task {
+    // Train a regression model
+    let! revenueModel = predictiveModel {
+        trainWith historicalData historicalRevenue
+        problemType Regression
+    }
+
+    match revenueModel with
+    | Ok model ->
+        printfn "Training R²: %.2f" model.Metadata.TrainingScore
+
+        // Predict for a new customer (backend and shots default when None)
+        let newCustomer = [| 6.0; 45.0; 3.0; 6.5 |]
+
+        match! PredictiveModel.predictAsync newCustomer model None None CancellationToken.None with
+        | Ok prediction ->
+            printfn "Predicted revenue: %.2f" prediction.Value
+            match prediction.ConfidenceInterval with
+            | Some (lower, upper) -> printfn "Confidence interval: [%.2f, %.2f]" lower upper
+            | None -> ()
+        | Error err -> eprintfn "Error: %s" err.Message
+
+    | Error err -> eprintfn "Training failed: %s" err.Message
 }
-
-match revenueModel with
-| Ok model ->
-    printfn "Training R²: %.2f" model.Metadata.TrainingScore
-
-    // Predict for a new customer (backend and shots default when None)
-    let newCustomer = [| 6.0; 45.0; 3.0; 6.5 |]
-
-    match PredictiveModel.predict newCustomer model None None with
-    | Ok prediction ->
-        printfn "Predicted revenue: %.2f" prediction.Value
-        match prediction.ConfidenceInterval with
-        | Some (lower, upper) -> printfn "Confidence interval: [%.2f, %.2f]" lower upper
-        | None -> ()
-    | Error err -> eprintfn "Error: %s" err.Message
-
-| Error err -> eprintfn "Training failed: %s" err.Message
 ```
 
-For a held-out set, `PredictiveModel.evaluateRegression testX testY model` returns R², MAE, MSE and RMSE; `evaluateMultiClass` returns accuracy, per-class precision/recall/F1 and a confusion matrix.
+For a held-out set, `PredictiveModel.evaluateRegressionAsync testX testY model cancellationToken` returns R², MAE, MSE and RMSE; `evaluateMultiClassAsync` returns accuracy, per-class precision/recall/F1 and a confusion matrix.
 
 ### Configuration Options
 
@@ -475,27 +496,32 @@ let customerHistory = [|
 let churnX = customerHistory |> Array.map fst
 let churnY = customerHistory |> Array.map snd
 
-let churnResult = predictiveModel {
-    trainWith churnX churnY
-    problemType (MultiClass 3)
-    architecture Quantum
+task {
+    let! churnResult = predictiveModel {
+        trainWith churnX churnY
+        problemType (MultiClass 3)
+        architecture Quantum
+    }
+
+    match churnResult with
+    | Ok model ->
+        // Churn risk scoring for current customers
+        let scoreChurnRisk customer (cancellationToken: CancellationToken) =
+            task {
+                match! PredictiveModel.predictCategoryAsync customer model None None cancellationToken with
+                | Ok pred when pred.Category = 2 -> return "HIGH RISK - Immediate retention campaign"
+                | Ok pred when pred.Category = 1 -> return "MEDIUM RISK - Monitor and engage"
+                | Ok _ -> return "LOW RISK - Routine engagement"
+                | Error _ -> return "ERROR - Manual review"
+            }
+
+        // Score at-risk customer
+        let atRiskCustomer = [| 8.0; 40.0; 4.0; 4.5 |]
+        let! risk = scoreChurnRisk atRiskCustomer CancellationToken.None
+        printfn "%s" risk
+
+    | Error err -> eprintfn "Model training failed: %s" err.Message
 }
-
-match churnResult with
-| Ok model ->
-    // Churn risk scoring for current customers
-    let scoreChurnRisk customer =
-        match PredictiveModel.predictCategory customer model None None with
-        | Ok pred when pred.Category = 2 -> "HIGH RISK - Immediate retention campaign"
-        | Ok pred when pred.Category = 1 -> "MEDIUM RISK - Monitor and engage"
-        | Ok _ -> "LOW RISK - Routine engagement"
-        | Error _ -> "ERROR - Manual review"
-
-    // Score at-risk customer
-    let atRiskCustomer = [| 8.0; 40.0; 4.0; 4.5 |]
-    printfn "%s" (scoreChurnRisk atRiskCustomer)
-
-| Error err -> eprintfn "Model training failed: %s" err.Message
 ```
 
 ### Working Example
@@ -521,6 +547,7 @@ Find items similar to a query item based on features.
 The index is generic in the item type: you index `(item, featureVector)` pairs and get items back.
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business.SimilaritySearch
 
 // Product catalog: (product name, [category_id, price, rating, popularity])
@@ -531,26 +558,28 @@ let catalogItems = [|
     "Novel", [| 2.0; 15.99; 4.2; 300.0 |]
 |]
 
-// Build similarity index
-let indexResult = similaritySearch {
-    indexItems catalogItems
-    similarityMetric Cosine   // Cosine (default), Euclidean or QuantumKernel
-    threshold 0.5             // Minimum similarity to report (default 0.7)
+task {
+    // Build similarity index
+    let! indexResult = similaritySearch {
+        indexItems catalogItems
+        similarityMetric Cosine   // Cosine (default), Euclidean or QuantumKernel
+        threshold 0.5             // Minimum similarity to report (default 0.7)
+    }
+
+    match indexResult with
+    | Ok searchIndex ->
+        // Find items similar to a query item
+        let queryName, queryFeatures = catalogItems.[0]
+
+        match! SimilaritySearch.findSimilarAsync queryName queryFeatures 3 searchIndex CancellationToken.None with  // Top 3
+        | Ok results ->
+            printfn "Similar items:"
+            results.Matches |> Array.iter (fun m ->
+                printfn "  %d. %s (similarity: %.2f%%)" m.Rank m.Item (m.Similarity * 100.0))
+        | Error err -> eprintfn "Search error: %s" err.Message
+
+    | Error err -> eprintfn "Index build failed: %s" err.Message
 }
-
-match indexResult with
-| Ok searchIndex ->
-    // Find items similar to a query item
-    let queryName, queryFeatures = catalogItems.[0]
-
-    match SimilaritySearch.findSimilar queryName queryFeatures 3 searchIndex with  // Top 3
-    | Ok results ->
-        printfn "Similar items:"
-        results.Matches |> Array.iter (fun m ->
-            printfn "  %d. %s (similarity: %.2f%%)" m.Rank m.Item (m.Similarity * 100.0))
-    | Error err -> eprintfn "Search error: %s" err.Message
-
-| Error err -> eprintfn "Index build failed: %s" err.Message
 ```
 
 Results exclude the query item itself and anything below the threshold.
@@ -566,31 +595,33 @@ Results exclude the query item itself and anything below the threshold.
 | `backend` | Quantum backend (`QuantumKernel` only) | `LocalBackend` |
 | `saveIndexTo`, `note`, `verbose`, `progressReporter`, `cancellationToken` | Bookkeeping | none |
 
-`QuantumKernel` precomputes a quantum kernel matrix over all items, which costs a circuit run per item pair; keep such indexes small. Other functions: `findAllSimilar`, `findDuplicates threshold index`, `cluster numClusters maxIterations index`, `save`/`load`/`loadWithItems`.
+`QuantumKernel` precomputes a quantum kernel matrix over all items, which costs a circuit run per item pair; keep such indexes small. Other functions: `findAllSimilarAsync`, `findDuplicatesAsync threshold index cancellationToken`, `cluster numClusters maxIterations index`, `save`/`load`/`loadWithItems`.
 
 ### Example: Product Recommendations
 
 ```fsharp
-let quantumIndex = similaritySearch {
-    indexItems catalogItems
-    similarityMetric QuantumKernel
-    threshold 0.3
-    shots 500
+task {
+    let! quantumIndex = similaritySearch {
+        indexItems catalogItems
+        similarityMetric QuantumKernel
+        threshold 0.3
+        shots 500
+    }
+
+    match quantumIndex with
+    | Ok index ->
+        // User viewed a product - find similar items
+        let viewedName, viewedFeatures = catalogItems.[1]
+
+        match! SimilaritySearch.findSimilarAsync viewedName viewedFeatures 2 index CancellationToken.None with
+        | Ok recommendations ->
+            printfn "Customers who viewed %s also liked:" viewedName
+            recommendations.Matches |> Array.iter (fun m ->
+                printfn "  - %s (%.0f%% match)" m.Item (m.Similarity * 100.0))
+        | Error err -> eprintfn "Recommendation error: %s" err.Message
+
+    | Error err -> eprintfn "Index failed: %s" err.Message
 }
-
-match quantumIndex with
-| Ok index ->
-    // User viewed a product - find similar items
-    let viewedName, viewedFeatures = catalogItems.[1]
-
-    match SimilaritySearch.findSimilar viewedName viewedFeatures 2 index with
-    | Ok recommendations ->
-        printfn "Customers who viewed %s also liked:" viewedName
-        recommendations.Matches |> Array.iter (fun m ->
-            printfn "  - %s (%.0f%% match)" m.Item (m.Similarity * 100.0))
-    | Error err -> eprintfn "Recommendation error: %s" err.Message
-
-| Error err -> eprintfn "Index failed: %s" err.Message
 ```
 
 ### Working Example
@@ -628,24 +659,26 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 // A backend is required for every screening method
 let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-// Method 1: Quantum Kernel SVM (default)
-let screeningResult = drugDiscovery {
-    load_candidates_from_file "candidates.csv"  // CSV with SMILES and Label columns
-    use_method QuantumKernelSVM
-    use_feature_map ZZFeatureMap
-    set_batch_size 20
-    shots 1000
-    backend localBackend
-}
+task {
+    // Method 1: Quantum Kernel SVM (default)
+    let! screeningResult = drugDiscovery {
+        load_candidates_from_file "candidates.csv"  // CSV with SMILES and Label columns
+        use_method QuantumKernelSVM
+        use_feature_map ZZFeatureMap
+        set_batch_size 20
+        shots 1000
+        backend localBackend
+    }
 
-match screeningResult with
-| Ok screening ->
-    printfn "Method: %A" screening.Method
-    printfn "Molecules Processed: %d" screening.MoleculesProcessed
-    printfn "Result: %s" screening.Message
-    for candidate in screening.RankedCandidates |> Array.truncate 5 do
-        printfn "  %s (score %.3f)" candidate.Identifier candidate.Score
-| Error err -> eprintfn "Screening failed: %s" err.Message
+    match screeningResult with
+    | Ok screening ->
+        printfn "Method: %A" screening.Method
+        printfn "Molecules Processed: %d" screening.MoleculesProcessed
+        printfn "Result: %s" screening.Message
+        for candidate in screening.RankedCandidates |> Array.truncate 5 do
+            printfn "  %s (score %.3f)" candidate.Identifier candidate.Score
+    | Error err -> eprintfn "Screening failed: %s" err.Message
+}
 ```
 
 `ScreeningResult` holds `Message`, `Method`, `MoleculesProcessed`, `RankedCandidates` (each with `Index`, `Identifier`, `Score` and `PredictedActive`, best first) and the `Configuration` used.
@@ -691,20 +724,22 @@ let fullConfigResult = drugDiscovery {
 Classify molecules using quantum feature maps and support vector machines.
 
 ```fsharp
-// Train a quantum kernel SVM for activity prediction
-let svmResult = drugDiscovery {
-    load_candidates_from_file "labeled_compounds.csv"  // Requires activity labels
-    use_method QuantumKernelSVM
-    use_feature_map ZZFeatureMap
-    set_batch_size 50
-    shots 1000
-    backend localBackend
-}
+task {
+    // Train a quantum kernel SVM for activity prediction
+    let! svmResult = drugDiscovery {
+        load_candidates_from_file "labeled_compounds.csv"  // Requires activity labels
+        use_method QuantumKernelSVM
+        use_feature_map ZZFeatureMap
+        set_batch_size 50
+        shots 1000
+        backend localBackend
+    }
 
-match svmResult with
-| Ok r ->
-    printfn "%s" r.Message
-| Error e -> eprintfn "Error: %s" e.Message
+    match svmResult with
+    | Ok r ->
+        printfn "%s" r.Message
+    | Error e -> eprintfn "Error: %s" e.Message
+}
 ```
 
 **When to use:**
@@ -717,25 +752,27 @@ match svmResult with
 Train a Variational Quantum Classifier for molecular activity prediction.
 
 ```fsharp
-let vqcResult = drugDiscovery {
-    load_candidates_from_file "compounds.sdf"
-    use_method VQCClassifier
-    use_feature_map ZZFeatureMap
+task {
+    let! vqcResult = drugDiscovery {
+        load_candidates_from_file "compounds.sdf"
+        use_method VQCClassifier
+        use_feature_map ZZFeatureMap
 
-    // VQC-specific configuration
-    vqc_layers 3              // More layers = more expressivity
-    vqc_max_epochs 100        // Training iterations
+        // VQC-specific configuration
+        vqc_layers 3              // More layers = more expressivity
+        vqc_max_epochs 100        // Training iterations
 
-    set_batch_size 30
-    shots 500
-    backend localBackend
+        set_batch_size 30
+        shots 500
+        backend localBackend
+    }
+
+    match vqcResult with
+    | Ok r ->
+        printfn "Training complete!"
+        printfn "%s" r.Message  // Shows accuracy, convergence
+    | Error e -> eprintfn "Training failed: %s" e.Message
 }
-
-match vqcResult with
-| Ok r ->
-    printfn "Training complete!"
-    printfn "%s" r.Message  // Shows accuracy, convergence
-| Error e -> eprintfn "Training failed: %s" e.Message
 ```
 
 **When to use:**
@@ -747,24 +784,26 @@ match vqcResult with
 Select a diverse subset of high-value compounds within a budget using QAOA optimization.
 
 ```fsharp
-let selectionResult = drugDiscovery {
-    load_candidates_from_file "compound_library.sdf"
-    use_method QAOADiverseSelection
+task {
+    let! selectionResult = drugDiscovery {
+        load_candidates_from_file "compound_library.sdf"
+        use_method QAOADiverseSelection
 
-    // QAOA-specific configuration
-    selection_budget 10.0     // Max total cost of selected compounds
-    diversity_weight 0.6      // Balance value vs diversity (0-1)
+        // QAOA-specific configuration
+        selection_budget 10.0     // Max total cost of selected compounds
+        diversity_weight 0.6      // Balance value vs diversity (0-1)
 
-    set_batch_size 50         // Evaluate top 50 candidates
-    shots 2000                // More shots for better optimization
-    backend localBackend
+        set_batch_size 50         // Evaluate top 50 candidates
+        shots 2000                // More shots for better optimization
+        backend localBackend
+    }
+
+    match selectionResult with
+    | Ok r ->
+        printfn "Selection complete!"
+        printfn "%s" r.Message  // Shows selected compounds, total value, diversity
+    | Error e -> eprintfn "Selection failed: %s" e.Message
 }
-
-match selectionResult with
-| Ok r ->
-    printfn "Selection complete!"
-    printfn "%s" r.Message  // Shows selected compounds, total value, diversity
-| Error e -> eprintfn "Selection failed: %s" e.Message
 ```
 
 **When to use:**
@@ -775,32 +814,34 @@ match selectionResult with
 ### Example: Two-Stage Screening Pipeline
 
 ```fsharp
-// Step 1: Initial classification with VQC
-let classificationResult = drugDiscovery {
-    load_candidates_from_file "hit_compounds.sdf"
-    use_method VQCClassifier
-    vqc_layers 2
-    vqc_max_epochs 50
-    set_batch_size 100
-    backend localBackend
-}
+task {
+    // Step 1: Initial classification with VQC
+    let! classificationResult = drugDiscovery {
+        load_candidates_from_file "hit_compounds.sdf"
+        use_method VQCClassifier
+        vqc_layers 2
+        vqc_max_epochs 50
+        set_batch_size 100
+        backend localBackend
+    }
 
-// Step 2: Select diverse subset from classified hits
-let diverseResult = drugDiscovery {
-    load_candidates_from_file "classified_hits.sdf"
-    use_method QAOADiverseSelection
-    selection_budget 20.0       // Select compounds worth total "cost" of 20
-    diversity_weight 0.5        // Equal weight to value and diversity
-    set_batch_size 50
-    backend localBackend
-}
+    // Step 2: Select diverse subset from classified hits
+    let! diverseResult = drugDiscovery {
+        load_candidates_from_file "classified_hits.sdf"
+        use_method QAOADiverseSelection
+        selection_budget 20.0       // Select compounds worth total "cost" of 20
+        diversity_weight 0.5        // Equal weight to value and diversity
+        set_batch_size 50
+        backend localBackend
+    }
 
-match classificationResult, diverseResult with
-| Ok cls, Ok sel ->
-    printfn "Classification: %d molecules processed" cls.MoleculesProcessed
-    printfn "Selection: %s" sel.Message
-| Error e, _ -> eprintfn "Classification failed: %s" e.Message
-| _, Error e -> eprintfn "Selection failed: %s" e.Message
+    match classificationResult, diverseResult with
+    | Ok cls, Ok sel ->
+        printfn "Classification: %d molecules processed" cls.MoleculesProcessed
+        printfn "Selection: %s" sel.Message
+    | Error e, _ -> eprintfn "Classification failed: %s" e.Message
+    | _, Error e -> eprintfn "Selection failed: %s" e.Message
+}
 ```
 
 ### Supported File Formats
@@ -849,23 +890,25 @@ Choosing an unsupported algorithm for a mode (`useQaoa` with `findCommunities`, 
 ```fsharp
 open FSharp.Azure.Quantum.Business.SocialNetworkAnalyzer
 
-let result = socialNetwork {
-    people ["Alice"; "Bob"; "Carol"; "Dave"]
+task {
+    let! result = socialNetwork {
+        people ["Alice"; "Bob"; "Carol"; "Dave"]
 
-    connection "Alice" "Bob"
-    connection "Bob" "Carol"
-    connection "Carol" "Alice"
-    connection "Carol" "Dave"
+        connection "Alice" "Bob"
+        connection "Bob" "Carol"
+        connection "Carol" "Alice"
+        connection "Carol" "Dave"
 
-    findLargestCommunity
+        findLargestCommunity
+    }
+
+    match result with
+    | Ok analysis ->
+        printfn "%s" analysis.Message
+        for community in analysis.Communities do
+            printfn "Community: %A (strength %.2f)" community.Members community.Strength
+    | Error err -> eprintfn "Analysis failed: %s" err.Message
 }
-
-match result with
-| Ok analysis ->
-    printfn "%s" analysis.Message
-    for community in analysis.Communities do
-        printfn "Community: %A (strength %.2f)" community.Members community.Strength
-| Error err -> eprintfn "Analysis failed: %s" err.Message
 ```
 
 ### Configuration Options
@@ -887,28 +930,30 @@ match result with
 let team = ["Ann"; "Ben"; "Cat"; "Dan"; "Eve"]
 let links = [("Ann", "Ben"); ("Ben", "Cat"); ("Cat", "Dan"); ("Dan", "Eve"); ("Eve", "Ann")]
 
-// Who must we observe to see every communication channel?
-let monitorResult = socialNetwork {
-    people team
-    connections links
-    findMonitorSet
-}
+task {
+    // Who must we observe to see every communication channel?
+    let! monitorResult = socialNetwork {
+        people team
+        connections links
+        findMonitorSet
+    }
 
-// Best 1:1 mentoring pairs among connected people
-let pairingResult = socialNetwork {
-    people team
-    connections links
-    findPairings
-    shots 2000
-}
+    // Best 1:1 mentoring pairs among connected people
+    let! pairingResult = socialNetwork {
+        people team
+        connections links
+        findPairings
+        shots 2000
+    }
 
-match monitorResult, pairingResult with
-| Ok monitor, Ok pairs ->
-    printfn "Monitor set: %A" monitor.MonitorSet
-    for p in pairs.Pairings do
-        printfn "Pair: %s - %s" p.Person1 p.Person2
-| Error e, _
-| _, Error e -> eprintfn "Analysis failed: %s" e.Message
+    match monitorResult, pairingResult with
+    | Ok monitor, Ok pairs ->
+        printfn "Monitor set: %A" monitor.MonitorSet
+        for p in pairs.Pairings do
+            printfn "Pair: %s - %s" p.Person1 p.Person2
+    | Error e, _
+    | _, Error e -> eprintfn "Analysis failed: %s" e.Message
+}
 ```
 
 ### Working Example
@@ -936,38 +981,40 @@ This builder assigns tasks to resources; it has **no time dimension**. Temporal 
 ```fsharp
 open FSharp.Azure.Quantum.Business.ConstraintScheduler
 
-let result = constraintScheduler {
-    // Tasks
-    task "Deploy API"
-    task "Run Tests"
-    task "Build Docs"
+task {
+    let! result = constraintScheduler {
+        // Tasks
+        task "Deploy API"
+        task "Run Tests"
+        task "Build Docs"
 
-    // Resources with a cost
-    resource "FastServer" 10.0
-    resource "TestServer" 2.0
+        // Resources with a cost
+        resource "FastServer" 10.0
+        resource "TestServer" 2.0
 
-    // Hard constraints (must satisfy)
-    conflict "Deploy API" "Run Tests"      // Not on the same resource
-    require "Run Tests" "TestServer"       // Must run on this resource
+        // Hard constraints (must satisfy)
+        conflict "Deploy API" "Run Tests"      // Not on the same resource
+        require "Run Tests" "TestServer"       // Must run on this resource
 
-    // Soft constraints (preferences, weighted)
-    prefer "Build Docs" "TestServer" 0.8
+        // Soft constraints (preferences, weighted)
+        prefer "Build Docs" "TestServer" 0.8
 
-    // Optimization goal
-    optimizeFor MinimizeCost               // or MaximizeSatisfaction, Balanced (default)
-    maxBudget 50.0
+        // Optimization goal
+        optimizeFor MinimizeCost               // or MaximizeSatisfaction, Balanced (default)
+        maxBudget 50.0
+    }
+
+    match result with
+    | Ok schedulingResult ->
+        printfn "%s" schedulingResult.Message
+        match schedulingResult.BestSchedule with
+        | Some schedule ->
+            printfn "Feasible: %b, total cost: %.2f" schedule.IsFeasible schedule.TotalCost
+            for a in schedule.Assignments do
+                printfn "  %s -> %s (cost %.2f)" a.Task a.Resource a.Cost
+        | None -> printfn "No schedule found"
+    | Error err -> eprintfn "Scheduling failed: %s" err.Message
 }
-
-match result with
-| Ok schedulingResult ->
-    printfn "%s" schedulingResult.Message
-    match schedulingResult.BestSchedule with
-    | Some schedule ->
-        printfn "Feasible: %b, total cost: %.2f" schedule.IsFeasible schedule.TotalCost
-        for a in schedule.Assignments do
-            printfn "  %s -> %s (cost %.2f)" a.Task a.Resource a.Cost
-    | None -> printfn "No schedule found"
-| Error err -> eprintfn "Scheduling failed: %s" err.Message
 ```
 
 ### Configuration Options
@@ -994,30 +1041,32 @@ The search space is tasks × resources binary variables, so keep problems small 
 ### Example: Shift Duty Assignment
 
 ```fsharp
-let rosterResult = constraintScheduler {
-    tasks ["MorningTill"; "AfternoonTill"; "NightSecurity"]
+task {
+    let! rosterResult = constraintScheduler {
+        tasks ["MorningTill"; "AfternoonTill"; "NightSecurity"]
 
-    resourceWithCapacity "Alice" 20.0 1   // Cost per assignment, at most 1 duty
-    resourceWithCapacity "Bob" 18.0 1
-    resourceWithCapacity "Carol" 25.0 2
+        resourceWithCapacity "Alice" 20.0 1   // Cost per assignment, at most 1 duty
+        resourceWithCapacity "Bob" 18.0 1
+        resourceWithCapacity "Carol" 25.0 2
 
-    conflict "MorningTill" "AfternoonTill"
-    require "NightSecurity" "Bob"
-    prefer "MorningTill" "Alice" 0.8
+        conflict "MorningTill" "AfternoonTill"
+        require "NightSecurity" "Bob"
+        prefer "MorningTill" "Alice" 0.8
 
-    optimizeFor MinimizeCost
+        optimizeFor MinimizeCost
+    }
+
+    match rosterResult with
+    | Ok r ->
+        match r.BestSchedule with
+        | Some schedule ->
+            schedule.Assignments
+            |> List.groupBy (fun a -> a.Resource)
+            |> List.iter (fun (person, duties) ->
+                printfn "  %s: %s" person (duties |> List.map (fun d -> d.Task) |> String.concat ", "))
+        | None -> printfn "%s" r.Message
+    | Error err -> eprintfn "Scheduling failed: %s" err.Message
 }
-
-match rosterResult with
-| Ok r ->
-    match r.BestSchedule with
-    | Some schedule ->
-        schedule.Assignments
-        |> List.groupBy (fun a -> a.Resource)
-        |> List.iter (fun (person, duties) ->
-            printfn "  %s: %s" person (duties |> List.map (fun d -> d.Task) |> String.concat ", "))
-    | None -> printfn "%s" r.Message
-| Error err -> eprintfn "Scheduling failed: %s" err.Message
 ```
 
 ### Working Example
@@ -1257,7 +1306,7 @@ Anomaly detection and similarity search don't take an architecture: anomaly dete
 **Solutions:**
 - Increase training data
 - Reduce `maxEpochs` or loosen `convergenceThreshold`
-- Hold out more data with `validationSplit` (AutoML) or `evaluate` on a test set
+- Hold out more data with `validationSplit` (AutoML) or `evaluateAsync` on a test set
 
 #### 4. Slow Training
 
@@ -1277,7 +1326,7 @@ Anomaly detection and similarity search don't take an architecture: anomaly dete
 **Solutions:**
 - Oversample the minority class (or undersample the majority) before training
 - Adjust the decision rule using `Confidence` (lower the cut-off for rare events)
-- Judge models by precision and recall (`BinaryClassifier.evaluate`), not accuracy alone
+- Judge models by precision and recall (`BinaryClassifier.evaluateAsync`), not accuracy alone
 
 ## See Also
 

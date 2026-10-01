@@ -279,12 +279,14 @@ module ConstraintScheduler =
 
     /// Decode Max-SAT bitstring solution to Schedule
     let private decodeSatSolution (problem: SchedulingProblem) (solutionBits: int) : Schedule =
+        let numResources = problem.Resources.Length
+
         let assignments =
             problem.Tasks
             |> List.mapi (fun tIdx task ->
                 problem.Resources
                 |> List.mapi (fun rIdx res ->
-                    let varId = tIdx * problem.Resources.Length + rIdx
+                    let varId = tIdx * numResources + rIdx
                     let isAssigned = (solutionBits >>> varId) &&& 1 = 1
 
                     if isAssigned then
@@ -303,7 +305,8 @@ module ConstraintScheduler =
 
     /// Decode Graph Coloring bitstring solution to Schedule
     let private decodeColoringSolution (problem: SchedulingProblem) (solutionBits: int) : Schedule =
-        let numColors = problem.Resources.Length
+        let resources = problem.Resources |> List.toArray
+        let numColors = resources.Length
 
         let qubitsPerVert =
             if numColors <= 1 then
@@ -320,8 +323,8 @@ module ConstraintScheduler =
                 let mask = (1 <<< qubitsPerVert) - 1
                 let resIdx = (solutionBits >>> shift) &&& mask
 
-                if resIdx < problem.Resources.Length then
-                    let res = problem.Resources.[resIdx]
+                if resIdx < numColors then
+                    let res = resources.[resIdx]
 
                     Some
                         {
@@ -341,7 +344,8 @@ module ConstraintScheduler =
         let resIdx = createResourceIndex problem.Resources
 
         // Each task-resource pair is a boolean variable
-        let numVars = problem.Tasks.Length * problem.Resources.Length
+        let numResources = problem.Resources.Length
+        let numVars = problem.Tasks.Length * numResources
 
         // 1. Structural Constraints: Each task must be assigned to EXACTLY one resource
         let structuralClauses =
@@ -353,7 +357,7 @@ module ConstraintScheduler =
                 let atLeastOne =
                     problem.Resources
                     |> List.mapi (fun r _ ->
-                        let varId = t * problem.Resources.Length + r
+                        let varId = t * numResources + r
 
                         {
                             VariableIndex = varId
@@ -368,8 +372,8 @@ module ConstraintScheduler =
                         problem.Resources
                         |> List.mapi (fun r2 _ ->
                             if r1 < r2 then
-                                let v1 = t * problem.Resources.Length + r1
-                                let v2 = t * problem.Resources.Length + r2
+                                let v1 = t * numResources + r1
+                                let v2 = t * numResources + r2
 
                                 Some
                                     {
@@ -398,8 +402,8 @@ module ConstraintScheduler =
                     | Some t1, Some t2 ->
                         problem.Resources
                         |> List.mapi (fun r _ ->
-                            let v1 = t1 * problem.Resources.Length + r
-                            let v2 = t2 * problem.Resources.Length + r
+                            let v1 = t1 * numResources + r
+                            let v2 = t2 * numResources + r
 
                             {
                                 Literals =
@@ -415,7 +419,7 @@ module ConstraintScheduler =
                     // x(t,r) must be true
                     match Map.tryFind task taskIdx, Map.tryFind resource resIdx with
                     | Some t, Some r ->
-                        let varId = t * problem.Resources.Length + r
+                        let varId = t * numResources + r
 
                         let lit =
                             {
@@ -573,7 +577,8 @@ module ConstraintScheduler =
         let resIdx = createResourceIndex problem.Resources
 
         // Each task-resource pair is a boolean variable
-        let numVars = problem.Tasks.Length * problem.Resources.Length
+        let numResources = problem.Resources.Length
+        let numVars = problem.Tasks.Length * numResources
 
         // 1. Structural: each task assigned to exactly one resource
         let structuralClauses =
@@ -587,7 +592,7 @@ module ConstraintScheduler =
                         Literals =
                             problem.Resources
                             |> List.mapi (fun r _ ->
-                                let varId = t * problem.Resources.Length + r
+                                let varId = t * numResources + r
                                 ({ Variable = varId; IsNegated = false }: QuantumSatSolver.Literal))
                         Weight = 1.0
                     }
@@ -599,8 +604,8 @@ module ConstraintScheduler =
                         problem.Resources
                         |> List.mapi (fun r2 _ ->
                             if r1 < r2 then
-                                let v1 = t * problem.Resources.Length + r1
-                                let v2 = t * problem.Resources.Length + r2
+                                let v1 = t * numResources + r1
+                                let v2 = t * numResources + r2
 
                                 Some(
                                     {
@@ -630,8 +635,8 @@ module ConstraintScheduler =
                     | Some t1, Some t2 ->
                         problem.Resources
                         |> List.mapi (fun r _ ->
-                            let v1 = t1 * problem.Resources.Length + r
-                            let v2 = t2 * problem.Resources.Length + r
+                            let v1 = t1 * numResources + r
+                            let v2 = t2 * numResources + r
 
                             ({
                                 Literals =
@@ -646,7 +651,7 @@ module ConstraintScheduler =
                 | RequiresResource(task, resource) ->
                     match Map.tryFind task taskIdx, Map.tryFind resource resIdx with
                     | Some t, Some r ->
-                        let varId = t * problem.Resources.Length + r
+                        let varId = t * numResources + r
 
                         [
                             ({
@@ -667,12 +672,14 @@ module ConstraintScheduler =
     /// The SAT assignment is a bool[] where variable (t * numResources + r) = true
     /// means task t is assigned to resource r.
     let private decodeQaoaSatSolution (problem: SchedulingProblem) (satSolution: QuantumSatSolver.Solution) : Schedule =
+        let numResources = problem.Resources.Length
+
         let assignments =
             problem.Tasks
             |> List.mapi (fun tIdx task ->
                 problem.Resources
                 |> List.mapi (fun rIdx res ->
-                    let varId = tIdx * problem.Resources.Length + rIdx
+                    let varId = tIdx * numResources + rIdx
 
                     if varId < satSolution.Assignment.Length && satSolution.Assignment.[varId] then
                         Some
@@ -715,18 +722,21 @@ module ConstraintScheduler =
         (problem: SchedulingProblem)
         (binSolution: QuantumBinPackingSolver.Solution)
         : Schedule =
+        let resources = problem.Resources |> List.toArray
+        let numResources = resources.Length
+
         let assignments =
-            if problem.Resources.Length = 0 then
+            if numResources = 0 then
                 []
             else
                 binSolution.Assignments
                 |> List.choose (fun (item, binIdx) ->
                     let taskId = item.Id
                     // Map bin index to resource (modular wrap if more bins than resources)
-                    let resIdx = binIdx % problem.Resources.Length
+                    let resIdx = binIdx % numResources
 
-                    if resIdx < problem.Resources.Length then
-                        let res = problem.Resources.[resIdx]
+                    if resIdx < numResources then
+                        let res = resources.[resIdx]
 
                         Some
                             {
@@ -880,13 +890,6 @@ module ConstraintScheduler =
                                     $"Found partial schedule (unsatisfied constraints: {sched.TotalHardConstraints - sched.HardConstraintsSatisfied})"
                     }
         }
-
-    /// Execute scheduling optimization
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve (problem: SchedulingProblem) : QuantumResult<SchedulingResult> =
-        solveAsync problem CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

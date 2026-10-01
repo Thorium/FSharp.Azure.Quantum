@@ -2,6 +2,8 @@ namespace FSharp.Azure.Quantum.Algorithms
 
 open System
 open System.Security.Cryptography
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
@@ -83,6 +85,17 @@ module QRNG =
         | QrngPlan.ExecuteViaCircuit ->
             // Wrap-and-execute via the shared primitive (Primitives.getState).
             Primitives.getState backend (superpositionCircuit intent.NumBits)
+
+    /// Task-based twin of executePlan (Primitives.getStateAsync).
+    let private executePlanAsync
+        (backend: IQuantumBackend)
+        (intent: QrngIntent)
+        (plan: QrngPlan)
+        (cancellationToken: CancellationToken)
+        : Task<Result<QuantumState, QuantumError>> =
+        match plan with
+        | QrngPlan.ExecuteViaCircuit ->
+            Primitives.getStateAsync backend (superpositionCircuit intent.NumBits) cancellationToken
 
     // ========================================================================
     // TYPES
@@ -292,9 +305,13 @@ module QRNG =
     ///   which is sampled once locally with a classical PRNG (`QuantumState.measure`):
     ///   classical pseudo-randomness, NOT quantum randomness. For cryptographic key
     ///   material off hardware prefer `generateBits`/`generateBytes` (unseeded → OS CSPRNG).
-    let generateWithBackend (numBits: int) (backend: IQuantumBackend) : Async<QuantumResult<QRNGResult>> =
+    let generateWithBackendAsync
+        (numBits: int)
+        (backend: IQuantumBackend)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<QRNGResult>> =
 
-        async {
+        task {
             if numBits <= 0 then
                 return Error(QuantumError.ValidationError("NumBits", "must be positive"))
             elif numBits > 1000 then
@@ -304,38 +321,54 @@ module QRNG =
                 try
                     let intent = { NumBits = numBits }
 
-                    let measuredBits (chosenPlan: QrngPlan) : QuantumResult<bool[]> =
-                        match Primitives.shotsPerCircuit backend with
-                        | Some 1 ->
-                            // One job, one shot: the returned counts hold exactly that shot.
-                            Primitives.sample backend (superpositionCircuit numBits) 1
-                            |> Result.bind (fun histogram ->
-                                match Map.toList histogram with
-                                | [ (key, 1) ] when key.Length = numBits ->
-                                    Ok(key.ToCharArray() |> Array.map ((=) '1'))
-                                | other ->
-                                    Error(
-                                        QuantumError.BackendError(
-                                            "QRNG",
-                                            $"a one-shot job returned %d{other.Length} outcomes; expected one %d{numBits}-bit shot"
-                                        )
-                                    ))
-                        | Some shots ->
-                            Error(
-                                QuantumError.ValidationError(
-                                    "backend",
-                                    $"{backend.Name} measures {shots} shots per job and returns only their counts, so a single shot can be taken from them only by classical sampling. Create the backend with shots = 1: each call is then one job of one shot."
-                                )
-                            )
-                        | None ->
-                            executePlan backend intent chosenPlan
-                            |> Result.map (fun state ->
-                                // Simulated state: sample it once.
-                                match QuantumState.measure state 1 with
-                                | [||] -> Array.zeroCreate<bool> numBits
-                                | measurements -> measurements.[0] |> Array.map (fun bitValue -> bitValue = 1))
+                    let measuredBits (chosenPlan: QrngPlan) : Task<QuantumResult<bool[]>> =
+                        task {
+                            match Primitives.shotsPerCircuit backend with
+                            | Some 1 ->
+                                // One job, one shot: the returned counts hold exactly that shot.
+                                let! sampled =
+                                    Primitives.sampleAsync backend (superpositionCircuit numBits) 1 cancellationToken
 
-                    match plan backend intent |> Result.bind measuredBits with
+                                return
+                                    sampled
+                                    |> Result.bind (fun histogram ->
+                                        match Map.toList histogram with
+                                        | [ (key, 1) ] when key.Length = numBits ->
+                                            Ok(key.ToCharArray() |> Array.map ((=) '1'))
+                                        | other ->
+                                            Error(
+                                                QuantumError.BackendError(
+                                                    "QRNG",
+                                                    $"a one-shot job returned %d{other.Length} outcomes; expected one %d{numBits}-bit shot"
+                                                )
+                                            ))
+                            | Some shots ->
+                                return
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "backend",
+                                            $"{backend.Name} measures {shots} shots per job and returns only their counts, so a single shot can be taken from them only by classical sampling. Create the backend with shots = 1: each call is then one job of one shot."
+                                        )
+                                    )
+                            | None ->
+                                let! executed = executePlanAsync backend intent chosenPlan cancellationToken
+
+                                return
+                                    executed
+                                    |> Result.map (fun state ->
+                                        // Simulated state: sample it once.
+                                        match QuantumState.measure state 1 with
+                                        | [||] -> Array.zeroCreate<bool> numBits
+                                        | measurements ->
+                                            measurements.[0] |> Array.map (fun bitValue -> bitValue = 1))
+                        }
+
+                    let! measured =
+                        match plan backend intent with
+                        | Error err -> Task.FromResult(Error err)
+                        | Ok chosenPlan -> measuredBits chosenPlan
+
+                    match measured with
                     | Error err -> return Error err
                     | Ok bits ->
                         // Shared conversion logic matches `generateBits` behavior (little-endian per byte)
@@ -383,7 +416,7 @@ module QRNG =
                                     AsBytes = bytes
                                     Entropy = entropy
                                 }
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.BackendError("QRNG", $"backend execution failed: {ex.Message}"))
         }
 

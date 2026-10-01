@@ -5,18 +5,18 @@ namespace CSharpConsumer
 {
     class Program
     {
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             Console.WriteLine("C# Consumer for Quantum DSLs");
 
             // 1. Quantum Risk Engine
             Console.WriteLine("\n--- Testing QuantumRiskEngine ---");
 
-            var report = new FSharp.Azure.Quantum.Business.CSharp.QuantumRiskEngineBuilder()
+            var report = await new FSharp.Azure.Quantum.Business.CSharp.QuantumRiskEngineBuilder()
                 .SetConfidenceLevel(0.99)
                 .SetSimulationPaths(1000)
                 .CalculateMetric(RiskMetric.ValueAtRisk)
-                .BuildAndRun();
+                .BuildAndRunAsync();
 
             Console.WriteLine($"Confidence Level: {report.ConfidenceLevel}");
             Console.WriteLine($"Method: {report.Method}");
@@ -25,10 +25,10 @@ namespace CSharpConsumer
             // 2. Quantum Drug Discovery
             Console.WriteLine("\n--- Testing QuantumDrugDiscovery ---");
             
-            var drugResult = new FSharp.Azure.Quantum.Business.CSharp.QuantumDrugDiscoveryBuilder()
+            var drugResult = await new FSharp.Azure.Quantum.Business.CSharp.QuantumDrugDiscoveryBuilder()
                 .TargetProteinFromPdb("test.pdb")
                 .UseMethod(ScreeningMethod.QuantumKernelSVM)
-                .Run();
+                .RunAsync();
 
             if (drugResult.IsError)
             {

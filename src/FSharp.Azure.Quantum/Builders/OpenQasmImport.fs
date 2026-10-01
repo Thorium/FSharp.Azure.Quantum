@@ -447,7 +447,7 @@ module OpenQasmImport =
                 || cleanLine.StartsWith "gate\t"
                 || cleanLine = "gate"
             then
-                if cleanLine.Contains('{') && cleanLine.TrimEnd().EndsWith("}") then
+                if cleanLine.Contains('{') && cleanLine.TrimEnd().EndsWith('}') then
                     Ok state // Complete single-line definition — skip
                 else
                     Error $"Line {state.LineNumber}: Multi-line gate definitions are not supported"

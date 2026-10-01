@@ -833,9 +833,12 @@ module CostEstimation =
             // Helper to convert USD to float for display
             let usdFloat (cost: decimal<USD>) = float (cost / 1.0M<USD>)
 
-            // Today's spending
-            let today = DateTimeOffset.UtcNow.Date
-            let todayRecords = records |> List.filter (fun r -> r.Timestamp.Date = today)
+            // Today's spending: the dashboard is read on the operator's machine, so "today" and
+            // "this month" are the local calendar of that machine, with each record's instant
+            // converted to the same clock before its date is taken.
+            let now = DateTimeOffset.Now
+            let today = now.Date
+            let todayRecords = records |> List.filter (fun r -> r.Timestamp.ToLocalTime().Date = today)
 
             let todaySpend =
                 todayRecords
@@ -845,11 +848,13 @@ module CostEstimation =
             |> ignore
 
             // This month's spending
-            let thisMonth = DateTimeOffset.UtcNow.Year, DateTimeOffset.UtcNow.Month
+            let thisMonth = now.Year, now.Month
 
             let monthlyRecords =
                 records
-                |> List.filter (fun r -> (r.Timestamp.Year, r.Timestamp.Month) = thisMonth)
+                |> List.filter (fun r ->
+                    let local = r.Timestamp.ToLocalTime()
+                    (local.Year, local.Month) = thisMonth)
 
             let monthlySpend =
                 monthlyRecords
@@ -1034,8 +1039,10 @@ module CostEstimation =
                         Currency = currency
                         BillingStatus = billingStatus
                     }
-            with _ ->
-                None
+            with
+            // Malformed JSON, or a field of the wrong JSON kind (GetDouble/GetString on it).
+            | :? System.Text.Json.JsonException
+            | :? InvalidOperationException -> None
 
     // ============================================================================
     // CSV PERSISTENCE (TKT-48)

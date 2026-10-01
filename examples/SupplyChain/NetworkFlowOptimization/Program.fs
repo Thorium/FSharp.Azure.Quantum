@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Examples.SupplyChain.NetworkFlowOptimization
 open System
 open System.Diagnostics
 open System.IO
+open System.Threading
 
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -820,7 +821,11 @@ module Program =
 
                 let swQuantum = Stopwatch.StartNew()
                 let backend = LocalBackend() :> IQuantumBackend
-                let quantumResult = QuantumNetworkFlowSolver.solveWithShots backend problem shots
+                let quantumResult =
+                    QuantumNetworkFlowSolver.solveWithShotsAsync backend problem shots CancellationToken.None
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
+
                 swQuantum.Stop()
 
                 let quantumSelected, quantumCost, quantumViolations =

@@ -13,7 +13,7 @@
 // H = (θ/2)·Z, so its "energy" is E = -2πφ (known modulo 2π), which is -θ/2 on |1⟩.
 // Every result is checked against the exact phase.
 //
-// The h2 scenario is a real molecular QPE (QuantumChemistry.QPE.runWith): the H2
+// The h2 scenario is a real molecular QPE (QuantumChemistry.QPE.runWithAsync): the H2
 // electronic Hamiltonian in STO-3G, mapped to 4 qubits by Jordan-Wigner, shifted by an
 // upper bound on its spectrum so every eigenvalue has its own phase; controlled
 // e^(-iHt·2^j) as a first-order Trotter circuit repeated 2^j times; the Hartree-Fock
@@ -45,6 +45,7 @@
 open System
 open System.IO
 open System.Numerics
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
 open FSharp.Azure.Quantum.Algorithms.QPE
@@ -375,7 +376,7 @@ if shouldRun "h2" then
             TrotterSteps = trotterSteps
         }
 
-    // The circuit QPE.runWith builds, for its size: STO-3G integrals -> Jordan-Wigner -> shift and t.
+    // The circuit QPE.runWithAsync builds, for its size: STO-3G integrals -> Jordan-Wigner -> shift and t.
     let plan =
         Sto3gIntegrals.compute molecule
         |> Result.bind (fun integrals ->
@@ -390,14 +391,21 @@ if shouldRun "h2" then
 
     // Reference: UCCSD-VQE on the same integrals, which is exact (FCI) for H2 in STO-3G.
     let reference =
-        VQE.run
+        VQE.runAsync
             molecule
             { solverConfig with
                 Method = GroundStateMethod.VQE
             }
+            CancellationToken.None
+        |> Async.AwaitTask
         |> Async.RunSynchronously
 
-    match plan, reference, QPE.runWith settings molecule solverConfig |> Async.RunSynchronously with
+    let estimate =
+        QPE.runWithAsync settings molecule solverConfig CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    match plan, reference, estimate with
     | Ok plan, Ok vqe, Ok qpe ->
         let d =
             match qpe.Estimation with

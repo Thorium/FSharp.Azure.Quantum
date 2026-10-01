@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.Examples.Fraud.TransactionFraudBatchScoring
 open System
 open System.Diagnostics
 open System.IO
+open System.Threading
+open System.Threading.Tasks
 
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.BinaryClassifier
@@ -62,196 +64,229 @@ module App =
         else
             float (ys |> Array.sumBy id) / float ys.Length
 
-    let run (argv: string array) : int =
-        let args = Cli.parse argv
+    /// Score each row once, in order; the model may run on a shot-sampling backend,
+    /// so the loop awaits every prediction instead of blocking per sample.
+    let private scoreRows
+        (model: BinaryClassifier.Classifier)
+        (xs: float array array)
+        (ys: int array)
+        : Task<(float * int) array> =
+        task {
+            let scores = Array.zeroCreate xs.Length
 
-        if Cli.hasFlag "help" args || Cli.hasFlag "h" args then
-            printHelp ()
-            0
-        else
-            let swTotal = Stopwatch.StartNew()
+            for i in 0 .. xs.Length - 1 do
+                let! p = BinaryClassifier.predictAsync xs.[i] model CancellationToken.None
 
-            let trainPath = Cli.getOr "train" defaultTrainPath args
-            let scorePathOpt = Cli.tryGet "score" args
-            let outDir = Cli.getOr "out" (Path.Combine("runs", "fraud", "tx")) args
-            let numShots = Cli.getIntOr "shots" 1000 args
-            let seed = Cli.getIntOr "seed" 42 args
-            let testFraction = Cli.getFloatOr "test-fraction" 0.2 args |> max 0.05 |> min 0.95
-            let arch = Cli.getOr "arch" "hybrid" args |> parseArch
+                scores.[i] <-
+                    match p with
+                    | Ok p -> p.Confidence, ys.[i]
+                    | Error _ -> 0.0, ys.[i]
 
-            Data.ensureDirectory outDir
+            return scores
+        }
 
-            let runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
+    let runAsync (argv: string array) : Task<int> =
+        task {
+            let args = Cli.parse argv
 
-            Reporting.writeJson
-                (Path.Combine(outDir, "run-config.json"))
-                {|
-                    run_id = runId
-                    utc = DateTimeOffset.UtcNow
-                    train = trainPath
-                    score = scorePathOpt
-                    out = outDir
-                    arch = arch.ToString()
-                    shots = numShots
-                    seed = seed
-                    test_fraction = testFraction
-                |}
-
-            let trainSha = Data.fileSha256Hex trainPath
-
-            let trainRows, trainErrors = Parsing.readTransactions trainPath
-
-            let scoreRowsOpt, scoreErrors =
-                match scorePathOpt with
-                | None -> None, []
-                | Some p ->
-                    let rows, errs = Parsing.readTransactions p
-                    Some rows, errs
-
-            let allErrors = trainErrors @ scoreErrors
-
-            if not allErrors.IsEmpty then
-                Reporting.writeCsv
-                    (Path.Combine(outDir, "bad_rows.csv"))
-                    [ "error" ]
-                    (allErrors |> List.map (fun e -> [ e ]))
-
-            let labeledTrain =
-                trainRows
-                |> List.choose (fun t -> t.Label |> Option.map (fun _ -> t))
-                |> List.toArray
-
-            if labeledTrain.Length = 0 then
-                Reporting.writeTextFile
-                    (Path.Combine(outDir, "run-report.md"))
-                    "# Transaction Fraud\n\nNo labeled training rows found (label column missing/empty).\n"
-
-                2
+            if Cli.hasFlag "help" args || Cli.hasFlag "h" args then
+                printHelp ()
+                return 0
             else
-                let trainSet, testSet = Split.stratifiedHoldout seed testFraction labeledTrain
+                let swTotal = Stopwatch.StartNew()
 
-                let trainX = trainSet |> Array.map Transaction.toVector
-                let trainY = trainSet |> Array.map Transaction.labelOrZero
-                let testX = testSet |> Array.map Transaction.toVector
-                let testY = testSet |> Array.map Transaction.labelOrZero
+                let trainPath = Cli.getOr "train" defaultTrainPath args
+                let scorePathOpt = Cli.tryGet "score" args
+                let outDir = Cli.getOr "out" (Path.Combine("runs", "fraud", "tx")) args
+                let numShots = Cli.getIntOr "shots" 1000 args
+                let seed = Cli.getIntOr "seed" 42 args
+                let testFraction = Cli.getFloatOr "test-fraction" 0.2 args |> max 0.05 |> min 0.95
+                let arch = Cli.getOr "arch" "hybrid" args |> parseArch
 
-                let swTrain = Stopwatch.StartNew()
+                Data.ensureDirectory outDir
 
-                let trained =
-                    binaryClassification {
-                        trainWith trainX trainY
-                        architecture arch
-                        shots numShots
-                        maxEpochs 50
-                        convergenceThreshold 0.001
-                    }
-                    |> Async.AwaitTask
-                    |> Async.RunSynchronously
+                let runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
 
-                swTrain.Stop()
+                Reporting.writeJson
+                    (Path.Combine(outDir, "run-config.json"))
+                    {|
+                        run_id = runId
+                        utc = DateTimeOffset.UtcNow
+                        train = trainPath
+                        score = scorePathOpt
+                        out = outDir
+                        arch = arch.ToString()
+                        shots = numShots
+                        seed = seed
+                        test_fraction = testFraction
+                    |}
 
-                let swEval = Stopwatch.StartNew()
+                let trainSha = Data.fileSha256Hex trainPath
 
-                let evalResult, testScores, trainScores =
-                    match trained with
-                    | Error e -> Error e, [||], [||]
-                    | Ok model ->
-                        let metrics = BinaryClassifier.evaluate testX testY model
+                let trainRows, trainErrors = Parsing.readTransactions trainPath
 
-                        let toScores (xs: float array array) (ys: int array) =
-                            xs
-                            |> Array.mapi (fun i x ->
-                                match BinaryClassifier.predict x model with
-                                | Ok p -> p.Confidence, ys.[i]
-                                | Error _ -> 0.0, ys.[i])
+                let scoreRowsOpt, scoreErrors =
+                    match scorePathOpt with
+                    | None -> None, []
+                    | Some p ->
+                        let rows, errs = Parsing.readTransactions p
+                        Some rows, errs
 
-                        metrics, toScores testX testY, toScores trainX trainY
+                let allErrors = trainErrors @ scoreErrors
 
-                swEval.Stop()
-
-                let swScore = Stopwatch.StartNew()
-
-                let scoresCsvRows, psiTrainVsScore =
-                    match trained, scoreRowsOpt with
-                    | Ok model, Some scoreRows ->
-                        let rows =
-                            scoreRows
-                            |> List.map (fun t ->
-                                match BinaryClassifier.predict (Transaction.toVector t) model with
-                                | Error _ -> [ t.TransactionId; "0"; "0.0"; "ALLOW" ]
-                                | Ok p ->
-                                    let recText =
-                                        Recommendation.ofPrediction p.IsPositive p.Confidence
-                                        |> Recommendation.toString
-
-                                    [ t.TransactionId; string p.Label; $"%.6f{p.Confidence}"; recText ])
-
-                        let expected = trainScores |> Array.map fst
-
-                        let actual =
-                            scoreRows
-                            |> List.toArray
-                            |> Array.choose (fun t ->
-                                match BinaryClassifier.predict (Transaction.toVector t) model with
-                                | Ok p -> Some p.Confidence
-                                | Error _ -> None)
-
-                        rows, Metrics.psi expected actual 10
-                    | _ -> [], 0.0
-
-                if not scoresCsvRows.IsEmpty then
+                if not allErrors.IsEmpty then
                     Reporting.writeCsv
-                        (Path.Combine(outDir, "scores.csv"))
-                        [ "transaction_id"; "pred_label"; "confidence"; "recommendation" ]
-                        scoresCsvRows
+                        (Path.Combine(outDir, "bad_rows.csv"))
+                        [ "error" ]
+                        (allErrors |> List.map (fun e -> [ e ]))
 
-                swScore.Stop()
+                let labeledTrain =
+                    trainRows
+                    |> List.choose (fun t -> t.Label |> Option.map (fun _ -> t))
+                    |> List.toArray
 
-                match trained, evalResult with
-                | Error e, _
-                | _, Error e ->
+                if labeledTrain.Length = 0 then
                     Reporting.writeTextFile
                         (Path.Combine(outDir, "run-report.md"))
-                        ($"# Transaction Fraud\n\nTraining/evaluation failed: {e.Message}\n")
+                        "# Transaction Fraud\n\nNo labeled training rows found (label column missing/empty).\n"
 
-                    3
-                | Ok _, Ok m ->
-                    let auprc = Metrics.auprc testScores
+                    return 2
+                else
+                    let trainSet, testSet = Split.stratifiedHoldout seed testFraction labeledTrain
 
-                    let psiTrainVsTest =
-                        Metrics.psi (trainScores |> Array.map fst) (testScores |> Array.map fst) 10
+                    let trainX = trainSet |> Array.map Transaction.toVector
+                    let trainY = trainSet |> Array.map Transaction.labelOrZero
+                    let testX = testSet |> Array.map Transaction.toVector
+                    let testY = testSet |> Array.map Transaction.labelOrZero
 
-                    swTotal.Stop()
+                    let swTrain = Stopwatch.StartNew()
 
-                    let metrics: RunMetrics =
-                        {
-                            run_id = runId
-                            train_path = trainPath
-                            train_sha256 = trainSha
-                            arch = arch.ToString()
-                            shots = numShots
-                            seed = seed
-                            test_fraction = testFraction
-                            train_rows = trainSet.Length
-                            train_pos_rate = posRate trainY
-                            test_rows = testSet.Length
-                            test_pos_rate = posRate testY
-                            accuracy = m.Accuracy
-                            precision = m.Precision
-                            recall = m.Recall
-                            f1 = m.F1Score
-                            auprc = auprc
-                            psi_score_train_vs_test = psiTrainVsTest
-                            elapsed_ms_total = swTotal.ElapsedMilliseconds
-                            elapsed_ms_train = swTrain.ElapsedMilliseconds
-                            elapsed_ms_eval = swEval.ElapsedMilliseconds
-                            elapsed_ms_score = swScore.ElapsedMilliseconds
+                    let! trained =
+                        binaryClassification {
+                            trainWith trainX trainY
+                            architecture arch
+                            shots numShots
+                            maxEpochs 50
+                            convergenceThreshold 0.001
                         }
 
-                    Reporting.writeJson (Path.Combine(outDir, "metrics.json")) metrics
+                    swTrain.Stop()
 
-                    let report =
-                        $"""# Transaction Fraud Batch Scoring
+                    let swEval = Stopwatch.StartNew()
+
+                    let! evalResult, testScores, trainScores =
+                        task {
+                            match trained with
+                            | Error e -> return Error e, [||], [||]
+                            | Ok model ->
+                                let! metrics =
+                                    BinaryClassifier.evaluateAsync testX testY model CancellationToken.None
+
+                                let! testScores = scoreRows model testX testY
+                                let! trainScores = scoreRows model trainX trainY
+                                return metrics, testScores, trainScores
+                        }
+
+                    swEval.Stop()
+
+                    let swScore = Stopwatch.StartNew()
+
+                    let! scoresCsvRows, psiTrainVsScore =
+                        task {
+                            match trained, scoreRowsOpt with
+                            | Ok model, Some scoreRows ->
+                                // One prediction per row feeds both the CSV and the PSI check.
+                                let predictions = ResizeArray()
+
+                                for t in scoreRows do
+                                    let! p =
+                                        BinaryClassifier.predictAsync
+                                            (Transaction.toVector t)
+                                            model
+                                            CancellationToken.None
+
+                                    predictions.Add((t, p))
+
+                                let rows =
+                                    predictions
+                                    |> Seq.map (fun (t, p) ->
+                                        match p with
+                                        | Error _ -> [ t.TransactionId; "0"; "0.0"; "ALLOW" ]
+                                        | Ok p ->
+                                            let recText =
+                                                Recommendation.ofPrediction p.IsPositive p.Confidence
+                                                |> Recommendation.toString
+
+                                            [ t.TransactionId; string p.Label; $"%.6f{p.Confidence}"; recText ])
+                                    |> List.ofSeq
+
+                                let expected = trainScores |> Array.map fst
+
+                                let actual =
+                                    predictions
+                                    |> Seq.choose (fun (_, p) ->
+                                        match p with
+                                        | Ok p -> Some p.Confidence
+                                        | Error _ -> None)
+                                    |> Array.ofSeq
+
+                                return rows, Metrics.psi expected actual 10
+                            | _ -> return [], 0.0
+                        }
+
+                    if not scoresCsvRows.IsEmpty then
+                        Reporting.writeCsv
+                            (Path.Combine(outDir, "scores.csv"))
+                            [ "transaction_id"; "pred_label"; "confidence"; "recommendation" ]
+                            scoresCsvRows
+
+                    swScore.Stop()
+
+                    match trained, evalResult with
+                    | Error e, _
+                    | _, Error e ->
+                        Reporting.writeTextFile
+                            (Path.Combine(outDir, "run-report.md"))
+                            ($"# Transaction Fraud\n\nTraining/evaluation failed: {e.Message}\n")
+
+                        return 3
+                    | Ok _, Ok m ->
+                        let auprc = Metrics.auprc testScores
+
+                        let psiTrainVsTest =
+                            Metrics.psi (trainScores |> Array.map fst) (testScores |> Array.map fst) 10
+
+                        swTotal.Stop()
+
+                        let metrics: RunMetrics =
+                            {
+                                run_id = runId
+                                train_path = trainPath
+                                train_sha256 = trainSha
+                                arch = arch.ToString()
+                                shots = numShots
+                                seed = seed
+                                test_fraction = testFraction
+                                train_rows = trainSet.Length
+                                train_pos_rate = posRate trainY
+                                test_rows = testSet.Length
+                                test_pos_rate = posRate testY
+                                accuracy = m.Accuracy
+                                precision = m.Precision
+                                recall = m.Recall
+                                f1 = m.F1Score
+                                auprc = auprc
+                                psi_score_train_vs_test = psiTrainVsTest
+                                elapsed_ms_total = swTotal.ElapsedMilliseconds
+                                elapsed_ms_train = swTrain.ElapsedMilliseconds
+                                elapsed_ms_eval = swEval.ElapsedMilliseconds
+                                elapsed_ms_score = swScore.ElapsedMilliseconds
+                            }
+
+                        Reporting.writeJson (Path.Combine(outDir, "metrics.json")) metrics
+
+                        let report =
+                            $"""# Transaction Fraud Batch Scoring
 
 This run trains a binary classifier and evaluates it on a holdout set.
 
@@ -277,12 +312,17 @@ Stability (PSI-style):
 - PSI(score train vs test): {psiTrainVsTest:F4}
 """
 
-                    Reporting.writeTextFile (Path.Combine(outDir, "run-report.md")) report
+                        Reporting.writeTextFile (Path.Combine(outDir, "run-report.md")) report
 
-                    if scorePathOpt.IsSome then
-                        Reporting.writeTextFile
-                            (Path.Combine(outDir, "stability.md"))
-                            ($"# Stability\n\nPSI(score train vs score batch): {psiTrainVsScore:F4}\n")
+                        if scorePathOpt.IsSome then
+                            Reporting.writeTextFile
+                                (Path.Combine(outDir, "stability.md"))
+                                ($"# Stability\n\nPSI(score train vs score batch): {psiTrainVsScore:F4}\n")
 
-                    printfn "Wrote outputs to: %s" outDir
-                    0
+                        printfn "Wrote outputs to: %s" outDir
+                        return 0
+        }
+
+    /// Console entry point: the only place this example blocks.
+    let run (argv: string array) : int =
+        runAsync argv |> Async.AwaitTask |> Async.RunSynchronously

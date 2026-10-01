@@ -148,13 +148,14 @@ module Arithmetic =
         // - This lowering matches the canonical QFT implementation in `Algorithms/QFT.fs`:
         //   for each target qubit j, apply H(j) then controlled phases from k > j onto j.
         // - `applySwaps` controls the standard bit-reversal swaps.
-        let numQubits = registerQubits.Length
+        let qubits = registerQubits |> List.toArray
+        let numQubits = qubits.Length
 
         let swapSequence =
             if applySwaps then
                 List.init (max 0 (numQubits / 2)) (fun i ->
                     let j = numQubits - 1 - i
-                    QuantumOperation.Gate(CB.SWAP(registerQubits.[i], registerQubits.[j])))
+                    QuantumOperation.Gate(CB.SWAP(qubits.[i], qubits.[j])))
             else
                 []
 
@@ -166,14 +167,14 @@ module Arithmetic =
         let qftForwardSequence =
             [ 0 .. numQubits - 1 ]
             |> List.collect (fun targetPos ->
-                let targetQubit = registerQubits.[targetPos]
+                let targetQubit = qubits.[targetPos]
                 let hOp = QuantumOperation.Gate(CB.H targetQubit)
 
                 // Controlled phases from k > targetPos onto the target.
                 let phases =
                     [ targetPos + 1 .. numQubits - 1 ]
                     |> List.map (fun controlPos ->
-                        let controlQubit = registerQubits.[controlPos]
+                        let controlQubit = qubits.[controlPos]
                         let power = controlPos - targetPos + 1
                         let angle = phaseAngle power false
                         QuantumOperation.Gate(CB.CP(controlQubit, targetQubit, angle)))
@@ -183,12 +184,12 @@ module Arithmetic =
         let qftInverseSequence =
             [ numQubits - 1 .. -1 .. 0 ]
             |> List.collect (fun targetPos ->
-                let targetQubit = registerQubits.[targetPos]
+                let targetQubit = qubits.[targetPos]
 
                 let phases =
                     [ numQubits - 1 .. -1 .. targetPos + 1 ]
                     |> List.map (fun controlPos ->
-                        let controlQubit = registerQubits.[controlPos]
+                        let controlQubit = qubits.[controlPos]
                         let power = controlPos - targetPos + 1
                         let angle = phaseAngle power true
                         QuantumOperation.Gate(CB.CP(controlQubit, targetQubit, angle)))
@@ -1780,7 +1781,8 @@ module QuantumArithmetic =
         (constant: int)
         (circuit: CB.Circuit)
         : CB.Circuit =
-        let n = List.length registerQubits
+        let qubits = registerQubits |> List.toArray
+        let n = qubits.Length
 
         [ 0 .. n - 1 ]
         |> List.fold
@@ -1794,8 +1796,8 @@ module QuantumArithmetic =
                     let angle = 2.0 * Math.PI * float reduced / float denom
 
                     match control with
-                    | Some ctrl -> c |> CB.addGate (CB.CP(ctrl, registerQubits.[m], angle))
-                    | None -> c |> CB.addGate (CB.P(registerQubits.[m], angle)))
+                    | Some ctrl -> c |> CB.addGate (CB.CP(ctrl, qubits.[m], angle))
+                    | None -> c |> CB.addGate (CB.P(qubits.[m], angle)))
             circuit
 
     /// Uncontrolled Draper addition: |x⟩ → |x + a mod 2^n⟩.

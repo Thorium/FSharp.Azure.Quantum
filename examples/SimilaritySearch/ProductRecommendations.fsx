@@ -2,7 +2,7 @@
 // Product Recommendations using Quantum Similarity Search
 // ==============================================================================
 // Compares quantum kernel-based similarity across a product catalog.  For each
-// product, runs SimilaritySearch.findSimilar to identify the top matches,
+// product, runs SimilaritySearch.findSimilarAsync to identify the top matches,
 // producing a ranked recommendation table.  Supports a custom catalog via CSV.
 //
 // Usage:
@@ -32,6 +32,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.SimilaritySearch
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -389,6 +390,8 @@ let indexResult =
         threshold cliThreshold
         backend quantumBackend
     }
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 match indexResult with
 | Error err ->
@@ -405,7 +408,11 @@ let index = indexResult |> Result.defaultWith (fun _ -> failwith "unreachable")
 // ==============================================================================
 
 let queryProduct (product: Product) : RecommendationResult =
-    match SimilaritySearch.findSimilar product (extractFeatures product) topN index with
+    match
+        SimilaritySearch.findSimilarAsync product (extractFeatures product) topN index CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok searchResults ->
         let matches =
             searchResults.Matches

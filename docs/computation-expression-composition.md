@@ -366,7 +366,7 @@ let test4 = circuit {
 
 ### Monadic builders
 - **topological** - `Bind`/`Return` style; loops use `do!` in the body
-- **quantumResult** - see the [QuantumResult Builder Guide](quantumresult-builder-guide.md)
+- **quantumResult** and its asynchronous twin **quantumResultTask** - see the [QuantumResult Builder Guide](quantumresult-builder-guide.md)
 
 ### No loop composition
 - **Solver builders** `constraintSolver`, `patternMatcher`, `quantumTreeSearch` and `quantumChemistry` define a `For` over sequences but no `YieldFrom`, so a loop body cannot add to the problem. `quantumRiskEngine` and `drugDiscovery` define only a `For` that runs its body once.

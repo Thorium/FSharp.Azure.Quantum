@@ -78,6 +78,7 @@ References:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.BinaryClassifier
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -254,7 +255,11 @@ if shouldRun 1 then
         // Test on new transaction
         let newTransaction = [| 600.0; 14.5; 7.0; 80.0; 12.0 |] // Suspicious!
 
-        match BinaryClassifier.predict newTransaction classifier with
+        match
+            BinaryClassifier.predictAsync newTransaction classifier CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err ->
             if not quiet then
                 printfn "Prediction failed: %s" err.Message
@@ -356,7 +361,11 @@ if shouldRun 2 then
 
         testTransactions
         |> Array.iteri (fun i tx ->
-            match BinaryClassifier.predict tx classifier with
+            match
+                BinaryClassifier.predictAsync tx classifier CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok pred ->
                 let status = if pred.IsPositive then "FRAUD" else "OK"
 
@@ -418,7 +427,11 @@ if shouldRun 3 then
         // In production, use a real held-out split of historical data.
         let (testX, testY) = generateSampleData 1337
 
-        match BinaryClassifier.evaluate testX testY classifier with
+        match
+            BinaryClassifier.evaluateAsync testX testY classifier CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err ->
             if not quiet then
                 printfn "Evaluation failed: %s" err.Message
@@ -514,7 +527,11 @@ if shouldRun 4 then
         // Use in production API
         let incomingTransaction = [| 700.0; 2.0; 8.0; 100.0; 14.0 |]
 
-        match BinaryClassifier.predict incomingTransaction loadedClassifier with
+        match
+            BinaryClassifier.predictAsync incomingTransaction loadedClassifier CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Ok prediction ->
             let recommendation =
                 if prediction.IsPositive && prediction.Confidence > 0.8 then

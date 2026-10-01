@@ -2,6 +2,8 @@ namespace FSharp.Azure.Quantum.Core
 
 open System
 open System.Collections.Concurrent
+open System.Threading
+open System.Threading.Tasks
 
 /// Batching module for optimizing Azure Quantum job submissions
 ///
@@ -178,19 +180,23 @@ module Batching =
     /// Example:
     /// <code>
     /// let circuits = ["circuit1"; "circuit2"; "circuit3"]
-    /// let results =
-    ///     batchCircuitsAsync
-    ///         BatchConfig.defaultConfig
-    ///         circuits
-    ///         (fun batch -> async { return submitToAzure batch })
-    ///     |> Async.RunSynchronously
+    /// task {
+    ///     let! results =
+    ///         batchCircuitsAsync
+    ///             BatchConfig.defaultConfig
+    ///             circuits
+    ///             (fun batch -> task { return submitToAzure batch })
+    ///             CancellationToken.None
+    ///     return results
+    /// }
     /// </code>
     let batchCircuitsAsync<'TCircuit, 'TResult>
         (config: BatchConfig)
         (circuits: 'TCircuit list)
-        (submitBatch: 'TCircuit list -> Async<'TResult list>)
-        : Async<'TResult list> =
-        async {
+        (submitBatch: 'TCircuit list -> Task<'TResult list>)
+        (cancellationToken: CancellationToken)
+        : Task<'TResult list> =
+        task {
             if not config.Enabled || circuits.IsEmpty then
                 return []
             else
@@ -198,10 +204,15 @@ module Batching =
                 let batches = circuits |> List.chunkBySize config.MaxBatchSize
 
                 // Submit batches sequentially and collect results
-                let! allBatchResults = batches |> List.map submitBatch |> Async.Sequential
+                let allBatchResults = ResizeArray<'TResult list>(batches.Length)
+
+                for batch in batches do
+                    cancellationToken.ThrowIfCancellationRequested()
+                    let! batchResult = submitBatch batch
+                    allBatchResults.Add batchResult
 
                 // Flatten batch results into single list
-                return allBatchResults |> Array.toList |> List.collect id
+                return allBatchResults |> Seq.collect id |> List.ofSeq
         }
 
     // ============================================================================

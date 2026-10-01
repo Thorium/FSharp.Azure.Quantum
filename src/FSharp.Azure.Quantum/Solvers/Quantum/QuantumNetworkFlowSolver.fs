@@ -304,62 +304,58 @@ module QuantumNetworkFlowSolver =
     /// Decode QUBO solution bitstring to network flow solution
     let private decodeSolution (problem: NetworkFlowProblem) (bitstring: int array) : NetworkFlowSolution option =
 
-        try
-            // Create edge index mapping
-            let edgeIndexMap = problem.Edges |> List.mapi (fun i edge -> i, edge) |> Map.ofList
+        // Create edge index mapping
+        let edgeIndexMap = problem.Edges |> List.mapi (fun i edge -> i, edge) |> Map.ofList
 
-            // Extract selected edges (where bit = 1)
-            let selectedEdges =
-                bitstring
-                |> Array.mapi (fun i bit -> i, bit)
-                |> Array.filter (fun (_, bit) -> bit = 1)
-                |> Array.choose (fun (idx, _) -> Map.tryFind idx edgeIndexMap)
-                |> Array.toList
+        // Extract selected edges (where bit = 1)
+        let selectedEdges =
+            bitstring
+            |> Array.mapi (fun i bit -> i, bit)
+            |> Array.filter (fun (_, bit) -> bit = 1)
+            |> Array.choose (fun (idx, _) -> Map.tryFind idx edgeIndexMap)
+            |> Array.toList
 
-            if selectedEdges.IsEmpty then
-                None
-            else
-                // Calculate total cost
-                let totalCost = selectedEdges |> List.sumBy (fun e -> e.Weight)
-
-                // Calculate flow amounts (simplified: 1 unit per selected edge)
-                let flowAmounts =
-                    selectedEdges |> List.map (fun e -> (e.Source, e.Target), 1.0) |> Map.ofList
-
-                // Calculate demand satisfaction
-                let totalDemand = problem.Demands |> Map.toList |> List.sumBy snd |> float
-
-                // Actual delivered quantity per sink: inflow units (1 per selected edge),
-                // capped at that sink's demand so FillRate can never exceed 1.0.
-                let demandSatisfied =
-                    problem.Sinks
-                    |> List.sumBy (fun sink ->
-                        let inflow = selectedEdges |> List.filter (fun e -> e.Target = sink) |> List.length
-                        let demand = Map.tryFind sink problem.Demands |> Option.defaultValue 0
-                        float (min inflow demand))
-
-                let fillRate =
-                    if totalDemand > 0.0 then
-                        demandSatisfied / totalDemand
-                    else
-                        0.0
-
-                Some
-                    {
-                        SelectedEdges = selectedEdges
-                        TotalCost = totalCost
-                        FlowAmounts = flowAmounts
-                        DemandSatisfied = demandSatisfied
-                        TotalDemand = totalDemand
-                        FillRate = fillRate
-                        BackendName = "" // Will be set by caller
-                        NumShots = 0 // Will be set by caller
-                        ElapsedMs = 0.0 // Will be set by caller
-                        BestEnergy = totalCost
-                    }
-
-        with _ ->
+        if selectedEdges.IsEmpty then
             None
+        else
+            // Calculate total cost
+            let totalCost = selectedEdges |> List.sumBy (fun e -> e.Weight)
+
+            // Calculate flow amounts (simplified: 1 unit per selected edge)
+            let flowAmounts =
+                selectedEdges |> List.map (fun e -> (e.Source, e.Target), 1.0) |> Map.ofList
+
+            // Calculate demand satisfaction
+            let totalDemand = problem.Demands |> Map.toList |> List.sumBy snd |> float
+
+            // Actual delivered quantity per sink: inflow units (1 per selected edge),
+            // capped at that sink's demand so FillRate can never exceed 1.0.
+            let demandSatisfied =
+                problem.Sinks
+                |> List.sumBy (fun sink ->
+                    let inflow = selectedEdges |> List.filter (fun e -> e.Target = sink) |> List.length
+                    let demand = Map.tryFind sink problem.Demands |> Option.defaultValue 0
+                    float (min inflow demand))
+
+            let fillRate =
+                if totalDemand > 0.0 then
+                    demandSatisfied / totalDemand
+                else
+                    0.0
+
+            Some
+                {
+                    SelectedEdges = selectedEdges
+                    TotalCost = totalCost
+                    FlowAmounts = flowAmounts
+                    DemandSatisfied = demandSatisfied
+                    TotalDemand = totalDemand
+                    FillRate = fillRate
+                    BackendName = "" // Will be set by caller
+                    NumShots = 0 // Will be set by caller
+                    ElapsedMs = 0.0 // Will be set by caller
+                    BestEnergy = totalCost
+                }
 
     // ================================================================================
     // QUANTUM SOLVER
@@ -402,7 +398,7 @@ module QuantumNetworkFlowSolver =
     ///   config - Configuration for execution
     ///
     /// Returns:
-    ///   Async<Result<NetworkFlowSolution, QuantumError>> - Async computation with result or error
+    ///   Task<Result<NetworkFlowSolution, QuantumError>> - Task with result or error
     let solveAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
@@ -521,35 +517,6 @@ module QuantumNetworkFlowSolver =
                         )
                 }
 
-    /// Solve network flow problem using quantum backend via QAOA (synchronous wrapper)
-    ///
-    /// This is a synchronous wrapper around solveAsync for backward compatibility.
-    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
-    ///
-    /// Full Pipeline:
-    /// 1. Network flow problem → QUBO matrix (min-cost flow encoding)
-    /// 2. QUBO → QaoaCircuit (Hamiltonians + layers)
-    /// 3. Execute circuit on quantum backend
-    /// 4. Decode measurements → flow assignments
-    /// 5. Return the valid flow that meets the most demand, the cheapest among equals
-    ///
-    /// Parameters:
-    ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
-    ///   problem - Network flow problem specification
-    ///   config - Configuration for execution
-    ///
-    /// Returns:
-    ///   Result with NetworkFlowSolution or QuantumError
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: NetworkFlowProblem)
-        (config: QuantumFlowConfig)
-        : Result<NetworkFlowSolution, QuantumError> =
-        solveAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve network flow with default configuration (asynchronous)
     let solveWithDefaultsAsync
         (backend: BackendAbstraction.IQuantumBackend)
@@ -557,18 +524,6 @@ module QuantumNetworkFlowSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<NetworkFlowSolution, QuantumError>> =
         solveAsync backend problem defaultConfig cancellationToken
-
-    /// Solve network flow with default configuration
-    ///
-    /// This is a synchronous wrapper around `solveWithDefaultsAsync` for backward compatibility.
-    [<Obsolete("Use solveWithDefaultsAsync for non-blocking execution against cloud backends")>]
-    let solveWithDefaults
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: NetworkFlowProblem)
-        : Result<NetworkFlowSolution, QuantumError> =
-        solveWithDefaultsAsync backend problem CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Solve network flow with custom number of shots (asynchronous)
     let solveWithShotsAsync
@@ -583,16 +538,3 @@ module QuantumNetworkFlowSolver =
             }
 
         solveAsync backend problem config cancellationToken
-
-    /// Solve network flow with custom number of shots
-    ///
-    /// This is a synchronous wrapper around `solveWithShotsAsync` for backward compatibility.
-    [<Obsolete("Use solveWithShotsAsync for non-blocking execution against cloud backends")>]
-    let solveWithShots
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: NetworkFlowProblem)
-        (numShots: int)
-        : Result<NetworkFlowSolution, QuantumError> =
-        solveWithShotsAsync backend problem numShots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously

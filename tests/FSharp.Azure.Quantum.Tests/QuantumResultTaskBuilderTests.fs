@@ -1,6 +1,7 @@
 module FSharp.Azure.Quantum.Tests.QuantumResultTaskBuilderTests
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core
@@ -56,7 +57,7 @@ type QuantumResultTaskBuilderTests() =
     [<Fact>]
     member _.``the block runs when evaluated and awaits its steps``() : Task =
         task {
-            let mutable order = ResizeArray<string>()
+            let order = ResizeArray<string>()
 
             let! result =
                 quantumResultTask {
@@ -171,5 +172,85 @@ type QuantumResultTaskBuilderTests() =
                 }
 
             Assert.Equal(Ok 200_000, result)
+        }
+        :> Task
+
+    [<Fact>]
+    member _.``a statement-level Error short-circuits the rest of the block``() : Task =
+        task {
+            let mutable ran = false
+
+            let! result =
+                quantumResultTask {
+                    do! Task.FromResult(Error(failure "statement"): QuantumResult<unit>)
+                    ran <- true
+                    return 1
+                }
+
+            Assert.Equal(Error(failure "statement"), result)
+            Assert.False(ran, "the statements after a failed do! must not run")
+        }
+        :> Task
+
+    [<Fact>]
+    member _.``use and try-finally still clean up when the body returns Error``() : Task =
+        task {
+            let mutable disposed = false
+            let mutable finallyRan = false
+
+            let resource =
+                { new IDisposable with
+                    member _.Dispose() = disposed <- true
+                }
+
+            let! result =
+                quantumResultTask {
+                    use _ = resource
+
+                    try
+                        let! _ = Task.FromResult(Error(failure "body"): QuantumResult<int>)
+                        return 1
+                    finally
+                        finallyRan <- true
+                }
+
+            Assert.Equal(Error(failure "body"), result)
+            Assert.True(finallyRan, "finally must run on the Error path")
+            Assert.True(disposed, "use must dispose on the Error path")
+        }
+        :> Task
+
+    [<Fact>]
+    member _.``an exception after a step faults the task instead of becoming an Error``() : Task =
+        task {
+            let faulted: Task<QuantumResult<int>> =
+                quantumResultTask {
+                    let! _ = Task.FromResult(Ok 1)
+                    failwith "boom"
+                    return 1
+                }
+
+            let! ex = Assert.ThrowsAsync<Exception>(fun () -> faulted :> Task)
+            Assert.Equal("boom", ex.Message)
+        }
+        :> Task
+
+    [<Fact>]
+    member _.``a cancelled step cancels the block rather than returning an Error``() : Task =
+        task {
+            use cts = new CancellationTokenSource()
+            do! cts.CancelAsync()
+
+            let cancelled: Task<QuantumResult<int>> =
+                Task.FromCanceled<QuantumResult<int>>(cts.Token)
+
+            let block =
+                quantumResultTask {
+                    let! value = cancelled
+                    return value
+                }
+
+            let! _ = Assert.ThrowsAnyAsync<OperationCanceledException>(fun () -> block :> Task)
+            ()
         }
         :> Task

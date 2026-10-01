@@ -252,11 +252,13 @@ module QuantumBinaryILPSolver =
 
     /// Validate a Binary ILP problem, returning Error if invalid.
     let private validateProblem (problem: Problem) : Result<unit, QuantumError> =
-        if problem.ObjectiveCoeffs.IsEmpty then
+        let numVariables = problem.ObjectiveCoeffs.Length
+
+        if numVariables = 0 then
             Error(QuantumError.ValidationError("objectiveCoeffs", "Problem has no decision variables"))
         elif
             problem.Constraints
-            |> List.exists (fun c -> c.Coefficients.Length <> problem.ObjectiveCoeffs.Length)
+            |> List.exists (fun c -> c.Coefficients.Length <> numVariables)
         then
             Error(
                 QuantumError.ValidationError(
@@ -464,70 +466,75 @@ module QuantumBinaryILPSolver =
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
     // ========================================================================
 
-    /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+    /// Shared implementation of solveWithConfigAsync.
     let private solveWithConfigCore
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Result<Solution, QuantumError> =
+        : Task<Result<Solution, QuantumError>> =
 
         match validateProblem problem with
-        | Error err -> Error err
+        | Error err -> Task.FromResult(Error err)
         | Ok() ->
-            let solveSingle (subProblem: Problem) =
-                match toQubo subProblem with
-                | Error err -> Error err
-                | Ok qubo ->
-                    let result =
-                        if config.EnableOptimization then
-                            executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                        else
-                            // Sequential (maxConcurrency = 1) grid search, as before
-                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
-                                .GetAwaiter()
-                                .GetResult()
-                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+            let solveSingle (subProblem: Problem) : Task<Result<Solution, QuantumError>> =
+                task {
+                    match toQubo subProblem with
+                    | Error err -> return Error err
+                    | Ok qubo ->
+                        let! result =
+                            if config.EnableOptimization then
+                                task {
+                                    let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
 
-                    match result with
-                    | Error err -> Error err
-                    | Ok(bits, optParams, converged) ->
-                        let decoded = decodeSolution subProblem bits
-                        let needsRepair = not decoded.IsValid
-
-                        let finalBits, wasRepaired =
-                            if config.EnableConstraintRepair && needsRepair then
-                                (repairConstraints subProblem bits, true)
+                                    return
+                                        optimized
+                                        |> Result.map (fun (bits, optParams, converged) ->
+                                            (bits, Some optParams, Some converged))
+                                }
                             else
-                                (bits, false)
+                                task {
+                                    // Sequential (maxConcurrency = 1) grid search, as before
+                                    let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
 
-                        let solution = decodeSolution subProblem finalBits
+                                    return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+                                }
 
-                        Ok
-                            { solution with
-                                BackendName = backend.Name
-                                NumShots = config.FinalShots
-                                WasRepaired = wasRepaired
-                                OptimizedParameters = optParams
-                                OptimizationConverged = converged
-                            }
+                        match result with
+                        | Error err -> return Error err
+                        | Ok(bits, optParams, converged) ->
+                            let decoded = decodeSolution subProblem bits
+                            let needsRepair = not decoded.IsValid
 
-            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
+                            let finalBits, wasRepaired =
+                                if config.EnableConstraintRepair && needsRepair then
+                                    (repairConstraints subProblem bits, true)
+                                else
+                                    (bits, false)
 
-    /// Solve Binary ILP using QAOA with full configuration control.
-    /// Supports automatic decomposition when problem exceeds backend capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (config: Config)
-        : Result<Solution, QuantumError> =
-        solveWithConfigCore backend problem config CancellationToken.None
+                            let solution = decodeSolution subProblem finalBits
+
+                            return
+                                Ok
+                                    { solution with
+                                        BackendName = backend.Name
+                                        NumShots = config.FinalShots
+                                        WasRepaired = wasRepaired
+                                        OptimizedParameters = optParams
+                                        OptimizationConverged = converged
+                                    }
+                }
+
+            ProblemDecomposition.solveWithDecompositionAsync
+                backend
+                problem
+                estimateQubits
+                decompose
+                recombine
+                solveSingle
 
     /// Solve Binary ILP using QAOA with full configuration control (async).
-    /// Wraps the synchronous solveWithConfig in a task; will become truly async
-    /// once ProblemDecomposition supports async solve functions.
+    /// Supports automatic decomposition when problem exceeds backend capacity.
     let solveWithConfigAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -536,25 +543,8 @@ module QuantumBinaryILPSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfigCore backend problem config cancellationToken
+            return! solveWithConfigCore backend problem config cancellationToken
         }
-
-    /// Solve Binary ILP using QAOA with default configuration.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (shots: int)
-        : Result<Solution, QuantumError> =
-
-        let config =
-            { defaultConfig with
-                FinalShots = shots
-            }
-
-        solveWithConfigAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // CLASSICAL SOLVER (Rule 1: private — not exposed without backend)

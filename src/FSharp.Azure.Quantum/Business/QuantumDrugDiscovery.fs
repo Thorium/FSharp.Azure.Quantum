@@ -170,9 +170,9 @@ module internal ProviderDataLoader =
         provider.Load DatasetQuery.All |> Result.map toMolecularDataset
 
     /// Load molecules from an async provider and convert to MolecularDataset.
-    let loadFromProviderAsync (provider: IMoleculeDatasetProviderAsync) =
-        async {
-            let! result = provider.LoadAsync DatasetQuery.All
+    let loadFromProviderAsync (provider: IMoleculeDatasetProviderAsync) (cancellationToken: CancellationToken) =
+        task {
+            let! result = provider.LoadAsync DatasetQuery.All cancellationToken
             return result |> Result.map toMolecularDataset
         }
 
@@ -228,10 +228,11 @@ module internal ScreeningScoring =
 
                 i <- i + 1
 
-            match firstError with
-            | Some(e: QuantumError) ->
-                return Error(QuantumError.OperationError("Scoring", $"Candidate scoring failed: {e.Message}"))
-            | None -> return Ok(scored.ToArray())
+            return
+                match firstError with
+                | Some(e: QuantumError) ->
+                    Error(QuantumError.OperationError("Scoring", $"Candidate scoring failed: {e.Message}"))
+                | None -> Ok(scored.ToArray())
         }
 
 type QuantumDrugDiscoveryBuilder() =
@@ -268,7 +269,7 @@ type QuantumDrugDiscoveryBuilder() =
             match state.CandidateSource with
             | Some(Provider provider) -> return ProviderDataLoader.loadFromProvider provider
             | Some(ProviderAsync provider) ->
-                let! result = ProviderDataLoader.loadFromProviderAsync provider |> Async.StartAsTask
+                let! result = ProviderDataLoader.loadFromProviderAsync provider cancellationToken
                 return result
             | Some(FilePath path) -> return ProviderDataLoader.loadFromFilePath path
             | None ->
@@ -313,8 +314,15 @@ type QuantumDrugDiscoveryBuilder() =
 
         quantumResultTask {
             let! model =
-                QuantumKernelSVM.train backend featureMap trainData trainLabels config shots
-                |> Result.mapError (fun e -> QuantumError.OperationError("Training", $"Training Failed: {e.Message}"))
+                task {
+                    let! trained =
+                        QuantumKernelSVM.trainAsync backend featureMap trainData trainLabels config shots cancellationToken
+
+                    return
+                        trained
+                        |> Result.mapError (fun e ->
+                            QuantumError.OperationError("Training", $"Training Failed: {e.Message}"))
+                }
 
             // Genuinely score the whole candidate pool with the trained model: the SVM
             // decision value is the screening score (signed distance from the hyperplane).
@@ -380,9 +388,23 @@ type QuantumDrugDiscoveryBuilder() =
         quantumResultTask {
             // Train VQC model
             let! result =
-                VQC.train backend mappedFeatureMap variationalForm initialParams trainData trainLabels vqcConfig
-                |> Result.mapError (fun e ->
-                    QuantumError.OperationError("VQCTraining", $"VQC Training Failed: {e.Message}"))
+                task {
+                    let! trained =
+                        VQC.trainAsync
+                            backend
+                            mappedFeatureMap
+                            variationalForm
+                            initialParams
+                            trainData
+                            trainLabels
+                            vqcConfig
+                            cancellationToken
+
+                    return
+                        trained
+                        |> Result.mapError (fun e ->
+                            QuantumError.OperationError("VQCTraining", $"VQC Training Failed: {e.Message}"))
+                }
 
             // Genuinely classify the whole candidate pool with the trained circuit: the
             // active-class probability is the screening score.

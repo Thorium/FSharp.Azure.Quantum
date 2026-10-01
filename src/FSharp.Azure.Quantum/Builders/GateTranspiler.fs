@@ -422,6 +422,9 @@ module GateTranspiler =
         | 2, _ -> [ CCX(controls.[0], controls.[1], target) ]
 
         | n, m when n >= 3 && m = n - 2 ->
+            let controls = List.toArray controls
+            let ancillas = List.toArray ancillas
+
             // Forward pass: compute partial AND results
             let forwardPass =
                 [

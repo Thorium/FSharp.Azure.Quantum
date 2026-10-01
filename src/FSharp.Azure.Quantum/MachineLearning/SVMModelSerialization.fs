@@ -196,12 +196,6 @@ module SVMModelSerialization =
                 return Error(QuantumError.ValidationError("Input", $"Failed to save SVM model: {ex.Message}"))
         }
 
-    [<System.Obsolete("Use saveSVMModelAsync for better performance and to avoid blocking threads")>]
-    let saveSVMModel (filePath: string) (model: QuantumKernelSVM.SVMModel) (note: string option) : QuantumResult<unit> =
-        saveSVMModelAsync filePath model note CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Load binary SVM model from JSON file (async, task-based)
     let loadSVMModelAsync
         (filePath: string)
@@ -232,12 +226,6 @@ module SVMModelSerialization =
             with ex ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to load SVM model: {ex.Message}"))
         }
-
-    [<System.Obsolete("Use loadSVMModelAsync for better performance and to avoid blocking threads")>]
-    let loadSVMModel (filePath: string) : QuantumResult<QuantumKernelSVM.SVMModel> =
-        loadSVMModelAsync filePath CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Print binary SVM model information via ILogger
     let printSVMModelInfo (filePath: string) (logger: ILogger option) : QuantumResult<unit> =
@@ -327,16 +315,6 @@ module SVMModelSerialization =
                     Error(QuantumError.ValidationError("Input", $"Failed to save multi-class SVM model: {ex.Message}"))
         }
 
-    [<System.Obsolete("Use saveMultiClassSVMModelAsync for better performance and to avoid blocking threads")>]
-    let saveMultiClassSVMModel
-        (filePath: string)
-        (model: MultiClassSVM.MultiClassModel)
-        (note: string option)
-        : QuantumResult<unit> =
-        saveMultiClassSVMModelAsync filePath model note CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Load multi-class SVM model from JSON file (async, task-based)
     let loadMultiClassSVMModelAsync
         (filePath: string)
@@ -389,12 +367,6 @@ module SVMModelSerialization =
                 return
                     Error(QuantumError.ValidationError("Input", $"Failed to load multi-class SVM model: {ex.Message}"))
         }
-
-    [<System.Obsolete("Use loadMultiClassSVMModelAsync for better performance and to avoid blocking threads")>]
-    let loadMultiClassSVMModel (filePath: string) : QuantumResult<MultiClassSVM.MultiClassModel> =
-        loadMultiClassSVMModelAsync filePath CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Print multi-class SVM model information via ILogger
     let printMultiClassSVMModelInfo (filePath: string) (logger: ILogger option) : QuantumResult<unit> =

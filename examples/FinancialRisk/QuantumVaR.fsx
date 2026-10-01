@@ -48,6 +48,7 @@
 open System
 open System.Net.Http
 open System.IO
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -375,7 +376,11 @@ let private tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option 
                         EndDate = None
                     }
 
-                match fetchYahooHistory httpClient request with
+                match
+                    fetchYahooHistoryAsync httpClient request CancellationToken.None
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
+                with
                 | Ok priceSeries -> calculateReturns priceSeries
                 | Error error ->
                     raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}")))
@@ -582,7 +587,8 @@ let statePrep = buildStatePreparationCircuit portfolioReturns quantumQubits
 let oracle = buildThresholdOracle portfolioReturns varThreshold quantumQubits
 
 let quantumResult =
-    estimateProbability statePrep oracle groverIterations backend
+    estimateProbabilityAsync statePrep oracle groverIterations backend CancellationToken.None
+    |> Async.AwaitTask
     |> Async.RunSynchronously
 
 let mutable anyQuantumFailure = false

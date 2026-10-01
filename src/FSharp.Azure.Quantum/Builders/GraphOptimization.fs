@@ -753,6 +753,7 @@ module GraphOptimization =
         : GraphOptimizationSolution<'TNode, 'TEdge> =
         let numNodes = problem.Graph.Nodes |> Map.count
         let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+        let bits = List.toArray quboSolution
 
         match problem.Objective with
         | MinimizeColors ->
@@ -767,7 +768,7 @@ module GraphOptimization =
                         [ 0 .. numColors - 1 ]
                         |> List.tryFindIndex (fun c ->
                             let varIdx = nodeIdx * numColors + c
-                            varIdx < quboSolution.Length && quboSolution.[varIdx] = 1)
+                            varIdx < bits.Length && bits.[varIdx] = 1)
                         |> Option.defaultValue 0
 
                     nodeId, colorIdx)
@@ -793,7 +794,7 @@ module GraphOptimization =
                     |> List.tryFindIndex (fun nodeId ->
                         let i = List.findIndex ((=) nodeId) nodeIds
                         let vIdx = varIndex i t
-                        vIdx < quboSolution.Length && quboSolution.[vIdx] = 1)
+                        vIdx < bits.Length && bits.[vIdx] = 1)
                     |> Option.map (fun cityIdx -> nodeIds.[cityIdx]))
 
             // Extract tour edges from consecutive cities in tour
@@ -814,7 +815,7 @@ module GraphOptimization =
             let partition =
                 nodeIds
                 |> List.mapi (fun i nodeId ->
-                    let partitionValue = if i < quboSolution.Length then quboSolution.[i] else 0
+                    let partitionValue = if i < bits.Length then bits.[i] else 0
                     nodeId, partitionValue)
                 |> Map.ofList
 
@@ -823,8 +824,6 @@ module GraphOptimization =
         | MaximizeEdges
         | MinimizeEdges ->
             // Decode edge selection: edge e is selected when its bit is 1
-            let bits = List.toArray quboSolution
-
             let selectedEdges =
                 problem.Graph.Edges
                 |> List.indexed

@@ -4,6 +4,8 @@ open System
 open System.Globalization
 open System.IO
 open System.Text.RegularExpressions
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 
 /// Chemistry-related data providers and importers.
@@ -139,7 +141,8 @@ module ChemistryDataProviders =
     /// (e.g., conformer generation via RDKit/OpenBabel).
     type IGeometryProviderAsync =
         /// Get 3D geometry asynchronously
-        abstract TryGetGeometryAsync: topology: MoleculeTopology -> Async<QuantumResult<MoleculeGeometry option>>
+        abstract TryGetGeometryAsync:
+            topology: MoleculeTopology -> cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeGeometry option>>
 
     /// A "no-op" geometry provider that always returns None.
     /// Useful for topology-only workflows (drug discovery ML).
@@ -202,9 +205,9 @@ module ChemistryDataProviders =
         /// Human-readable description
         abstract Describe: unit -> string
         /// Load molecules asynchronously
-        abstract LoadAsync: query: DatasetQuery -> Async<QuantumResult<MoleculeDataset>>
+        abstract LoadAsync: query: DatasetQuery -> cancellationToken: CancellationToken -> Task<QuantumResult<MoleculeDataset>>
         /// List available names
-        abstract ListNamesAsync: unit -> Async<string list>
+        abstract ListNamesAsync: cancellationToken: CancellationToken -> Task<string list>
 
     // ========================================================================
     // LEGACY COMPATIBILITY TYPE (for existing code)
@@ -418,10 +421,9 @@ module ChemistryDataProviders =
 
         /// Parse molecule geometry from an XYZ file.
         /// Delegates to MoleculeFormats.Xyz.readAsync.
-        let fromFileAsync (filePath: string) : Async<QuantumResult<XyzMolecule>> =
-            async {
-                let! ct = Async.CancellationToken
-                let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
+        let fromFileAsync (filePath: string) (cancellationToken: CancellationToken) : Task<QuantumResult<XyzMolecule>> =
+            task {
+                let! result = MoleculeFormats.Xyz.readAsync filePath cancellationToken
                 return result |> Result.map fromMoleculeData
             }
 
@@ -447,13 +449,17 @@ module ChemistryDataProviders =
             + Environment.NewLine
 
         /// Save `XyzMolecule` to a file.
-        let saveToFileAsync (filePath: string) (molecule: XyzMolecule) : Async<QuantumResult<unit>> =
-            async {
+        let saveToFileAsync
+            (filePath: string)
+            (molecule: XyzMolecule)
+            (cancellationToken: CancellationToken)
+            : Task<QuantumResult<unit>> =
+            task {
                 try
                     let content = toXyz molecule
-                    do! File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
+                    do! File.WriteAllTextAsync(filePath, content, cancellationToken)
                     return Ok()
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.IOError("WriteXYZ", filePath, ex.Message))
             }
 
@@ -499,10 +505,10 @@ module ChemistryDataProviders =
             (filePath: string)
             (charge: int option)
             (multiplicity: int option)
-            : Async<QuantumResult<MoleculeInstance>> =
-            async {
-                let! ct = Async.CancellationToken
-                let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
+            (cancellationToken: CancellationToken)
+            : Task<QuantumResult<MoleculeInstance>> =
+            task {
+                let! result = MoleculeFormats.Xyz.readAsync filePath cancellationToken
 
                 return
                     result
@@ -545,10 +551,9 @@ module ChemistryDataProviders =
                         })
             }
 
-        let loadFile (filePath: string) : Async<QuantumResult<MoleculeInstance>> =
-            async {
-                let! ct = Async.CancellationToken
-                let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
+        let loadFile (filePath: string) (cancellationToken: CancellationToken) : Task<QuantumResult<MoleculeInstance>> =
+            task {
+                let! result = MoleculeFormats.Xyz.readAsync filePath cancellationToken
                 return result |> Result.map toMoleculeInstance
             }
 
@@ -556,14 +561,14 @@ module ChemistryDataProviders =
             member _.Describe() =
                 $"XYZ file dataset provider (directory: {directory})"
 
-            member _.LoadAsync(query: DatasetQuery) =
-                async {
+            member _.LoadAsync (query: DatasetQuery) (cancellationToken: CancellationToken) =
+                task {
                     match query with
                     | ByName name ->
                         let filePath = Path.Combine(directory, name + ".xyz")
 
                         if File.Exists filePath then
-                            let! result = loadFile filePath
+                            let! result = loadFile filePath cancellationToken
 
                             return
                                 result
@@ -579,7 +584,7 @@ module ChemistryDataProviders =
 
                     | ByPath path ->
                         if File.Exists path then
-                            let! result = loadFile path
+                            let! result = loadFile path cancellationToken
 
                             return
                                 result
@@ -597,13 +602,14 @@ module ChemistryDataProviders =
                         if Directory.Exists directory then
                             let files = Directory.GetFiles(directory, "*.xyz")
                             // Sequential loading - simplicity over micro-optimization for small QC datasets
-                            let! results = files |> Array.map loadFile |> Async.Sequential
+                            let molecules = ResizeArray<MoleculeInstance>()
 
-                            let molecules =
-                                results
-                                |> Array.choose (function
-                                    | Ok m -> Some m
-                                    | Error _ -> None)
+                            for file in files do
+                                match! loadFile file cancellationToken with
+                                | Ok m -> molecules.Add m
+                                | Error _ -> ()
+
+                            let molecules = molecules.ToArray()
 
                             return
                                 Ok
@@ -626,8 +632,10 @@ module ChemistryDataProviders =
                             )
                 }
 
-            member _.ListNamesAsync() =
-                async {
+            member _.ListNamesAsync(cancellationToken: CancellationToken) =
+                task {
+                    cancellationToken.ThrowIfCancellationRequested()
+
                     if Directory.Exists directory then
                         return
                             Directory.GetFiles(directory, "*.xyz")
@@ -1309,7 +1317,7 @@ module ChemistryDataProviders =
                 (MoleculeFormats.Sdf.parse content)
                 |> Result.map (Conversions.fromMoleculeData >> Some)
                 |> Result.defaultValue None
-            with _ ->
+            with :? IOException | :? UnauthorizedAccessException ->
                 None
 
         interface IMoleculeDatasetProvider with
@@ -1689,7 +1697,8 @@ module ChemistryDataProviders =
                     let moleculeData = MoleculeFormats.FciDump.toMoleculeData header (Some path)
                     Some(Conversions.fromMoleculeData moleculeData)
                 | Error _ -> None
-            with _ ->
+            // OverflowException: a header integer (NORB, NELEC, ...) beyond Int32 in parseHeader
+            with :? IOException | :? UnauthorizedAccessException | :? OverflowException ->
                 None
 
         interface IMoleculeDatasetProvider with
@@ -1956,7 +1965,7 @@ module ChemistryDataProviders =
                             Charge = charge
                             IsHetAtom = isHetatm
                         }
-                with _ ->
+                with :? FormatException | :? OverflowException ->
                     None
 
         /// Options for parsing PDB files.
@@ -1991,7 +2000,7 @@ module ChemistryDataProviders =
                 PdbId: string option
                 Title: string option
                 InModel: bool
-                ModelNumber: int option
+                ModelNumber: int voption
                 FirstModelEnded: bool
             }
 
@@ -2006,7 +2015,7 @@ module ChemistryDataProviders =
                     PdbId = None
                     Title = None
                     InModel = false
-                    ModelNumber = None
+                    ModelNumber = ValueNone
                     FirstModelEnded = false
                 }
 
@@ -2043,10 +2052,10 @@ module ChemistryDataProviders =
                                     let modelNum =
                                         if line.Length >= 14 then
                                             match Int32.TryParse(line.[10..13].Trim()) with
-                                            | true, n -> Some n
-                                            | _ -> Some 1
+                                            | true, n -> ValueSome n
+                                            | _ -> ValueSome 1
                                         else
-                                            Some 1
+                                            ValueSome 1
 
                                     { state with
                                         InModel = true
@@ -2106,7 +2115,7 @@ module ChemistryDataProviders =
                     PdbId = finalState.PdbId
                     Title = finalState.Title
                     Residues = residues
-                    ModelNumber = finalState.ModelNumber
+                    ModelNumber = finalState.ModelNumber |> ValueOption.toOption
                     SourcePath = None
                 }
 
@@ -2290,7 +2299,7 @@ module ChemistryDataProviders =
                 (MoleculeFormats.Pdb.parseLigands content)
                 |> Result.map (fun moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData)
                 |> Result.defaultValue [||]
-            with _ ->
+            with :? IOException | :? UnauthorizedAccessException ->
                 [||]
 
         interface IMoleculeDatasetProvider with

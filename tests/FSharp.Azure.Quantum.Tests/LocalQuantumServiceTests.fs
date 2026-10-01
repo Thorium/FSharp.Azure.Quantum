@@ -5,6 +5,7 @@ open System.Net
 open System.Net.Http
 open System.Text.Json
 open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -193,47 +194,48 @@ module LocalQuantumServiceTests =
         Assert.Equal(0, service.SubmittedJobCount)
 
     [<Fact>]
-    let ``A program the service cannot decode fails the job with InvalidCircuit`` () =
-        use service = LocalQuantumService.start seeded
-        use http = service.CreateHttpClient()
+    let ``A program the service cannot decode fails the job with InvalidCircuit`` () : Task =
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
 
-        let submission: JobSubmission =
-            {
-                JobId = Guid.NewGuid().ToString()
-                Target = "ionq.simulator"
-                Name = Some "garbage"
-                InputData = box "this is not an IonQ circuit"
-                InputDataFormat = CircuitFormat.IonQ_V1
-                InputParams = Map [ "shots", box 10 ]
-                Tags = Map.empty
-            }
+            let submission: JobSubmission =
+                {
+                    JobId = Guid.NewGuid().ToString()
+                    Target = "ionq.simulator"
+                    Name = Some "garbage"
+                    InputData = box "this is not an IonQ circuit"
+                    InputDataFormat = CircuitFormat.IonQ_V1
+                    InputParams = Map [ "shots", box 10 ]
+                    Tags = Map.empty
+                }
 
-        let job =
-            task {
-                let! jobId = JobLifecycle.submitJobAsync http service.WorkspaceUrl submission
-                let jobId = expectOk jobId
+            let! jobId = JobLifecycle.submitJobAsync http service.WorkspaceUrl submission
+            let jobId = expectOk jobId
 
-                return!
-                    JobLifecycle.pollJobUntilCompleteAsync
-                        http
-                        service.WorkspaceUrl
-                        jobId
-                        (TimeSpan.FromMinutes 1.0)
-                        CancellationToken.None
-            }
-            |> fun t -> t.Result |> expectOk
+            let! job =
+                JobLifecycle.pollJobUntilCompleteAsync
+                    http
+                    service.WorkspaceUrl
+                    jobId
+                    (TimeSpan.FromMinutes 1.0)
+                    CancellationToken.None
 
-        match job.Status with
-        | JobStatus.Failed(code, message) ->
-            Assert.Equal("InvalidCircuit", code)
-            Assert.Contains("IonQ", message)
+            let job = job |> expectOk
 
-            match IonQBackend.mapIonQError code message with
-            | QuantumError.ValidationError _ -> ()
-            | other -> failwith $"expected ValidationError, got {other}"
-        | other -> failwith $"expected Failed, got {other}"
+            match job.Status with
+            | JobStatus.Failed(code, message) ->
+                Assert.Equal("InvalidCircuit", code)
+                Assert.Contains("IonQ", message)
 
-        Assert.Equal(None, job.OutputDataUri)
+                match IonQBackend.mapIonQError code message with
+                | QuantumError.ValidationError _ -> ()
+                | other -> failwith $"expected ValidationError, got {other}"
+            | other -> failwith $"expected Failed, got {other}"
+
+            Assert.Equal(None, job.OutputDataUri)
+        }
+        :> Task
 
     [<Fact>]
     let ``Injected job failure surfaces as an Error and the next job succeeds`` () =
@@ -328,68 +330,72 @@ module LocalQuantumServiceTests =
 
             let! ex =
                 Assert.ThrowsAnyAsync<exn>(fun () ->
-                    http.GetAsync "https://example.com/" :> System.Threading.Tasks.Task)
+                    http.GetAsync "https://example.com/" :> Task)
 
             Assert.Contains("refused", ex.Message)
             Assert.Empty service.Requests
         }
-        :> System.Threading.Tasks.Task
+        :> Task
 
     // ------------------------------------------------------------------------
     // QuantumClient (Client.fs) through the routed data-plane URL
     // ------------------------------------------------------------------------
 
     [<Fact>]
-    let ``QuantumClient submits, lists across pages, fetches results and cancels via the routed data-plane URL`` () =
-        use service = LocalQuantumService.start { seeded with JobsPageSize = 1 }
+    let ``QuantumClient submits, lists across pages, fetches results and cancels via the routed data-plane URL`` () : Task =
+        task {
+            use service = LocalQuantumService.start { seeded with JobsPageSize = 1 }
 
-        use http = service.CreateHttpClient()
-        let client = Client.QuantumClient(service.CreateClientConfig http)
+            use http = service.CreateHttpClient()
+            let client = Client.QuantumClient(service.CreateClientConfig http)
 
-        let ionqCircuit: IonQBackend.IonQCircuit =
-            {
-                Qubits = 2
-                Circuit = [ IonQBackend.SingleQubit("h", 0); IonQBackend.TwoQubit("cnot", 0, 1) ]
-            }
+            let ionqCircuit: IonQBackend.IonQCircuit =
+                {
+                    Qubits = 2
+                    Circuit = [ IonQBackend.SingleQubit("h", 0); IonQBackend.TwoQubit("cnot", 0, 1) ]
+                }
 
-        let submission = IonQBackend.createJobSubmission ionqCircuit 200 "ionq.simulator"
+            let submission = IonQBackend.createJobSubmission ionqCircuit 200 "ionq.simulator"
 
-        let submitted =
-            client.SubmitJobAsync submission |> Async.RunSynchronously |> expectOk
+            let! submitted = client.SubmitJobAsync submission
+            let submitted = submitted |> expectOk
 
-        Assert.Equal(submission.JobId, submitted.JobId)
-        Assert.StartsWith("https://local.quantum.azure.com/subscriptions/", submitted.Uri)
+            Assert.Equal(submission.JobId, submitted.JobId)
+            Assert.StartsWith("https://local.quantum.azure.com/subscriptions/", submitted.Uri)
 
-        let finished =
-            client.WaitForCompletionAsync(submission.JobId, initialDelayMs = 10)
-            |> Async.RunSynchronously
-            |> expectOk
+            let! finished = client.WaitForCompletionAsync(submission.JobId, initialDelayMs = 10)
+            let finished = finished |> expectOk
 
-        Assert.Equal(JobStatus.Succeeded, finished.Status)
+            Assert.Equal(JobStatus.Succeeded, finished.Status)
 
-        let result =
-            client.GetResultsAsync submission.JobId |> Async.RunSynchronously |> expectOk
+            let! result = client.GetResultsAsync submission.JobId
+            let result = result |> expectOk
 
-        Assert.Equal("ionq.quantum-results.v1", result.OutputDataFormat)
+            Assert.Equal("ionq.quantum-results.v1", result.OutputDataFormat)
 
-        let histogram =
-            match IonQBackend.parseIonQResult 2 200 (result.OutputData :?> string) with
-            | Ok h -> h
-            | Error e -> failwith e
+            let histogram =
+                match IonQBackend.parseIonQResult 2 200 (result.OutputData :?> string) with
+                | Ok h -> h
+                | Error e -> failwith e
 
-        Assert.Equal(200, histogram |> Map.toSeq |> Seq.sumBy snd)
-        Assert.True(histogram |> Map.forall (fun key _ -> key = "00" || key = "11"))
+            Assert.Equal(200, histogram |> Map.toSeq |> Seq.sumBy snd)
+            Assert.True(histogram |> Map.forall (fun key _ -> key = "00" || key = "11"))
 
-        // A second job, then list: JobsPageSize = 1 forces nextLink pagination.
-        let second = IonQBackend.createJobSubmission ionqCircuit 10 "ionq.simulator"
-        client.SubmitJobAsync second |> Async.RunSynchronously |> expectOk |> ignore
+            // A second job, then list: JobsPageSize = 1 forces nextLink pagination.
+            let second = IonQBackend.createJobSubmission ionqCircuit 10 "ionq.simulator"
+            let! secondSubmitted = client.SubmitJobAsync second
+            secondSubmitted |> expectOk |> ignore
 
-        let listed = client.ListJobsAsync() |> Async.RunSynchronously |> expectOk
-        Assert.Equal<string list>([ submission.JobId; second.JobId ], listed |> List.map (fun j -> j.JobId))
+            let! listed = client.ListJobsAsync()
+            let listed = listed |> expectOk
+            Assert.Equal<string list>([ submission.JobId; second.JobId ], listed |> List.map (fun j -> j.JobId))
 
-        // The second job has not been polled, so it is still Waiting and can be cancelled.
-        client.CancelJobAsync second.JobId |> Async.RunSynchronously |> expectOk
-        Assert.Equal(JobStatus.Cancelled, (service.TryGetJob second.JobId).Value.Status)
+            // The second job has not been polled, so it is still Waiting and can be cancelled.
+            let! cancelled = client.CancelJobAsync second.JobId
+            cancelled |> expectOk
+            Assert.Equal(JobStatus.Cancelled, (service.TryGetJob second.JobId).Value.Status)
+        }
+        :> Task
 
     // ------------------------------------------------------------------------
     // Decoders

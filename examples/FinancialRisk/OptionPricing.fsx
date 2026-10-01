@@ -92,6 +92,8 @@ References:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
@@ -220,7 +222,7 @@ if not quiet then
     printfn ""
 
 let result =
-    OptionPricing.priceEuropeanCall
+    OptionPricing.priceEuropeanCallAsync
         spotPrice
         strikePrice
         riskFreeRate
@@ -230,6 +232,8 @@ let result =
         groverIterations
         shots
         backend
+        CancellationToken.None
+    |> Async.AwaitTask
     |> Async.RunSynchronously
 
 match result with
@@ -306,9 +310,9 @@ if not quiet then
     printfn ""
 
 let priceBothOptions spot strike =
-    async {
+    task {
         let! callResult =
-            OptionPricing.priceEuropeanCall
+            OptionPricing.priceEuropeanCallAsync
                 spot
                 strike
                 riskFreeRate
@@ -318,9 +322,10 @@ let priceBothOptions spot strike =
                 groverIterations
                 shots
                 backend
+                CancellationToken.None
 
         let! putResult =
-            OptionPricing.priceEuropeanPut
+            OptionPricing.priceEuropeanPutAsync
                 spot
                 strike
                 riskFreeRate
@@ -330,12 +335,15 @@ let priceBothOptions spot strike =
                 groverIterations
                 shots
                 backend
+                CancellationToken.None
 
         return (callResult, putResult)
     }
 
 let (callPrice, putPrice) =
-    priceBothOptions spotPrice strikePrice |> Async.RunSynchronously
+    priceBothOptions spotPrice strikePrice
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 if not quiet then
     printfn "Comparing European Call vs Put (Same strike):"
@@ -423,7 +431,7 @@ if not quiet then
 
 for (strike, description) in strikes do
     let strikeResult =
-        OptionPricing.priceEuropeanCall
+        OptionPricing.priceEuropeanCallAsync
             spotPrice
             strike
             riskFreeRate
@@ -433,6 +441,8 @@ for (strike, description) in strikes do
             groverIterations
             shots
             backend
+            CancellationToken.None
+        |> Async.AwaitTask
         |> Async.RunSynchronously
 
     match strikeResult with
@@ -499,7 +509,7 @@ if not quiet then
 
 for vol in volatilities do
     let volResult =
-        OptionPricing.priceEuropeanCall
+        OptionPricing.priceEuropeanCallAsync
             spotPrice
             spotPrice
             riskFreeRate
@@ -509,6 +519,8 @@ for vol in volatilities do
             groverIterations
             shots
             backend
+            CancellationToken.None
+        |> Async.AwaitTask
         |> Async.RunSynchronously
 
     match volResult with
@@ -557,7 +569,7 @@ if not quiet then
 
 // Test negative spot
 let invalidResult =
-    OptionPricing.priceEuropeanCall
+    OptionPricing.priceEuropeanCallAsync
         (-100.0)
         105.0
         riskFreeRate
@@ -567,6 +579,8 @@ let invalidResult =
         groverIterations
         shots
         backend
+        CancellationToken.None
+    |> Async.AwaitTask
     |> Async.RunSynchronously
 
 match invalidResult with
@@ -617,7 +631,7 @@ if not quiet then
     printfn ""
 
 let asianResult =
-    OptionPricing.priceAsianCall
+    OptionPricing.priceAsianCallAsync
         spotPrice
         strikePrice
         riskFreeRate
@@ -628,6 +642,8 @@ let asianResult =
         groverIterations
         shots
         backend
+        CancellationToken.None
+    |> Async.AwaitTask
     |> Async.RunSynchronously
 
 match asianResult with

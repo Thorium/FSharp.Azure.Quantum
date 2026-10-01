@@ -216,6 +216,7 @@ module QuantumCliqueSolver =
     /// (among selected vertices), breaking ties by lowest weight, until valid.
     let private repairConstraints (problem: Problem) (bits: int[]) : int[] =
         let adjacency = buildAdjacencySet problem
+        let vertices = problem.Vertices |> List.toArray
 
         let rec fix (current: int[]) =
             let selected =
@@ -251,7 +252,7 @@ module QuantumCliqueSolver =
                     |> Array.filter (fun i -> conflictCounts |> Map.containsKey i)
                     |> Array.sortByDescending (fun i ->
                         let count = conflictCounts |> Map.tryFind i |> Option.defaultValue 0
-                        (count, -problem.Vertices.[i].Weight))
+                        (count, -vertices.[i].Weight))
                     |> Array.tryHead
 
                 match worstVertex with
@@ -281,9 +282,11 @@ module QuantumCliqueSolver =
             match parts with
             | [ _ ] -> [ problem ]
             | components ->
+                let vertices = problem.Vertices |> List.toArray
+
                 components
                 |> List.map (fun (globalIndices, localEdges) ->
-                    let localVertices = globalIndices |> List.map (fun gi -> problem.Vertices.[gi])
+                    let localVertices = globalIndices |> List.map (fun gi -> vertices.[gi])
 
                     {
                         Vertices = localVertices
@@ -316,78 +319,80 @@ module QuantumCliqueSolver =
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
     // ========================================================================
 
-    /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+    /// Shared implementation of solveWithConfigAsync.
     let private solveWithConfigCore
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Result<Solution, QuantumError> =
+        : Task<Result<Solution, QuantumError>> =
 
-        if problem.Vertices.IsEmpty then
-            Error(QuantumError.ValidationError("vertices", "Problem has no vertices"))
+        let numVertices = problem.Vertices.Length
+
+        if numVertices = 0 then
+            Task.FromResult(Error(QuantumError.ValidationError("vertices", "Problem has no vertices")))
         elif
             problem.Edges
-            |> List.exists (fun (i, j) ->
-                i < 0
-                || j < 0
-                || i >= problem.Vertices.Length
-                || j >= problem.Vertices.Length
-                || i = j)
+            |> List.exists (fun (i, j) -> i < 0 || j < 0 || i >= numVertices || j >= numVertices || i = j)
         then
-            Error(QuantumError.ValidationError("edges", "Edge index out of range or self-loop"))
+            Task.FromResult(Error(QuantumError.ValidationError("edges", "Edge index out of range or self-loop")))
         else
-            let solveSingle (subProblem: Problem) =
-                match toQubo subProblem with
-                | Error err -> Error err
-                | Ok qubo ->
-                    let result =
-                        if config.EnableOptimization then
-                            executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                        else
-                            // Sequential (maxConcurrency = 1) grid search, as before
-                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
-                                .GetAwaiter()
-                                .GetResult()
-                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+            let solveSingle (subProblem: Problem) : Task<Result<Solution, QuantumError>> =
+                task {
+                    match toQubo subProblem with
+                    | Error err -> return Error err
+                    | Ok qubo ->
+                        let! result =
+                            if config.EnableOptimization then
+                                task {
+                                    let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
 
-                    match result with
-                    | Error err -> Error err
-                    | Ok(bits, optParams, converged) ->
-                        let finalBits, wasRepaired =
-                            if config.EnableConstraintRepair && not (isValid subProblem bits) then
-                                (repairConstraints subProblem bits, true)
+                                    return
+                                        optimized
+                                        |> Result.map (fun (bits, optParams, converged) ->
+                                            (bits, Some optParams, Some converged))
+                                }
                             else
-                                (bits, false)
+                                task {
+                                    // Sequential (maxConcurrency = 1) grid search, as before
+                                    let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
 
-                        let solution = decodeSolution subProblem finalBits
+                                    return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+                                }
 
-                        Ok
-                            { solution with
-                                BackendName = backend.Name
-                                NumShots = config.FinalShots
-                                WasRepaired = wasRepaired
-                                OptimizedParameters = optParams
-                                OptimizationConverged = converged
-                            }
+                        match result with
+                        | Error err -> return Error err
+                        | Ok(bits, optParams, converged) ->
+                            let finalBits, wasRepaired =
+                                if config.EnableConstraintRepair && not (isValid subProblem bits) then
+                                    (repairConstraints subProblem bits, true)
+                                else
+                                    (bits, false)
 
-            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
+                            let solution = decodeSolution subProblem finalBits
 
-    /// Solve maximum clique using QAOA with full configuration control.
-    /// Automatically decomposes into connected components when the problem
-    /// exceeds backend qubit capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (config: Config)
-        : Result<Solution, QuantumError> =
-        solveWithConfigCore backend problem config CancellationToken.None
+                            return
+                                Ok
+                                    { solution with
+                                        BackendName = backend.Name
+                                        NumShots = config.FinalShots
+                                        WasRepaired = wasRepaired
+                                        OptimizedParameters = optParams
+                                        OptimizationConverged = converged
+                                    }
+                }
+
+            ProblemDecomposition.solveWithDecompositionAsync
+                backend
+                problem
+                estimateQubits
+                decompose
+                recombine
+                solveSingle
 
     /// Solve maximum clique using QAOA with full configuration control (async).
-    /// Wraps the synchronous solveWithConfig in a task; will become truly async
-    /// once ProblemDecomposition supports async solve functions.
+    /// Automatically decomposes into connected components when the problem
+    /// exceeds backend qubit capacity.
     let solveWithConfigAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -396,25 +401,8 @@ module QuantumCliqueSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfigCore backend problem config cancellationToken
+            return! solveWithConfigCore backend problem config cancellationToken
         }
-
-    /// Solve maximum clique using QAOA with default configuration.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (shots: int)
-        : Result<Solution, QuantumError> =
-
-        let config =
-            { defaultConfig with
-                FinalShots = shots
-            }
-
-        solveWithConfigAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // CLASSICAL SOLVER (Rule 1: private — not exposed without backend)
@@ -431,7 +419,8 @@ module QuantumCliqueSolver =
                     BackendName = "Classical Greedy"
                 }
         else
-            let n = problem.Vertices.Length
+            let vertices = problem.Vertices |> List.toArray
+            let n = vertices.Length
             let adjacency = buildAdjacencySet problem
 
             // Start with the highest-weight vertex
@@ -442,7 +431,7 @@ module QuantumCliqueSolver =
             let candidates =
                 [ 0 .. n - 1 ]
                 |> List.filter (fun i -> i <> startVertex)
-                |> List.sortByDescending (fun i -> problem.Vertices.[i].Weight)
+                |> List.sortByDescending (fun i -> vertices.[i].Weight)
 
             let clique =
                 candidates

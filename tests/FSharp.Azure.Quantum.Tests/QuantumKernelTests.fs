@@ -528,30 +528,6 @@ let ``computeKernelAsync - identical vectors should give high kernel value`` () 
         | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
     }
 
-#nowarn "44" // This test compares against the deprecated synchronous computeKernel wrapper on purpose.
-[<Fact>]
-let ``computeKernelAsync - produces equivalent results to sync version`` () : Task =
-    task {
-        let featureMap = AngleEncoding
-        let x = [| 0.5; 0.3 |]
-        let y = [| 0.7; 0.4 |]
-        let shots = 1000
-
-        let syncResult = computeKernel backend featureMap x y shots
-
-        let! asyncResult =
-            computeKernelAsync backend featureMap x y shots CancellationToken.None
-
-        match syncResult, asyncResult with
-        | Ok syncVal, Ok asyncVal ->
-            // Both should be valid kernel values (not necessarily identical due to quantum randomness)
-            Assert.True(syncVal >= 0.0 && syncVal <= 1.0, "Sync kernel value valid")
-            Assert.True(asyncVal >= 0.0 && asyncVal <= 1.0, "Async kernel value valid")
-        | Error _, _
-        | _, Error _ -> Assert.True(false, "Both sync and async should succeed")
-    }
-#warnon "44"
-
 // ============================================================================
 // Async Kernel Matrix Tests
 // ============================================================================

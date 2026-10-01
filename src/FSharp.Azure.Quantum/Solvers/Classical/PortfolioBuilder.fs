@@ -126,7 +126,7 @@ module Portfolio =
     /// </summary>
     /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
     /// <param name="budget">Total budget available for investment</param>
-    /// <param name="covariance">Covariance matrix Σ, rows and columns in asset order (validated by solve)</param>
+    /// <param name="covariance">Covariance matrix Σ, rows and columns in asset order (validated by solveAsync)</param>
     /// <returns>PortfolioProblem whose risk is sqrt(wᵀΣw)</returns>
     /// <example>
     /// <code>
@@ -261,25 +261,6 @@ module Portfolio =
         }
 
     /// <summary>
-    /// Solve Portfolio problem using quantum optimization (QAOA)
-    /// </summary>
-    /// <remarks>
-    /// This is a synchronous wrapper around <c>solveAsync</c> for backward compatibility:
-    /// it blocks the calling thread until the backend has answered.
-    /// </remarks>
-    /// <param name="problem">Portfolio problem to solve</param>
-    /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
-    /// <returns>Result with PortfolioAllocation or error message</returns>
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (problem: PortfolioProblem)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<PortfolioAllocation> =
-        solveAsync problem backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-    /// <summary>
     /// Convenience function: Create problem and solve in one step using quantum optimization, asynchronously
     /// </summary>
     /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
@@ -300,23 +281,3 @@ module Portfolio =
         : Task<QuantumResult<PortfolioAllocation>> =
         let problem = createProblem assets budget
         solveAsync problem backend cancellationToken
-
-    /// <summary>
-    /// Convenience function: Create problem and solve in one step using quantum optimization
-    /// </summary>
-    /// <remarks>
-    /// This is a synchronous wrapper around <c>solveDirectlyAsync</c> for backward compatibility.
-    /// </remarks>
-    /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
-    /// <param name="budget">Total budget available for investment</param>
-    /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
-    /// <returns>Result with PortfolioAllocation or error message</returns>
-    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
-    let solveDirectly
-        (assets: (string * float * float * float) list)
-        (budget: float)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<PortfolioAllocation> =
-        solveDirectlyAsync assets budget backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously

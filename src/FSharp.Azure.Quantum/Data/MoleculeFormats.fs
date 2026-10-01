@@ -417,7 +417,7 @@ module MoleculeFormats =
         let private isHeaderEnd (line: string) =
             let t = line.Trim().ToUpperInvariant()
 
-            t = "&" || t = "$" || t.EndsWith "&END" || t.EndsWith "$END" || t.EndsWith "/"
+            t = "&" || t = "$" || t.EndsWith "&END" || t.EndsWith "$END" || t.EndsWith '/'
 
         /// Parse a Fortran or .NET floating-point literal (1.5D-01, 1.5E-01, 0.15).
         let private tryParseValue (s: string) =
@@ -919,7 +919,7 @@ module MoleculeFormats =
                 Serial: int
                 Name: string
                 ResName: string
-                ChainId: char option
+                ChainId: char voption
                 ResSeq: int
                 X: float
                 Y: float
@@ -939,9 +939,9 @@ module MoleculeFormats =
 
                     let chainId =
                         if line.Length > 21 && line.[21] <> ' ' then
-                            Some line.[21]
+                            ValueSome line.[21]
                         else
-                            None
+                            ValueNone
 
                     let resSeq = line.Substring(22, 4).Trim() |> int
                     let x = Double.Parse(line.Substring(30, 8).Trim(), CultureInfo.InvariantCulture)
@@ -972,8 +972,10 @@ module MoleculeFormats =
                             Z = z
                             Element = element
                         }
-                with _ ->
-                    None
+                with
+                // Column slices are range-checked above; only the numeric fields can fail.
+                | :? FormatException
+                | :? OverflowException -> None
 
         /// Standard water residue names to exclude
         let private waterResidues = set [ "HOH"; "WAT"; "H2O"; "DOD"; "D2O" ]
@@ -1019,7 +1021,7 @@ module MoleculeFormats =
                 ligandGroups
                 |> Array.map (fun atoms ->
                     let resName = atoms.[0].ResName
-                    let chainId = atoms.[0].ChainId |> Option.map string |> Option.defaultValue ""
+                    let chainId = atoms.[0].ChainId |> ValueOption.map string |> ValueOption.defaultValue ""
                     let resSeq = atoms.[0].ResSeq
 
                     {

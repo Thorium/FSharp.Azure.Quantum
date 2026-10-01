@@ -267,9 +267,7 @@ module AutoMLBuilderTests =
         task {
             match! searchAsync defaultProblem CancellationToken.None with
             | Ok result ->
-                let! predicted = predictAsync [| 0.1; 0.2 |] result CancellationToken.None
-
-                match predicted with
+                match! predictAsync [| 0.1; 0.2 |] result CancellationToken.None with
                 | Ok prediction ->
                     // defaultProblem tries binary classification only
                     match prediction with

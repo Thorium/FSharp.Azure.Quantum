@@ -42,8 +42,8 @@ module Authentication =
         let mutable cachedToken: TokenCache option = None
 
         /// Get access token with automatic refresh (async-safe)
-        member this.GetAccessTokenAsync(?cancellationToken: CancellationToken) =
-            async {
+        member this.GetAccessTokenAsync(?cancellationToken: CancellationToken) : Task<string> =
+            task {
                 let ct = defaultArg cancellationToken CancellationToken.None
 
                 // Check if cached token is still valid (with 5-minute buffer)
@@ -56,7 +56,7 @@ module Authentication =
                     return cache.Token.Token
                 | _ ->
                     // Token needs refresh - use semaphore for async coordination
-                    do! refreshSemaphore.WaitAsync(ct) |> Async.AwaitTask
+                    do! refreshSemaphore.WaitAsync ct
 
                     try
                         // Double-check after acquiring semaphore (another thread may have refreshed)
@@ -66,8 +66,7 @@ module Authentication =
                             // Acquire new token
                             let tokenRequestContext = TokenRequestContext([| quantumScope |])
 
-                            let! accessToken =
-                                credential.GetTokenAsync(tokenRequestContext, ct).AsTask() |> Async.AwaitTask
+                            let! accessToken = credential.GetTokenAsync(tokenRequestContext, ct).AsTask()
 
                             // Cache the token (immutable update)
                             cachedToken <-
@@ -134,11 +133,10 @@ module Authentication =
                 this.SendAsyncNoAuth(request, cancellationToken)
             | _ ->
                 // Get bearer token asynchronously without blocking
-                async {
+                task {
                     let! token = tokenManager.GetAccessTokenAsync cancellationToken
-                    return! this.SendAsyncCore(request, cancellationToken, token) |> Async.AwaitTask
+                    return! this.SendAsyncCore(request, cancellationToken, token)
                 }
-                |> Async.StartAsTask
 
         override this.Dispose(disposing: bool) =
             if disposing then

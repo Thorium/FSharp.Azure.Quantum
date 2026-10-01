@@ -294,8 +294,23 @@ module BinaryClassifier =
 
             quantumResultTask {
                 let! result =
-                    VQC.train backend featureMap variationalForm initialParams trainFeatures labels trainConfig
-                    |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"VQC training failed: {e}"))
+                    task {
+                        let! trained =
+                            VQC.trainAsync
+                                backend
+                                featureMap
+                                variationalForm
+                                initialParams
+                                trainFeatures
+                                labels
+                                trainConfig
+                                cancellationToken
+
+                        return
+                            trained
+                            |> Result.mapError (fun e ->
+                                QuantumError.ValidationError("Input", $"VQC training failed: {e}"))
+                    }
 
                 let endTime = DateTime.UtcNow
 
@@ -377,8 +392,21 @@ module BinaryClassifier =
 
         quantumResultTask {
             let! model =
-                QuantumKernelSVM.train backend featureMap features labels svmConfig config.Shots
-                |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Hybrid training failed: {e}"))
+                task {
+                    let! trained =
+                        QuantumKernelSVM.trainAsync
+                            backend
+                            featureMap
+                            features
+                            labels
+                            svmConfig
+                            config.Shots
+                            cancellationToken
+
+                    return
+                        trained
+                        |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Hybrid training failed: {e}"))
+                }
 
             let endTime = DateTime.UtcNow
 
@@ -454,13 +482,6 @@ module BinaryClassifier =
                     )
         }
 
-    /// Train classifier based on architecture choice
-    [<Obsolete("Use trainAsync for non-blocking execution against cloud backends")>]
-    let train (problem: ClassificationProblem) : QuantumResult<Classifier> =
-        trainAsync problem CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ========================================================================
     // PREDICTION
     // ========================================================================
@@ -527,13 +548,6 @@ module BinaryClassifier =
                 )
             )
 
-    /// Make prediction on new sample
-    [<Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
-    let predict (sample: float array) (classifier: Classifier) : QuantumResult<Prediction> =
-        predictAsync sample classifier CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Evaluate classifier on test set
     let evaluateAsync
         (testFeatures: float array array)
@@ -599,17 +613,6 @@ module BinaryClassifier =
                     }
         }
 
-    /// Evaluate classifier on test set
-    [<Obsolete("Use evaluateAsync for non-blocking execution against cloud backends")>]
-    let evaluate
-        (testFeatures: float array array)
-        (testLabels: int array)
-        (classifier: Classifier)
-        : QuantumResult<EvaluationMetrics> =
-        evaluateAsync testFeatures testLabels classifier CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ========================================================================
     // PERSISTENCE
     // ========================================================================
@@ -669,13 +672,6 @@ module BinaryClassifier =
                     )
                 )
             )
-
-    /// Save classifier to file
-    [<Obsolete("Use saveAsync for non-blocking file I/O")>]
-    let save (path: string) (classifier: Classifier) : QuantumResult<unit> =
-        saveAsync path classifier CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Load classifier from file
     let load (path: string) : QuantumResult<Classifier> =

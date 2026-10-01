@@ -149,14 +149,14 @@ module RateLimiting =
             : Task<HttpResponseMessage> =
             let maxRetries = 3
 
-            let rec sendWithRetry (retryCount: int) =
-                async {
+            let rec sendWithRetry (retryCount: int) : Task<HttpResponseMessage> =
+                task {
                     // Check if we should throttle before sending
                     if rateLimiter.ShouldThrottle() then
-                        do! Async.Sleep(1000) // Simple 1s delay when approaching limit
+                        do! Task.Delay(1000, cancellationToken) // Simple 1s delay when approaching limit
 
                     // Call base handler's SendAsync via helper method
-                    let! response = this.CallBaseSendAsync(request, cancellationToken) |> Async.AwaitTask
+                    let! response = this.CallBaseSendAsync(request, cancellationToken)
 
                     // Parse rate limit headers from response and update state
                     parseRateLimitHeaders response |> Option.iter rateLimiter.UpdateState
@@ -168,7 +168,7 @@ module RateLimiting =
                     then
                         let attempt = rateLimiter.IncrementAttempt()
                         let delay = calculateExponentialBackoff attempt
-                        do! Async.Sleep(delay)
+                        do! Task.Delay(delay, cancellationToken)
                         response.Dispose()
                         return! sendWithRetry (retryCount + 1)
                     else
@@ -178,5 +178,5 @@ module RateLimiting =
                         return response
                 }
 
-            // Pass the caller's token so throttle/backoff sleeps are cancellable
-            Async.StartAsTask(sendWithRetry 0, cancellationToken = cancellationToken)
+            // The caller's token flows into the throttle/backoff delays so they are cancellable
+            sendWithRetry 0

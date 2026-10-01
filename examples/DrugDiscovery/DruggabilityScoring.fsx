@@ -45,6 +45,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -451,7 +452,11 @@ let toIndependentSetProblem
 let problem = toIndependentSetProblem features overlaps
 
 let startTime = DateTime.Now
-let solveResult = IndependentSet.solve backend problem shots
+let solveResult =
+    IndependentSet.solveWithConfigAsync backend problem { defaultConfig with FinalShots = shots } CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
 let elapsed = (DateTime.Now - startTime).TotalSeconds
 
 let hasFailure = Result.isError solveResult

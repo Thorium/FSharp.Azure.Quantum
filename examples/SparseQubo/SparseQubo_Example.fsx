@@ -8,10 +8,10 @@
 //
 // Features demonstrated:
 //   1. evaluateQuboSparse    - Evaluate a QUBO cost for a given bitstring
-//   2. executeQaoaCircuitSparse - Run QAOA with sparse QUBO representation
-//   3. executeQaoaWithGridSearchSparse - Grid search over QAOA parameters
-//   4. executeQaoaWithOptimizationSparse - Nelder-Mead optimization
-//   5. executeWithBudget     - Budget-constrained execution with decomposition
+//   2. executeQaoaCircuitSparseAsync - Run QAOA with sparse QUBO representation
+//   3. executeQaoaWithGridSearchSparseAsync - Grid search over QAOA parameters
+//   4. executeQaoaWithOptimizationSparseAsync - Nelder-Mead optimization
+//   5. executeWithBudgetAsync - Budget-constrained execution with decomposition
 //
 // Usage:
 //   dotnet fsi SparseQubo_Example.fsx
@@ -35,6 +35,7 @@
 open FSharp.Azure.Quantum.Examples.Common
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -196,7 +197,16 @@ if runAll || exampleName = "gridsearch" then
         }
 
     let result =
-        QaoaExecutionHelpers.executeQaoaWithGridSearchSparse quantumBackend numQubits sparseQubo config
+        // maxConcurrency = 1: sequential grid search.
+        QaoaExecutionHelpers.executeQaoaWithGridSearchSparseAsync
+            quantumBackend
+            numQubits
+            sparseQubo
+            config
+            1
+            CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Ok(bestBits, bestParams) ->
@@ -242,7 +252,14 @@ if runAll || exampleName = "optimize" then
         }
 
     let result =
-        QaoaExecutionHelpers.executeQaoaWithOptimizationSparse quantumBackend numQubits sparseQubo config
+        QaoaExecutionHelpers.executeQaoaWithOptimizationSparseAsync
+            quantumBackend
+            numQubits
+            sparseQubo
+            config
+            CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Ok(bestBits, bestParams, converged) ->
@@ -307,7 +324,10 @@ if runAll || exampleName = "budget" then
          | None -> "none")
 
     let result =
-        QaoaExecutionHelpers.executeWithBudget quantumBackend denseQubo config budget
+        // maxConcurrency = 1: sequential grid search.
+        QaoaExecutionHelpers.executeWithBudgetAsync quantumBackend denseQubo config budget 1 CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Ok(bestBits, bestParams, converged) ->

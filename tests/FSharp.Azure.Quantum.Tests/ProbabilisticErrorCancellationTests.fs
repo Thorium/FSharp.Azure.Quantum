@@ -4,6 +4,7 @@ open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.LocalSimulator
 open System
+open System.Threading
 open System.Threading.Tasks
 
 module ProbabilisticErrorCancellationTests =
@@ -568,8 +569,8 @@ module ProbabilisticErrorCancellationTests =
     // Cycle #5: Full PEC pipeline - Monte Carlo with weighted sampling
 
     [<Fact>]
-    let ``mitigate should execute full PEC pipeline`` () =
-        async {
+    let ``mitigate should execute full PEC pipeline`` () : Task =
+        task {
             // Arrange: Simple circuit with single-qubit gate
             let circuit = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
 
@@ -586,24 +587,23 @@ module ProbabilisticErrorCancellationTests =
                 }
 
             // Mock executor: returns constant expectation value
-            let mockExecutor (_: CircuitBuilder.Circuit) = async { return Ok 0.85 }
+            let mockExecutor (_: CircuitBuilder.Circuit) = task { return Ok 0.85 }
 
             // Act: Run PEC
 
             // Assert: Should return successful result
-            match! ProbabilisticErrorCancellation.mitigate circuit config mockExecutor with
+            match! ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None with
             | Ok pecResult ->
                 Assert.True(pecResult.SamplesUsed > 0, "Should have used samples")
                 Assert.Equal(10, pecResult.SamplesUsed)
                 Assert.True(pecResult.Overhead > 0.0, "Should have overhead")
             | Error err -> Assert.Fail($"PEC failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``mitigate should demonstrate error reduction`` () =
-        async {
+    let ``mitigate should demonstrate error reduction`` () : Task =
+        task {
             // Arrange: Circuit with realistic noisy executor
             let circuit = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
 
@@ -626,7 +626,7 @@ module ProbabilisticErrorCancellationTests =
             let mutable executionCount = 0
 
             let mockExecutor (_: CircuitBuilder.Circuit) =
-                async {
+                task {
                     executionCount <- executionCount + 1
                     // Add small variance to simulate realistic noise
                     let variance = (float executionCount % 3.0 - 1.0) * 0.01
@@ -636,7 +636,7 @@ module ProbabilisticErrorCancellationTests =
             // Act: Apply PEC
 
             // Assert: Error should be reduced (corrected closer to true value)
-            match! ProbabilisticErrorCancellation.mitigate circuit config mockExecutor with
+            match! ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None with
             | Ok pecResult ->
                 // PEC should improve over baseline
                 let baselineError = abs (trueValue - baselineNoisy)
@@ -653,12 +653,11 @@ module ProbabilisticErrorCancellationTests =
                     (pecResult.ErrorReduction * 100.0)
             | Error err -> Assert.Fail($"PEC failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``mitigate should track overhead correctly`` () =
-        async {
+    let ``mitigate should track overhead correctly`` () : Task =
+        task {
             // Arrange
             let circuit = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
 
@@ -679,15 +678,15 @@ module ProbabilisticErrorCancellationTests =
             let mutable executionCount = 0
 
             let mockExecutor (_: CircuitBuilder.Circuit) =
-                async {
-                    System.Threading.Interlocked.Increment(&executionCount) |> ignore
+                task {
+                    Interlocked.Increment(&executionCount) |> ignore
                     return Ok 0.85
                 }
 
             // Act
 
             // Assert: Should execute samples + 1 (baseline) circuits
-            match! ProbabilisticErrorCancellation.mitigate circuit config mockExecutor with
+            match! ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None with
             | Ok pecResult ->
                 // PEC overhead: samples for mitigation + 1 for uncorrected baseline
                 let expectedExecutions = samples + 1
@@ -697,12 +696,11 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(float samples, pecResult.Overhead, 1)
             | Error err -> Assert.Fail($"PEC failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``mitigate should handle executor failures gracefully`` () =
-        async {
+    let ``mitigate should handle executor failures gracefully`` () : Task =
+        task {
             // Arrange
             let circuit = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
 
@@ -720,21 +718,20 @@ module ProbabilisticErrorCancellationTests =
 
             // Failing executor
             let failingExecutor (_: CircuitBuilder.Circuit) =
-                async { return Error "Quantum hardware unavailable" }
+                task { return Error "Quantum hardware unavailable" }
 
             // Act
 
             // Assert: Should propagate error gracefully
-            match! ProbabilisticErrorCancellation.mitigate circuit config failingExecutor with
+            match! ProbabilisticErrorCancellation.mitigateAsync circuit config failingExecutor CancellationToken.None with
             | Error err -> Assert.Contains("execution failed", err.ToLower())
             | Ok _ -> Assert.Fail("Expected error for failing executor")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``mitigate should work with multi-gate circuit`` () =
-        async {
+    let ``mitigate should work with multi-gate circuit`` () : Task =
+        task {
             // Arrange: Circuit with multiple gates
             let circuit =
                 CircuitBuilder.empty 2
@@ -754,23 +751,22 @@ module ProbabilisticErrorCancellationTests =
                     Seed = Some 42
                 }
 
-            let mockExecutor (_: CircuitBuilder.Circuit) = async { return Ok 0.75 }
+            let mockExecutor (_: CircuitBuilder.Circuit) = task { return Ok 0.75 }
 
             // Act
 
             // Assert: Should handle multi-gate circuit
-            match! ProbabilisticErrorCancellation.mitigate circuit config mockExecutor with
+            match! ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None with
             | Ok pecResult ->
                 Assert.Equal(20, pecResult.SamplesUsed)
                 Assert.True(pecResult.CorrectedExpectation <> 0.0)
             | Error err -> Assert.Fail($"Multi-gate PEC failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``mitigate should be deterministic with same seed`` () =
-        async {
+    let ``mitigate should be deterministic with same seed`` () : Task =
+        task {
             // Arrange
             let circuit = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
 
@@ -786,11 +782,11 @@ module ProbabilisticErrorCancellationTests =
                     Seed = Some 123 // Fixed seed
                 }
 
-            let mockExecutor (_: CircuitBuilder.Circuit) = async { return Ok 0.85 }
+            let mockExecutor (_: CircuitBuilder.Circuit) = task { return Ok 0.85 }
 
             // Act: Run twice with same seed
-            let! result1 = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
-            let! result2 = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
+            let! result1 = ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None
+            let! result2 = ProbabilisticErrorCancellation.mitigateAsync circuit config mockExecutor CancellationToken.None
 
             // Assert: Should get identical results
             match result1, result2 with
@@ -799,7 +795,6 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(pec1.ErrorReduction, pec2.ErrorReduction, 10)
             | _ -> Assert.Fail("Both runs should succeed")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     // ============================================================================
@@ -810,8 +805,8 @@ module ProbabilisticErrorCancellationTests =
     let private executeWithSimulatedNoise
         (noise: float)
         (circuit: CircuitBuilder.Circuit)
-        : Async<Result<float, string>> =
-        async {
+        : Task<Result<float, string>> =
+        task {
             try
                 // Simplified noise model: Add random phase errors to simulate depolarizing noise
                 let rng = Random(123)
@@ -923,8 +918,8 @@ module ProbabilisticErrorCancellationTests =
         }
 
     [<Fact>]
-    let ``Integration: PEC should mitigate single-qubit gate errors`` () =
-        async {
+    let ``Integration: PEC should mitigate single-qubit gate errors`` () : Task =
+        task {
             // Arrange: Circuit with RY rotation (creates measurable ⟨Z⟩)
             let circuit: CircuitBuilder.Circuit =
                 {
@@ -948,10 +943,11 @@ module ProbabilisticErrorCancellationTests =
 
             // Act: Apply PEC
             let! result =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     config
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             // Assert: PEC should complete successfully
             match result with
@@ -967,12 +963,11 @@ module ProbabilisticErrorCancellationTests =
                 )
             | Error err -> Assert.Fail($"PEC should succeed: {err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Integration: PEC should handle Pauli rotation gates`` () =
-        async {
+    let ``Integration: PEC should handle Pauli rotation gates`` () : Task =
+        task {
             // Arrange: Circuit with Rx rotation
             let angle = Math.PI / 4.0
 
@@ -998,10 +993,11 @@ module ProbabilisticErrorCancellationTests =
 
             // Act
             let! result =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     config
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             // Assert
             match result with
@@ -1014,12 +1010,11 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(40, pecResult.SamplesUsed)
             | Error err -> Assert.Fail($"Integration test failed: {err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Integration: PEC should mitigate two-qubit gate errors`` () =
-        async {
+    let ``Integration: PEC should mitigate two-qubit gate errors`` () : Task =
+        task {
             // Arrange: Bell state circuit |Φ⁺⟩ = (|00⟩+|11⟩)/√2
             let circuit: CircuitBuilder.Circuit =
                 {
@@ -1047,10 +1042,11 @@ module ProbabilisticErrorCancellationTests =
 
             // Act
             let! result =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     config
                     (executeWithSimulatedNoise noiseModel.TwoQubitDepolarizing)
+                    CancellationToken.None
 
             // Assert
             match result with
@@ -1060,12 +1056,11 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(60.0, pecResult.Overhead)
             | Error err -> Assert.Fail($"Two-qubit PEC failed: {err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Integration: PEC should work with multi-gate QAOA-like circuit`` () =
-        async {
+    let ``Integration: PEC should work with multi-gate QAOA-like circuit`` () : Task =
+        task {
             // Arrange: Simple QAOA-inspired circuit
             let gamma = Math.PI / 8.0
             let beta = Math.PI / 4.0
@@ -1103,10 +1098,11 @@ module ProbabilisticErrorCancellationTests =
 
             // Act
             let! result =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     config
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             // Assert
             match result with
@@ -1120,12 +1116,11 @@ module ProbabilisticErrorCancellationTests =
                 )
             | Error err -> Assert.Fail($"QAOA-like circuit PEC failed: {err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Integration: PEC overhead should scale with sample count`` () =
-        async {
+    let ``Integration: PEC overhead should scale with sample count`` () : Task =
+        task {
             // Arrange: Simple test circuit
             let circuit: CircuitBuilder.Circuit =
                 {
@@ -1159,34 +1154,37 @@ module ProbabilisticErrorCancellationTests =
                     }
                 ]
 
-            // Act: Run PEC with different sample counts
-            let! results =
-                configs
-                |> List.map (fun cfg ->
-                    ProbabilisticErrorCancellation.mitigate
+            // Act: Run PEC with different sample counts, one configuration after another
+            let results = ResizeArray<Result<ProbabilisticErrorCancellation.PECResult, string>>()
+
+            for cfg in configs do
+                let! r =
+                    ProbabilisticErrorCancellation.mitigateAsync
                         circuit
                         cfg
-                        (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing))
-                |> Async.Sequential
+                        (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                        CancellationToken.None
+
+                results.Add r
 
             // Assert: Overhead should match sample counts
             let overheads =
                 results
-                |> Array.choose (function
+                |> Seq.choose (function
                     | Ok r -> Some r.Overhead
                     | Error _ -> None)
+                |> Array.ofSeq
 
             Assert.Equal(3, overheads.Length)
             Assert.Equal(20.0, overheads.[0])
             Assert.Equal(50.0, overheads.[1])
             Assert.Equal(100.0, overheads.[2])
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Integration: PEC should be deterministic with same seed`` () =
-        async {
+    let ``Integration: PEC should be deterministic with same seed`` () : Task =
+        task {
             // Arrange: Test circuit
             let circuit: CircuitBuilder.Circuit =
                 {
@@ -1210,16 +1208,18 @@ module ProbabilisticErrorCancellationTests =
 
             // Act: Run PEC twice with same seed
             let! result1 =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     config
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             let! result2 =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     config
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             // Assert: Results should be identical
             match result1, result2 with
@@ -1228,12 +1228,11 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(r1.SamplesUsed, r2.SamplesUsed)
             | _ -> Assert.Fail("Both PEC runs should succeed")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Integration: PEC should handle circuits with only identity-like gates`` () =
-        async {
+    let ``Integration: PEC should handle circuits with only identity-like gates`` () : Task =
+        task {
             // Arrange: Circuit with Z gates (diagonal, like identity in Z basis)
             let circuit: CircuitBuilder.Circuit =
                 {
@@ -1257,10 +1256,11 @@ module ProbabilisticErrorCancellationTests =
 
             // Act
             let! result =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     config
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             // Assert
             match result with
@@ -1270,12 +1270,11 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(pecResult.Overhead = 25.0)
             | Error err -> Assert.Fail($"Simple circuit PEC failed: {err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Integration: PEC should reduce variance with more samples`` () =
-        async {
+    let ``Integration: PEC should reduce variance with more samples`` () : Task =
+        task {
             // Arrange: Test circuit
             let circuit: CircuitBuilder.Circuit =
                 {
@@ -1292,7 +1291,7 @@ module ProbabilisticErrorCancellationTests =
 
             // Act: Run with different sample sizes
             let! resultLowSamples =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     {
                         NoiseModel = noiseModel
@@ -1300,9 +1299,10 @@ module ProbabilisticErrorCancellationTests =
                         Seed = Some 1
                     }
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             let! resultHighSamples =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     {
                         NoiseModel = noiseModel
@@ -1310,6 +1310,7 @@ module ProbabilisticErrorCancellationTests =
                         Seed = Some 2
                     }
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             // Assert: Both should succeed (variance test is implicit - more samples = more stable)
             match resultLowSamples, resultHighSamples with
@@ -1320,12 +1321,11 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(high.Overhead > low.Overhead, "More samples = higher overhead")
             | _ -> Assert.Fail("Both configurations should succeed")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Integration: PEC should track error reduction metric`` () =
-        async {
+    let ``Integration: PEC should track error reduction metric`` () : Task =
+        task {
             // Arrange: Circuit with known behavior
             let circuit: CircuitBuilder.Circuit =
                 {
@@ -1349,10 +1349,11 @@ module ProbabilisticErrorCancellationTests =
 
             // Act
             let! result =
-                ProbabilisticErrorCancellation.mitigate
+                ProbabilisticErrorCancellation.mitigateAsync
                     circuit
                     config
                     (executeWithSimulatedNoise noiseModel.SingleQubitDepolarizing)
+                    CancellationToken.None
 
             // Assert
             match result with
@@ -1369,5 +1370,4 @@ module ProbabilisticErrorCancellationTests =
                 )
             | Error err -> Assert.Fail($"Error reduction tracking failed: {err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task

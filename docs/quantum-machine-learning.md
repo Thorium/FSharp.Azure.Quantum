@@ -79,6 +79,7 @@ VQC is a supervised learning algorithm that uses parameterized quantum circuits 
 ### API Reference
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.MachineLearning
@@ -107,23 +108,25 @@ let variationalForm = RealAmplitudes 2   // Ansatz with depth=2
 let numQubits = trainFeatures.[0].Length
 let initialParams = VariationalForms.randomParameters variationalForm numQubits (Some 42)
 
-// Train classifier
-match VQC.train backend featureMap variationalForm initialParams trainFeatures trainLabels config with
-| Ok trainedModel ->
-    printfn "Training complete after %d epochs (converged: %b)" trainedModel.Epochs trainedModel.Converged
-    printfn "Final loss: %.4f" (List.last trainedModel.LossHistory)
-    printfn "Train accuracy: %.2f%%" (trainedModel.TrainAccuracy * 100.0)
+task {
+    // Train classifier
+    match! VQC.trainAsync backend featureMap variationalForm initialParams trainFeatures trainLabels config CancellationToken.None with
+    | Ok trainedModel ->
+        printfn "Training complete after %d epochs (converged: %b)" trainedModel.Epochs trainedModel.Converged
+        printfn "Final loss: %.4f" (List.last trainedModel.LossHistory)
+        printfn "Train accuracy: %.2f%%" (trainedModel.TrainAccuracy * 100.0)
 
-    // Make predictions
-    match VQC.predict backend featureMap variationalForm trainedModel.Parameters testPoint 1000 with
-    | Ok prediction ->
-        printfn "Predicted class: %d (P(class 1) = %.2f)" prediction.Label prediction.Probability
-    | Error err -> eprintfn "Prediction error: %s" err.Message
+        // Make predictions
+        match! VQC.predictAsync backend featureMap variationalForm trainedModel.Parameters testPoint 1000 CancellationToken.None with
+        | Ok prediction ->
+            printfn "Predicted class: %d (P(class 1) = %.2f)" prediction.Label prediction.Probability
+        | Error err -> eprintfn "Prediction error: %s" err.Message
 
-| Error err -> eprintfn "Training error: %s" err.Message
+    | Error err -> eprintfn "Training error: %s" err.Message
+}
 ```
 
-`VQC.train` returns a `VQC.TrainingResult` with `Parameters`, `LossHistory` (oldest first), `Epochs`, `TrainAccuracy` and `Converged`. `VQC.predict` returns a `VQC.Prediction` with the `Label` (0 or 1) and `Probability`, the measured probability of class 1. `VQC.evaluate` returns the accuracy on a labelled dataset as a `float`. VQC is a binary classifier; `VQC.trainMultiClass` and `VQC.predictMultiClass` wrap it one-vs-rest for more classes.
+`VQC.trainAsync` yields a `VQC.TrainingResult` with `Parameters`, `LossHistory` (oldest first), `Epochs`, `TrainAccuracy` and `Converged`. `VQC.predictAsync` yields a `VQC.Prediction` with the `Label` (0 or 1) and `Probability`, the measured probability of class 1. `VQC.evaluateAsync` yields the accuracy on a labelled dataset as a `float`. VQC is a binary classifier; `VQC.trainMultiClassAsync` and `VQC.predictMultiClassAsync` wrap it one-vs-rest for more classes.
 
 ### VQC Training Process
 
@@ -168,24 +171,31 @@ let sgdConfig = { VQC.defaultConfig with Optimizer = VQC.SGD; LearningRate = 0.0
 Save and load trained models with the `ModelSerialization` module (JSON files):
 
 ```fsharp
+open System.Threading.Tasks
+
 // Save a training result together with the architecture it was trained with
-let saveResult (trainedModel: VQC.TrainingResult) =
-    ModelSerialization.saveVQCTrainingResult
+let saveResult (trainedModel: VQC.TrainingResult) (cancellationToken: CancellationToken) =
+    ModelSerialization.saveVQCTrainingResultAsync
         "fraud_classifier.json"
         trainedModel
         numQubits
         "AngleEncoding" 0          // feature map name and depth
         "RealAmplitudes" 2         // variational form name and depth
         (Some "fraud classifier")  // optional note
+        cancellationToken
 
 // Load model for inference
-match ModelSerialization.loadVQCModel "fraud_classifier.json" with
-| Ok model ->
-    let predictions =
-        [| testPoint |]
-        |> Array.map (fun x -> VQC.predict backend featureMap variationalForm model.Parameters x 1000)
-    ()
-| Error err -> eprintfn "Load error: %s" err.Message
+task {
+    match! ModelSerialization.loadVQCModelAsync "fraud_classifier.json" CancellationToken.None with
+    | Ok model ->
+        let! predictions =
+            [| testPoint |]
+            |> Array.map (fun x ->
+                VQC.predictAsync backend featureMap variationalForm model.Parameters x 1000 CancellationToken.None)
+            |> Task.WhenAll
+        ()
+    | Error err -> eprintfn "Load error: %s" err.Message
+}
 ```
 
 `ModelSerialization.featureMapFromModel` and `ModelSerialization.variationalFormFromModel` rebuild the `FeatureMapType` and `VariationalForm` from a loaded model.
@@ -208,6 +218,7 @@ Quantum kernels leverage quantum feature spaces to compute similarity between da
 ### API Reference
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.MachineLearning
 
 // Setup quantum feature map
@@ -225,18 +236,20 @@ let config : QuantumKernelSVM.SVMConfig = {
         MaxIterations = 1000
 }
 
-// Train SVM with quantum kernel (last argument: shots per kernel evaluation)
-match QuantumKernelSVM.train backend featureMap trainData trainLabels config 1000 with
-| Ok model ->
-    printfn "SVM trained successfully"
-    printfn "Support vectors: %d" model.SupportVectorIndices.Length
+task {
+    // Train SVM with quantum kernel (last argument: shots per kernel evaluation)
+    match! QuantumKernelSVM.trainAsync backend featureMap trainData trainLabels config 1000 CancellationToken.None with
+    | Ok model ->
+        printfn "SVM trained successfully"
+        printfn "Support vectors: %d" model.SupportVectorIndices.Length
 
-    // Evaluate on test set: returns the accuracy
-    match QuantumKernelSVM.evaluate backend model testData testLabels 1000 with
-    | Ok accuracy -> printfn "Test Accuracy: %.2f%%" (accuracy * 100.0)
-    | Error err -> eprintfn "Evaluation error: %s" err.Message
+        // Evaluate on test set: returns the accuracy
+        match! QuantumKernelSVM.evaluateAsync backend model testData testLabels 1000 CancellationToken.None with
+        | Ok accuracy -> printfn "Test Accuracy: %.2f%%" (accuracy * 100.0)
+        | Error err -> eprintfn "Evaluation error: %s" err.Message
 
-| Error err -> eprintfn "Training error: %s" err.Message
+    | Error err -> eprintfn "Training error: %s" err.Message
+}
 ```
 
 On a simulator each kernel entry is estimated from `shots` samples of the exact state. On a cloud
@@ -245,7 +258,7 @@ counts, so `shots` must equal the backend's shots per job (fixed when the backen
 any other value is an `Error` naming both, returned before any job is submitted. The counts are
 never resampled to another shot count.
 
-The SVM is trained with sequential minimal optimisation (SMO) on the quantum kernel matrix. Labels must be 0 or 1; `MultiClassSVM` handles more classes one-vs-rest. `QuantumKernelSVM.predict` returns a `Prediction` with the `Label` and the `DecisionValue` (signed distance from the separating hyperplane).
+The SVM is trained with sequential minimal optimisation (SMO) on the quantum kernel matrix. Labels must be 0 or 1; `MultiClassSVM` handles more classes one-vs-rest. `QuantumKernelSVM.predictAsync` yields a `Prediction` with the `Label` and the `DecisionValue` (signed distance from the separating hyperplane).
 
 ### How Quantum Kernels Work
 
@@ -343,7 +356,7 @@ let featureMap = PauliFeatureMap(pauliStrings, 2)  // Pauli strings, depth = 2 l
 | **PauliFeatureMap** | n | On qubits 0,1 ("ZZ", "XX") | Configurable | Experiments with specific Pauli terms |
 | **AmplitudeEncoding** | ⌈log₂ n⌉ | Via state preparation | Grows with n | Quantum kernels on longer vectors |
 
-`VQC` builds one qubit per feature, so it works with the first three maps; `AmplitudeEncoding` uses fewer qubits than features and does not combine with `VQC.train`.
+`VQC` builds one qubit per feature, so it works with the first three maps; `AmplitudeEncoding` uses fewer qubits than features and does not combine with `VQC.trainAsync`.
 
 ## Variational Forms (Ansatz Circuits)
 
@@ -414,6 +427,7 @@ A third form, `TwoLocal(rotation, entanglement, depth)`, takes the rotation gate
 ## Complete Example: Binary Classification
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
@@ -453,22 +467,24 @@ let config : VQC.TrainingConfig = {
 // Initialize parameters (random, seeded for reproducibility)
 let initialParams = VariationalForms.randomParameters variationalForm trainData.[0].Length (Some 42)
 
-// Train VQC
-match VQC.train backend featureMap variationalForm initialParams trainData trainLabels config with
-| Ok model ->
-    printfn "Training complete!"
-    printfn "Train accuracy: %.2f%%" (model.TrainAccuracy * 100.0)
+task {
+    // Train VQC
+    match! VQC.trainAsync backend featureMap variationalForm initialParams trainData trainLabels config CancellationToken.None with
+    | Ok model ->
+        printfn "Training complete!"
+        printfn "Train accuracy: %.2f%%" (model.TrainAccuracy * 100.0)
 
-    // Test on new data
-    let testPoint = [| 0.15; 0.85 |]  // Should be class 1
-    match VQC.predict backend featureMap variationalForm model.Parameters testPoint 1000 with
-    | Ok prediction ->
-        printfn "Prediction: Class %d (P(class 1) = %.2f)"
-            prediction.Label
-            prediction.Probability
-    | Error err -> eprintfn "Error: %s" err.Message
+        // Test on new data
+        let testPoint = [| 0.15; 0.85 |]  // Should be class 1
+        match! VQC.predictAsync backend featureMap variationalForm model.Parameters testPoint 1000 CancellationToken.None with
+        | Ok prediction ->
+            printfn "Prediction: Class %d (P(class 1) = %.2f)"
+                prediction.Label
+                prediction.Probability
+        | Error err -> eprintfn "Error: %s" err.Message
 
-| Error err -> eprintfn "Training failed: %s" err.Message
+    | Error err -> eprintfn "Training failed: %s" err.Message
+}
 ```
 
 ## Performance Considerations

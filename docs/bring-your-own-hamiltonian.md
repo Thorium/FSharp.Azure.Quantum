@@ -20,7 +20,7 @@ Molecule geometry ──► Integrals ──► Fermionic Hamiltonian ──► 
 
 | You have... | Plug in at | API |
 |---|---|---|
-| Molecular integrals from PySCF / Psi4 / NWChem | Integral level | An `IntegralProvider` in `SolverConfig.IntegralProvider` (VQE via `GroundStateEnergy.estimateEnergy`), or `MolecularIntegrals` → `MolecularHamiltonian.buildFromIntegrals` |
+| Molecular integrals from PySCF / Psi4 / NWChem | Integral level | An `IntegralProvider` in `SolverConfig.IntegralProvider` (VQE via `GroundStateEnergy.estimateEnergyAsync`), or `MolecularIntegrals` → `MolecularHamiltonian.buildFromIntegrals` |
 | An FCIDUMP file (standard interchange format) | Integral level | `FciDumpIntegrals.fromFile` (an `IntegralProvider`) or `FciDumpIntegrals.readFile` (see below) |
 | Second-quantized fermionic operators | Fermion level | `FermionMapping.FermionHamiltonian` + Jordan-Wigner / Bravyi-Kitaev |
 | Already-mapped Pauli terms (e.g. OpenFermion / Qiskit Nature output) | Pauli level | `TrotterSuzuki.PauliHamiltonian` → `AdaptVqe.run`, `Primitives.observe`, Trotter evolution |
@@ -55,9 +55,10 @@ match MolecularHamiltonian.buildWithMapping molecule MolecularHamiltonian.Jordan
 | Error err -> eprintfn "Hamiltonian failed: %s" err.Message
 ```
 
-If you already hold the integrals, skip the provider and call `MolecularHamiltonian.buildFromIntegrals`. It returns the qubit Hamiltonian together with the nuclear repulsion energy, which you add to the VQE result. `FermionMapping.ChemistryVQE.run` runs a UCCSD VQE on that Hamiltonian:
+If you already hold the integrals, skip the provider and call `MolecularHamiltonian.buildFromIntegrals`. It returns the qubit Hamiltonian together with the nuclear repulsion energy, which you add to the VQE result. `FermionMapping.ChemistryVQE.runAsync` runs a UCCSD VQE on that Hamiltonian:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
@@ -74,14 +75,19 @@ match MolecularHamiltonian.buildFromIntegrals MolecularHamiltonian.h2Sto3gIntegr
           Backend = LocalBackendFactory.createUnified ()  // or a cloud backend
           ProgressReporter = None }
 
-    match ChemistryVQE.run vqeConfig |> Async.RunSynchronously with
+    let result =
+        ChemistryVQE.runAsync vqeConfig CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    match result with
     | Ok result -> printfn "Total energy: %.6f Ha" (result.Energy + nuclearRepulsion)  // ≈ -1.137 Ha
     | Error err -> eprintfn "VQE failed: %s" err.Message
 ```
 
-**`SolverConfig.IntegralProvider`:** `GroundStateEnergy.estimateEnergy` with `Method = GroundStateMethod.VQE` (or `Automatic`) does the steps above for you. It calls the provider, builds the Jordan-Wigner Hamiltonian from the integrals and runs UCCSD-VQE on the configured backend, adding the nuclear repulsion to the energy. A provider `Error` comes back as an `Error`. Without a provider:
+**`SolverConfig.IntegralProvider`:** `GroundStateEnergy.estimateEnergyAsync` with `Method = GroundStateMethod.VQE` (or `Automatic`) does the steps above for you. It calls the provider, builds the Jordan-Wigner Hamiltonian from the integrals and runs UCCSD-VQE on the configured backend, adding the nuclear repulsion to the energy. A provider `Error` comes back as an `Error`. Without a provider:
 
-- molecules made only of H and He atoms, at any geometry, use integrals the library computes itself. `Sto3gIntegrals.computeInBasis` supports STO-3G, the default, and 6-31G (`VQE.runInBasis`, or `basis` in the `quantumChemistry` builder). It uses the lowest RHF solution it finds (several starting guesses, DIIS and damped Roothaan iterations, orbital-Hessian stability check), or core-Hamiltonian orbitals for a single electron. If no SCF converges it also uses core-Hamiltonian orbitals, sets `ReferenceEnergy = None` and says so in `VQEResult.Notes`;
+- molecules made only of H and He atoms, at any geometry, use integrals the library computes itself. `Sto3gIntegrals.computeInBasis` supports STO-3G, the default, and 6-31G (`VQE.runInBasisAsync`, or `basis` in the `quantumChemistry` builder). It uses the lowest RHF solution it finds (several starting guesses, DIIS and damped Roothaan iterations, orbital-Hessian stability check), or core-Hamiltonian orbitals for a single electron. If no SCF converges it also uses core-Hamiltonian orbitals, sets `ReferenceEnergy = None` and says so in `VQEResult.Notes`;
 - H₂O and LiH return an `Error` asking for an `IntegralProvider`;
 - other molecules run a hardware-efficient VQE on the empirical prototype Hamiltonian, whose energies are not physical.
 
@@ -96,6 +102,8 @@ Some requests are an `Error` rather than a silent approximation:
 - On backends that sample measurements, `SolverConfig.ErrorMitigation` corrects each histogram with the inverse readout calibration, without clipping or filtering. A strategy that cannot be applied to a histogram (ZNE or PEC, alone or combined) or that corrects nothing is an `Error`. `ErrorMitigationApplied` on the result says whether a correction ran; it is false when `Estimation = ExactExpectation`, since exact expectations have no readout to correct.
 
 ```fsharp
+open System.Threading
+
 let config =
     { Method = GroundStateMethod.VQE
       MaxIterations = 100
@@ -106,9 +114,11 @@ let config =
       ErrorMitigation = None
       IntegralProvider = Some myProvider }
 
-match GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously with
-| Ok result -> printfn "%.6f Ha from %A after %d iterations" result.Energy result.Source result.Iterations
-| Error err -> eprintfn "VQE failed: %s" err.Message
+task {
+    match! GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None with
+    | Ok result -> printfn "%.6f Ha from %A after %d iterations" result.Energy result.Source result.Iterations
+    | Error err -> eprintfn "VQE failed: %s" err.Message
+}
 ```
 
 The `quantumChemistry` computation expression takes a provider through its `integralProvider` operation.
@@ -138,7 +148,7 @@ match FciDumpIntegrals.readFile "h2o-cas.fcidump" with
 
 The reader takes the standard restricted-orbital format: an `&FCI NORB=…, NELEC=…, MS2=…, ORBSYM=…, ISYM=…` header ended by `&END` or `/`, then `value i j k l` lines with 1-based orbital indices in chemists' notation. `i j k l > 0` is the two-electron integral `(ij|kl)`, and all eight permutationally equivalent entries are filled. `k = l = 0` is the one-electron integral `h_ij`, and `i = j = k = l = 0` is the core energy (nuclear repulsion plus any frozen-core energy), which becomes `NuclearRepulsion`. Fortran `D` exponents are accepted. A malformed line, an index above `NORB`, a missing header end or an unrestricted file (`IUHF=1`) is an `Error` naming the problem. `MoleculeFormats.FciDump.parseIntegrals` gives the same data before conversion.
 
-FCIDUMP files carry no geometry. The integrals must belong to the molecule you pass alongside them, and an active space chosen in the external package keeps the qubit count down (2 qubits per active orbital). `quantumChemistry { molecule_from_fcidump path; ... }` runs VQE on the file's integrals. `Molecule.fromFciDumpFileTask` and the `FciDump*DatasetProvider` types still read only the header, for metadata.
+FCIDUMP files carry no geometry. The integrals must belong to the molecule you pass alongside them, and an active space chosen in the external package keeps the qubit count down (2 qubits per active orbital). `quantumChemistry { molecule_from_fcidump path; ... }` runs VQE on the file's integrals. `Molecule.fromFciDumpFileAsync` and the `FciDump*DatasetProvider` types still read only the header, for metadata.
 
 ## 3. Fermionic Hamiltonians (second quantization)
 
@@ -167,7 +177,7 @@ let qubitH' = BravyiKitaev.transform fermionH
 let problemH = toQaoaHamiltonian qubitH
 ```
 
-`qubitH` is a `QubitHamiltonian`, the input `ChemistryVQE.run` takes (section 1); `toQaoaHamiltonian` converts it to the `ProblemHamiltonian` form used by the QAOA and Hamiltonian-builder code.
+`qubitH` is a `QubitHamiltonian`, the input `ChemistryVQE.runAsync` takes (section 1); `toQaoaHamiltonian` converts it to the `ProblemHamiltonian` form used by the QAOA and Hamiltonian-builder code.
 
 `HamiltonianSimulation` evolves a state under a `ProblemHamiltonian` by Trotter-Suzuki decomposition. `simulateFromPreparation` starts from a gate circuit that prepares the initial state, so it runs on every backend: gate by gate on a simulator (`Route = GateByGate`, exact probabilities and the final state), and on a cloud backend as one whole circuit, preparation plus Trotter gates (`Route = WholeCircuit shots`, measured probabilities only):
 
@@ -242,7 +252,7 @@ let toPauliHamiltonian (h: QaoaCircuit.ProblemHamiltonian) : TrotterSuzuki.Pauli
 
 ### Quantum phase estimation of a molecular energy
 
-`GroundStateMethod.QPE` (`QPE.run`, or `QPE.runWith settings`) estimates an energy by quantum phase estimation. It uses the same integral sources as VQE: an `IntegralProvider` or FCIDUMP file, else the library's STO-3G or 6-31G integrals for H and He. It needs no ansatz. The design:
+`GroundStateMethod.QPE` (`QPE.runAsync`, or `QPE.runWithAsync settings`) estimates an energy by quantum phase estimation. It uses the same integral sources as VQE: an `IntegralProvider` or FCIDUMP file, else the library's STO-3G or 6-31G integrals for H and He. It needs no ansatz. The design:
 
 - **Unitary.** U = e^(−i(H − shift)t) for the Jordan-Wigner Hamiltonian H = Σ c_k P_k. Every eigenvalue lies within λ = Σ|c_k| (non-identity terms) of the identity coefficient c_I. With shift = c_I + λ and t = 2π(1 − 2/2^m)/(2λ), each eigenvalue has its own phase φ ∈ [0, 1), and E = −2πφ/t + shift, plus nuclear repulsion.
 - **Controlled powers.** Controlled-U^(2^j) repeats the same Trotter-Suzuki circuit for U 2^j times (`TrotterSuzuki.synthesizeControlledHamiltonianEvolution`; first order and 4 steps by default). QPE therefore measures the eigenvalues of the Trotterised U, and the Trotter error does not grow with j.
@@ -252,6 +262,7 @@ let toPauliHamiltonian (h: QaoaCircuit.ProblemHamiltonian) : TrotterSuzuki.Pauli
 
 QPE returns eigenvalue E_k with probability |⟨ψ|E_k⟩|² for the prepared state ψ. By default ψ is the Hartree-Fock determinant; `UccsdState amplitudes` (for example a VQE result's `OptimalParameters`) is another choice. The reported energy is therefore the ground state only when ψ overlaps it most. `Notes` states the overlap and lists the other peaks.
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry
 
 let qpeConfig =
@@ -264,9 +275,12 @@ let qpeConfig =
       ErrorMitigation = None
       IntegralProvider = None }       // H2: the library's STO-3G integrals
 
-let stretched = QPE.runWith { QPE.defaultSettings with CountingQubits = Some 6 } (Molecule.createH2 2.0) qpeConfig
+let stretched =
+    QPE.runWithAsync { QPE.defaultSettings with CountingQubits = Some 6 } (Molecule.createH2 2.0) qpeConfig CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
-match stretched |> Async.RunSynchronously with
+match stretched with
 | Ok r ->
     match r.Estimation with
     | PhaseEstimation d -> d.Peaks |> List.iter (fun p -> printfn "E = %.6f Ha, probability %.2f" p.Energy p.Probability)
@@ -301,7 +315,7 @@ To source molecular *structures* (rather than Hamiltonians) from external system
 <!-- fragment -->
 ```fsharp
 let mol = Molecule.fromProvider myDatasetProvider "caffeine"                   // your IMoleculeDatasetProvider
-let mol' = Molecule.fromXyzFileTask "conformer42.xyz" CancellationToken.None   // your files
+let mol' = Molecule.fromXyzFileAsync "conformer42.xyz" CancellationToken.None  // your files
 ```
 
 ## Scale honestly

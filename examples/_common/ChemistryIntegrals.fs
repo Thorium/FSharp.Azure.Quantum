@@ -5,6 +5,7 @@ open System.Collections.Generic
 open System.Globalization
 open System.IO
 open System.Text.RegularExpressions
+open System.Threading
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.QuantumChemistry
 
@@ -185,7 +186,8 @@ module ChemistryIntegrals =
                                 IntegralProvider = provider
                             }
 
-                        GroundStateEnergy.estimateEnergy molecule config
+                        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+                        |> Async.AwaitTask
                         |> Async.RunSynchronously
                         |> Result.mapError (fun err -> err.Message))
                     |> Result.map (fun r ->

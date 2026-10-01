@@ -94,6 +94,8 @@ References:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.ZeroNoiseExtrapolation
 open FSharp.Azure.Quantum.CircuitBuilder
@@ -202,8 +204,8 @@ let createVQECircuit (angle: float) : Circuit =
 
 /// Mock executor simulating noisy quantum hardware.
 /// In production, this would call a real backend (IonQ, Rigetti, etc.).
-let noisyExecutor (circuit: Circuit) : Async<Result<float, string>> =
-    async {
+let noisyExecutor (circuit: Circuit) : Task<Result<float, string>> =
+    task {
         let trueValue = -1.137 // True H2 ground state energy (Hartree)
         let circuitDepth = float (gateCount circuit)
         let noiseLevel = circuitDepth * 0.02 // 2% error per gate
@@ -271,7 +273,7 @@ if not quiet then
 
 let allResults = System.Collections.Generic.List<Map<string, string>>()
 
-match Async.RunSynchronously(mitigate vqeCircuit config1 noisyExecutor) with
+match mitigateAsync vqeCircuit config1 noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok result ->
     if not quiet then
         printfn "[OK] ZNE Complete!"
@@ -365,7 +367,7 @@ if not quiet then
     printfn "  Samples: %d (higher precision)" (samples * 2)
     printfn ""
 
-match Async.RunSynchronously(mitigate vqeCircuit customConfig noisyExecutor) with
+match mitigateAsync vqeCircuit customConfig noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok result ->
     if not quiet then
         printfn "[OK] Custom ZNE Complete!"
@@ -436,7 +438,7 @@ if not quiet then
 
 let rigettiConfig = defaultRigettiConfig
 
-match Async.RunSynchronously(mitigate vqeCircuit rigettiConfig noisyExecutor) with
+match mitigateAsync vqeCircuit rigettiConfig noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok result ->
     if not quiet then
         printfn "[OK] Rigetti ZNE Complete!"
@@ -480,23 +482,23 @@ if not quiet then
     printfn ""
 
 /// Production-ready wrapper that selects config based on backend.
-let runVQEWithZNE (circ: Circuit) (backendName: string) : Async<Result<float, string>> =
-    async {
+let runVQEWithZNE (circ: Circuit) (backendName: string) : Task<Result<float, string>> =
+    task {
         let cfg =
             match backendName with
             | "rigetti" -> defaultRigettiConfig
             | _ -> defaultIonQConfig
 
-        let! result = mitigate circ cfg noisyExecutor
+        let! result = mitigateAsync circ cfg noisyExecutor CancellationToken.None
         return result |> Result.map (fun res -> res.ZeroNoiseValue)
     }
 
 if not quiet then
     printfn "Production API:"
-    printfn "  runVQEWithZNE circuit backend -> Async<Result<float, string>>"
+    printfn "  runVQEWithZNE circuit backend -> Task<Result<float, string>>"
     printfn ""
 
-match Async.RunSynchronously(runVQEWithZNE vqeCircuit backend) with
+match runVQEWithZNE vqeCircuit backend |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok energy ->
     if not quiet then
         printfn "[OK] Production VQE Energy: %.4f Hartree" energy

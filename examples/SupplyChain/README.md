@@ -2,7 +2,7 @@
 
 Both examples treat supply chain planning as **route activation**: one binary decision per route, and each open route carries one unit. They choose routes, not shipment volumes.
 
-QAOA (p = 1, the solver's default angles) samples route sets from the `QuantumNetworkFlowSolver` QUBO on the LocalBackend. A sample is a valid flow when flow is conserved at every intermediate node and no node exceeds its capacity, supply or demand. Validity has no lower bound on service, so with positive route costs a single supplier-to-customer path is the cheapest valid flow. Among the valid samples the examples therefore take the one meeting the most demand, then the cheapest. `QuantumNetworkFlowSolver.solve` in FSharp.Azure.Quantum 1.4.11 and earlier returned the cheapest valid sample, which usually serves only part of the demand; later versions rank by demand met first, as SupplyChain.fsx does.
+QAOA (p = 1, the solver's default angles) samples route sets from the `QuantumNetworkFlowSolver` QUBO on the LocalBackend. A sample is a valid flow when flow is conserved at every intermediate node and no node exceeds its capacity, supply or demand. Validity has no lower bound on service, so with positive route costs a single supplier-to-customer path is the cheapest valid flow. Among the valid samples the examples therefore take the one meeting the most demand, then the cheapest. `QuantumNetworkFlowSolver.solveAsync` in FSharp.Azure.Quantum 1.4.11 and earlier returned the cheapest valid sample, which usually serves only part of the demand; later versions rank by demand met first, as SupplyChain.fsx does.
 
 ## Multi-stage network (SupplyChain.fsx)
 
@@ -19,7 +19,7 @@ The script loads the NuGet package, so it samples and picks by itself, checks th
 This example compares:
 
 - Classical baseline: greedy route activation
-- Quantum: `QuantumNetworkFlowSolver.solveWithShots`, built against this repository's library, which ranks valid samples by demand met, then cost
+- Quantum: `QuantumNetworkFlowSolver.solveWithShotsAsync`, built against this repository's library, which ranks valid samples by demand met, then cost
 
 It reports two measures:
 

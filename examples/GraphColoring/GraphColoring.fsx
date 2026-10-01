@@ -81,6 +81,7 @@ References:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 open FSharp.Azure.Quantum.Examples.Common
@@ -158,7 +159,11 @@ let solveAndReport
     (problem: GraphColoring.GraphColoringProblem)
     (numColors: int)
     : Map<string, string> option =
-    match GraphColoring.solve problem numColors None with
+    match
+        GraphColoring.solveAsync problem numColors None CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok solution ->
         if not quiet then
             printfn "  Colors used: %d" solution.ColorsUsed
@@ -348,7 +353,11 @@ if shouldRun "precolored" then
             objective MinimizeColors
         }
 
-    match GraphColoring.solve precoloredProblem 4 None with
+    match
+        GraphColoring.solveAsync precoloredProblem 4 None CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok solution ->
         if not quiet then
             printfn "  Colors used: %d" solution.ColorsUsed

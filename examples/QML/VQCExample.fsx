@@ -27,6 +27,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -238,7 +239,18 @@ if shouldRun 2 then
 // Train once and share result across examples 3-6
 let trainResult =
     if shouldRun 3 || shouldRun 4 || shouldRun 5 || shouldRun 6 then
-        Some(VQC.train quantumBackend featureMap variationalForm initialParams trainData trainLabels config)
+        VQC.trainAsync
+            quantumBackend
+            featureMap
+            variationalForm
+            initialParams
+            trainData
+            trainLabels
+            config
+            CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+        |> Some
     else
         None
 
@@ -301,7 +313,18 @@ if shouldRun 4 then
     | Some(Ok result) ->
         testData
         |> Array.iteri (fun i sample ->
-            match VQC.predict quantumBackend featureMap variationalForm result.Parameters sample config.Shots with
+            match
+                VQC.predictAsync
+                    quantumBackend
+                    featureMap
+                    variationalForm
+                    result.Parameters
+                    sample
+                    config.Shots
+                    CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok pred ->
                 let mark = if pred.Label = testLabels.[i] then "correct" else "wrong"
 
@@ -338,7 +361,19 @@ if shouldRun 5 then
     match trainResult with
     | Some(Ok result) ->
         let showEval label data labels =
-            match VQC.evaluate quantumBackend featureMap variationalForm result.Parameters data labels config.Shots with
+            match
+                VQC.evaluateAsync
+                    quantumBackend
+                    featureMap
+                    variationalForm
+                    result.Parameters
+                    data
+                    labels
+                    config.Shots
+                    CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok acc ->
                 pr "%s accuracy: %s (%.1f%%)" label (fmt acc) (acc * 100.0)
                 acc
@@ -374,7 +409,7 @@ if shouldRun 6 then
     match trainResult with
     | Some(Ok result) ->
         match
-            VQC.confusionMatrix
+            VQC.confusionMatrixAsync
                 quantumBackend
                 featureMap
                 variationalForm
@@ -382,6 +417,9 @@ if shouldRun 6 then
                 testData
                 testLabels
                 config.Shots
+                CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
         with
         | Ok cm ->
             pr "                 Predicted"

@@ -165,13 +165,6 @@ module PackingOptimizer =
                 return decodeSolution problem solution
         }
 
-    /// Execute packing optimization
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve (problem: PackingProblem) : QuantumResult<PackingResult> =
-        solveAsync problem CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
     // ========================================================================

@@ -30,6 +30,7 @@
 open FSharp.Azure.Quantum.Examples.Common
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -395,7 +396,11 @@ if runAll || exampleName = "manufacturing" then
             timeHorizon (hours 4.0)
         }
 
-    match solveQuantum quantumBackend manufacturingProblem |> Async.RunSynchronously with
+    match
+        solveQuantumAsync quantumBackend manufacturingProblem CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok schedule ->
         pr "Manufacturing Complete (precedence respected)"
         pr ""

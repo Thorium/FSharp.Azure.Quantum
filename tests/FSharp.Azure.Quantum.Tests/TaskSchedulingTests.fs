@@ -5,6 +5,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.TaskScheduling
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
 open System.Threading.Tasks
 
 module TaskSchedulingTests =
@@ -47,7 +48,7 @@ module TaskSchedulingTests =
             // Act - Solve scheduling problem
 
             // Assert
-            match! solve problem |> Async.StartImmediateAsTask with
+            match! solveAsync problem CancellationToken.None with
             | Ok solution ->
                 // Validate makespan = 10 + 20 + 15 = 45 minutes
                 Assert.Equal(45.0, solution.Makespan.TotalMinutes)
@@ -105,7 +106,7 @@ module TaskSchedulingTests =
             // Act
 
             // Assert
-            match! solve problem |> Async.StartImmediateAsTask with
+            match! solveAsync problem CancellationToken.None with
             | Ok solution ->
                 // Makespan should be max(10, 20) = 20 minutes (parallel execution)
                 Assert.Equal(20.0, solution.Makespan.TotalMinutes)
@@ -162,7 +163,7 @@ module TaskSchedulingTests =
                 }
 
             // Act
-            let! result = solve problem |> Async.StartImmediateAsTask
+            let! result = solveAsync problem CancellationToken.None
 
             // Assert - Should return error
             result
@@ -199,7 +200,7 @@ module TaskSchedulingTests =
                 }
 
             // Act
-            let! result = solve problem |> Async.StartImmediateAsTask
+            let! result = solveAsync problem CancellationToken.None
 
             // Assert - Should return error
             result
@@ -252,7 +253,7 @@ module TaskSchedulingTests =
 
 
             // Act
-            match! solve problem |> Async.StartImmediateAsTask with
+            match! solveAsync problem CancellationToken.None with
             | Ok solution ->
                 let tempFile = System.IO.Path.GetTempFileName()
                 exportGanttChart solution tempFile
@@ -316,7 +317,7 @@ module TaskSchedulingTests =
             // Assert - Quantum solver should execute successfully
             // Note: QAOA with initial parameters may not always find optimal solution
             // This test verifies the quantum solver executes without error
-            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            match! solveQuantumAsync backend problem CancellationToken.None with
             | Error msg -> Assert.Fail($"Quantum solver failed: %s{msg.Message}")
             | Ok solution ->
                 // Solution found - quantum execution successful
@@ -365,7 +366,7 @@ module TaskSchedulingTests =
             // Act
 
             // Assert
-            match! solve problem |> Async.StartImmediateAsTask with
+            match! solveAsync problem CancellationToken.None with
             | Ok solution ->
                 // Task B finishes at 50 minutes but deadline is 40
                 Assert.Contains("B", solution.DeadlineViolations)
@@ -403,7 +404,7 @@ module TaskSchedulingTests =
             // Act
 
             // Assert
-            match! solve problem |> Async.StartImmediateAsTask with
+            match! solveAsync problem CancellationToken.None with
             | Ok solution ->
                 Assert.Empty(solution.DeadlineViolations)
                 Assert.True(solution.IsValid, "Solution should be valid")
@@ -514,7 +515,7 @@ module TaskSchedulingTests =
 
         // Assert
         task {
-            match! solve problem |> Async.StartImmediateAsTask with
+            match! solveAsync problem CancellationToken.None with
             | Ok solution ->
                 // Validate critical path scheduling
                 // Expected critical path: SafetyMechanical (20) → InitCooling (30) → StartPump1 (10) → StartTurbine (45) → SyncGrid (15) → FullPower (20) = 140 minutes
@@ -618,7 +619,7 @@ module TaskSchedulingTests =
 
             let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
 
-            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            match! solveQuantumAsync backend problem CancellationToken.None with
             | Ok solution ->
                 let a = solution.Assignments |> List.find (fun x -> x.TaskId = "A")
                 let b = solution.Assignments |> List.find (fun x -> x.TaskId = "B")
@@ -678,7 +679,7 @@ module TaskSchedulingTests =
 
             let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
 
-            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            match! solveQuantumAsync backend problem CancellationToken.None with
             | Error(QuantumError.ValidationError(field, reason)) ->
                 Assert.Equal("qubits", field)
                 Assert.Contains("40 qubits", reason)
@@ -860,7 +861,7 @@ module TaskSchedulingTests =
 
             let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
 
-            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            match! solveQuantumAsync backend problem CancellationToken.None with
             | Error msg -> Assert.Fail($"solveQuantum failed: %A{msg}")
             | Ok solution ->
                 let b = solution.Assignments |> List.find (fun x -> x.TaskId = "B")
@@ -896,7 +897,7 @@ module TaskSchedulingTests =
 
             let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
 
-            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            match! solveQuantumAsync backend problem CancellationToken.None with
             | Error msg -> Assert.Fail($"solveQuantum failed: %A{msg}")
             | Ok solution ->
                 let a = solution.Assignments |> List.find (fun x -> x.TaskId = "A")
@@ -928,7 +929,7 @@ module TaskSchedulingTests =
 
             let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
 
-            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            match! solveQuantumAsync backend problem CancellationToken.None with
             | Error(QuantumError.ValidationError(field, reason)) ->
                 Assert.Equal("AvailableWindows", field)
                 Assert.Contains("Late", reason)

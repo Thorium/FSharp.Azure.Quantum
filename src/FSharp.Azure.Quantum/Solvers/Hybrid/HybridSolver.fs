@@ -224,13 +224,6 @@ module HybridSolver =
         }
 
     /// Execute TSP on the unified quantum backend using real QAOA (see runQuantumTspCore).
-    let private executeQuantumTsp
-        (distances: float[,])
-        (_quantumConfig: QuantumExecutionConfig)
-        : Async<QuantumResult<TspSolver.TspSolution>> =
-        async { return! runQuantumTspCore distances CancellationToken.None |> Async.AwaitTask }
-
-    /// Task-based variant of executeQuantumTsp for use in async contexts.
     let private executeQuantumTspTask
         (distances: float[,])
         (_quantumConfig: QuantumExecutionConfig)
@@ -294,124 +287,10 @@ module HybridSolver =
     // SOLVER ROUTING - TSP
     // ================================================================================
 
-    /// Solve TSP problem using hybrid solver with quantum execution support
-    ///
-    /// NOTE: This legacy API runs real QAOA on the default unified backend (local simulator).
-    /// To target a specific gate-based or topological cloud backend, use `solveTspWithBackendAsync`.
-    ///
-    /// ⚠️ WARNING: This function uses Async.RunSynchronously internally and can block for minutes.
-    /// Consider refactoring to async if calling from async context.
-    [<System.Obsolete("Use solveTspWithBackendAsync instead. This legacy function uses Async.RunSynchronously internally.")>]
-    let solveTspWithQuantum
-        (distances: float[,])
-        (quantumConfig: QuantumExecutionConfig option)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        : QuantumResult<Solution<TspSolver.TspSolution>> =
-
-        let startTime = DateTime.UtcNow
-        let config = TspSolver.defaultConfig
-
-        let solveClassical () =
-            TspSolver.solveWithDistances distances config
-
-        match forceMethod with
-        | Some Classical ->
-            solveClassical () |> createClassicalSolution
-            <| "Classical solver forced by user override. Quantum Advisor bypassed."
-            <| startTime
-            <| None
-            |> Ok
-
-        | Some Quantum when quantumConfig.IsNone ->
-            Error(
-                QuantumError.ValidationError(
-                    "Configuration",
-                    "Quantum method forced but no quantum configuration provided."
-                )
-            )
-
-        | Some Quantum ->
-            // Execute legacy quantum path
-            match Async.RunSynchronously(executeQuantumTsp distances quantumConfig.Value) with
-            | Ok quantumResult ->
-                // Legacy path returns a classical solver result, so adapt to the expected type
-                createQuantumSolution quantumResult "Quantum solver forced by user override." startTime None
-                |> Ok
-            | Error err -> Error err
-
-        | None ->
-            // Consult Quantum Advisor for recommendation
-            QuantumAdvisor.getRecommendation distances
-            |> Result.bind (fun recommendation ->
-                match recommendation.RecommendationType, quantumConfig with
-                | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, Some qConfig ->
-                    // Check cost limit
-                    match qConfig.MaxCostUSD with
-                    | ValueSome limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
-                        let estimatedCost =
-                            estimateQuantumConfigCostUSD
-                                qConfig.Backend
-                                ((Array2D.length1 distances) * (Array2D.length1 distances))
-
-                        if estimatedCost > limit then
-                            let reasoning =
-                                $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
-
-                            solveClassical () |> createClassicalSolution
-                            <| reasoning
-                            <| startTime
-                            <| Some recommendation
-                            |> Ok
-                        else
-                            // Execute legacy quantum path
-                            match Async.RunSynchronously(executeQuantumTsp distances qConfig) with
-                            | Ok quantumResult ->
-                                createQuantumSolution
-                                    quantumResult
-                                    $"{recommendation.Reasoning} Routing to quantum backend."
-                                    startTime
-                                    (Some recommendation)
-                                |> Ok
-                            | Error err -> Error err
-                    | _ ->
-                        // No cost limit or execute quantum
-                        match Async.RunSynchronously(executeQuantumTsp distances qConfig) with
-                        | Ok quantumResult ->
-                            createQuantumSolution
-                                quantumResult
-                                $"{recommendation.Reasoning} Routing to quantum backend."
-                                startTime
-                                (Some recommendation)
-                            |> Ok
-                        | Error err -> Error err
-
-                | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, None ->
-                    // Quantum recommended but no config - fallback to classical
-                    let reasoning =
-                        $"{recommendation.Reasoning} Quantum solver not available - using classical fallback."
-
-                    solveClassical () |> createClassicalSolution
-                    <| reasoning
-                    <| startTime
-                    <| Some recommendation
-                    |> Ok
-
-                | _ ->
-                    // Classical recommended or borderline - use classical
-                    let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
-
-                    solveClassical () |> createClassicalSolution
-                    <| reasoning
-                    <| startTime
-                    <| Some recommendation
-                    |> Ok)
-
     /// Solve TSP problem using hybrid solver with quantum execution support (task-based, non-blocking).
     ///
-    /// This is the async counterpart of solveTspWithQuantum, replacing
-    /// Async.RunSynchronously calls with awaited Task calls.
+    /// Routes between the classical TSP solver and QAOA on the default unified backend,
+    /// awaiting the quantum run instead of blocking on it.
     ///
     /// NOTE: The quantum path runs real QAOA on the default unified backend (local simulator).
     /// To target a specific cloud backend, use solveTspWithBackendAsync.
@@ -421,8 +300,8 @@ module HybridSolver =
         (budget: float option)
         (timeout: float option)
         (forceMethod: SolverMethod option)
-        (cancellationToken: System.Threading.CancellationToken)
-        : System.Threading.Tasks.Task<QuantumResult<Solution<TspSolver.TspSolution>>> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution<TspSolver.TspSolution>>> =
         let startTime = DateTime.UtcNow
         let config = TspSolver.defaultConfig
 
@@ -438,7 +317,7 @@ module HybridSolver =
                 <| None
                 |> Ok
 
-            task { return res }
+            Task.FromResult(res)
 
         | Some Quantum when quantumConfig.IsNone ->
             task {
@@ -489,7 +368,7 @@ module HybridSolver =
                                 <| Some recommendation
                                 |> Ok
 
-                            task { return res }
+                            Task.FromResult(res)
                         else
                             task {
                                 let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
@@ -531,7 +410,7 @@ module HybridSolver =
                         <| Some recommendation
                         |> Ok
 
-                    task { return res }
+                    Task.FromResult(res)
 
                 | _ ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
@@ -543,7 +422,7 @@ module HybridSolver =
                         <| Some recommendation
                         |> Ok
 
-                    task { return res }
+                    Task.FromResult(res)
 
     /// Solve TSP problem using hybrid solver with an explicit QAOA configuration
     /// (task-based, non-blocking).
@@ -654,29 +533,6 @@ module HybridSolver =
                     return createClassicalSolution (solveClassical ()) reasoning startTime (Some recommendation)
         }
 
-    /// Solve TSP problem using hybrid solver with an explicit QAOA configuration.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveTspWithBackendAndConfigAsync.
-    [<Obsolete("Use solveTspWithBackendAndConfigAsync for non-blocking execution against cloud backends")>]
-    let solveTspWithBackendAndConfig
-        (distances: float[,])
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        (backend: IQuantumBackend option)
-        (quantumConfig: QuantumTspSolver.QuantumTspConfig)
-        : QuantumResult<Solution<TspSolver.TspSolution>> =
-        solveTspWithBackendAndConfigAsync
-            distances
-            budget
-            timeout
-            forceMethod
-            backend
-            quantumConfig
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve TSP problem using hybrid solver with optional backend override
     /// (task-based, non-blocking).
     ///
@@ -710,21 +566,6 @@ module HybridSolver =
             QuantumTspSolver.defaultConfig
             cancellationToken
 
-    /// Solve TSP problem using hybrid solver with optional backend override.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveTspWithBackendAsync.
-    [<Obsolete("Use solveTspWithBackendAsync for non-blocking execution against cloud backends")>]
-    let solveTspWithBackend
-        (distances: float[,])
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        (backend: IQuantumBackend option)
-        : QuantumResult<Solution<TspSolver.TspSolution>> =
-        solveTspWithBackendAsync distances budget timeout forceMethod backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve TSP problem using hybrid solver with automatic quantum vs classical selection
     /// (task-based, non-blocking).
     ///
@@ -745,20 +586,6 @@ module HybridSolver =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<Solution<TspSolver.TspSolution>>> =
         solveTspWithBackendAsync distances budget timeout forceMethod None cancellationToken
-
-    /// Solve TSP problem using hybrid solver with automatic quantum vs classical selection.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveTspAsync.
-    [<Obsolete("Use solveTspAsync for non-blocking execution against cloud backends")>]
-    let solveTsp
-        (distances: float[,])
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        : QuantumResult<Solution<TspSolver.TspSolution>> =
-        solveTspAsync distances budget timeout forceMethod CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ================================================================================
     // SOLVER ROUTING - PORTFOLIO
@@ -916,22 +743,6 @@ module HybridSolver =
         : Task<QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>> =
         solvePortfolioCore assets None constraints budget timeout forceMethod backend cancellationToken
 
-    /// Solve Portfolio optimization using hybrid solver with optional backend override.
-    ///
-    /// Blocks the calling thread until the solver completes: see solvePortfolioWithBackendAsync.
-    [<Obsolete("Use solvePortfolioWithBackendAsync for non-blocking execution against cloud backends")>]
-    let solvePortfolioWithBackend
-        (assets: PortfolioSolver.Asset list)
-        (constraints: PortfolioSolver.Constraints)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        (backend: IQuantumBackend option)
-        : QuantumResult<Solution<PortfolioSolver.PortfolioSolution>> =
-        solvePortfolioWithBackendAsync assets constraints budget timeout forceMethod backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve mean-variance Portfolio optimization with a covariance matrix of the asset returns
     /// (task-based, non-blocking).
     ///
@@ -963,31 +774,6 @@ module HybridSolver =
         : Task<QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>> =
         solvePortfolioCore assets (Some covariance) constraints budget timeout forceMethod backend cancellationToken
 
-    /// Solve mean-variance Portfolio optimization with a covariance matrix of the asset returns.
-    ///
-    /// Blocks the calling thread until the solver completes: see solvePortfolioWithCovarianceAsync.
-    [<Obsolete("Use solvePortfolioWithCovarianceAsync for non-blocking execution against cloud backends")>]
-    let solvePortfolioWithCovariance
-        (assets: PortfolioSolver.Asset list)
-        (covariance: float[,])
-        (constraints: PortfolioSolver.Constraints)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        (backend: IQuantumBackend option)
-        : QuantumResult<Solution<PortfolioSolver.PortfolioSolution>> =
-        solvePortfolioWithCovarianceAsync
-            assets
-            covariance
-            constraints
-            budget
-            timeout
-            forceMethod
-            backend
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve Portfolio optimization using hybrid solver with automatic quantum vs classical selection
     /// (task-based, non-blocking).
     ///
@@ -1013,22 +799,6 @@ module HybridSolver =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>> =
         solvePortfolioCore assets None constraints budget timeout forceMethod None cancellationToken
-
-    /// Solve Portfolio optimization using hybrid solver with automatic quantum vs classical selection.
-    ///
-    /// Blocks the calling thread until the solver completes: see solvePortfolioAsync.
-    [<Obsolete("Use solvePortfolioAsync for non-blocking execution against cloud backends")>]
-    let solvePortfolio
-        (assets: PortfolioSolver.Asset list)
-        (constraints: PortfolioSolver.Constraints)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        : QuantumResult<Solution<PortfolioSolver.PortfolioSolution>> =
-        solvePortfolioAsync assets constraints budget timeout forceMethod CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
 
     // ================================================================================
     // SOLVER ROUTING - MAXCUT
@@ -1127,21 +897,6 @@ module HybridSolver =
                     return createClassicalSolution (solveClassical ()) reasoning startTime (Some recommendation)
         }
 
-    /// Solve MaxCut problem using hybrid solver with optional backend override.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveMaxCutWithBackendAsync.
-    [<Obsolete("Use solveMaxCutWithBackendAsync for non-blocking execution against cloud backends")>]
-    let solveMaxCutWithBackend
-        (problem: QuantumMaxCutSolver.MaxCutProblem)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        (backend: IQuantumBackend option)
-        : QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>> =
-        solveMaxCutWithBackendAsync problem budget timeout forceMethod backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve MaxCut problem using hybrid solver with automatic quantum vs classical selection
     /// (task-based, non-blocking).
     ///
@@ -1162,21 +917,6 @@ module HybridSolver =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>>> =
         solveMaxCutWithBackendAsync problem budget timeout forceMethod None cancellationToken
-
-    /// Solve MaxCut problem using hybrid solver with automatic quantum vs classical selection.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveMaxCutAsync.
-    [<Obsolete("Use solveMaxCutAsync for non-blocking execution against cloud backends")>]
-    let solveMaxCut
-        (problem: QuantumMaxCutSolver.MaxCutProblem)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        : QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>> =
-        solveMaxCutAsync problem budget timeout forceMethod CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
 
     // ================================================================================
     // SOLVER ROUTING - KNAPSACK
@@ -1275,21 +1015,6 @@ module HybridSolver =
                     return createClassicalSolution (solveClassical ()) reasoning startTime (Some recommendation)
         }
 
-    /// Solve Knapsack problem using hybrid solver with optional backend override.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveKnapsackWithBackendAsync.
-    [<Obsolete("Use solveKnapsackWithBackendAsync for non-blocking execution against cloud backends")>]
-    let solveKnapsackWithBackend
-        (problem: QuantumKnapsackSolver.KnapsackProblem)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        (backend: IQuantumBackend option)
-        : QuantumResult<Solution<QuantumKnapsackSolver.KnapsackSolution>> =
-        solveKnapsackWithBackendAsync problem budget timeout forceMethod backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve Knapsack problem using hybrid solver with automatic quantum vs classical selection
     /// (task-based, non-blocking).
     ///
@@ -1310,21 +1035,6 @@ module HybridSolver =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<Solution<QuantumKnapsackSolver.KnapsackSolution>>> =
         solveKnapsackWithBackendAsync problem budget timeout forceMethod None cancellationToken
-
-    /// Solve Knapsack problem using hybrid solver with automatic quantum vs classical selection.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveKnapsackAsync.
-    [<Obsolete("Use solveKnapsackAsync for non-blocking execution against cloud backends")>]
-    let solveKnapsack
-        (problem: QuantumKnapsackSolver.KnapsackProblem)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        : QuantumResult<Solution<QuantumKnapsackSolver.KnapsackSolution>> =
-        solveKnapsackAsync problem budget timeout forceMethod CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
 
     // ================================================================================
     // SOLVER ROUTING - GRAPH COLORING
@@ -1446,22 +1156,6 @@ module HybridSolver =
                     return createClassicalSolution classicalResult reasoning startTime (Some recommendation)
         }
 
-    /// Solve Graph Coloring problem using hybrid solver with optional backend override.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveGraphColoringWithBackendAsync.
-    [<Obsolete("Use solveGraphColoringWithBackendAsync for non-blocking execution against cloud backends")>]
-    let solveGraphColoringWithBackend
-        (problem: QuantumGraphColoringSolver.GraphColoringProblem)
-        (numColors: int)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        (backend: IQuantumBackend option)
-        : QuantumResult<Solution<QuantumGraphColoringSolver.GraphColoringSolution>> =
-        solveGraphColoringWithBackendAsync problem numColors budget timeout forceMethod backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve Graph Coloring problem using hybrid solver with automatic quantum vs classical selection
     /// (task-based, non-blocking).
     ///
@@ -1485,22 +1179,6 @@ module HybridSolver =
         : Task<QuantumResult<Solution<QuantumGraphColoringSolver.GraphColoringSolution>>> =
         solveGraphColoringWithBackendAsync problem numColors budget timeout forceMethod None cancellationToken
 
-    /// Solve Graph Coloring problem using hybrid solver with automatic quantum vs classical selection.
-    ///
-    /// Blocks the calling thread until the solver completes: see solveGraphColoringAsync.
-    [<Obsolete("Use solveGraphColoringAsync for non-blocking execution against cloud backends")>]
-    let solveGraphColoring
-        (problem: QuantumGraphColoringSolver.GraphColoringProblem)
-        (numColors: int)
-        (budget: float option)
-        (timeout: float option)
-        (forceMethod: SolverMethod option)
-        : QuantumResult<Solution<QuantumGraphColoringSolver.GraphColoringSolution>> =
-        solveGraphColoringAsync problem numColors budget timeout forceMethod CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-
     // ================================================================================
     // LEGACY COMPATIBILITY
 
@@ -1513,12 +1191,3 @@ module HybridSolver =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<Solution<TspSolver.TspSolution>>> =
         solveTspAsync distances None None None cancellationToken
-
-    /// Legacy solve function for backward compatibility (TSP only, no optional parameters).
-    ///
-    /// Blocks the calling thread until the solver completes: see solveAsync.
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve (distances: float[,]) : QuantumResult<Solution<TspSolver.TspSolution>> =
-        solveAsync distances CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously

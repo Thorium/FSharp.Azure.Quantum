@@ -91,31 +91,6 @@ module VQC =
     // FORWARD PASS
     // ========================================================================
 
-    /// Execute forward pass: measure output qubit
-    [<Obsolete("Use forwardPassAsync for non-blocking I/O against cloud backends.")>]
-    let private forwardPass (backend: IQuantumBackend) (circuit: Circuit) (shots: int) : QuantumResult<float> =
-
-        quantumResult {
-            // Wrap circuit for backend execution
-            let wrappedCircuit = CircuitWrapper(circuit) :> ICircuit
-
-            // Execute circuit to get state
-            let! state = backend.ExecuteToState wrappedCircuit
-
-            // Perform measurements on quantum state
-            let measurements = QuantumState.measure state shots
-
-            // Count |1⟩ measurements on first qubit
-            let onesCount =
-                measurements |> Array.filter (fun shot -> shot.[0] = 1) |> Array.length |> float
-
-            // A cloud result yields its recorded shots, which may be fewer than requested.
-            let totalShots = float (max 1 measurements.Length)
-            let probability = onesCount / totalShots
-
-            return probability
-        }
-
     /// Execute forward pass asynchronously using backend.ExecuteToStateAsync.
     /// Non-blocking I/O for cloud backends.
     let private forwardPassAsync
@@ -193,50 +168,29 @@ module VQC =
         let p = max epsilon (min (1.0 - epsilon) predicted)
         (p - float actual) / (p * (1.0 - p))
 
-    /// Compute average loss over dataset (parallelized for performance)
-    [<Obsolete("Use computeLossAsync for genuine task-based parallelism with cloud backends.")>]
-    let private computeLoss
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array array)
-        (labels: int array)
-        (shots: int)
-        : QuantumResult<float> =
+    /// Circuits one loss or gradient evaluation keeps in flight: at most
+    /// QuantumKernels.MaxConcurrentSampledJobs on a shot-sampling backend (every circuit is a
+    /// separately queued and billed job), unlimited on simulators.
+    type private JobGate(backend: IQuantumBackend) =
+        let slots =
+            match backend with
+            | :? IShotSamplingBackend ->
+                Some(new SemaphoreSlim(QuantumKernels.MaxConcurrentSampledJobs, QuantumKernels.MaxConcurrentSampledJobs))
+            | _ -> None
 
-        let computeSampleLoss i =
-            async {
-                match buildVQCCircuit featureMap variationalForm features.[i] parameters with
-                | Error e -> return Error e
-                | Ok circuit ->
-                    let! forwardResult =
-                        forwardPassAsync backend circuit shots CancellationToken.None |> Async.AwaitTask
+        /// Runs `job` once a slot is free.
+        member _.Run<'T>(cancellationToken: CancellationToken, job: unit -> Task<'T>) : Task<'T> =
+            match slots with
+            | None -> job ()
+            | Some gate ->
+                task {
+                    do! gate.WaitAsync cancellationToken
 
-                    return
-                        forwardResult
-                        |> Result.map (fun prediction -> binaryCrossEntropy prediction labels.[i])
-            }
-
-        // 🚀 PARALLELIZED: Compute loss for all samples in parallel
-        // This can provide N× speedup where N = number of samples
-        let results =
-            features
-            |> Array.mapi (fun i _ -> computeSampleLoss i)
-            |> Async.Parallel
-            |> Async.RunSynchronously
-
-        // Check if any failed
-        match results |> Array.tryFind Result.isError with
-        | Some(Error e) -> Error e
-        | _ ->
-            let losses =
-                results
-                |> Array.choose (function
-                    | Ok v -> Some v
-                    | Error _ -> None)
-
-            Ok(Array.average losses)
+                    try
+                        return! job ()
+                    finally
+                        gate.Release() |> ignore
+                }
 
     /// Compute average loss over dataset using Task.WhenAll for genuine concurrent I/O.
     /// Each sample's forward pass runs via backend.ExecuteToStateAsync.
@@ -251,12 +205,15 @@ module VQC =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<float>> =
         task {
+            let gate = JobGate backend
+
             let computeSampleLossAsync i =
                 task {
                     match buildVQCCircuit featureMap variationalForm features.[i] parameters with
                     | Error e -> return Error e
                     | Ok circuit ->
-                        let! forwardResult = forwardPassAsync backend circuit shots cancellationToken
+                        let! forwardResult =
+                            gate.Run(cancellationToken, fun () -> forwardPassAsync backend circuit shots cancellationToken)
 
                         return
                             forwardResult
@@ -285,41 +242,10 @@ module VQC =
     // GRADIENT COMPUTATION (Parameter Shift Rule)
     // ========================================================================
 
-    /// Compute per-sample circuit expectations p_j(θ) for all samples (parallelized)
-    [<Obsolete("Use computePredictionsAsync for genuine task-based parallelism with cloud backends.")>]
-    let private computePredictions
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array array)
-        (shots: int)
-        : QuantumResult<float array> =
-
-        let results =
-            features
-            |> Array.map (fun sample ->
-                async {
-                    match buildVQCCircuit featureMap variationalForm sample parameters with
-                    | Error e -> return Error e
-                    | Ok circuit ->
-                        return! forwardPassAsync backend circuit shots CancellationToken.None |> Async.AwaitTask
-                })
-            |> Async.Parallel
-            |> Async.RunSynchronously
-
-        match results |> Array.tryFind Result.isError with
-        | Some(Error e) -> Error e
-        | _ ->
-            Ok(
-                results
-                |> Array.choose (function
-                    | Ok v -> Some v
-                    | Error _ -> None)
-            )
-
-    /// Compute per-sample circuit expectations p_j(θ) concurrently via Task.WhenAll.
+    /// Compute per-sample circuit expectations p_j(θ) concurrently via Task.WhenAll,
+    /// submitting each circuit through `gate`.
     let private computePredictionsAsync
+        (gate: JobGate)
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (variationalForm: VariationalForm)
@@ -335,7 +261,9 @@ module VQC =
                     task {
                         match buildVQCCircuit featureMap variationalForm sample parameters with
                         | Error e -> return Error e
-                        | Ok circuit -> return! forwardPassAsync backend circuit shots cancellationToken
+                        | Ok circuit ->
+                            return!
+                                gate.Run(cancellationToken, fun () -> forwardPassAsync backend circuit shots cancellationToken)
                     })
                 |> Task.WhenAll
 
@@ -351,7 +279,7 @@ module VQC =
                     )
         }
 
-    /// Compute gradient using the parameter shift rule + chain rule (parallelized).
+    /// Compute gradient using the parameter shift rule + chain rule.
     ///
     /// The parameter shift rule is exact only for the circuit EXPECTATION p(θ):
     ///   ∂p/∂θ_i = (p(θ + π/2 e_i) - p(θ - π/2 e_i)) / 2
@@ -361,101 +289,8 @@ module VQC =
     /// with dL/dp = (p - y) / (p (1 - p)) for binary cross-entropy.
     /// The dataset gradient is the average of the per-sample gradients.
     ///
-    /// 🚀 PERFORMANCE: Gradients for different parameters are computed in parallel
-    /// This can provide 10-100× speedup depending on parameter count!
-    [<Obsolete("Use computeGradientAsync for genuine task-based parallelism with cloud backends.")>]
-    let private computeGradient
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array array)
-        (labels: int array)
-        (shots: int)
-        : QuantumResult<float array> =
-
-        let shift = Math.PI / 2.0
-
-        // Unshifted per-sample predictions p_j(θ): loss-derivative factor of the chain rule
-        match
-            (computePredictionsAsync backend featureMap variationalForm parameters features shots CancellationToken.None)
-                .GetAwaiter()
-                .GetResult()
-        with
-        | Error e -> Error(QuantumError.ValidationError("Input", $"Gradient computation failed: {e}"))
-        | Ok basePredictions ->
-            let lossDerivatives = Array.map2 binaryCrossEntropyDerivative basePredictions labels
-
-            let computeParamGradient i =
-                async {
-                    // Shift parameter forward
-                    let paramsPlus = Array.copy parameters
-                    paramsPlus.[i] <- paramsPlus.[i] + shift
-
-                    // Shift parameter backward
-                    let paramsMinus = Array.copy parameters
-                    paramsMinus.[i] <- paramsMinus.[i] - shift
-
-                    // 🚀 PARALLELIZED: Compute forward and backward shifted predictions in parallel too!
-                    let! results =
-                        Async.Parallel
-                            [|
-                                computePredictionsAsync
-                                    backend
-                                    featureMap
-                                    variationalForm
-                                    paramsPlus
-                                    features
-                                    shots
-                                    CancellationToken.None
-                                |> Async.AwaitTask
-                                computePredictionsAsync
-                                    backend
-                                    featureMap
-                                    variationalForm
-                                    paramsMinus
-                                    features
-                                    shots
-                                    CancellationToken.None
-                                |> Async.AwaitTask
-                            |]
-
-                    // Combine results via the chain rule, averaged over samples
-                    return
-                        match results.[0], results.[1] with
-                        | Ok predsPlus, Ok predsMinus ->
-                            Array.init features.Length (fun j ->
-                                lossDerivatives.[j] * (predsPlus.[j] - predsMinus.[j]) / 2.0)
-                            |> Array.average
-                            |> Ok
-                        | Error e, _ -> Error e
-                        | _, Error e -> Error e
-                }
-
-            // 🚀 PARALLELIZED: Compute gradient for all parameters in parallel
-            // This is a HUGE win - can be 10-100× faster depending on parameter count!
-            let results =
-                parameters
-                |> Array.mapi (fun i _ -> computeParamGradient i)
-                |> Async.Parallel
-                |> Async.RunSynchronously
-
-            // Check if any failed
-            match results |> Array.tryFind Result.isError with
-            | Some(Error e) -> Error(QuantumError.ValidationError("Input", $"Gradient computation failed: {e}"))
-            | _ ->
-                let gradients =
-                    results
-                    |> Array.choose (function
-                        | Ok v -> Some v
-                        | Error _ -> None)
-
-                Ok gradients
-
-    /// Compute gradient using the parameter shift rule + chain rule with genuine
-    /// task-based parallelism (see computeGradient for the chain-rule derivation).
     /// Both the per-parameter gradient and the +/- shift pair within each parameter
-    /// are computed concurrently via Task.WhenAll + backend.ExecuteToStateAsync.
+    /// are computed concurrently; one JobGate bounds the circuits in flight.
     let private computeGradientAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -468,10 +303,11 @@ module VQC =
         : Task<QuantumResult<float array>> =
         task {
             let shift = Math.PI / 2.0
+            let gate = JobGate backend
 
             // Unshifted per-sample predictions p_j(θ): loss-derivative factor of the chain rule
             let! basePredictionsResult =
-                computePredictionsAsync backend featureMap variationalForm parameters features shots cancellationToken
+                computePredictionsAsync gate backend featureMap variationalForm parameters features shots cancellationToken
 
             match basePredictionsResult with
             | Error e -> return Error(QuantumError.ValidationError("Input", $"Gradient computation failed: {e}"))
@@ -493,6 +329,7 @@ module VQC =
                             Task.WhenAll
                                 [|
                                     computePredictionsAsync
+                                        gate
                                         backend
                                         featureMap
                                         variationalForm
@@ -501,6 +338,7 @@ module VQC =
                                         shots
                                         cancellationToken
                                     computePredictionsAsync
+                                        gate
                                         backend
                                         featureMap
                                         variationalForm
@@ -581,22 +419,6 @@ module VQC =
                 }
         }
 
-    /// Predict label for a single sample
-    ///
-    /// This is a synchronous wrapper around `predictAsync` for backward compatibility.
-    [<Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
-    let predict
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array)
-        (shots: int)
-        : QuantumResult<Prediction> =
-        predictAsync backend featureMap variationalForm parameters features shots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Predicts every sample in order; the first failing sample's error is the result
     let private predictEachAsync
         (backend: IQuantumBackend)
@@ -649,25 +471,9 @@ module VQC =
                 return float correctCount / float features.Length
             }
 
-    /// Evaluate model accuracy on dataset
-    ///
-    /// This is a synchronous wrapper around `evaluateAsync` for backward compatibility.
-    [<Obsolete("Use evaluateAsync for non-blocking execution against cloud backends")>]
-    let evaluate
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array array)
-        (labels: int array)
-        (shots: int)
-        : QuantumResult<float> =
-        evaluateAsync backend featureMap variationalForm parameters features labels shots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-    /// Train VQC model using gradient descent
-    let rec train
+    /// Train VQC model using gradient descent, asynchronously.
+    /// Epochs run one after another; each epoch awaits its loss and gradient evaluations.
+    let trainAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (variationalForm: VariationalForm)
@@ -675,13 +481,14 @@ module VQC =
         (trainFeatures: float array array)
         (trainLabels: int array)
         (config: TrainingConfig)
-        : QuantumResult<TrainingResult> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<TrainingResult>> =
 
         // Validate inputs
         if trainFeatures.Length <> trainLabels.Length then
-            Error(QuantumError.ValidationError("Input", "Features and labels must have same length"))
+            Task.FromResult(Error(QuantumError.ValidationError("Input", "Features and labels must have same length")))
         elif trainFeatures.Length = 0 then
-            Error(QuantumError.Other "Training set cannot be empty")
+            Task.FromResult(Error(QuantumError.Other "Training set cannot be empty"))
         else
             // Initialize optimizer state for Adam
             let initialAdamState =
@@ -715,31 +522,30 @@ module VQC =
                     Progress.PhaseChanged("VQC Training", Some $"Starting with {config.MaxEpochs} max epochs...")
                 ))
 
-            // Recursive training loop
-            let rec trainLoop (state: TrainingState) : QuantumResult<TrainingState> =
-                if state.Epoch >= config.MaxEpochs || state.Converged then
-                    Ok state
-                else
-                    quantumResult {
-                        // Compute current loss
-                        let! loss =
-                            (computeLossAsync
-                                backend
-                                featureMap
-                                variationalForm
-                                state.Parameters
-                                trainFeatures
-                                trainLabels
-                                config.Shots
-                                CancellationToken.None)
-                                .GetAwaiter()
-                                .GetResult()
-                            |> Result.mapError (fun e ->
+            // One training epoch: the loss, then a parameter update unless the loss converged
+            let epochAsync (state: TrainingState) : Task<QuantumResult<TrainingState>> =
+                task {
+                    // Compute current loss
+                    match!
+                        computeLossAsync
+                            backend
+                            featureMap
+                            variationalForm
+                            state.Parameters
+                            trainFeatures
+                            trainLabels
+                            config.Shots
+                            cancellationToken
+                    with
+                    | Error e ->
+                        return
+                            Error(
                                 QuantumError.ValidationError(
                                     "Input",
                                     $"Loss computation failed at epoch {state.Epoch}: {e}"
-                                ))
-
+                                )
+                            )
+                    | Ok loss ->
                         let newLossHistory = loss :: state.LossHistory
 
                         // Report progress
@@ -769,16 +575,16 @@ module VQC =
                                 false
 
                         if converged then
-                            return!
-                                trainLoop
+                            return
+                                Ok
                                     { state with
                                         LossHistory = newLossHistory
                                         Converged = true
                                     }
                         else
                             // Compute gradients
-                            let! gradient =
-                                (computeGradientAsync
+                            match!
+                                computeGradientAsync
                                     backend
                                     featureMap
                                     variationalForm
@@ -786,51 +592,51 @@ module VQC =
                                     trainFeatures
                                     trainLabels
                                     config.Shots
-                                    CancellationToken.None)
-                                    .GetAwaiter()
-                                    .GetResult()
-                                |> Result.mapError (fun e ->
-                                    QuantumError.ValidationError(
-                                        "Input",
-                                        $"Gradient computation failed at epoch {state.Epoch}: {e}"
-                                    ))
-
-                            // Update parameters using selected optimizer
-                            match config.Optimizer, state.AdamState with
-                            | SGD, _ ->
-                                // Simple gradient descent
-                                let newParams =
-                                    Array.map2 (fun p g -> p - config.LearningRate * g) state.Parameters gradient
-
-                                return!
-                                    trainLoop
-                                        { state with
-                                            Parameters = newParams
-                                            LossHistory = newLossHistory
-                                            Epoch = state.Epoch + 1
-                                        }
-
-                            | Adam adamConfig, Some adamState ->
-                                // Adam optimizer
-                                let! (newParams, newAdamState) =
-                                    AdamOptimizer.update adamConfig adamState state.Parameters gradient
-                                    |> Result.mapError (fun e ->
+                                    cancellationToken
+                            with
+                            | Error e ->
+                                return
+                                    Error(
                                         QuantumError.ValidationError(
                                             "Input",
-                                            $"Adam optimizer failed at epoch {state.Epoch}: {e}"
-                                        ))
+                                            $"Gradient computation failed at epoch {state.Epoch}: {e}"
+                                        )
+                                    )
+                            | Ok gradient ->
+                                // Update parameters using selected optimizer
+                                match config.Optimizer, state.AdamState with
+                                | SGD, _ ->
+                                    // Simple gradient descent
+                                    let newParams =
+                                        Array.map2 (fun p g -> p - config.LearningRate * g) state.Parameters gradient
 
-                                return!
-                                    trainLoop
-                                        { state with
-                                            Parameters = newParams
-                                            LossHistory = newLossHistory
-                                            Epoch = state.Epoch + 1
-                                            AdamState = Some newAdamState
-                                        }
+                                    return
+                                        Ok
+                                            { state with
+                                                Parameters = newParams
+                                                LossHistory = newLossHistory
+                                                Epoch = state.Epoch + 1
+                                            }
 
-                            | Adam _, None -> return! Error(QuantumError.Other "Adam optimizer state not initialized")
-                    }
+                                | Adam adamConfig, Some adamState ->
+                                    // Adam optimizer
+                                    return
+                                        AdamOptimizer.update adamConfig adamState state.Parameters gradient
+                                        |> Result.mapError (fun e ->
+                                            QuantumError.ValidationError(
+                                                "Input",
+                                                $"Adam optimizer failed at epoch {state.Epoch}: {e}"
+                                            ))
+                                        |> Result.map (fun (newParams, newAdamState) ->
+                                            { state with
+                                                Parameters = newParams
+                                                LossHistory = newLossHistory
+                                                Epoch = state.Epoch + 1
+                                                AdamState = Some newAdamState
+                                            })
+
+                                | Adam _, None -> return Error(QuantumError.Other "Adam optimizer state not initialized")
+                }
 
             // Start training
             let initialState =
@@ -842,44 +648,55 @@ module VQC =
                     AdamState = initialAdamState
                 }
 
-            quantumResult {
-                let! finalState = trainLoop initialState
+            task {
+                // Epochs run in order until convergence, MaxEpochs or the first error
+                let mutable state = initialState
+                let mutable failure = None
 
-                // Compute final training accuracy (train is synchronous: it waits here as it
-                // does for every epoch's loss and gradient above)
-                let! accuracy =
-                    (evaluateAsync
-                        backend
-                        featureMap
-                        variationalForm
-                        finalState.Parameters
-                        trainFeatures
-                        trainLabels
-                        config.Shots
-                        CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult()
-                    |> Result.mapError (fun e ->
-                        QuantumError.ValidationError("Input", $"Final evaluation failed: {e.Message}"))
+                while failure.IsNone && state.Epoch < config.MaxEpochs && not state.Converged do
+                    match! epochAsync state with
+                    | Ok next -> state <- next
+                    | Error e -> failure <- Some e
 
-                if config.Verbose then
-                    let log = logInfo config.Logger
-                    log ""
-                    log "Training complete!"
-                    log $"  Epochs: {finalState.Epoch}"
-                    // LossHistory should never be empty here (training loop adds losses), but safe access
-                    log $"  Final loss: {(List.tryHead finalState.LossHistory |> Option.defaultValue 0.0):F6}"
-                    log $"  Train accuracy: {(accuracy * 100.0):F2}%%"
-                    log $"  Converged: {finalState.Converged}"
+                match failure with
+                | Some e -> return Error e
+                | None ->
+                    let finalState = state
 
-                return
-                    {
-                        Parameters = finalState.Parameters
-                        LossHistory = List.rev finalState.LossHistory
-                        Epochs = finalState.Epoch
-                        TrainAccuracy = accuracy
-                        Converged = finalState.Converged
-                    }
+                    // Compute final training accuracy
+                    match!
+                        evaluateAsync
+                            backend
+                            featureMap
+                            variationalForm
+                            finalState.Parameters
+                            trainFeatures
+                            trainLabels
+                            config.Shots
+                            cancellationToken
+                    with
+                    | Error e ->
+                        return Error(QuantumError.ValidationError("Input", $"Final evaluation failed: {e.Message}"))
+                    | Ok accuracy ->
+                        if config.Verbose then
+                            let log = logInfo config.Logger
+                            log ""
+                            log "Training complete!"
+                            log $"  Epochs: {finalState.Epoch}"
+                            // LossHistory should never be empty here (training loop adds losses), but safe access
+                            log $"  Final loss: {(List.tryHead finalState.LossHistory |> Option.defaultValue 0.0):F6}"
+                            log $"  Train accuracy: {(accuracy * 100.0):F2}%%"
+                            log $"  Converged: {finalState.Converged}"
+
+                        return
+                            Ok
+                                {
+                                    Parameters = finalState.Parameters
+                                    LossHistory = List.rev finalState.LossHistory
+                                    Epochs = finalState.Epoch
+                                    TrainAccuracy = accuracy
+                                    Converged = finalState.Converged
+                                }
             }
 
     // ========================================================================
@@ -982,23 +799,6 @@ module VQC =
                     }
             }
 
-    /// Compute confusion matrix
-    ///
-    /// This is a synchronous wrapper around `confusionMatrixAsync` for backward compatibility.
-    [<Obsolete("Use confusionMatrixAsync for non-blocking execution against cloud backends")>]
-    let confusionMatrix
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array array)
-        (labels: int array)
-        (shots: int)
-        : QuantumResult<ConfusionMatrix> =
-        confusionMatrixAsync backend featureMap variationalForm parameters features labels shots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Compute precision from confusion matrix
     let precision (cm: ConfusionMatrix) : float =
         let denominator = cm.TruePositives + cm.FalsePositives
@@ -1061,30 +861,6 @@ module VQC =
             Value: float
         }
 
-    /// Predict continuous value for a single sample (regression)
-    [<Obsolete("Use predictRegressionAsync for non-blocking I/O against cloud backends.")>]
-    let predictRegression
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array)
-        (shots: int)
-        (valueRange: float * float)
-        : QuantumResult<RegressionPrediction> =
-
-        match buildVQCCircuit featureMap variationalForm features parameters with
-        | Error e -> Error e
-        | Ok circuit ->
-            match (forwardPassAsync backend circuit shots CancellationToken.None).GetAwaiter().GetResult() with
-            | Error e -> Error e
-            | Ok expectation ->
-                // Scale expectation [0, 1] to target range [min, max]
-                let (minVal, maxVal) = valueRange
-                let value = minVal + expectation * (maxVal - minVal)
-
-                Ok { Value = value }
-
     /// Predict continuous value for a single sample (regression) asynchronously.
     let predictRegressionAsync
         (backend: IQuantumBackend)
@@ -1111,55 +887,8 @@ module VQC =
                         Ok { Value = value }
         }
 
-    /// Compute Mean Squared Error loss for regression
-    [<Obsolete("Use computeRegressionLossAsync for genuine task-based parallelism.")>]
-    let private computeRegressionLoss
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (trainFeatures: float array array)
-        (trainTargets: float array)
-        (shots: int)
-        (valueRange: float * float)
-        : QuantumResult<float> =
-
-        // Compute squared errors for each sample
-        let results =
-            Array.zip trainFeatures trainTargets
-            |> Array.map (fun (features, target) ->
-                match
-                    (predictRegressionAsync
-                        backend
-                        featureMap
-                        variationalForm
-                        parameters
-                        features
-                        shots
-                        valueRange
-                        CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult()
-                with
-                | Error e -> Error e
-                | Ok prediction ->
-                    let error = prediction.Value - target
-                    Ok(error * error))
-
-        // Check if any predictions failed
-        match results |> Array.tryFind Result.isError with
-        | Some(Error e) -> Error(QuantumError.ValidationError("Input", $"Loss computation failed: {e}"))
-        | _ ->
-            let squaredErrors =
-                results
-                |> Array.choose (function
-                    | Ok v -> Some v
-                    | Error _ -> None)
-
-            Ok(Array.average squaredErrors)
-
-    /// Compute Mean Squared Error loss for regression using Task.WhenAll.
-    /// Fixes missed parallelism: the sync version was sequential Array.map.
+    /// Compute Mean Squared Error loss for regression using Task.WhenAll; one JobGate
+    /// bounds the circuits in flight.
     let private computeRegressionLossAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -1172,21 +901,27 @@ module VQC =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<float>> =
         task {
+            let gate = JobGate backend
+
             // Compute squared errors for each sample concurrently
             let! results =
                 Array.zip trainFeatures trainTargets
                 |> Array.map (fun (features, target) ->
                     task {
                         let! predResult =
-                            predictRegressionAsync
-                                backend
-                                featureMap
-                                variationalForm
-                                parameters
-                                features
-                                shots
-                                valueRange
-                                cancellationToken
+                            gate.Run(
+                                cancellationToken,
+                                fun () ->
+                                    predictRegressionAsync
+                                        backend
+                                        featureMap
+                                        variationalForm
+                                        parameters
+                                        features
+                                        shots
+                                        valueRange
+                                        cancellationToken
+                            )
 
                         return
                             match predResult with
@@ -1210,46 +945,10 @@ module VQC =
                     Ok(Array.average squaredErrors)
         }
 
-    /// Compute per-sample regression predictions v_j(θ) (scaled values) for all samples
-    [<Obsolete("Use computeRegressionPredictionsAsync for genuine task-based parallelism.")>]
-    let private computeRegressionPredictions
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (trainFeatures: float array array)
-        (shots: int)
-        (valueRange: float * float)
-        : QuantumResult<float array> =
-
-        let results =
-            trainFeatures
-            |> Array.map (fun features ->
-                (predictRegressionAsync
-                    backend
-                    featureMap
-                    variationalForm
-                    parameters
-                    features
-                    shots
-                    valueRange
-                    CancellationToken.None)
-                    .GetAwaiter()
-                    .GetResult()
-                |> Result.map (fun prediction -> prediction.Value))
-
-        match results |> Array.tryFind Result.isError with
-        | Some(Error e) -> Error e
-        | _ ->
-            Ok(
-                results
-                |> Array.choose (function
-                    | Ok v -> Some v
-                    | Error _ -> None)
-            )
-
-    /// Compute per-sample regression predictions v_j(θ) concurrently via Task.WhenAll.
+    /// Compute per-sample regression predictions v_j(θ) concurrently via Task.WhenAll,
+    /// submitting each circuit through `gate`.
     let private computeRegressionPredictionsAsync
+        (gate: JobGate)
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (variationalForm: VariationalForm)
@@ -1265,15 +964,19 @@ module VQC =
                 |> Array.map (fun features ->
                     task {
                         let! predResult =
-                            predictRegressionAsync
-                                backend
-                                featureMap
-                                variationalForm
-                                parameters
-                                features
-                                shots
-                                valueRange
-                                cancellationToken
+                            gate.Run(
+                                cancellationToken,
+                                fun () ->
+                                    predictRegressionAsync
+                                        backend
+                                        featureMap
+                                        variationalForm
+                                        parameters
+                                        features
+                                        shots
+                                        valueRange
+                                        cancellationToken
+                            )
 
                         return predResult |> Result.map (fun prediction -> prediction.Value)
                     })
@@ -1301,102 +1004,9 @@ module VQC =
     ///   L_j = (v_j - t_j)²  =>  dL_j/dv = 2 (v_j - t_j)
     ///   ∂L_j/∂θ_i = 2 (v_j(θ) - t_j) · (v_j(θ + π/2 e_i) - v_j(θ - π/2 e_i)) / 2
     /// The dataset gradient is the average of the per-sample gradients.
-    [<Obsolete("Use computeRegressionGradientAsync for genuine task-based parallelism.")>]
-    let private computeRegressionGradient
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (trainFeatures: float array array)
-        (trainTargets: float array)
-        (shots: int)
-        (valueRange: float * float)
-        : QuantumResult<float array> =
-
-        let shift = Math.PI / 2.0
-
-        // Unshifted per-sample predictions v_j(θ): loss-derivative factor of the chain rule
-        match
-            (computeRegressionPredictionsAsync
-                backend
-                featureMap
-                variationalForm
-                parameters
-                trainFeatures
-                shots
-                valueRange
-                CancellationToken.None)
-                .GetAwaiter()
-                .GetResult()
-        with
-        | Error e -> Error(QuantumError.ValidationError("Input", $"Gradient computation failed: {e}"))
-        | Ok basePredictions ->
-            let lossDerivatives =
-                Array.map2 (fun v t -> 2.0 * (v - t)) basePredictions trainTargets
-
-            // Compute gradient for each parameter using parameter shift rule + chain rule
-            let computeParamGradient i =
-                // Shift parameter forward
-                let paramsPlus = Array.copy parameters
-                paramsPlus.[i] <- paramsPlus.[i] + shift
-
-                // Shift parameter backward
-                let paramsMinus = Array.copy parameters
-                paramsMinus.[i] <- paramsMinus.[i] - shift
-
-                // Compute predictions with shifted parameters
-                match
-                    (computeRegressionPredictionsAsync
-                        backend
-                        featureMap
-                        variationalForm
-                        paramsPlus
-                        trainFeatures
-                        shots
-                        valueRange
-                        CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult(),
-                    (computeRegressionPredictionsAsync
-                        backend
-                        featureMap
-                        variationalForm
-                        paramsMinus
-                        trainFeatures
-                        shots
-                        valueRange
-                        CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult()
-                with
-                | Ok predsPlus, Ok predsMinus ->
-                    // Chain rule, averaged over samples
-                    Array.init trainFeatures.Length (fun j ->
-                        lossDerivatives.[j] * (predsPlus.[j] - predsMinus.[j]) / 2.0)
-                    |> Array.average
-                    |> Ok
-                | Error e, _
-                | _, Error e ->
-                    Error(QuantumError.ValidationError("Input", $"Gradient computation failed for parameter {i}: {e}"))
-
-            // Compute gradient for all parameters
-            let results = parameters |> Array.mapi (fun i _ -> computeParamGradient i)
-
-            // Check if any failed
-            match results |> Array.tryFind Result.isError with
-            | Some(Error e) -> Error e
-            | _ ->
-                let gradients =
-                    results
-                    |> Array.choose (function
-                        | Ok v -> Some v
-                        | Error _ -> None)
-
-                Ok gradients
-
-    /// Compute gradient for regression using the parameter shift rule + chain rule
-    /// with Task.WhenAll (see computeRegressionGradient for the derivation).
-    /// Both per-parameter parallelism and +/- shift pairs run concurrently.
+    ///
+    /// Both per-parameter parallelism and +/- shift pairs run concurrently; one JobGate
+    /// bounds the circuits in flight.
     let private computeRegressionGradientAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -1410,10 +1020,12 @@ module VQC =
         : Task<QuantumResult<float array>> =
         task {
             let shift = Math.PI / 2.0
+            let gate = JobGate backend
 
             // Unshifted per-sample predictions v_j(θ): loss-derivative factor of the chain rule
             let! basePredictionsResult =
                 computeRegressionPredictionsAsync
+                    gate
                     backend
                     featureMap
                     variationalForm
@@ -1442,6 +1054,7 @@ module VQC =
                             Task.WhenAll
                                 [|
                                     computeRegressionPredictionsAsync
+                                        gate
                                         backend
                                         featureMap
                                         variationalForm
@@ -1451,6 +1064,7 @@ module VQC =
                                         valueRange
                                         cancellationToken
                                     computeRegressionPredictionsAsync
+                                        gate
                                         backend
                                         featureMap
                                         variationalForm
@@ -1506,8 +1120,9 @@ module VQC =
 
         if ssTot = 0.0 then 1.0 else 1.0 - (ssRes / ssTot)
 
-    /// Train VQC model for regression using gradient descent
-    let trainRegression
+    /// Train VQC model for regression using gradient descent, asynchronously.
+    /// Epochs run one after another; each epoch awaits its loss and gradient evaluations.
+    let trainRegressionAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (variationalForm: VariationalForm)
@@ -1515,13 +1130,14 @@ module VQC =
         (trainFeatures: float array array)
         (trainTargets: float array)
         (config: TrainingConfig)
-        : QuantumResult<RegressionTrainingResult> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<RegressionTrainingResult>> =
 
         // Validate inputs
         if trainFeatures.Length <> trainTargets.Length then
-            Error(QuantumError.ValidationError("Input", "Features and targets must have same length"))
+            Task.FromResult(Error(QuantumError.ValidationError("Input", "Features and targets must have same length")))
         elif trainFeatures.Length = 0 then
-            Error(QuantumError.Other "Training set cannot be empty")
+            Task.FromResult(Error(QuantumError.Other "Training set cannot be empty"))
         else
             // Determine value range from training targets
             let minTarget = trainTargets |> Array.min
@@ -1554,14 +1170,12 @@ module VQC =
                 log $"  Max epochs: {config.MaxEpochs}"
                 log ""
 
-            // Recursive training loop
-            let rec trainLoop (state: TrainingState) : QuantumResult<TrainingState> =
-                if state.Epoch >= config.MaxEpochs || state.Converged then
-                    Ok state
-                else
+            // One training epoch: the loss, then a parameter update unless the loss converged
+            let epochAsync (state: TrainingState) : Task<QuantumResult<TrainingState>> =
+                task {
                     // Compute current loss
-                    match
-                        (computeRegressionLossAsync
+                    match!
+                        computeRegressionLossAsync
                             backend
                             featureMap
                             variationalForm
@@ -1570,17 +1184,16 @@ module VQC =
                             trainTargets
                             config.Shots
                             valueRange
-                            CancellationToken.None)
-                            .GetAwaiter()
-                            .GetResult()
+                            cancellationToken
                     with
                     | Error e ->
-                        Error(
-                            QuantumError.ValidationError(
-                                "Input",
-                                $"Loss computation failed at epoch {state.Epoch}: {e}"
+                        return
+                            Error(
+                                QuantumError.ValidationError(
+                                    "Input",
+                                    $"Loss computation failed at epoch {state.Epoch}: {e}"
+                                )
                             )
-                        )
                     | Ok loss ->
                         let newLossHistory = loss :: state.LossHistory
 
@@ -1606,15 +1219,16 @@ module VQC =
                                 false
 
                         if converged then
-                            trainLoop
-                                { state with
-                                    LossHistory = newLossHistory
-                                    Converged = true
-                                }
+                            return
+                                Ok
+                                    { state with
+                                        LossHistory = newLossHistory
+                                        Converged = true
+                                    }
                         else
                             // Compute gradients
-                            match
-                                (computeRegressionGradientAsync
+                            match!
+                                computeRegressionGradientAsync
                                     backend
                                     featureMap
                                     variationalForm
@@ -1623,17 +1237,16 @@ module VQC =
                                     trainTargets
                                     config.Shots
                                     valueRange
-                                    CancellationToken.None)
-                                    .GetAwaiter()
-                                    .GetResult()
+                                    cancellationToken
                             with
                             | Error e ->
-                                Error(
-                                    QuantumError.ValidationError(
-                                        "Input",
-                                        $"Gradient computation failed at epoch {state.Epoch}: {e}"
+                                return
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "Input",
+                                            $"Gradient computation failed at epoch {state.Epoch}: {e}"
+                                        )
                                     )
-                                )
                             | Ok gradient ->
 
                                 // Update parameters using selected optimizer
@@ -1643,33 +1256,37 @@ module VQC =
                                     let newParams =
                                         Array.map2 (fun p g -> p - config.LearningRate * g) state.Parameters gradient
 
-                                    trainLoop
-                                        { state with
-                                            Parameters = newParams
-                                            LossHistory = newLossHistory
-                                            Epoch = state.Epoch + 1
-                                        }
+                                    return
+                                        Ok
+                                            { state with
+                                                Parameters = newParams
+                                                LossHistory = newLossHistory
+                                                Epoch = state.Epoch + 1
+                                            }
 
                                 | Adam adamConfig, Some adamState ->
                                     // Adam optimizer
                                     match AdamOptimizer.update adamConfig adamState state.Parameters gradient with
                                     | Ok(newParams, newAdamState) ->
-                                        trainLoop
-                                            { state with
-                                                Parameters = newParams
-                                                LossHistory = newLossHistory
-                                                Epoch = state.Epoch + 1
-                                                AdamState = Some newAdamState
-                                            }
+                                        return
+                                            Ok
+                                                { state with
+                                                    Parameters = newParams
+                                                    LossHistory = newLossHistory
+                                                    Epoch = state.Epoch + 1
+                                                    AdamState = Some newAdamState
+                                                }
                                     | Error e ->
-                                        Error(
-                                            QuantumError.ValidationError(
-                                                "Input",
-                                                $"Adam optimizer failed at epoch {state.Epoch}: {e}"
+                                        return
+                                            Error(
+                                                QuantumError.ValidationError(
+                                                    "Input",
+                                                    $"Adam optimizer failed at epoch {state.Epoch}: {e}"
+                                                )
                                             )
-                                        )
 
-                                | Adam _, None -> Error(QuantumError.Other "Adam optimizer state not initialized")
+                                | Adam _, None -> return Error(QuantumError.Other "Adam optimizer state not initialized")
+                }
 
             // Start training
             let initialState =
@@ -1681,52 +1298,68 @@ module VQC =
                     AdamState = initialAdamState
                 }
 
-            match trainLoop initialState with
-            | Error e -> Error e
-            | Ok finalState ->
-                // Compute final training metrics
-                let predictions =
-                    trainFeatures
-                    |> Array.map (fun features ->
-                        (predictRegressionAsync
-                            backend
-                            featureMap
-                            variationalForm
-                            finalState.Parameters
-                            features
-                            config.Shots
-                            valueRange
-                            CancellationToken.None)
-                            .GetAwaiter()
-                            .GetResult()
-                        |> Result.map (fun pred -> pred.Value)
-                        |> Result.defaultValue nan) // NaN signals prediction failure in metrics
+            task {
+                // Epochs run in order until convergence, MaxEpochs or the first error
+                let mutable state = initialState
+                let mutable failure = None
 
-                let finalMSE =
-                    Array.zip trainTargets predictions
-                    |> Array.averageBy (fun (y, yp) -> (y - yp) ** 2.0)
+                while failure.IsNone && state.Epoch < config.MaxEpochs && not state.Converged do
+                    match! epochAsync state with
+                    | Ok next -> state <- next
+                    | Error e -> failure <- Some e
 
-                let finalRSquared = calculateRSquared trainTargets predictions
+                match failure with
+                | Some e -> return Error e
+                | None ->
+                    let finalState = state
 
-                if config.Verbose then
-                    let log = logInfo config.Logger
-                    log ""
-                    log "Training complete!"
-                    log $"  Epochs: {finalState.Epoch}"
-                    log $"  Final MSE: {finalMSE:F6}"
-                    log $"  R^2 score: {finalRSquared:F4}"
-                    log $"  Converged: {finalState.Converged}"
+                    // Compute final training metrics, one sample after another
+                    let predictions = Array.zeroCreate<float> trainFeatures.Length
 
-                Ok
-                    {
-                        Parameters = finalState.Parameters
-                        LossHistory = List.rev finalState.LossHistory
-                        Epochs = finalState.Epoch
-                        TrainMSE = finalMSE
-                        TrainRSquared = finalRSquared
-                        Converged = finalState.Converged
-                        ValueRange = valueRange
-                    }
+                    for i in 0 .. trainFeatures.Length - 1 do
+                        let! prediction =
+                            predictRegressionAsync
+                                backend
+                                featureMap
+                                variationalForm
+                                finalState.Parameters
+                                trainFeatures.[i]
+                                config.Shots
+                                valueRange
+                                cancellationToken
+
+                        predictions.[i] <-
+                            prediction
+                            |> Result.map (fun pred -> pred.Value)
+                            |> Result.defaultValue nan // NaN signals prediction failure in metrics
+
+                    let finalMSE =
+                        Array.zip trainTargets predictions
+                        |> Array.averageBy (fun (y, yp) -> (y - yp) ** 2.0)
+
+                    let finalRSquared = calculateRSquared trainTargets predictions
+
+                    if config.Verbose then
+                        let log = logInfo config.Logger
+                        log ""
+                        log "Training complete!"
+                        log $"  Epochs: {finalState.Epoch}"
+                        log $"  Final MSE: {finalMSE:F6}"
+                        log $"  R^2 score: {finalRSquared:F4}"
+                        log $"  Converged: {finalState.Converged}"
+
+                    return
+                        Ok
+                            {
+                                Parameters = finalState.Parameters
+                                LossHistory = List.rev finalState.LossHistory
+                                Epochs = finalState.Epoch
+                                TrainMSE = finalMSE
+                                TrainRSquared = finalRSquared
+                                Converged = finalState.Converged
+                                ValueRange = valueRange
+                            }
+            }
 
     // ========================================================================
     // MULTI-CLASS CLASSIFICATION (One-vs-Rest)
@@ -1761,8 +1394,9 @@ module VQC =
             Probabilities: float array
         }
 
-    /// Train multi-class VQC using one-vs-rest strategy
-    let trainMultiClass
+    /// Train multi-class VQC using one-vs-rest strategy, asynchronously.
+    /// The binary classifiers are trained one after another.
+    let trainMultiClassAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (variationalForm: VariationalForm)
@@ -1770,20 +1404,21 @@ module VQC =
         (trainFeatures: float array array)
         (trainLabels: int array)
         (config: TrainingConfig)
-        : QuantumResult<MultiClassTrainingResult> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<MultiClassTrainingResult>> =
 
         // Validate inputs
         if trainFeatures.Length <> trainLabels.Length then
-            Error(QuantumError.ValidationError("Input", "Features and labels must have same length"))
+            Task.FromResult(Error(QuantumError.ValidationError("Input", "Features and labels must have same length")))
         elif trainFeatures.Length = 0 then
-            Error(QuantumError.Other "Training set cannot be empty")
+            Task.FromResult(Error(QuantumError.Other "Training set cannot be empty"))
         else
             // Get unique class labels
             let classLabels = trainLabels |> Array.distinct |> Array.sort
             let numClasses = classLabels.Length
 
             if numClasses < 2 then
-                Error(QuantumError.Other "Need at least 2 classes for multi-class classification")
+                Task.FromResult(Error(QuantumError.Other "Need at least 2 classes for multi-class classification"))
             elif numClasses = 2 then
                 // Binary classification - just train one classifier.
                 // The binary trainer (cross-entropy loss and accuracy) assumes labels ∈ {0, 1},
@@ -1792,28 +1427,44 @@ module VQC =
                 let binaryLabels =
                     trainLabels |> Array.map (fun label -> if label = classLabels.[1] then 1 else 0)
 
-                match train backend featureMap variationalForm initialParameters trainFeatures binaryLabels config with
-                | Error e -> Error e
-                | Ok result ->
-                    Ok
+                quantumResultTask {
+                    let! result =
+                        trainAsync
+                            backend
+                            featureMap
+                            variationalForm
+                            initialParameters
+                            trainFeatures
+                            binaryLabels
+                            config
+                            cancellationToken
+
+                    return
                         {
                             Classifiers = [| result |]
                             ClassLabels = classLabels
                             TrainAccuracy = result.TrainAccuracy
                             NumClasses = numClasses
                         }
+                }
             else
-                if config.Verbose then
-                    let log = logInfo config.Logger
-                    log "Starting VQC multi-class training (one-vs-rest)..."
-                    log $"  Classes: {numClasses}"
-                    log $"  Samples: {trainFeatures.Length}"
-                    log ""
+                task {
+                    if config.Verbose then
+                        let log = logInfo config.Logger
+                        log "Starting VQC multi-class training (one-vs-rest)..."
+                        log $"  Classes: {numClasses}"
+                        log $"  Samples: {trainFeatures.Length}"
+                        log ""
 
-                // Train one binary classifier per class
-                let classifierResults =
-                    classLabels
-                    |> Array.mapi (fun i classLabel ->
+                    // Train one binary classifier per class, one after another; the first
+                    // failing classifier's error is the result
+                    let classifierList = ResizeArray<TrainingResult>(numClasses)
+                    let mutable failure = None
+                    let mutable i = 0
+
+                    while failure.IsNone && i < numClasses do
+                        let classLabel = classLabels.[i]
+
                         if config.Verbose then
                             logInfo config.Logger $"Training classifier {i + 1}/{numClasses} (class {classLabel})..."
 
@@ -1822,8 +1473,8 @@ module VQC =
                             trainLabels |> Array.map (fun label -> if label = classLabel then 1 else 0)
 
                         // Train binary classifier
-                        match
-                            train
+                        match!
+                            trainAsync
                                 backend
                                 featureMap
                                 variationalForm
@@ -1831,105 +1482,89 @@ module VQC =
                                 trainFeatures
                                 binaryLabels
                                 config
+                                cancellationToken
                         with
                         | Error e ->
-                            Error(
-                                QuantumError.ValidationError("Input", $"Classifier for class {classLabel} failed: {e}")
-                            )
+                            failure <-
+                                Some(
+                                    QuantumError.ValidationError(
+                                        "Input",
+                                        $"Classifier for class {classLabel} failed: {e}"
+                                    )
+                                )
                         | Ok result ->
                             if config.Verbose then
                                 logInfo config.Logger $"  Class {classLabel} accuracy: {result.TrainAccuracy:F4}"
                                 logInfo config.Logger ""
 
-                            Ok result)
+                            classifierList.Add result
 
-                // Check if any classifier failed
-                match classifierResults |> Array.tryFind Result.isError with
-                | Some(Error e) -> Error e
-                | _ ->
-                    let classifiers =
-                        classifierResults
-                        |> Array.choose (function
-                            | Ok r -> Some r
-                            | Error _ -> None)
+                        i <- i + 1
 
-                    // Compute overall training accuracy using one-vs-rest prediction
-                    // Collect all scores as Results; fail if any classifier errors
-                    let sampleResults =
-                        trainFeatures
-                        |> Array.mapi (fun i features ->
-                            // Get scores from all classifiers
-                            let scoreResults =
-                                classifiers
-                                |> Array.map (fun classifier ->
-                                    // trainMultiClass is synchronous: it waits here as train does
-                                    (predictAsync
-                                        backend
-                                        featureMap
-                                        variationalForm
-                                        classifier.Parameters
-                                        features
-                                        config.Shots
-                                        CancellationToken.None)
-                                        .GetAwaiter()
-                                        .GetResult()
-                                    |> Result.map (fun pred -> pred.Probability))
-
-                            let firstError =
-                                scoreResults
-                                |> Array.tryPick (function
-                                    | Error e -> Some e
-                                    | Ok _ -> None)
-
-                            match firstError with
-                            | Some err -> Error err
-                            | None ->
-                                let scores =
-                                    scoreResults
-                                    |> Array.map (function
-                                        | Ok s -> s
-                                        | Error _ -> 0.0) // safe: no errors remain
-                                // Predicted class is the one with highest score
-                                let predictedClassIdx =
-                                    scores |> Array.mapi (fun idx s -> (idx, s)) |> Array.maxBy snd |> fst
-
-                                let predictedClass = classLabels.[predictedClassIdx]
-                                Ok(if predictedClass = trainLabels.[i] then 1 else 0))
-
-                    let firstSampleError =
-                        sampleResults
-                        |> Array.tryPick (function
-                            | Error e -> Some e
-                            | Ok _ -> None)
-
-                    match firstSampleError with
-                    | Some err ->
-                        Error(
-                            QuantumError.ValidationError(
-                                "Training",
-                                $"Prediction failed during multi-class accuracy computation: {err}"
-                            )
-                        )
+                    match failure with
+                    | Some e -> return Error e
                     | None ->
-                        let correctCount =
-                            sampleResults
-                            |> Array.sumBy (function
-                                | Ok n -> n
-                                | Error _ -> 0)
+                        let classifiers = classifierList.ToArray()
 
-                        let accuracy = float correctCount / float trainFeatures.Length
+                        // Compute overall training accuracy using one-vs-rest prediction, one
+                        // sample and one classifier after another; the first failing
+                        // prediction's error is the result
+                        let! correctCountResult =
+                            quantumResultTask {
+                                let correctCount = ref 0
 
-                        if config.Verbose then
-                            logInfo config.Logger "Multi-class training complete!"
-                            logInfo config.Logger $"  Overall accuracy: {accuracy:F4}"
+                                for sampleIndex in 0 .. trainFeatures.Length - 1 do
+                                    // Get scores from all classifiers
+                                    let scores = ResizeArray<float>(classifiers.Length)
 
-                        Ok
-                            {
-                                Classifiers = classifiers
-                                ClassLabels = classLabels
-                                TrainAccuracy = accuracy
-                                NumClasses = numClasses
+                                    for classifier in classifiers do
+                                        let! pred =
+                                            predictAsync
+                                                backend
+                                                featureMap
+                                                variationalForm
+                                                classifier.Parameters
+                                                trainFeatures.[sampleIndex]
+                                                config.Shots
+                                                cancellationToken
+
+                                        scores.Add pred.Probability
+
+                                    // Predicted class is the one with highest score
+                                    let predictedClassIdx =
+                                        scores |> Seq.mapi (fun idx s -> (idx, s)) |> Seq.maxBy snd |> fst
+
+                                    if classLabels.[predictedClassIdx] = trainLabels.[sampleIndex] then
+                                        correctCount.Value <- correctCount.Value + 1
+
+                                return correctCount.Value
                             }
+
+                        match correctCountResult with
+                        | Error err ->
+                            return
+                                Error(
+                                    QuantumError.ValidationError(
+                                        "Training",
+                                        $"Prediction failed during multi-class accuracy computation: {err}"
+                                    )
+                                )
+                        | Ok correctCount ->
+                            let accuracy = float correctCount / float trainFeatures.Length
+
+                            if config.Verbose then
+                                logInfo config.Logger "Multi-class training complete!"
+                                logInfo config.Logger $"  Overall accuracy: {accuracy:F4}"
+
+                            return
+                                Ok
+                                    {
+                                        Classifiers = classifiers
+                                        ClassLabels = classLabels
+                                        TrainAccuracy = accuracy
+                                        NumClasses = numClasses
+                                    }
+                }
 
     /// Turns the score of every one-vs-rest classifier into a multi-class prediction
     let private multiClassPredictionFromScores
@@ -2012,19 +1647,3 @@ module VQC =
                 | Error e -> Error(QuantumError.ValidationError("Input", $"Multi-class prediction failed: {e}"))
                 | Ok scores -> multiClassPredictionFromScores result scores
         }
-
-    /// Predict class for multi-class VQC (one-vs-rest)
-    ///
-    /// This is a synchronous wrapper around `predictMultiClassAsync` for backward compatibility.
-    [<Obsolete("Use predictMultiClassAsync for non-blocking execution against cloud backends")>]
-    let predictMultiClass
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (result: MultiClassTrainingResult)
-        (features: float array)
-        (shots: int)
-        : QuantumResult<MultiClassPrediction> =
-        predictMultiClassAsync backend featureMap variationalForm result features shots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously

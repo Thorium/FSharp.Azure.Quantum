@@ -55,6 +55,7 @@ Usage:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Examples.Common
@@ -175,13 +176,13 @@ let displayCards cards =
 // ==============================================================================
 
 /// Local quantum simulator backend. Every capture search below runs iterative
-/// QAOA on this backend. (Knapsack.solve would fall back to an implicit local
+/// QAOA on this backend. (Knapsack.solveAsync would fall back to an implicit local
 /// quantum backend even for None, but passing it explicitly keeps the demo's
 /// quantum-first intent visible in the code.)
 let quantumBackend = Some(LocalBackendFactory.createUnified ())
 
 /// Find optimal Kasino capture using Knapsack optimization.
-/// Knapsack.solve internally uses QAOA via IQuantumBackend.
+/// Knapsack.solveAsync internally uses QAOA via IQuantumBackend.
 let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: string) =
     // The capture target is the card's HAND value (Ace = 14), while table
     // cards contribute their table values.
@@ -196,7 +197,11 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
 
     let problem = Knapsack.createProblem items target
 
-    match Knapsack.solve problem quantumBackend with
+    match
+        Knapsack.solveAsync problem quantumBackend CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok solution ->
         let capturedCards =
             solution.SelectedItems

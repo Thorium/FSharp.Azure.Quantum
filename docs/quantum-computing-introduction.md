@@ -561,6 +561,7 @@ let circuit =
 ```
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.GraphColoring
 
 // ✅ Business-focused approach (4 nodes × 3 colors = 12 qubits)
@@ -572,11 +573,13 @@ let problem = graphColoring {
     colors ["Red"; "Blue"; "Green"]
 }
 
-match GraphColoring.solve problem 3 None with
-| Ok solution -> 
-    printfn "Register allocation: %A" solution.Assignments
-| Error err -> 
-    printfn "Failed: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 None CancellationToken.None with
+    | Ok solution -> 
+        printfn "Register allocation: %A" solution.Assignments
+    | Error err -> 
+        printfn "Failed: %s" err.Message
+}
 ```
 
 ✅ Both approaches use quantum optimization (QAOA), but the business-focused API:

@@ -338,74 +338,82 @@ module QuantumKernelSVM =
     ///   trainLabels - Training labels (0 or 1)
     ///   config - SVM configuration
     ///   shots - Number of shots for quantum kernel evaluation
+    ///   cancellationToken - Cancels the kernel matrix evaluation
     ///
     /// Returns:
     ///   Trained SVM model or error message
-    let train
+    let trainAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (trainData: float array array)
         (trainLabels: int array)
         (config: SVMConfig)
         (shots: int)
-        : QuantumResult<SVMModel> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SVMModel>> =
 
         // Validate inputs
         if trainData.Length = 0 then
-            Error(QuantumError.Other "Training data cannot be empty")
+            Task.FromResult(Error(QuantumError.Other "Training data cannot be empty"))
         elif trainLabels.Length = 0 then
-            Error(QuantumError.Other "Training labels cannot be empty")
+            Task.FromResult(Error(QuantumError.Other "Training labels cannot be empty"))
         elif trainData.Length <> trainLabels.Length then
-            Error(
-                QuantumError.ValidationError(
-                    "Input",
-                    $"Data and labels must have same length: {trainData.Length} vs {trainLabels.Length}"
+            Task.FromResult(
+                Error(
+                    QuantumError.ValidationError(
+                        "Input",
+                        $"Data and labels must have same length: {trainData.Length} vs {trainLabels.Length}"
+                    )
                 )
             )
         elif config.C <= 0.0 then
-            Error(QuantumError.ValidationError("Input", "Regularization parameter C must be positive"))
+            Task.FromResult(Error(QuantumError.ValidationError("Input", "Regularization parameter C must be positive")))
         elif shots <= 0 then
-            Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
+            Task.FromResult(Error(QuantumError.ValidationError("Input", "Number of shots must be positive")))
         else
             // Check labels are binary (0 or 1)
             let validLabels = trainLabels |> Array.forall (fun l -> l = 0 || l = 1)
 
             if not validLabels then
-                Error(QuantumError.ValidationError("Input", "Labels must be 0 or 1"))
+                Task.FromResult(Error(QuantumError.ValidationError("Input", "Labels must be 0 or 1")))
             else
-                if config.Verbose then
-                    logInfo config.Logger "Computing quantum kernel matrix..."
-
-                // Compute kernel matrix and train SVM
-                (QuantumKernels.computeKernelMatrixAsync backend featureMap trainData shots CancellationToken.None)
-                    .GetAwaiter()
-                    .GetResult()
-                |> Result.mapError (fun e ->
-                    QuantumError.ValidationError("Input", $"Kernel matrix computation failed: {e}"))
-                |> Result.bind (fun kernelMatrix ->
+                task {
                     if config.Verbose then
-                        logInfo config.Logger "Training SVM with SMO algorithm..."
+                        logInfo config.Logger "Computing quantum kernel matrix..."
 
-                    // Train SVM using SMO
-                    trainSMO kernelMatrix trainLabels config
-                    |> Result.map (fun (alphas, bias) ->
-                        // Extract support vectors (alpha > threshold)
-                        let supportVectorIndices =
-                            alphas
-                            |> Array.mapi (fun i alpha -> (i, alpha))
-                            |> Array.filter (fun (_, alpha) -> alpha > 1e-6)
-                            |> Array.map fst
+                    // Compute kernel matrix and train SVM
+                    let! kernelMatrixResult =
+                        QuantumKernels.computeKernelMatrixAsync backend featureMap trainData shots cancellationToken
 
-                        let supportVectorAlphas = supportVectorIndices |> Array.map (fun i -> alphas.[i])
+                    return
+                        kernelMatrixResult
+                        |> Result.mapError (fun e ->
+                            QuantumError.ValidationError("Input", $"Kernel matrix computation failed: {e}"))
+                        |> Result.bind (fun kernelMatrix ->
+                            if config.Verbose then
+                                logInfo config.Logger "Training SVM with SMO algorithm..."
 
-                        {
-                            SupportVectorIndices = supportVectorIndices
-                            Alphas = supportVectorAlphas
-                            Bias = bias
-                            TrainData = trainData
-                            TrainLabels = trainLabels
-                            FeatureMap = featureMap
-                        }))
+                            // Train SVM using SMO
+                            trainSMO kernelMatrix trainLabels config
+                            |> Result.map (fun (alphas, bias) ->
+                                // Extract support vectors (alpha > threshold)
+                                let supportVectorIndices =
+                                    alphas
+                                    |> Array.mapi (fun i alpha -> (i, alpha))
+                                    |> Array.filter (fun (_, alpha) -> alpha > 1e-6)
+                                    |> Array.map fst
+
+                                let supportVectorAlphas = supportVectorIndices |> Array.map (fun i -> alphas.[i])
+
+                                {
+                                    SupportVectorIndices = supportVectorIndices
+                                    Alphas = supportVectorAlphas
+                                    Bias = bias
+                                    TrainData = trainData
+                                    TrainLabels = trainLabels
+                                    FeatureMap = featureMap
+                                }))
+                }
 
     // ========================================================================
     // PREDICTION
@@ -423,65 +431,50 @@ module QuantumKernelSVM =
                     failwith $"unreachable, calling traverseResult with results: {results}"))
             |> Ok
 
-    /// Predict label for a single sample
-    ///
-    /// Parameters:
-    ///   backend - Quantum backend
-    ///   model - Trained SVM model
-    ///   sample - Feature vector to classify
-    ///   shots - Number of shots for kernel evaluation
-    ///
-    /// Returns:
-    ///   Prediction with label and decision value
-    [<Obsolete("Use predictAsync for non-blocking I/O against cloud backends.")>]
-    let predict
+    /// One kernel circuit between `sample` and support vector `svIdx`, as a job for the throttle.
+    let private kernelJob
         (backend: IQuantumBackend)
         (model: SVMModel)
         (sample: float array)
+        (svIdx: int)
         (shots: int)
-        : QuantumResult<Prediction> =
-
-        if shots <= 0 then
-            Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
-        else
-            // Compute kernels between sample and support vectors (functional style)
-            let kernelResults =
-                model.SupportVectorIndices
-                |> Array.map (fun svIdx ->
-                    (QuantumKernels.computeKernelAsync
+        (cancellationToken: CancellationToken)
+        : unit -> Task<QuantumResult<float>> =
+        fun () ->
+            task {
+                let! result =
+                    QuantumKernels.computeKernelAsync
                         backend
                         model.FeatureMap
                         sample
                         model.TrainData.[svIdx]
                         shots
-                        CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult()
+                        cancellationToken
+
+                return
+                    result
                     |> Result.mapError (fun e ->
-                        QuantumError.OperationError("Kernel computation", $"Kernel computation failed: {e.Message}")))
+                        QuantumError.OperationError("Kernel computation", $"Kernel computation failed: {e.Message}"))
+            }
 
-            // Traverse Result array to get array Result
-            kernelResults
-            |> traverseResult
-            |> Result.map (fun kernelValues ->
-                // Compute decision function: f(x) = Σ(α_i * y_i * K(x, x_i)) + b
-                let decisionValue =
-                    model.SupportVectorIndices
-                    |> Array.mapi (fun i svIdx ->
-                        let y_i = if model.TrainLabels.[svIdx] = 1 then 1.0 else -1.0
-                        model.Alphas.[i] * y_i * kernelValues.[i])
-                    |> Array.sum
-                    |> (+) model.Bias
+    /// Decision function f(x) = Σ(α_i * y_i * K(x, x_i)) + b over one sample's kernel values,
+    /// in support-vector order.
+    let private decide (model: SVMModel) (kernelValues: float array) : Prediction =
+        let decisionValue =
+            model.SupportVectorIndices
+            |> Array.mapi (fun i svIdx ->
+                let y_i = if model.TrainLabels.[svIdx] = 1 then 1.0 else -1.0
+                model.Alphas.[i] * y_i * kernelValues.[i])
+            |> Array.sum
+            |> (+) model.Bias
 
-                let label = if decisionValue >= 0.0 then 1 else 0
+        {
+            Label = (if decisionValue >= 0.0 then 1 else 0)
+            DecisionValue = decisionValue
+        }
 
-                {
-                    Label = label
-                    DecisionValue = decisionValue
-                })
-
-    /// Predict label for a single sample asynchronously.
-    /// Parallelizes kernel computations for all support vectors via Task.WhenAll.
+    /// Predict label for a single sample asynchronously. The support-vector kernels run
+    /// concurrently, at most MaxConcurrentSampledJobs at once on a sampling backend.
     let predictAsync
         (backend: IQuantumBackend)
         (model: SVMModel)
@@ -493,91 +486,22 @@ module QuantumKernelSVM =
             if shots <= 0 then
                 return Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
             else
-                // Compute kernels between sample and all support vectors concurrently
+                // Kernels against every support vector, at most MaxConcurrentSampledJobs in
+                // flight on a sampling backend
                 let! kernelResults =
                     model.SupportVectorIndices
-                    |> Array.map (fun svIdx ->
-                        task {
-                            let! result =
-                                QuantumKernels.computeKernelAsync
-                                    backend
-                                    model.FeatureMap
-                                    sample
-                                    model.TrainData.[svIdx]
-                                    shots
-                                    cancellationToken
+                    |> Array.map (fun svIdx -> kernelJob backend model sample svIdx shots cancellationToken)
+                    |> JobThrottle.throttled (JobThrottle.maxConcurrency backend) cancellationToken
 
-                            return
-                                result
-                                |> Result.mapError (fun e ->
-                                    QuantumError.OperationError(
-                                        "Kernel computation",
-                                        $"Kernel computation failed: {e.Message}"
-                                    ))
-                        })
-                    |> Task.WhenAll
-
-                // Traverse Result array to get array Result
-                return
-                    kernelResults
-                    |> traverseResult
-                    |> Result.map (fun kernelValues ->
-                        let decisionValue =
-                            model.SupportVectorIndices
-                            |> Array.mapi (fun i svIdx ->
-                                let y_i = if model.TrainLabels.[svIdx] = 1 then 1.0 else -1.0
-                                model.Alphas.[i] * y_i * kernelValues.[i])
-                            |> Array.sum
-                            |> (+) model.Bias
-
-                        let label = if decisionValue >= 0.0 then 1 else 0
-
-                        {
-                            Label = label
-                            DecisionValue = decisionValue
-                        })
+                return kernelResults |> traverseResult |> Result.map (decide model)
         }
 
     // ========================================================================
     // EVALUATION
     // ========================================================================
 
-    /// Evaluate model on a dataset
-    ///
-    /// Returns accuracy (fraction of correct predictions)
-    [<Obsolete("Use evaluateAsync for non-blocking I/O against cloud backends.")>]
-    let evaluate
-        (backend: IQuantumBackend)
-        (model: SVMModel)
-        (testData: float array array)
-        (testLabels: int array)
-        (shots: int)
-        : QuantumResult<float> =
-
-        if testData.Length = 0 then
-            Error(QuantumError.Other "Test data cannot be empty")
-        elif testData.Length <> testLabels.Length then
-            Error(QuantumError.ValidationError("Input", "Test data and labels must have same length"))
-        else
-            // Compute predictions for all test samples
-            let predictionResults =
-                testData
-                |> Array.map (fun sample ->
-                    (predictAsync backend model sample shots CancellationToken.None).GetAwaiter().GetResult())
-
-            // Traverse results and compute accuracy
-            predictionResults
-            |> traverseResult
-            |> Result.map (fun predictions ->
-                let correctCount =
-                    Array.zip predictions testLabels
-                    |> Array.filter (fun (pred, label) -> pred.Label = label)
-                    |> Array.length
-
-                float correctCount / float testData.Length)
-
-    /// Evaluate model on a dataset asynchronously.
-    /// Parallelizes predictions across all test samples via Task.WhenAll.
+    /// Evaluate model on a dataset asynchronously. All sample × support-vector kernels run
+    /// as one batch, at most MaxConcurrentSampledJobs at once on a sampling backend.
     ///
     /// Returns accuracy (fraction of correct predictions)
     let evaluateAsync
@@ -594,20 +518,27 @@ module QuantumKernelSVM =
             elif testData.Length <> testLabels.Length then
                 return Error(QuantumError.ValidationError("Input", "Test data and labels must have same length"))
             else
-                // Compute predictions for all test samples concurrently
-                let! predictionResults =
-                    testData
-                    |> Array.map (fun sample -> predictAsync backend model sample shots cancellationToken)
-                    |> Task.WhenAll
+                // One flat batch of sample × support-vector kernel circuits, so a sampling
+                // backend has MaxConcurrentSampledJobs in flight in total, not per sample
+                let svCount = model.SupportVectorIndices.Length
 
-                // Traverse results and compute accuracy
+                let! kernelResults =
+                    [|
+                        for sample in testData do
+                            for svIdx in model.SupportVectorIndices do
+                                kernelJob backend model sample svIdx shots cancellationToken
+                    |]
+                    |> JobThrottle.throttled (JobThrottle.maxConcurrency backend) cancellationToken
+
                 return
-                    predictionResults
+                    kernelResults
                     |> traverseResult
-                    |> Result.map (fun predictions ->
+                    |> Result.map (fun kernels ->
                         let correctCount =
-                            Array.zip predictions testLabels
-                            |> Array.filter (fun (pred, label) -> pred.Label = label)
+                            testLabels
+                            |> Array.mapi (fun i label ->
+                                (decide model (Array.sub kernels (i * svCount) svCount)).Label = label)
+                            |> Array.filter id
                             |> Array.length
 
                         float correctCount / float testData.Length)

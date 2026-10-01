@@ -33,8 +33,8 @@ type MockHttpMessageHandler(responseFunc: HttpRequestMessage -> Task<HttpRespons
     override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) = responseFunc request
 
 [<Fact>]
-let ``SubmitJobAsync should send PUT request to correct endpoint`` () =
-    async {
+let ``SubmitJobAsync should send PUT request to correct endpoint`` () : Task =
+    task {
         let mutable capturedRequest: HttpRequestMessage option = None
 
         let mockHandler =
@@ -86,10 +86,11 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () =
             | None -> Assert.True(false, "Request was not captured")
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
+    :> Task
 
 [<Fact>]
-let ``GetJobStatusAsync should send GET request and parse response`` () =
-    async {
+let ``GetJobStatusAsync should send GET request and parse response`` () : Task =
+    task {
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 let response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -120,10 +121,11 @@ let ``GetJobStatusAsync should send GET request and parse response`` () =
             Assert.True(job.BeginExecutionTime.IsSome)
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
+    :> Task
 
 [<Fact>]
-let ``GetJobStatusAsync should handle 404 error`` () =
-    async {
+let ``GetJobStatusAsync should handle 404 error`` () : Task =
+    task {
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 let response =
@@ -145,10 +147,11 @@ let ``GetJobStatusAsync should handle 404 error`` () =
         | Error(QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _))) -> Assert.Equal(404, statusCode)
         | _ -> Assert.True(false, "Expected NotFound error")
     }
+    :> Task
 
 [<Fact>]
-let ``CancelJobAsync should send POST to cancel endpoint`` () =
-    async {
+let ``CancelJobAsync should send POST to cancel endpoint`` () : Task =
+    task {
         let mutable capturedRequest: HttpRequestMessage option = None
 
         let mockHandler =
@@ -175,10 +178,11 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () =
             | None -> Assert.True(false, "Request was not captured")
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
+    :> Task
 
 [<Fact>]
-let ``WaitForCompletionAsync should poll until job succeeds`` () =
-    async {
+let ``WaitForCompletionAsync should poll until job succeeds`` () : Task =
+    task {
         let mutable pollCount = 0
 
         let mockHandler =
@@ -219,10 +223,11 @@ let ``WaitForCompletionAsync should poll until job succeeds`` () =
             Assert.True(pollCount >= 3, $"Expected at least 3 polls, got %d{pollCount}")
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
+    :> Task
 
 [<Fact>]
-let ``WaitForCompletionAsync should return error when job fails`` () =
-    async {
+let ``WaitForCompletionAsync should return error when job fails`` () : Task =
+    task {
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 let response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -254,10 +259,11 @@ let ``WaitForCompletionAsync should return error when job fails`` () =
             | _ -> Assert.True(false, $"Expected Failed status but got: %A{job.Status}")
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
+    :> Task
 
 [<Fact>]
-let ``WaitForCompletionAsync should timeout if job takes too long`` () =
-    async {
+let ``WaitForCompletionAsync should timeout if job takes too long`` () : Task =
+    task {
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 let response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -287,10 +293,11 @@ let ``WaitForCompletionAsync should timeout if job takes too long`` () =
         | Error(QuantumError.AzureError(AzureQuantumError.Timeout _)) -> Assert.True(true) // Expected timeout error
         | _ -> Assert.True(false, "Expected Timeout error")
     }
+    :> Task
 
 [<Fact>]
-let ``SubmitJobAsync should retry on transient errors and succeed`` () =
-    async {
+let ``SubmitJobAsync should retry on transient errors and succeed`` () : Task =
+    task {
         let mutable attemptCount = 0
 
         let mockHandler =
@@ -367,10 +374,11 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () =
             Assert.True((attemptCount = 3), $"Expected 3 attempts, got %d{attemptCount}")
         | Error err -> Assert.True(false, $"Expected success after retries but got error: %A{err}")
     }
+    :> Task
 
 [<Fact>]
-let ``SubmitJobAsync should fail after max retries exceeded`` () =
-    async {
+let ``SubmitJobAsync should fail after max retries exceeded`` () : Task =
+    task {
         let mutable attemptCount = 0
 
         let mockHandler =
@@ -430,10 +438,11 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () =
             Assert.True((attemptCount = 2), $"Expected 2 attempts (MaxAttempts=2), got %d{attemptCount}")
         | _ -> Assert.True(false, "Expected ServiceUnavailable error after max attempts")
     }
+    :> Task
 
 [<Fact; Trait("Category", "Slow")>]
-let ``SubmitJobAsync should not retry on non-transient errors`` () =
-    async {
+let ``SubmitJobAsync should not retry on non-transient errors`` () : Task =
+    task {
         let mutable attemptCount = 0
 
         let mockHandler =
@@ -496,10 +505,11 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () =
             Assert.True((attemptCount = 1), $"Expected only 1 attempt for non-transient error, got %d{attemptCount}")
         | _ -> Assert.True(false, "Expected BadRequest error without retries")
     }
+    :> Task
 
 [<Fact>]
-let ``GetJobStatusAsync returns full job details including execution times`` () =
-    async {
+let ``GetJobStatusAsync returns full job details including execution times`` () : Task =
+    task {
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 let response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -533,10 +543,11 @@ let ``GetJobStatusAsync returns full job details including execution times`` () 
             Assert.True(job.EndExecutionTime.IsSome)
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
+    :> Task
 
 [<Fact>]
-let ``GetResultsAsync should retrieve job results after completion`` () =
-    async {
+let ``GetResultsAsync should retrieve job results after completion`` () : Task =
+    task {
         // The job model carries outputDataUri (blob SAS URL); the payload itself
         // is downloaded from that URI in a second request.
         let blobUri = "https://storage.example.com/results/job-with-results?sig=abc"
@@ -578,10 +589,11 @@ let ``GetResultsAsync should retrieve job results after completion`` () =
             Assert.True(jobResult.ExecutionTime.IsSome)
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
+    :> Task
 
 [<Fact>]
-let ``GetResultsAsync should return error for incomplete job`` () =
-    async {
+let ``GetResultsAsync should return error for incomplete job`` () : Task =
+    task {
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 let response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -606,10 +618,11 @@ let ``GetResultsAsync should return error for incomplete job`` () =
         | Error _ -> Assert.True(true) // Expected error for incomplete job
         | Ok _ -> Assert.True(false, "Expected error for job without results")
     }
+    :> Task
 
 [<Fact>]
-let ``ListJobsAsync should parse jobs and follow nextLink pagination`` () =
-    async {
+let ``ListJobsAsync should parse jobs and follow nextLink pagination`` () : Task =
+    task {
         let page2Url = "https://management.azure.com/page2"
 
         let mockHandler =
@@ -648,10 +661,11 @@ let ``ListJobsAsync should parse jobs and follow nextLink pagination`` () =
             Assert.Equal(JobStatus.Succeeded, jobs.[0].Status)
             Assert.Equal("rigetti.qpu", jobs.[1].Target)
     }
+    :> Task
 
 [<Fact>]
-let ``ListJobsAsync hits the workspace jobs endpoint`` () =
-    async {
+let ``ListJobsAsync hits the workspace jobs endpoint`` () : Task =
+    task {
         let mutable capturedUrl = ""
 
         let mockHandler =
@@ -674,3 +688,4 @@ let ``ListJobsAsync hits the workspace jobs endpoint`` () =
             Assert.Contains("/providers/Microsoft.Quantum/Workspaces/ws-test/jobs", capturedUrl)
             Assert.Contains("api-version=", capturedUrl)
     }
+    :> Task

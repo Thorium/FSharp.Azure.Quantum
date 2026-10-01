@@ -317,8 +317,13 @@ module FinancialData =
                 let headers =
                     lines.[0].Split ',' |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
 
-                let dateIdx = headers |> Array.tryFindIndex (fun h -> h = dateColumn.ToLower())
-                let closeIdx = headers |> Array.tryFindIndex (fun h -> h = closeColumn.ToLower())
+                let dateIdx =
+                    headers
+                    |> Array.tryFindIndex (fun h -> h.Equals(dateColumn, StringComparison.OrdinalIgnoreCase))
+
+                let closeIdx =
+                    headers
+                    |> Array.tryFindIndex (fun h -> h.Equals(closeColumn, StringComparison.OrdinalIgnoreCase))
 
                 // Try to find optional columns
                 let openIdx = headers |> Array.tryFindIndex (fun h -> h = "open")
@@ -421,8 +426,13 @@ module FinancialData =
                 let headers =
                     lines.[0].Split ',' |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
 
-                let dateIdx = headers |> Array.tryFindIndex (fun h -> h = dateColumn.ToLower())
-                let closeIdx = headers |> Array.tryFindIndex (fun h -> h = closeColumn.ToLower())
+                let dateIdx =
+                    headers
+                    |> Array.tryFindIndex (fun h -> h.Equals(dateColumn, StringComparison.OrdinalIgnoreCase))
+
+                let closeIdx =
+                    headers
+                    |> Array.tryFindIndex (fun h -> h.Equals(closeColumn, StringComparison.OrdinalIgnoreCase))
 
                 let openIdx = headers |> Array.tryFindIndex (fun h -> h = "open")
                 let highIdx = headers |> Array.tryFindIndex (fun h -> h = "high")
@@ -661,8 +671,9 @@ module FinancialData =
                     None
             else
                 None
-        with _ ->
-            None
+        with
+        | :? IOException
+        | :? UnauthorizedAccessException -> None
 
     let private tryReadFreshCacheAsync
         (cachePath: string)
@@ -681,8 +692,9 @@ module FinancialData =
                         return None
                 else
                     return None
-            with _ ->
-                return None
+            with
+            | :? IOException
+            | :? UnauthorizedAccessException -> return None
         }
 
     let private tryWriteCache (cachePath: string) (content: string) : unit =
@@ -693,8 +705,9 @@ module FinancialData =
                 Directory.CreateDirectory(directory) |> ignore
 
             File.WriteAllText(cachePath, content)
-        with _ ->
-            ()
+        with
+        | :? IOException
+        | :? UnauthorizedAccessException -> ()
 
     let private tryWriteCacheAsync
         (cachePath: string)
@@ -709,8 +722,9 @@ module FinancialData =
                     Directory.CreateDirectory(directory) |> ignore
 
                 do! File.WriteAllTextAsync(cachePath, content, cancellationToken)
-            with _ ->
-                ()
+            with
+            | :? IOException
+            | :? UnauthorizedAccessException -> ()
         }
 
     let private parseYahooChartJson (symbol: string) (json: string) : QuantumResult<PriceSeries> =
@@ -880,20 +894,6 @@ module FinancialData =
                     with ex ->
                         return Error(QuantumError.BackendError("YahooFinance", ex.Message))
         }
-
-    /// Synchronous wrapper for fetchYahooHistoryAsync.
-    [<Obsolete("Use fetchYahooHistoryAsync with CancellationToken instead.")>]
-    let fetchYahooHistory (httpClient: HttpClient) (request: YahooHistoryRequest) : QuantumResult<PriceSeries> =
-        fetchYahooHistoryAsync httpClient request CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-    /// Convenience overload with defaults.
-    [<Obsolete("Use fetchYahooHistoryAsync with CancellationToken instead.")>]
-    let fetchYahooHistoryDefault (httpClient: HttpClient) (symbol: string) : QuantumResult<PriceSeries> =
-        fetchYahooHistoryAsync httpClient (defaultYahooHistoryRequest symbol) CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // RETURN CALCULATIONS

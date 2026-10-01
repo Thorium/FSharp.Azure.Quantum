@@ -95,6 +95,8 @@ References:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.ProbabilisticErrorCancellation
 open FSharp.Azure.Quantum.CircuitBuilder
@@ -210,8 +212,8 @@ let createH2Circuit (angle: float) : Circuit =
     }
 
 /// Mock executor simulating noisy quantum hardware.
-let noisyExecutor (circuit: Circuit) : Async<Result<float, string>> =
-    async {
+let noisyExecutor (circuit: Circuit) : Task<Result<float, string>> =
+    task {
         let singleQubitGates =
             circuit.Gates
             |> List.filter (function
@@ -281,7 +283,7 @@ if not quiet then
     printfn "(Running %d circuit samples)" pecSamples
     printfn ""
 
-match Async.RunSynchronously(mitigate h2Circuit pecConfig noisyExecutor) with
+match mitigateAsync h2Circuit pecConfig noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok result ->
     let uncorrectedError = abs (result.UncorrectedExpectation - trueEnergy)
     let correctedError = abs (result.CorrectedExpectation - trueEnergy)
@@ -411,7 +413,7 @@ if not quiet then
     printfn "Running high-precision PEC..."
     printfn ""
 
-match Async.RunSynchronously(mitigate h2Circuit highPrecisionConfig noisyExecutor) with
+match mitigateAsync h2Circuit highPrecisionConfig noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok result ->
     let errorHartree = abs (result.CorrectedExpectation - trueEnergy)
     let errorKcalMol = errorHartree * 627.5 // Hartree to kcal/mol
@@ -488,7 +490,7 @@ if compareSamples || not quiet then
                 Seed = Some 42
             }
 
-        match Async.RunSynchronously(mitigate h2Circuit config noisyExecutor) with
+        match mitigateAsync h2Circuit config noisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
         | Ok result ->
             let error = abs (result.CorrectedExpectation - trueEnergy)
             let uncorrectedError = abs (result.UncorrectedExpectation - trueEnergy)
@@ -539,8 +541,8 @@ if not quiet then
     printfn ""
 
 /// Production-ready PEC wrapper with input validation.
-let runVQEWithPEC (circ: Circuit) (noise: NoiseModel) (sampleCount: int) : Async<Result<float, string>> =
-    async {
+let runVQEWithPEC (circ: Circuit) (noise: NoiseModel) (sampleCount: int) : Task<Result<float, string>> =
+    task {
         if sampleCount < 10 then
             return Error "PEC requires at least 10 samples for reliable results"
         elif sampleCount > 1000 then
@@ -553,17 +555,17 @@ let runVQEWithPEC (circ: Circuit) (noise: NoiseModel) (sampleCount: int) : Async
                     Seed = None // Use random seed in production
                 }
 
-            let! result = mitigate circ config noisyExecutor
+            let! result = mitigateAsync circ config noisyExecutor CancellationToken.None
             return result |> Result.map (fun res -> res.CorrectedExpectation)
     }
 
 if not quiet then
     printfn "Production API:"
     printfn "  runVQEWithPEC circuit noiseModel samples"
-    printfn "    -> Async<Result<float, string>>"
+    printfn "    -> Task<Result<float, string>>"
     printfn ""
 
-match Async.RunSynchronously(runVQEWithPEC h2Circuit noiseModel pecSamples) with
+match runVQEWithPEC h2Circuit noiseModel pecSamples |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok energy ->
     if not quiet then
         printfn "[OK] Production VQE Energy: %.4f Hartree" energy

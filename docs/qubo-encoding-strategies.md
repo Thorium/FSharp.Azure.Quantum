@@ -468,19 +468,20 @@ For large, sparse QUBO problems, the library provides a memory-efficient pipelin
 | **Density** | > 30% non-zero entries | < 30% non-zero entries |
 | **Memory** | O(n²) always | O(k) where k = non-zero entries |
 | **Use Case** | Small/medium fully-connected | Large graph-based, TSP, network |
-| **Migration** | Existing solvers (`executeFromQubo`) | New solvers, custom problems |
+| **Migration** | Existing solvers (`executeFromQuboAsync`) | New solvers, custom problems |
 
 **Rule of thumb**: If your QUBO matrix is mostly zeros, use the sparse pipeline.
 
 The sparse pipeline saves the memory of the QUBO matrix only. Running QAOA still needs one qubit per variable, and simulating it on `LocalBackend` needs a 2ⁿ-amplitude state vector, so local runs are limited by memory (at most 30 qubits). Larger problems need a hardware backend.
 
-The execution helpers live in `FSharp.Azure.Quantum.Core.QaoaExecutionHelpers`. The synchronous ones shown here are marked `[<Obsolete>]` in favour of their `...Async` variants (`executeFromQuboAsync`, `executeQaoaCircuitSparseAsync`, `executeQaoaWithGridSearchSparseAsync`), which take a `CancellationToken` and return a `Task`; they still work and keep the examples short.
+The execution helpers live in `FSharp.Azure.Quantum.Core.QaoaExecutionHelpers`. The examples use the `...Async` variants (`executeQaoaCircuitAsync`, `executeFromQuboAsync`, `executeQaoaCircuitSparseAsync`, `executeQaoaWithOptimizationSparseAsync`, `executeQaoaWithGridSearchSparseAsync`), which take a `CancellationToken` as their last argument and return a `Task`; the synchronous forms remain as `[<Obsolete>]` wrappers.
 
 ### Building a ProblemHamiltonian from Sparse QUBO
 
 `QaoaCircuit.ProblemHamiltonian.fromQuboSparse` converts a sparse QUBO map to a `ProblemHamiltonian` using the same Ising mapping as `fromQubo`, but without allocating a dense matrix.
 
 **Signature**:
+<!-- fragment -->
 ```fsharp
 QaoaCircuit.ProblemHamiltonian.fromQuboSparse
     : numQubits:int -> quboMap:Map<int * int, float> -> ProblemHamiltonian
@@ -493,6 +494,7 @@ QaoaCircuit.ProblemHamiltonian.fromQuboSparse
 The map may contain entries in upper-triangle, lower-triangle, or both — symmetric entries are merged automatically. Keys are used as qubit indices without a range check, so keep them in `[0, numQubits)`.
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -515,21 +517,23 @@ let mixerHam = QaoaCircuit.MixerHamiltonian.create 4
 
 // Use with any existing QAOA execution function
 let parameters = [| (0.5, 0.3) |]  // 1 layer: (gamma, beta)
-let result = QaoaExecutionHelpers.executeQaoaCircuit backend problemHam mixerHam parameters 100
+let result = QaoaExecutionHelpers.executeQaoaCircuitAsync backend problemHam mixerHam parameters 100 CancellationToken.None
 ```
 
-### Dense Migration Helper: `executeFromQubo`
+### Dense Migration Helper: `executeFromQuboAsync`
 
-`QaoaExecutionHelpers.executeFromQubo` is a convenience entry point for solvers that already have a dense `float[,]` QUBO matrix. It builds the circuit and returns measurements in one call; the quantum solvers (TSP, Knapsack, Portfolio, etc.) call it or its async twin `executeFromQuboAsync`.
+`QaoaExecutionHelpers.executeFromQuboAsync` is a convenience entry point for solvers that already have a dense `float[,]` QUBO matrix. It builds the circuit and returns measurements in one call; the quantum solvers (TSP, Knapsack, Portfolio, etc.) call it.
 
 **Signature**:
+<!-- fragment -->
 ```fsharp
-QaoaExecutionHelpers.executeFromQubo
+QaoaExecutionHelpers.executeFromQuboAsync
     : backend:IQuantumBackend
     -> qubo:float[,]
     -> parameters:(float * float)[]
     -> shots:int
-    -> Result<int[][], QuantumError>
+    -> cancellationToken:CancellationToken
+    -> Task<Result<int[][], QuantumError>>
 ```
 
 ```fsharp
@@ -544,12 +548,14 @@ let qubo =
 let parameters = [| (0.7, 0.4); (0.5, 0.3) |]  // 2 QAOA layers
 
 // Single call: builds ProblemHamiltonian, MixerHamiltonian, executes circuit
-match QaoaExecutionHelpers.executeFromQubo backend qubo parameters 200 with
-| Ok measurements ->
-    printfn "Got %d measurement shots" measurements.Length
-    // measurements: int[][] — each row is a bitstring
-| Error err ->
-    printfn "Execution failed: %A" err
+task {
+    match! QaoaExecutionHelpers.executeFromQuboAsync backend qubo parameters 200 CancellationToken.None with
+    | Ok measurements ->
+        printfn "Got %d measurement shots" measurements.Length
+        // measurements: int[][] — each row is a bitstring
+    | Error err ->
+        printfn "Execution failed: %A" err
+}
 ```
 
 ### Sparse Execution Functions
@@ -561,6 +567,7 @@ The sparse pipeline provides four functions that mirror their dense counterparts
 Evaluates the QUBO objective value for a given bitstring. Used internally by the optimization and grid-search functions to score candidate solutions.
 
 **Signature**:
+<!-- fragment -->
 ```fsharp
 QaoaExecutionHelpers.evaluateQuboSparse
     : quboMap:Map<int * int, float> -> bits:int[] -> float
@@ -578,19 +585,21 @@ let energy2 = QaoaExecutionHelpers.evaluateQuboSparse quboMap [| 1; 1 |]
 // energy2 = -3.0 + 2.0 + (-1.0) = -2.0
 ```
 
-#### `executeQaoaCircuitSparse`
+#### `executeQaoaCircuitSparseAsync`
 
-Executes a single QAOA circuit from a sparse QUBO representation. Equivalent to `executeQaoaCircuit` but skips dense matrix allocation by calling `fromQuboSparse` internally.
+Executes a single QAOA circuit from a sparse QUBO representation. Equivalent to `executeQaoaCircuitAsync` but skips dense matrix allocation by calling `fromQuboSparse` internally.
 
 **Signature**:
+<!-- fragment -->
 ```fsharp
-QaoaExecutionHelpers.executeQaoaCircuitSparse
+QaoaExecutionHelpers.executeQaoaCircuitSparseAsync
     : backend:IQuantumBackend
     -> numQubits:int
     -> quboMap:Map<int * int, float>
     -> parameters:(float * float)[]
     -> shots:int
-    -> Result<int[][], QuantumError>
+    -> cancellationToken:CancellationToken
+    -> Task<Result<int[][], QuantumError>>
 ```
 
 ```fsharp
@@ -605,32 +614,36 @@ let quboMap =
 
 let parameters = [| (0.5, 0.3) |]
 
-match QaoaExecutionHelpers.executeQaoaCircuitSparse backend 5 quboMap parameters 100 with
-| Ok measurements ->
-    // Find best solution
-    let best =
-        measurements
-        |> Array.minBy (QaoaExecutionHelpers.evaluateQuboSparse quboMap)
-    printfn "Best bitstring: %A with energy %.4f" best
-        (QaoaExecutionHelpers.evaluateQuboSparse quboMap best)
-| Error err ->
-    printfn "Error: %A" err
+task {
+    match! QaoaExecutionHelpers.executeQaoaCircuitSparseAsync backend 5 quboMap parameters 100 CancellationToken.None with
+    | Ok measurements ->
+        // Find best solution
+        let best =
+            measurements
+            |> Array.minBy (QaoaExecutionHelpers.evaluateQuboSparse quboMap)
+        printfn "Best bitstring: %A with energy %.4f" best
+            (QaoaExecutionHelpers.evaluateQuboSparse quboMap best)
+    | Error err ->
+        printfn "Error: %A" err
+}
 ```
 
-#### `executeQaoaWithOptimizationSparse`
+#### `executeQaoaWithOptimizationSparseAsync`
 
 Runs QAOA with bounded Nelder-Mead parameter optimization over a sparse QUBO (at most `MaxOptimizationIterations` iterations, `OptimizationShots` per evaluation), then samples `FinalShots` with the optimized parameters. Returns the lowest-energy bitstring seen, the optimized parameters, and a convergence flag.
 
-`QaoaSolverConfig` is shared by all QAOA solvers. These two sparse helpers use `NumLayers`, `OptimizationShots`, `FinalShots` and `MaxOptimizationIterations` (all must be positive); `EnableOptimization` and `EnableConstraintRepair` are read by the higher-level solvers, not here, since the function you call already chooses the method. `QaoaExecutionHelpers.defaultConfig`, `fastConfig` and `highQualityConfig` are ready-made presets.
+`QaoaSolverConfig` is shared by all QAOA solvers. These two sparse helpers (`executeQaoaWithOptimizationSparseAsync` and `executeQaoaWithGridSearchSparseAsync`) use `NumLayers`, `OptimizationShots`, `FinalShots` and `MaxOptimizationIterations` (all must be positive); `EnableOptimization` and `EnableConstraintRepair` are read by the higher-level solvers, not here, since the function you call already chooses the method. `QaoaExecutionHelpers.defaultConfig`, `fastConfig` and `highQualityConfig` are ready-made presets.
 
 **Signature**:
+<!-- fragment -->
 ```fsharp
-QaoaExecutionHelpers.executeQaoaWithOptimizationSparse
+QaoaExecutionHelpers.executeQaoaWithOptimizationSparseAsync
     : backend:IQuantumBackend
     -> numQubits:int
     -> quboMap:Map<int * int, float>
     -> config:QaoaSolverConfig
-    -> Result<int[] * (float * float)[] * bool, QuantumError>
+    -> cancellationToken:CancellationToken
+    -> Task<Result<int[] * (float * float)[] * bool, QuantumError>>
 ```
 
 ```fsharp
@@ -651,27 +664,32 @@ let config : QaoaExecutionHelpers.QaoaSolverConfig = {
     MaxOptimizationIterations = 100
 }
 
-match QaoaExecutionHelpers.executeQaoaWithOptimizationSparse backend 2 quboMap config with
-| Ok (bestBits, optimizedParams, converged) ->
-    let energy = QaoaExecutionHelpers.evaluateQuboSparse quboMap bestBits
-    printfn "Best: %A  Energy: %.4f  Converged: %b" bestBits energy converged
-    printfn "Optimized params: %A" optimizedParams
-| Error err ->
-    printfn "Error: %A" err
+task {
+    match! QaoaExecutionHelpers.executeQaoaWithOptimizationSparseAsync backend 2 quboMap config CancellationToken.None with
+    | Ok (bestBits, optimizedParams, converged) ->
+        let energy = QaoaExecutionHelpers.evaluateQuboSparse quboMap bestBits
+        printfn "Best: %A  Energy: %.4f  Converged: %b" bestBits energy converged
+        printfn "Optimized params: %A" optimizedParams
+    | Error err ->
+        printfn "Error: %A" err
+}
 ```
 
-#### `executeQaoaWithGridSearchSparse`
+#### `executeQaoaWithGridSearchSparseAsync`
 
-Runs QAOA with a fixed grid search over gamma/beta values (7 gammas × 5 betas, the same pair repeated for every layer) using a sparse QUBO, then samples `FinalShots` with the best pair. Useful when Nelder-Mead convergence is unreliable or for quick exploration.
+Runs QAOA with a fixed grid search over gamma/beta values (7 gammas × 5 betas, the same pair repeated for every layer) using a sparse QUBO, then samples `FinalShots` with the best pair. Useful when Nelder-Mead convergence is unreliable or for quick exploration. `maxConcurrency` caps how many grid points run at once; 1 runs them one after another, which keeps local simulator memory low.
 
 **Signature**:
+<!-- fragment -->
 ```fsharp
-QaoaExecutionHelpers.executeQaoaWithGridSearchSparse
+QaoaExecutionHelpers.executeQaoaWithGridSearchSparseAsync
     : backend:IQuantumBackend
     -> numQubits:int
     -> quboMap:Map<int * int, float>
     -> config:QaoaSolverConfig
-    -> Result<int[] * (float * float)[], QuantumError>
+    -> maxConcurrency:int
+    -> cancellationToken:CancellationToken
+    -> Task<Result<int[] * (float * float)[], QuantumError>>
 ```
 
 ```fsharp
@@ -688,13 +706,16 @@ let quboMap =
 
 let config = { QaoaExecutionHelpers.fastConfig with OptimizationShots = 30; FinalShots = 200 }
 
-match QaoaExecutionHelpers.executeQaoaWithGridSearchSparse backend 12 quboMap config with
-| Ok (bestBits, bestParams) ->
-    let energy = QaoaExecutionHelpers.evaluateQuboSparse quboMap bestBits
-    printfn "Grid search best energy: %.4f" energy
-    printfn "Best parameters: %A" bestParams
-| Error err ->
-    printfn "Error: %A" err
+task {
+    // maxConcurrency = 1: one grid point at a time
+    match! QaoaExecutionHelpers.executeQaoaWithGridSearchSparseAsync backend 12 quboMap config 1 CancellationToken.None with
+    | Ok (bestBits, bestParams) ->
+        let energy = QaoaExecutionHelpers.evaluateQuboSparse quboMap bestBits
+        printfn "Grid search best energy: %.4f" energy
+        printfn "Best parameters: %A" bestParams
+    | Error err ->
+        printfn "Error: %A" err
+}
 ```
 
 ### Sparse vs Dense: Complete Comparison
@@ -710,19 +731,19 @@ let denseQubo =
              [  0.5; -2.0 ]]
 
 // One-shot execution
-let denseResult = QaoaExecutionHelpers.executeFromQubo backend denseQubo [|(0.5, 0.3)|] 100
+let denseResult = QaoaExecutionHelpers.executeFromQuboAsync backend denseQubo [|(0.5, 0.3)|] 100 CancellationToken.None
 
 // === Sparse path (new, memory-efficient) ===
 let sparseQubo = Map.ofList [ (0, 0), -1.0; (1, 1), -2.0; (0, 1), 0.5 ]
 
 // One-shot execution (equivalent)
-let sparseResult = QaoaExecutionHelpers.executeQaoaCircuitSparse backend 2 sparseQubo [|(0.5, 0.3)|] 100
+let sparseResult = QaoaExecutionHelpers.executeQaoaCircuitSparseAsync backend 2 sparseQubo [|(0.5, 0.3)|] 100 CancellationToken.None
 
 // With optimization
-let optimResult = QaoaExecutionHelpers.executeQaoaWithOptimizationSparse backend 2 sparseQubo config
+let optimResult = QaoaExecutionHelpers.executeQaoaWithOptimizationSparseAsync backend 2 sparseQubo config CancellationToken.None
 
 // With grid search
-let gridResult = QaoaExecutionHelpers.executeQaoaWithGridSearchSparse backend 2 sparseQubo config
+let gridResult = QaoaExecutionHelpers.executeQaoaWithGridSearchSparseAsync backend 2 sparseQubo config 1 CancellationToken.None
 ```
 
 ---

@@ -109,13 +109,13 @@ module PortfolioTypes =
             fail $"Covariance matrix is {rows}x{cols} but the portfolio has {assetCount} assets"
         else
             let entries =
-                seq {
+                [|
                     for i in 0 .. rows - 1 do
                         for j in 0 .. cols - 1 do
                             yield (i, j, covariance.[i, j])
-                }
+                |]
 
-            match entries |> Seq.tryFind (fun (_, _, v) -> Double.IsNaN v || Double.IsInfinity v) with
+            match entries |> Array.tryFind (fun (_, _, v) -> Double.IsNaN v || Double.IsInfinity v) with
             | Some(i, j, v) -> fail $"Covariance entry [{i},{j}] is not finite: {v}"
             | None ->
                 match Seq.init rows id |> Seq.tryFind (fun i -> covariance.[i, i] < 0.0) with
@@ -132,7 +132,7 @@ module PortfolioTypes =
 
                     let asymmetric =
                         entries
-                        |> Seq.tryFind (fun (i, j, v) -> i < j && abs (v - covariance.[j, i]) > tolerance)
+                        |> Array.tryFind (fun (i, j, v) -> i < j && abs (v - covariance.[j, i]) > tolerance)
 
                     match asymmetric with
                     | Some(i, j, v) ->

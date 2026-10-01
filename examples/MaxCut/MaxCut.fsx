@@ -76,6 +76,7 @@ References:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Examples.Common
 
@@ -153,7 +154,11 @@ let solveAndReport
     (vertices: string list)
     (problem: MaxCut.MaxCutProblem)
     : Map<string, string> option =
-    match MaxCut.solve problem None with
+    match
+        MaxCut.solveAsync problem None CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok solution ->
         if not quiet then
             printfn "  Partition A: %A" solution.PartitionS

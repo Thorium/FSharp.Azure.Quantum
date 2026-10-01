@@ -104,6 +104,7 @@ looks like, then flags anything unusual. No need for labeled attack data!
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.AnomalyDetector
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -246,6 +247,8 @@ if shouldRun 1 then
             sensitivity cliSensitivity
             backend quantumBackend
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result1 with
     | Error err ->
@@ -292,7 +295,11 @@ if shouldRun 1 then
 
         threats
         |> Array.iteri (fun i traffic ->
-            match AnomalyDetector.check traffic detector with
+            match
+                AnomalyDetector.checkAsync traffic detector CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok result ->
                 threatResults.Add(
                     {|
@@ -339,7 +346,11 @@ if shouldRun 1 then
 
         heldOutNormals
         |> Array.iter (fun traffic ->
-            match AnomalyDetector.check traffic detector with
+            match
+                AnomalyDetector.checkAsync traffic detector CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok result ->
                 normalsChecked <- normalsChecked + 1
 
@@ -415,12 +426,18 @@ if shouldRun 2 then
                 sensitivity sens
                 backend quantumBackend
             }
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
         with
         | Ok detector ->
             let testTraffic =
                 Array.append (normalTraffic |> Array.take 10) (generateAnomalousTraffic ())
 
-            match AnomalyDetector.checkBatch testTraffic detector with
+            match
+                AnomalyDetector.checkBatchAsync testTraffic detector CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok batch ->
                 sensResults.Add(
                     {|
@@ -471,6 +488,8 @@ if shouldRun 3 then
             // Save for deployment
             note "Network security threat detector - trained on Q4 2024 traffic"
         }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     productionDetectorResult <- prodResult
 
@@ -515,7 +534,11 @@ if shouldRun 3 then
 
         monitoredSessions
         |> Array.iter (fun (name, traffic) ->
-            match AnomalyDetector.check traffic detector with
+            match
+                AnomalyDetector.checkAsync traffic detector CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok result ->
                 monitorResults.Add(
                     {|
@@ -575,6 +598,8 @@ if shouldRun 4 then
                 backend quantumBackend
                 verbose false
             }
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
     match detectorForExplain with
     | Ok detector ->
@@ -655,6 +680,8 @@ if shouldRun 5 then
                 backend quantumBackend
                 verbose false
             }
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
     match detectorForBatch with
     | Ok detector ->
@@ -665,7 +692,11 @@ if shouldRun 5 then
         if not quiet then
             printfn "Analyzing %d network sessions from past 24 hours...\n" dailyTraffic.Length
 
-        match AnomalyDetector.checkBatch dailyTraffic detector with
+        match
+            AnomalyDetector.checkBatchAsync dailyTraffic detector CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Ok batch ->
             if not quiet then
                 printfn "=== Daily Security Report ==="

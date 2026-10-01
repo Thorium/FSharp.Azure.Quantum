@@ -380,10 +380,12 @@ module PathOptimizer =
             EnergyConsumptionWh = energyWh
         }
 
-    /// Solve path planning using TSP.solve (quantum-first API with local simulation)
+    /// Solve path planning using TSP.solveDirectlyAsync (quantum-first API with local simulation)
     let solveQuantum (waypoints: Waypoint array) : QuantumResult<TSP.Tour> =
         let cities = toTspCities waypoints
-        TSP.solveDirectly cities None
+        TSP.solveDirectlyAsync cities None System.Threading.CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Solve path planning using Hybrid solver (auto-selects classical vs quantum)
     let solveHybrid
@@ -2919,7 +2921,7 @@ module Program =
                 let methodUsed, tour, totalDistance =
                     match method.ToLowerInvariant() with
                     | "quantum" ->
-                        // Use TSP.solve directly (quantum-first API with local simulation)
+                        // Use TSP.solveDirectlyAsync (quantum-first API with local simulation)
                         match PathOptimizer.solveQuantum waypointsArr with
                         | Ok tourResult ->
                             // TSP.Tour returns city names, need to map back to indices

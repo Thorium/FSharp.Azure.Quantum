@@ -6,6 +6,7 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Algorithms.QuantumMonteCarlo
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
+open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum.LocalSimulator
 
@@ -139,7 +140,7 @@ module QuantumMonteCarloTests =
                     Shots = 1000
                 }
 
-            match! estimateExpectation config (createBackend ()) |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config (createBackend ()) CancellationToken.None with
             | Ok qmc ->
                 Assert.True(
                     abs (qmc.ExpectationValue - 0.3) < 0.02,
@@ -163,7 +164,7 @@ module QuantumMonteCarloTests =
 
             let qb = createBackend ()
 
-            match! estimateExpectation config qb |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config qb CancellationToken.None with
             | Error(QuantumError.ValidationError("NumQubits", _)) -> ()
             | r -> failwith $"Expected ValidationError for NumQubits, got {r}"
         }
@@ -182,7 +183,7 @@ module QuantumMonteCarloTests =
 
             let qb = createBackend ()
 
-            match! estimateExpectation config qb |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config qb CancellationToken.None with
             | Error(QuantumError.ValidationError("NumQubits", _)) -> ()
             | r -> failwith $"Expected ValidationError for NumQubits, got {r}"
         }
@@ -198,7 +199,7 @@ module QuantumMonteCarloTests =
 
             let qb = createBackend ()
 
-            match! estimateExpectation config qb |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config qb CancellationToken.None with
             | Error(QuantumError.ValidationError("GroverIterations", _)) -> ()
             | r -> failwith $"Expected ValidationError for GroverIterations, got {r}"
         }
@@ -214,7 +215,7 @@ module QuantumMonteCarloTests =
 
             let qb = createBackend ()
 
-            match! estimateExpectation config qb |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config qb CancellationToken.None with
             | Error(QuantumError.ValidationError("Shots", _)) -> ()
             | r -> failwith $"Expected ValidationError for Shots, got {r}"
         }
@@ -230,7 +231,7 @@ module QuantumMonteCarloTests =
 
             let qb = createBackend ()
 
-            match! estimateExpectation config qb |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config qb CancellationToken.None with
             | Error(QuantumError.ValidationError _) -> ()
             | r -> failwith $"Expected ValidationError for qubit count mismatch, got {r}"
         }
@@ -246,7 +247,7 @@ module QuantumMonteCarloTests =
             let config = createSimpleConfig 3 1 100
             let qb = createBackend ()
 
-            match! estimateExpectation config qb |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config qb CancellationToken.None with
             | Ok qmc ->
                 Assert.True(
                     qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0,
@@ -270,7 +271,7 @@ module QuantumMonteCarloTests =
         task {
             let config = createSimpleConfig 2 0 100
             let qb = createBackend ()
-            let! result = estimateExpectation config qb |> Async.StartImmediateAsTask
+            let! result = estimateExpectationAsync config qb CancellationToken.None
 
             result
             |> Result.map (fun qmc -> Assert.True(qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0))
@@ -297,7 +298,7 @@ module QuantumMonteCarloTests =
                 CircuitBuilder.empty numQubits |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
 
             let qb = createBackend ()
-            let! result = estimateProbability statePrep oracle 1 qb |> Async.StartImmediateAsTask
+            let! result = estimateProbabilityAsync statePrep oracle 1 qb CancellationToken.None
 
             result
             |> Result.map (fun p -> Assert.True(p >= 0.0 && p <= 1.0, $"Probability {p} should be in [0,1]"))
@@ -314,7 +315,7 @@ module QuantumMonteCarloTests =
                 CircuitBuilder.empty numQubits |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
 
             let qb = createBackend ()
-            let! result = integrate functionOracle (0.0, 1.0) 1 qb |> Async.StartImmediateAsTask
+            let! result = integrateAsync functionOracle (0.0, 1.0) 1 qb CancellationToken.None
 
             result
             |> Result.map (fun value ->
@@ -333,7 +334,7 @@ module QuantumMonteCarloTests =
             let config = createSimpleConfig 3 2 200
             let qb = createBackend ()
 
-            match! estimateExpectation config qb |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config qb CancellationToken.None with
             | Ok qmc ->
                 // QuantumQueries = GroverIterations * Shots
                 Assert.Equal(2 * 200, qmc.QuantumQueries)
@@ -347,7 +348,7 @@ module QuantumMonteCarloTests =
             let config = createSimpleConfig 3 3 100
             let qb = createBackend ()
 
-            match! estimateExpectation config qb |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config qb CancellationToken.None with
             | Ok qmc ->
                 // ClassicalEquivalent = GroverIterations^2
                 Assert.Equal(9, qmc.ClassicalEquivalent)
@@ -379,7 +380,7 @@ module QuantumMonteCarloTests =
         task {
             let backend = SampledWholeCircuit.Backend(4000, 11)
 
-            match! estimateExpectation (knownConfig ()) backend |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync (knownConfig ()) backend CancellationToken.None with
             | Ok qmc ->
                 // Sampled states carry no phases: the marked set must come from the oracle's
                 // definition, or the estimate collapses to 0.
@@ -392,10 +393,7 @@ module QuantumMonteCarloTests =
     [<Fact>]
     let ``estimateExpectation on the local simulator stays exact`` () =
         task {
-            match!
-                estimateExpectation (knownConfig ()) (createBackend ())
-                |> Async.StartImmediateAsTask
-            with
+            match! estimateExpectationAsync (knownConfig ()) (createBackend ()) CancellationToken.None with
             | Ok qmc ->
                 Assert.True(abs (qmc.ExpectationValue - 0.3) < 1e-4, $"expected 0.3, got {qmc.ExpectationValue}")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -410,7 +408,7 @@ module QuantumMonteCarloTests =
                     Oracle = CircuitBuilder.empty 2 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
                 }
 
-            match! estimateExpectation config (createBackend ()) |> Async.StartImmediateAsTask with
+            match! estimateExpectationAsync config (createBackend ()) CancellationToken.None with
             | Error(QuantumError.ValidationError("Oracle", _)) -> ()
             | other -> failwith $"Expected an Oracle validation error, got {other}"
         }
@@ -432,8 +430,13 @@ module QuantumMonteCarloTests =
         // E[f] = 0.1·0 + 0.2·0.5 + 0.3·0.25 + 0.4·1 = 0.575
         task {
             match!
-                estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 0.5; 0.25; 1.0 |] 4 1000 (createBackend ())
-                |> Async.StartImmediateAsTask
+                estimateBoundedExpectationAsync
+                    (fourBinPreparation ())
+                    [| 0.0; 0.5; 0.25; 1.0 |]
+                    4
+                    1000
+                    (createBackend ())
+                    CancellationToken.None
             with
             | Ok r ->
                 Assert.True(abs (r.Expectation - 0.575) < 1e-4, $"expected 0.575, got {r.Expectation}")
@@ -451,8 +454,13 @@ module QuantumMonteCarloTests =
             let backend = SampledWholeCircuit.Backend(4000, 5)
 
             match!
-                estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 0.5; 0.25; 1.0 |] 4 1000 backend
-                |> Async.StartImmediateAsTask
+                estimateBoundedExpectationAsync
+                    (fourBinPreparation ())
+                    [| 0.0; 0.5; 0.25; 1.0 |]
+                    4
+                    1000
+                    backend
+                    CancellationToken.None
             with
             | Ok r ->
                 Assert.True(r.WholeCircuit)
@@ -471,8 +479,13 @@ module QuantumMonteCarloTests =
     let ``estimateBoundedExpectation refuses values outside the unit interval`` () =
         task {
             match!
-                estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 1.5; 0.25; 1.0 |] 2 1000 (createBackend ())
-                |> Async.StartImmediateAsTask
+                estimateBoundedExpectationAsync
+                    (fourBinPreparation ())
+                    [| 0.0; 1.5; 0.25; 1.0 |]
+                    2
+                    1000
+                    (createBackend ())
+                    CancellationToken.None
             with
             | Error(QuantumError.ValidationError("values", _)) -> ()
             | other -> failwith $"Expected a values validation error, got {other}"
@@ -505,10 +518,7 @@ module QuantumMonteCarloTests =
     [<Fact>]
     let ``estimateExpectation reports the fit's standard error, not 1 over the iterations`` () =
         task {
-            match!
-                estimateExpectation (quarterConfig 4 1000) (createBackend ())
-                |> Async.StartImmediateAsTask
-            with
+            match! estimateExpectationAsync (quarterConfig 4 1000) (createBackend ()) CancellationToken.None with
             | Ok r ->
                 // Exact probabilities: the maximum-likelihood fit recovers a (to ~1e-8: a power
                 // whose probability is 1 - 1e-16 pins θ only to √1e-16).
@@ -531,7 +541,7 @@ module QuantumMonteCarloTests =
             for seed in 1..30 do
                 let backend = SampledWholeCircuit.Backend(4000, seed)
 
-                match! estimateExpectation (quarterConfig 4 1000) backend |> Async.StartImmediateAsTask with
+                match! estimateExpectationAsync (quarterConfig 4 1000) backend CancellationToken.None with
                 | Ok r ->
                     estimates.Add r.ExpectationValue
                     errors.Add r.StandardError

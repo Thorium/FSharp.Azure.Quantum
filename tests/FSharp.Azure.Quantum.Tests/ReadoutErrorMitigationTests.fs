@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open System
+open System.Threading
 open System.Threading.Tasks
 
 module ReadoutErrorMitigationTests =
@@ -586,11 +587,11 @@ module ReadoutErrorMitigationTests =
     let private createNoisyExecutor
         (errorRate: float)
         (seed: int)
-        : (CircuitBuilder.Circuit -> int -> Async<Result<Map<string, int>, string>>) =
+        : (CircuitBuilder.Circuit -> int -> Task<Result<Map<string, int>, string>>) =
         let rng = Random(seed)
 
         fun (circuit: CircuitBuilder.Circuit) (shots: int) ->
-            async {
+            task {
                 try
                     // Simulate perfect circuit execution
                     let qubits = CircuitBuilder.qubitCount circuit
@@ -678,8 +679,7 @@ module ReadoutErrorMitigationTests =
 
             // Act: Measure calibration matrix
             let! result =
-                ReadoutErrorMitigation.measureCalibrationMatrix "test-simulator" 1 config executor
-                |> Async.StartImmediateAsTask
+                ReadoutErrorMitigation.measureCalibrationMatrixAsync "test-simulator" 1 config executor CancellationToken.None
 
             // Assert: Matrix should reflect 2% error rate
             match result with
@@ -710,8 +710,7 @@ module ReadoutErrorMitigationTests =
 
             // Act: Run full REM pipeline
             let! result =
-                ReadoutErrorMitigation.mitigate circuit "test-simulator" config executor
-                |> Async.StartImmediateAsTask
+                ReadoutErrorMitigation.mitigateAsync circuit "test-simulator" config executor CancellationToken.None
 
             // Assert: Corrected result should have > 99% in |0⟩ state
             match result with
@@ -746,8 +745,7 @@ module ReadoutErrorMitigationTests =
 
             // Act: Calibrate 2-qubit system
             let! result =
-                ReadoutErrorMitigation.measureCalibrationMatrix "test-simulator" 2 config executor
-                |> Async.StartImmediateAsTask
+                ReadoutErrorMitigation.measureCalibrationMatrixAsync "test-simulator" 2 config executor CancellationToken.None
 
             // Assert: Should produce 4x4 matrix
             match result with
@@ -779,8 +777,7 @@ module ReadoutErrorMitigationTests =
 
             // Act: Apply REM
             let! result =
-                ReadoutErrorMitigation.mitigate circuit "test-simulator" config executor
-                |> Async.StartImmediateAsTask
+                ReadoutErrorMitigation.mitigateAsync circuit "test-simulator" config executor CancellationToken.None
 
             // Assert: Should significantly reduce errors
             match result with
@@ -809,8 +806,7 @@ module ReadoutErrorMitigationTests =
 
             // Act: Calibrate 3-qubit system
             let! result =
-                ReadoutErrorMitigation.measureCalibrationMatrix "test-simulator" 3 config executor
-                |> Async.StartImmediateAsTask
+                ReadoutErrorMitigation.measureCalibrationMatrixAsync "test-simulator" 3 config executor CancellationToken.None
 
             // Assert: Should produce 8x8 matrix
             match result with
@@ -842,8 +838,7 @@ module ReadoutErrorMitigationTests =
 
             // Act: Apply REM
             let! result =
-                ReadoutErrorMitigation.mitigate circuit "test-simulator" config executor
-                |> Async.StartImmediateAsTask
+                ReadoutErrorMitigation.mitigateAsync circuit "test-simulator" config executor CancellationToken.None
 
             // Assert: Should show measurable improvement
             match result with

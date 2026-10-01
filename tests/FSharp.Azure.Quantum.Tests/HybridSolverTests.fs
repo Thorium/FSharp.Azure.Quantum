@@ -130,40 +130,6 @@ module HybridSolverTests =
         }
         :> Task
 
-    #nowarn "44" // This test covers the deprecated synchronous `solvePortfolioWithBackend` wrapper on purpose.
-    [<Fact>]
-    let ``solvePortfolioWithBackend blocks on the async solver`` () =
-        task {
-            let syncResult =
-                HybridSolver.solvePortfolioWithBackend
-                    twoAssets
-                    twoAssetConstraints
-                    None
-                    None
-                    (Some HybridSolver.SolverMethod.Classical)
-                    None
-
-            let! asyncResult =
-                HybridSolver.solvePortfolioWithBackendAsync
-                    twoAssets
-                    twoAssetConstraints
-                    None
-                    None
-                    (Some HybridSolver.SolverMethod.Classical)
-                    None
-                    CancellationToken.None
-
-            match syncResult, asyncResult with
-            | Ok sync, Ok async ->
-                Assert.Equal(async.Method, sync.Method)
-                Assert.Equal(async.Result.TotalValue, sync.Result.TotalValue)
-                Assert.Equal(async.Reasoning, sync.Reasoning)
-            | Error err, _
-            | _, Error err -> Assert.Fail(err.Message)
-        }
-        :> Task
-    #warnon "44"
-
     // ========================================================================
     // COST ESTIMATION (budget guard inputs)
     // ========================================================================

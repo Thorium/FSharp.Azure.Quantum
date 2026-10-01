@@ -33,6 +33,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -522,7 +523,11 @@ let detectCommunities (accounts: Account list) (transactions: Transaction list) 
     let vertices = accounts |> List.map (fun a -> a.Id)
     let problem = MaxCut.createProblem vertices edges
 
-    match MaxCut.solve problem (Some quantumBackend) with
+    match
+        MaxCut.solveAsync problem (Some quantumBackend) CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok solution ->
         if not quiet then
             printfn "    Community 1: %d members" solution.PartitionS.Length

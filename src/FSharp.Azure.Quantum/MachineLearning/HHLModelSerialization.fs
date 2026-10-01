@@ -157,31 +157,6 @@ module HHLModelSerialization =
             note
             cancellationToken
 
-    /// Save HHL regression result with metadata
-    ///
-    /// Convenience function that takes QuantumRegressionHHL.RegressionResult directly
-    [<System.Obsolete("Use saveHHLRegressionResultAsync for better performance and to avoid blocking threads")>]
-    let saveHHLRegressionResult
-        (filePath: string)
-        (result: QuantumRegressionHHL.RegressionResult)
-        (note: string option)
-        : QuantumResult<unit> =
-
-        saveHHLModelAsync
-            filePath
-            result.Weights
-            result.RSquared
-            result.MSE
-            result.SuccessProbability
-            result.NumFeatures
-            result.NumSamples
-            result.HasIntercept
-            result.ConditionNumber
-            note
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Load HHL regression model from JSON file
     ///
     /// Returns: Serializable HHL model with all metadata

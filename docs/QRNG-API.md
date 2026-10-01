@@ -4,7 +4,7 @@
 
 The Quantum Random Number Generator (QRNG) models random number generation via quantum measurement. On real quantum hardware, measurements are fundamentally non-deterministic and yield true (quantum) randomness.
 
-> **⚠️ Important — local simulation is not quantum randomness.** By default this module simulates the measurements classically. The unseeded local path draws its outcomes from the OS cryptographically secure RNG (`System.Security.Cryptography.RandomNumberGenerator`) — CSPRNG-quality, suitable for cryptographic key material, but still classical randomness. True quantum randomness comes from `generateWithBackend` on a cloud QPU target created with `shots = 1`: the bits are then the one measured shot of that job.
+> **⚠️ Important — local simulation is not quantum randomness.** By default this module simulates the measurements classically. The unseeded local path draws its outcomes from the OS cryptographically secure RNG (`System.Security.Cryptography.RandomNumberGenerator`) — CSPRNG-quality, suitable for cryptographic key material, but still classical randomness. True quantum randomness comes from `generateWithBackendAsync` on a cloud QPU target created with `shots = 1`: the bits are then the one measured shot of that job.
 
 **Key Features:**
 - Quantum-measurement model of randomness (local simulation is CSPRNG-backed, not quantum)
@@ -185,12 +185,13 @@ let salt = QRNG.generateBytes 16
 
 ## Backend Integration
 
-### `generateWithBackend`
+### `generateWithBackendAsync`
 ```fsharp
-val generateWithBackend : 
+val generateWithBackendAsync : 
     numBits:int -> 
     backend:IQuantumBackend -> 
-    Async<QuantumResult<QRNGResult>>
+    ct:CancellationToken -> 
+    Task<QuantumResult<QRNGResult>>
 ```
 
 Generates random bits by executing a `numBits`-qubit H-superposition circuit through the specified backend.
@@ -204,20 +205,20 @@ Generates random bits by executing a `numBits`-qubit H-superposition circuit thr
 **Parameters:**
 - `numBits` - Number of bits, 1 to 1000. The whole circuit is one `numBits`-qubit register, so the backend must also hold that many qubits: on `LocalBackend` the limit is `StateVector.maxQubits` (derived from available memory, at most 30).
 - `backend` - Quantum backend instance. Annealing backends and backends without an H gate are rejected with an `Error`.
+- `ct` - Cancellation token for the backend job (`CancellationToken.None` when you have none).
 
-**Returns:** `Async<QuantumResult<QRNGResult>>` (`QuantumResult<'T>` is `Result<'T, QuantumError>`). Invalid `numBits` and backend failures come back as `Error`, not exceptions.
-
-> **Note:** This API currently uses F# `Async<_>`. For Task-based async patterns with `CancellationToken`, see `IQuantumBackend.ExecuteToStateAsync` in the [API Reference](api-reference.md).
+**Returns:** `Task<QuantumResult<QRNGResult>>` (`QuantumResult<'T>` is `Result<'T, QuantumError>`). Invalid `numBits` and backend failures come back as `Error`, not exceptions.
 
 **Example:**
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Backends
 
-async {
+task {
     // Use local simulator (free, fast)
     let backend = LocalBackendFactory.createUnified()
     
-    let! result = QRNG.generateWithBackend 16 backend
+    let! result = QRNG.generateWithBackendAsync 16 backend CancellationToken.None
     
     match result with
     | Ok qrng -> 
@@ -225,12 +226,12 @@ async {
     | Error err -> 
         printfn "Error: %s" err.Message
 }
-|> Async.RunSynchronously
 ```
 
 On hardware, create the backend with one shot per job:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends.CloudBackends
@@ -243,9 +244,11 @@ let workspaceUrl =
 // shots = 1: the 16 bits are the one measured shot of one billed job
 let qpu = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.qpu.aria-1" 1
 
-match QRNG.generateWithBackend 16 qpu |> Async.RunSynchronously with
-| Ok qrng -> printfn "Hardware bits: %A" qrng.Bits
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! QRNG.generateWithBackendAsync 16 qpu CancellationToken.None with
+    | Ok qrng -> printfn "Hardware bits: %A" qrng.Bits
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ---
@@ -300,7 +303,7 @@ QRNG models the simplest quantum circuit for randomness:
 3. **Measure** in computational basis → Each qubit collapses to 0 or 1 with exactly 50% probability
 4. **Extract bits** from measurement outcomes
 
-On quantum hardware the measurement outcome is physically non-deterministic, unlike a pseudo-random number generator (PRNG), which is deterministic given its seed. `generate`, `generateBits`, `generateInt`, `generateFloat` and `generateBytes` simulate the measurement locally. `generateWithBackend` on a one-shot cloud backend returns the bits the hardware measured; on a simulator it samples the returned state locally (see above).
+On quantum hardware the measurement outcome is physically non-deterministic, unlike a pseudo-random number generator (PRNG), which is deterministic given its seed. `generate`, `generateBits`, `generateInt`, `generateFloat` and `generateBytes` simulate the measurement locally. `generateWithBackendAsync` on a one-shot cloud backend returns the bits the hardware measured; on a simulator it samples the returned state locally (see above).
 
 ### Entropy Calculation
 
@@ -318,7 +321,7 @@ Perfect randomness: `H = 1.0` (maximum entropy for binary)
 
 ### Memory Use
 
-The local functions never build a multi-qubit state vector. Qubits in this circuit are independent, so the seeded path simulates one single-qubit measurement per bit, and the unseeded path draws one CSPRNG bit per measurement. Memory grows linearly with `numBits`, which is why up to 1,000,000 bits per call is practical. `generateWithBackend` is different: it runs one `numBits`-qubit circuit, so its cost depends on the backend (on a cloud backend, one billed job per call).
+The local functions never build a multi-qubit state vector. Qubits in this circuit are independent, so the seeded path simulates one single-qubit measurement per bit, and the unseeded path draws one CSPRNG bit per measurement. Memory grows linearly with `numBits`, which is why up to 1,000,000 bits per call is practical. `generateWithBackendAsync` is different: it runs one `numBits`-qubit circuit, so its cost depends on the backend (on a cloud backend, one billed job per call).
 
 ---
 

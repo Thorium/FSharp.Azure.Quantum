@@ -47,6 +47,8 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.ReadoutErrorMitigation
 open FSharp.Azure.Quantum.ZeroNoiseExtrapolation
@@ -184,8 +186,8 @@ let vqeCircuit = createVQECircuit theta
 
 /// Mock executor combining gate errors and readout errors.
 /// In production, this would call a real backend (IonQ, Rigetti, etc.).
-let fullNoisyExecutor (circuit: Circuit) (shots: int) : Async<Result<Map<string, int>, string>> =
-    async {
+let fullNoisyExecutor (circuit: Circuit) (shots: int) : Task<Result<Map<string, int>, string>> =
+    task {
         let gateCount = List.length circuit.Gates |> float
         let gateNoise = gateCount * 0.005
 
@@ -219,8 +221,8 @@ let fullNoisyExecutor (circuit: Circuit) (shots: int) : Async<Result<Map<string,
     }
 
 /// Mock executor for ZNE (returns float expectation values).
-let noisyExpectationExecutor (circuit: Circuit) : Async<Result<float, string>> =
-    async {
+let noisyExpectationExecutor (circuit: Circuit) : Task<Result<float, string>> =
+    task {
         let circuitDepth = float (gateCount circuit)
         let noiseLevel = circuitDepth * 0.02
         let random = Random()
@@ -301,7 +303,7 @@ if runRemZne then
         printfn "-----------------------"
         printfn ""
 
-    match Async.RunSynchronously(measureCalibrationMatrix "ionq" 2 remConfig fullNoisyExecutor) with
+    match measureCalibrationMatrixAsync "ionq" 2 remConfig fullNoisyExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
     | Error err ->
         if not quiet then
             printfn "[ERROR] REM calibration failed: %s" err
@@ -325,8 +327,8 @@ if runRemZne then
             printfn ""
 
         // Combined executor: REM corrects each ZNE measurement
-        let combinedExecutor (circ: Circuit) : Async<Result<float, string>> =
-            async {
+        let combinedExecutor (circ: Circuit) : Task<Result<float, string>> =
+            task {
                 let shots = 10000
 
                 match! fullNoisyExecutor circ shots with
@@ -351,7 +353,7 @@ if runRemZne then
             printfn "Running ZNE with REM-corrected measurements..."
             printfn ""
 
-        match Async.RunSynchronously(ZeroNoiseExtrapolation.mitigate vqeCircuit zneConfig combinedExecutor) with
+        match ZeroNoiseExtrapolation.mitigateAsync vqeCircuit zneConfig combinedExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
         | Error err ->
             if not quiet then
                 printfn "[ERROR] ZNE failed: %s" err
@@ -448,7 +450,9 @@ if runRemZnePec then
 
     // Run PEC on the circuit
     match
-        Async.RunSynchronously(ProbabilisticErrorCancellation.mitigate vqeCircuit pecConfig noisyExpectationExecutor)
+        ProbabilisticErrorCancellation.mitigateAsync vqeCircuit pecConfig noisyExpectationExecutor CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     with
     | Error err ->
         if not quiet then
@@ -468,7 +472,7 @@ if runRemZnePec then
 
         let zneConfig = defaultIonQConfig |> withNoiseScalings zneScalings
 
-        match Async.RunSynchronously(ZeroNoiseExtrapolation.mitigate vqeCircuit zneConfig noisyExpectationExecutor) with
+        match ZeroNoiseExtrapolation.mitigateAsync vqeCircuit zneConfig noisyExpectationExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
         | Error err ->
             if not quiet then
                 printfn "[ERROR] ZNE failed: %s" err
@@ -633,8 +637,8 @@ let runCircuitWithAdaptiveEM
     (circ: Circuit)
     (backend: string)
     (accuracyLevel: AccuracyLevel)
-    : Async<Result<float, string>> =
-    async {
+    : Task<Result<float, string>> =
+    task {
         let (strategyName, _overhead) = selectStrategy accuracyLevel
 
         match accuracyLevel with
@@ -647,7 +651,7 @@ let runCircuitWithAdaptiveEM
             let remCfg = ReadoutErrorMitigation.defaultConfig
 
             let! remResult =
-                ReadoutErrorMitigation.mitigate circ backend remCfg fullNoisyExecutor
+                ReadoutErrorMitigation.mitigateAsync circ backend remCfg fullNoisyExecutor CancellationToken.None
 
             return
                 match remResult with
@@ -667,11 +671,11 @@ let runCircuitWithAdaptiveEM
             // REM + ZNE
             let remCfg = ReadoutErrorMitigation.defaultConfig
 
-            match! measureCalibrationMatrix backend 2 remCfg fullNoisyExecutor with
+            match! measureCalibrationMatrixAsync backend 2 remCfg fullNoisyExecutor CancellationToken.None with
             | Error err -> return Error $"%s{strategyName}: calibration failed: %s{err}"
             | Ok cal ->
-                let combinedExec (c: Circuit) : Async<Result<float, string>> =
-                    async {
+                let combinedExec (c: Circuit) : Task<Result<float, string>> =
+                    task {
                         let shots = 10000
 
                         match! fullNoisyExecutor c shots with
@@ -692,7 +696,7 @@ let runCircuitWithAdaptiveEM
                     }
 
                 let zneCfg = defaultIonQConfig
-                let! zneResult = ZeroNoiseExtrapolation.mitigate circ zneCfg combinedExec
+                let! zneResult = ZeroNoiseExtrapolation.mitigateAsync circ zneCfg combinedExec CancellationToken.None
 
                 return
                     match zneResult with
@@ -709,7 +713,7 @@ let runCircuitWithAdaptiveEM
                 }
 
             let! pecResult =
-                ProbabilisticErrorCancellation.mitigate circ pecCfg noisyExpectationExecutor
+                ProbabilisticErrorCancellation.mitigateAsync circ pecCfg noisyExpectationExecutor CancellationToken.None
 
             return
                 match pecResult with
@@ -726,10 +730,10 @@ let runCircuitWithAdaptiveEM
                 }
 
             let! pecResult =
-                ProbabilisticErrorCancellation.mitigate circ pecCfg noisyExpectationExecutor
+                ProbabilisticErrorCancellation.mitigateAsync circ pecCfg noisyExpectationExecutor CancellationToken.None
 
             let zneCfg = defaultIonQConfig
-            let! zneResult = ZeroNoiseExtrapolation.mitigate circ zneCfg noisyExpectationExecutor
+            let! zneResult = ZeroNoiseExtrapolation.mitigateAsync circ zneCfg noisyExpectationExecutor CancellationToken.None
 
             return
                 match pecResult, zneResult with
@@ -744,7 +748,7 @@ let runCircuitWithAdaptiveEM
 if not quiet then
     printfn "Production API:"
     printfn "  runCircuitWithAdaptiveEM circuit backend accuracyLevel"
-    printfn "    -> Async<Result<float, string>>"
+    printfn "    -> Task<Result<float, string>>"
     printfn ""
     printfn "Accuracy Levels:"
 
@@ -758,7 +762,7 @@ if not quiet then
     printfn ""
 
 // Run the configured strategy
-match Async.RunSynchronously(runCircuitWithAdaptiveEM vqeCircuit "ionq" Production) with
+match runCircuitWithAdaptiveEM vqeCircuit "ionq" Production |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok energy ->
     if not quiet then
         printfn "Production run result: %.4f Hartree (error: %.4f)" energy (abs (energy - trueEnergy))

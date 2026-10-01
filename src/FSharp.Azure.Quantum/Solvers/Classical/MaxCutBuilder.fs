@@ -299,29 +299,12 @@ module MaxCut =
                 return! Error(QuantumError.OperationError("MaxCut solve failed: ", $"Failed: {ex.Message}"))
         }
 
-    /// Solve MaxCut problem using quantum optimization (QAOA)
-    ///
-    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
-    /// it blocks the calling thread until the backend has answered.
-    ///
-    /// PARAMETERS:
-    ///   problem - MaxCut problem with vertices and weighted edges
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///
-    /// RETURNS:
-    ///   Result with Solution (partitions, cut value) or error message
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve (problem: MaxCutProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Solution> =
-        solveAsync problem backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve MaxCut with ADAPT-QAOA (adaptive per-layer mixer selection) instead of the
-    /// fixed-mixer QAOA used by `solve`. ADAPT-QAOA grows a compact, problem-tailored ansatz
+    /// fixed-mixer QAOA used by `solveAsync`. ADAPT-QAOA grows a compact, problem-tailored ansatz
     /// and is well suited to small graphs where a shallow, high-quality circuit is valuable.
     ///
     /// Runs on a state-vector backend (defaults to the local simulator). For larger graphs or
-    /// cloud hardware, prefer `solve`.
+    /// cloud hardware, prefer `solveAsync`.
     ///
     ///   let solution = MaxCut.solveWithAdaptQaoa problem None
     let solveWithAdaptQaoa
@@ -435,27 +418,6 @@ module MaxCut =
 
         let problem = createProblem vertices edges
         solveAsync problem backend cancellationToken
-
-    /// Convenience function: Create problem and solve in one step using quantum optimization
-    ///
-    /// This is a synchronous wrapper around `solveDirectlyAsync` for backward compatibility.
-    ///
-    /// PARAMETERS:
-    ///   vertices - List of vertex names
-    ///   edges - List of (source, target, weight) tuples
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///
-    /// RETURNS:
-    ///   Result with Solution or error message
-    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
-    let solveDirectly
-        (vertices: string list)
-        (edges: (string * string * float) list)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<Solution> =
-        solveDirectlyAsync vertices edges backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ============================================================================
     // VALIDATION AND UTILITIES

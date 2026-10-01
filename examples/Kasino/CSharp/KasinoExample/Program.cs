@@ -32,7 +32,7 @@ namespace KasinoExample
         {
         }
 
-        private static void Main(string[] args)
+        private static async Task Main(string[] args)
         {
             Console.WriteLine("╔════════════════════════════════════════════════════════════╗");
             Console.WriteLine("║  Kasino Card Game - C# Interop with F# Knapsack Solver    ║");
@@ -41,13 +41,13 @@ namespace KasinoExample
             Console.WriteLine();
 
             // Demonstrate three different Kasino capture scenarios
-            Example1_SimpleCapture();
+            await Example1_SimpleCaptureAsync().ConfigureAwait(false);
             Console.WriteLine();
 
-            Example2_ComplexCapture();
+            await Example2_ComplexCaptureAsync().ConfigureAwait(false);
             Console.WriteLine();
 
-            Example3_MultipleCaptures();
+            await Example3_MultipleCapturesAsync().ConfigureAwait(false);
             Console.WriteLine();
 
             Example4_RealKasinoCapture();
@@ -69,7 +69,7 @@ namespace KasinoExample
         /// Goal: Find cards that maximize value without exceeding 13
         /// Expected: Optimal selection within constraint.
         /// </summary>
-        private static void Example1_SimpleCapture()
+        private static async Task Example1_SimpleCaptureAsync()
         {
             Console.WriteLine("═══════════════════════════════════════════════════════════");
             Console.WriteLine("Example 1: Simple Kasino Capture");
@@ -95,7 +95,7 @@ namespace KasinoExample
             var problem = KnapsackProblem(tableCards, capacity: 13.0);
 
             // Solve using Knapsack module (null = use LocalBackend quantum simulation)
-            var result = Knapsack.solve(problem, backend: null);
+            var result = await Knapsack.solveAsync(problem, backend: null, CancellationToken.None).ConfigureAwait(false);
 
             // Display solution using extension methods (IsOk, GetOkValue, GetErrorValue, Count)
             if (result.IsOk())
@@ -123,7 +123,7 @@ namespace KasinoExample
         /// Goal: Find optimal subset that maximizes value ≤ 10
         /// Multiple solutions exist: demonstrate optimization.
         /// </summary>
-        private static void Example2_ComplexCapture()
+        private static async Task Example2_ComplexCaptureAsync()
         {
             Console.WriteLine("═══════════════════════════════════════════════════════════");
             Console.WriteLine("Example 2: Complex Kasino Capture (Multiple Solutions)");
@@ -151,7 +151,7 @@ namespace KasinoExample
             var problem = KnapsackProblem(tableCards, capacity: 10.0);
 
             // Solve using Knapsack module (null = use LocalBackend quantum simulation)
-            var result = Knapsack.solve(problem, backend: null);
+            var result = await Knapsack.solveAsync(problem, backend: null, CancellationToken.None).ConfigureAwait(false);
 
             // Display solution using extension methods
             if (result.IsOk())
@@ -179,7 +179,7 @@ namespace KasinoExample
         /// Demonstrate solving multiple capture scenarios in sequence
         /// Shows practical game play where multiple turns are optimized.
         /// </summary>
-        private static void Example3_MultipleCaptures()
+        private static async Task Example3_MultipleCapturesAsync()
         {
             Console.WriteLine("═══════════════════════════════════════════════════════════");
             Console.WriteLine("Example 3: Multiple Capture Scenarios (Game Sequence)");
@@ -214,7 +214,7 @@ namespace KasinoExample
                 var problem = KnapsackProblem(tableCards, capacity: scenario.HandValue);
 
                 // Solve (null = use LocalBackend quantum simulation)
-                var result = Knapsack.solve(problem, backend: null);
+                var result = await Knapsack.solveAsync(problem, backend: null, CancellationToken.None).ConfigureAwait(false);
 
                 if (result.IsOk())
                 {

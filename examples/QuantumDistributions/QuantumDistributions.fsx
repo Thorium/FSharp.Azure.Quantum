@@ -60,6 +60,8 @@ Usage:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.QuantumDistributions
 open FSharp.Azure.Quantum.Backends
@@ -324,8 +326,8 @@ let runBackend () =
 
     let dist = StandardNormal
 
-    async {
-        match! sampleManyWithBackend dist 5 backend None with
+    task {
+        match! sampleManyWithBackendAsync dist 5 backend None CancellationToken.None with
         | Ok samples ->
             let stats = computeStatistics samples
 
@@ -340,6 +342,7 @@ let runBackend () =
             if not quiet then
                 printfn "  Error: %s" err.Message
     }
+    |> Async.AwaitTask
     |> Async.RunSynchronously
 
 /// Example 8: Monte Carlo estimation of pi

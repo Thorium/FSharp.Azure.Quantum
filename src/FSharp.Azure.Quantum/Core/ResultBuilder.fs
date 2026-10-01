@@ -116,15 +116,6 @@ module Result =
 
     /// Unwrap Ok value or throw exception.
     ///
-    /// NOTE: Prefer matching on the Result or using `defaultValue` / `defaultWith`.
-    /// This function exists mainly for tests/quick scripts.
-    [<Obsolete("Result.get throws on Error. Prefer matching on Result or using defaultValue/defaultWith.")>]
-    let get (result: Result<'T, 'E>) : 'T =
-        result
-        |> Result.defaultWith (fun e -> raise (InvalidOperationException($"Result.get called on Error: {e}")))
-
-    /// Unwrap Ok value or throw exception.
-    ///
     /// Use this only when a thrown exception is acceptable.
     let unsafeGet (result: Result<'T, 'E>) : 'T =
         result

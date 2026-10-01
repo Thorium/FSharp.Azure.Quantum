@@ -25,6 +25,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.AutoML
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -241,7 +242,7 @@ if shouldRun "zeroconfig" then
         let testGood = [| 24.0; 150.0; 1.0; 25.0; 9.0 |]
         let testRisk = [| 2.0; 60.0; 8.0; 5.0; 3.0 |]
 
-        match AutoML.predict testGood r with
+        match AutoML.predictAsync testGood r CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
         | Ok(AutoML.BinaryPrediction p) ->
             pr
                 "  Test (good customer): %s (conf %.1f%%)"
@@ -249,7 +250,7 @@ if shouldRun "zeroconfig" then
                 (p.Confidence * 100.0)
         | _ -> ()
 
-        match AutoML.predict testRisk r with
+        match AutoML.predictAsync testRisk r CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
         | Ok(AutoML.BinaryPrediction p) ->
             pr
                 "  Test (at-risk):       %s (conf %.1f%%)"
@@ -321,7 +322,7 @@ if shouldRun "custom" then
 
         let testHigh = [| 450.0; 40.0; 35.0 |]
 
-        match AutoML.predict testHigh r with
+        match AutoML.predictAsync testHigh r CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
         | Ok(AutoML.CategoryPrediction p) ->
             let seg =
                 match p.Category with
@@ -380,11 +381,11 @@ if shouldRun "regression" then
         let testHigh = [| 180.0; 25.0; 30.0 |]
         let testLow = [| 70.0; 10.0; 6.0 |]
 
-        match AutoML.predict testHigh r with
+        match AutoML.predictAsync testHigh r CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
         | Ok(AutoML.RegressionPrediction p) -> pr "  Test (high-value): $%.2f" p.Value
         | _ -> ()
 
-        match AutoML.predict testLow r with
+        match AutoML.predictAsync testLow r CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
         | Ok(AutoML.RegressionPrediction p) -> pr "  Test (low-value):  $%.2f" p.Value
         | _ -> ()
 

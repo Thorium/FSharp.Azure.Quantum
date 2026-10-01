@@ -245,7 +245,7 @@ module QuantumMaxCutSolver =
     ///   - problem: MaxCut problem (graph with vertices and weighted edges)
     ///   - config: QAOA configuration (shots, initial parameters)
     ///
-    /// Returns: Async<Result<MaxCutSolution, QuantumError>> - Async computation with result or error
+    /// Returns: Task<Result<MaxCutSolution, QuantumError>> - Task with result or error
     ///
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
@@ -263,7 +263,7 @@ module QuantumMaxCutSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<MaxCutSolution, QuantumError>> =
 
-        let startTime = DateTime.Now
+        let stopwatch = System.Diagnostics.Stopwatch.StartNew()
 
         try
             // Step 1: Validate problem size against backend
@@ -295,7 +295,7 @@ module QuantumMaxCutSolver =
                         // Step 8: Find best solution (maximum cut value)
                         let bestSolution = solutions |> Array.maxBy (fun sol -> sol.CutValue)
 
-                        let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                        let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
                         Ok
                             { bestSolution with
@@ -326,35 +326,6 @@ module QuantumMaxCutSolver =
                         )
                     )
             }
-
-    /// Solve MaxCut problem using quantum QAOA (synchronous wrapper)
-    ///
-    /// This is a synchronous wrapper around solveAsync for backward compatibility.
-    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
-    ///
-    /// Parameters:
-    ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
-    ///   - problem: MaxCut problem (graph with vertices and weighted edges)
-    ///   - config: QAOA configuration (shots, initial parameters)
-    ///
-    /// Returns: Ok with best partition found, or Error with QuantumError
-    ///
-    /// Example:
-    ///   let backend = LocalBackend() :> IQuantumBackend
-    ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...] }
-    ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-    ///   match solve backend problem config with
-    ///   | Ok solution -> printfn "Cut: %f" solution.CutValue
-    ///   | Error msg -> printfn "Error: %s" msg
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: MaxCutProblem)
-        (config: QaoaConfig)
-        : Result<MaxCutSolution, QuantumError> =
-        solveAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ================================================================================
     // CLASSICAL GREEDY SOLVER (for comparison)

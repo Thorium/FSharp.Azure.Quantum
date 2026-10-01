@@ -64,7 +64,7 @@ The current package version is **1.4.15**. It is suitable for:
 | **Cost** | LocalBackend: free; Cloud: provider pricing | Classical runs are free; optional budget guard for quantum |
 | **Problem Size** | Limited by the backend's qubit count (LocalBackend: memory-derived, QAOA practical to ~20 qubits) | Classical path has no qubit limit |
 | **Best For** | Learning, consistent quantum API | Variable-size workloads where small cases should stay classical |
-| **Backend** | LocalBackend (default) or a cloud backend | Same, passed to the `solve*WithBackend` functions |
+| **Backend** | LocalBackend (default) or a cloud backend | Same, passed to the `solve*WithBackendAsync` functions |
 | **Reproducible** | ⚠️ Probabilistic (quantum nature) | Classical path: ✅ Deterministic |
 
 #### Decision Criteria
@@ -82,6 +82,7 @@ The current package version is **1.4.15**. It is suitable for:
 
 **Example:**
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 // QuantumMaxCutSolver lives in the Quantum namespace
 open FSharp.Azure.Quantum.Quantum
@@ -91,20 +92,24 @@ let problem =
         [ ("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0); ("D", "A", 1.0) ]
 
 // Direct Quantum API: QAOA on the local simulator
-match MaxCut.solve problem None with
-| Ok solution -> printfn "Cut value: %.1f" solution.CutValue
-| Error err -> eprintfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync problem None CancellationToken.None with
+    | Ok solution -> printfn "Cut value: %.1f" solution.CutValue
+    | Error err -> eprintfn "Error: %s" err.Message
+}
 
 // HybridSolver takes the solver-level problem type
 let hybridProblem: QuantumMaxCutSolver.MaxCutProblem =
     { Vertices = problem.Vertices; Edges = problem.Edges }
 
-match HybridSolver.solveMaxCut hybridProblem None None None with
-| Ok solution -> 
-    printfn "Method: %A" solution.Method  // Classical or Quantum
-    printfn "Reasoning: %s" solution.Reasoning
-    printfn "Cut value: %.1f" solution.Result.CutValue
-| Error err -> eprintfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveMaxCutAsync hybridProblem None None None CancellationToken.None with
+    | Ok solution -> 
+        printfn "Method: %A" solution.Method  // Classical or Quantum
+        printfn "Reasoning: %s" solution.Reasoning
+        printfn "Cut value: %.1f" solution.Result.CutValue
+    | Error err -> eprintfn "Error: %s" err.Message
+}
 ```
 
 **Crossover Point:** With `QuantumAdvisor.defaultThresholds`, HybridSolver routes to classical below 50 variables. From 50 up it uses quantum if you supplied a backend (and the estimated cost is within any budget you set); otherwise it still runs classically and says so in `Reasoning`.
@@ -146,7 +151,7 @@ The local simulator holds up to `StateVector.maxQubits` (derived from memory, at
 
 ### Can I use my own distance calculations?
 
-Yes! Build the distance matrix yourself and pass it to `HybridSolver.solveTsp`:
+Yes! Build the distance matrix yourself and pass it to `HybridSolver.solveTspAsync`:
 
 ```fsharp
 open FSharp.Azure.Quantum
@@ -163,9 +168,11 @@ let distances =
         if i = j then 0.0
         else myDistance cities.[i] cities.[j])
 
-match HybridSolver.solveTsp distances None None None with
-| Ok solution -> printfn "Tour length: %.2f (%A)" solution.Result.TourLength solution.Method
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveTspAsync distances None None None CancellationToken.None with
+    | Ok solution -> printfn "Tour length: %.2f (%A)" solution.Result.TourLength solution.Method
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ## Errors and Troubleshooting
@@ -217,26 +224,32 @@ let config =
 
 let backend = LocalBackend() :> IQuantumBackend
 
-match HybridSolver.solveTspWithBackendAndConfig distances None None (Some HybridSolver.Quantum) (Some backend) config with
-| Ok solution -> printfn "Tour length: %.2f" solution.Result.TourLength
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveTspWithBackendAndConfigAsync distances None None (Some HybridSolver.Quantum) (Some backend) config CancellationToken.None with
+    | Ok solution -> printfn "Tour length: %.2f" solution.Result.TourLength
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 2. **Compare with the classical heuristic:**
 ```fsharp
-match HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.Classical) with
-| Ok solution -> printfn "Tour length: %.2f" solution.Result.TourLength
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveTspAsync distances None None (Some HybridSolver.SolverMethod.Classical) CancellationToken.None with
+    | Ok solution -> printfn "Tour length: %.2f" solution.Result.TourLength
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 3. **Run the quantum solver several times and keep the best:**
 ```fsharp
-[1..10]
-|> List.choose (fun _ -> 
-    match HybridSolver.solveTspWithBackend distances None None (Some HybridSolver.Quantum) (Some backend) with
-    | Ok solution -> Some solution
-    | Error _ -> None)
-|> List.minBy (fun sol -> sol.Result.TourLength)
+task {
+    let solutions = ResizeArray()
+    for _ in 1..10 do
+        match! HybridSolver.solveTspWithBackendAsync distances None None (Some HybridSolver.Quantum) (Some backend) CancellationToken.None with
+        | Ok solution -> solutions.Add solution
+        | Error _ -> ()
+    return solutions |> Seq.minBy (fun sol -> sol.Result.TourLength)
+}
 ```
 
 ### How do I debug slow performance?
@@ -246,16 +259,18 @@ match HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.
 ```fsharp
 open System.Diagnostics
 
-let sw = Stopwatch.StartNew()
-match HybridSolver.solveTsp distances None None None with
-| Ok solution -> 
-    sw.Stop()
-    printfn "Size: %d cities" (distances.GetLength(0))
-    printfn "Time: %d ms" sw.ElapsedMilliseconds
-    printfn "Method: %A" solution.Method
-    printfn "Solver time: %.1f ms" solution.ElapsedMs
-    printfn "2-opt iterations: %d" solution.Result.Iterations
-| Error err -> printfn "Error: %s" err.Message
+task {
+    let sw = Stopwatch.StartNew()
+    match! HybridSolver.solveTspAsync distances None None None CancellationToken.None with
+    | Ok solution -> 
+        sw.Stop()
+        printfn "Size: %d cities" (distances.GetLength(0))
+        printfn "Time: %d ms" sw.ElapsedMilliseconds
+        printfn "Method: %A" solution.Method
+        printfn "Solver time: %.1f ms" solution.ElapsedMs
+        printfn "2-opt iterations: %d" solution.Result.Iterations
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ## Feature Questions
@@ -319,14 +334,17 @@ See [API Reference](api-reference) for the building blocks.
 // Add package reference
 // dotnet add package FSharp.Azure.Quantum
 
-// Open namespace
+// Open namespaces
+open System.Threading
 open FSharp.Azure.Quantum
 
 // Use in your code
-let optimizeTour (distances: float[,]) =
-    match HybridSolver.solveTsp distances None None None with
-    | Ok solution -> Some solution.Result
-    | Error _ -> None
+let optimizeTour (distances: float[,]) (cancellationToken: CancellationToken) =
+    task {
+        match! HybridSolver.solveTspAsync distances None None None cancellationToken with
+        | Ok solution -> return Some solution.Result
+        | Error _ -> return None
+    }
 ```
 
 ### Can I use this from C#?
@@ -334,6 +352,7 @@ let optimizeTour (distances: float[,]) =
 Yes! F# libraries are interoperable; F# `option` parameters take `null` for `None`:
 
 ```csharp
+using System.Threading;
 using FSharp.Azure.Quantum;
 
 var distances = new double[,] {
@@ -342,7 +361,7 @@ var distances = new double[,] {
     {15.0, 7.0, 0.0}
 };
 
-var result = HybridSolver.solveTsp(distances, null, null, null);
+var result = await HybridSolver.solveTspAsync(distances, null, null, null, CancellationToken.None);
 
 if (result.IsOk) {
     var solution = result.ResultValue;
@@ -423,30 +442,39 @@ See `CONTRIBUTING.md` (if available) or open an issue to discuss.
 
 **Solution:** Warm up with a small problem first:
 ```fsharp
-// Warm up JIT with a tiny problem
-let _ = MaxCut.solve (MaxCut.createProblem ["A"; "B"] [ ("A", "B", 1.0) ]) None
+task {
+    // Warm up JIT with a tiny problem
+    let! _ = MaxCut.solveAsync (MaxCut.createProblem ["A"; "B"] [ ("A", "B", 1.0) ]) None CancellationToken.None
 
-// Now solve the real problem
-let solution = MaxCut.solve problem None
+    // Now solve the real problem
+    let! solution = MaxCut.solveAsync problem None CancellationToken.None
+    return solution
+}
 ```
 
 ### How do I parallelize multiple solves?
 
-Use F# async; give each run its own backend instance:
+Start each run as a task on the thread pool and await them together; give each run its own backend instance:
 
 ```fsharp
+open System.Threading.Tasks
+open FSharp.Azure.Quantum.Core
+
 // Ten independent QAOA runs; keep the best cut
-let best = 
-    [1..10]
-    |> List.map (fun _ -> 
-        async {
-            let runBackend = LocalBackend() :> IQuantumBackend
-            return MaxCut.solve problem (Some runBackend)
-        })
-    |> Async.Parallel
-    |> Async.RunSynchronously
-    |> Array.choose (function Ok s -> Some s | Error _ -> None)
-    |> Array.maxBy (fun s -> s.CutValue)
+task {
+    let! runs =
+        [1..10]
+        |> List.map (fun _ -> 
+            Task.Run<QuantumResult<MaxCut.Solution>>(fun () ->
+                let runBackend = LocalBackend() :> IQuantumBackend
+                MaxCut.solveAsync problem (Some runBackend) CancellationToken.None))
+        |> Task.WhenAll
+    let best =
+        runs
+        |> Array.choose (function Ok s -> Some s | Error _ -> None)
+        |> Array.maxBy (fun s -> s.CutValue)
+    return best
+}
 ```
 
 Each run holds its own state vector, so memory grows with the number of parallel runs.

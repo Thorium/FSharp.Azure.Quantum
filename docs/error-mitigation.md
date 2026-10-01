@@ -63,6 +63,8 @@ The examples on this page use `NoisyLocalBackend`, a density-matrix simulator th
 
 ```fsharp
 open System.Numerics
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Algorithms
@@ -78,8 +80,8 @@ let zz : TrotterSuzuki.PauliHamiltonian =
       Terms = [ { Operators = [| 'Z'; 'Z' |]; Coefficient = Complex.One } ] }
 
 // Executor for ZNE and PEC: circuit -> expectation value
-let executor (c: Circuit) : Async<Result<float, string>> =
-    async { return Primitives.observe backend c zz |> Result.mapError (fun e -> e.Message) }
+let executor (c: Circuit) : Task<Result<float, string>> =
+    task { return Primitives.observe backend c zz |> Result.mapError (fun e -> e.Message) }
 
 // A small VQE-style ansatz to mitigate
 let theta = 0.4
@@ -129,21 +131,23 @@ open FSharp.Azure.Quantum.ZeroNoiseExtrapolation
 // Baseline plus two amplified noise levels, quadratic fit
 let zneConfig = defaultIonQConfig |> withPolynomialDegree 2
 
-match ZeroNoiseExtrapolation.mitigate vqeCircuit zneConfig executor |> Async.RunSynchronously with
-| Ok result ->
-    printfn "Zero-noise value: %.4f" result.ZeroNoiseValue
-    printfn "R² fit quality: %.4f" result.GoodnessOfFit
+task {
+    match! ZeroNoiseExtrapolation.mitigateAsync vqeCircuit zneConfig executor CancellationToken.None with
+    | Ok result ->
+        printfn "Zero-noise value: %.4f" result.ZeroNoiseValue
+        printfn "R² fit quality: %.4f" result.GoodnessOfFit
 
-    for (noiseLevel, value) in result.MeasuredValues do
-        printfn "  %.2fx noise -> %.4f" noiseLevel value
+        for (noiseLevel, value) in result.MeasuredValues do
+            printfn "  %.2fx noise -> %.4f" noiseLevel value
 
-    // Check fit quality
-    if result.GoodnessOfFit < 0.9 then
-        printfn "Warning: poor fit quality - consider more noise levels"
-| Error msg -> eprintfn "ZNE failed: %s" msg
+        // Check fit quality
+        if result.GoodnessOfFit < 0.9 then
+            printfn "Warning: poor fit quality - consider more noise levels"
+    | Error msg -> eprintfn "ZNE failed: %s" msg
+}
 ```
 
-`mitigate` runs the executor once per noise level (in parallel) and returns `Async<Result<ZNEResult, string>>`. `ZNEResult` holds `ZeroNoiseValue`, `MeasuredValues` (noise level, value pairs), `PolynomialCoefficients` and `GoodnessOfFit` (R²). It does not know the ideal value, so it cannot report an error reduction; compare against a known reference yourself if you have one.
+`mitigateAsync` runs the executor once per noise level, one after another, and returns `Task<Result<ZNEResult, string>>`. `ZNEResult` holds `ZeroNoiseValue`, `MeasuredValues` (noise level, value pairs), `PolynomialCoefficients` and `GoodnessOfFit` (R²). It does not know the ideal value, so it cannot report an error reduction; compare against a known reference yourself if you have one.
 
 ### Configuration Options
 
@@ -165,7 +169,7 @@ let stretchConfig =
 
 - `defaultIonQConfig` uses `IdentityInsertion 0.0 / 0.5 / 1.0`; `defaultRigettiConfig` uses `PulseStretching 1.0 / 1.5 / 2.0`. Both use degree 2 and `MinSamples = 1024`.
 - The library works at gate level and has no pulse control, so `PulseStretching s` is realised digitally: it inserts identity pairs so the gate count grows by the factor `s`. Both scalings therefore run on any gate-based backend.
-- `mitigate` does not pass `MinSamples` to your executor; the executor decides how many shots to use.
+- `mitigateAsync` does not pass `MinSamples` to your executor; the executor decides how many shots to use.
 
 ### Cost Analysis
 
@@ -178,7 +182,7 @@ let stretchConfig =
 
 ### Choosing Polynomial Degree
 
-The fit needs at least `degree + 1` noise levels; with fewer, `mitigate` returns an `Error`.
+The fit needs at least `degree + 1` noise levels; with fewer, `mitigateAsync` returns an `Error`.
 
 ```fsharp
 // Linear (degree 1): E(λ) = a + bλ. Fast, simple, less accurate
@@ -241,17 +245,19 @@ let pecConfig : PECConfig =
       Samples = 1000   // Monte Carlo samples: more = lower variance, higher cost
       Seed = Some 42 } // reproducible sampling
 
-match ProbabilisticErrorCancellation.mitigate vqeCircuit pecConfig executor |> Async.RunSynchronously with
-| Ok result ->
-    printfn "Corrected value:   %.4f" result.CorrectedExpectation
-    printfn "Uncorrected value: %.4f" result.UncorrectedExpectation
-    printfn "Relative change:   %.1f%%" (result.ErrorReduction * 100.0)
-    printfn "Samples used:      %d" result.SamplesUsed
-    printfn "Overhead:          %.0fx" result.Overhead
-| Error msg -> eprintfn "PEC failed: %s" msg
+task {
+    match! ProbabilisticErrorCancellation.mitigateAsync vqeCircuit pecConfig executor CancellationToken.None with
+    | Ok result ->
+        printfn "Corrected value:   %.4f" result.CorrectedExpectation
+        printfn "Uncorrected value: %.4f" result.UncorrectedExpectation
+        printfn "Relative change:   %.1f%%" (result.ErrorReduction * 100.0)
+        printfn "Samples used:      %d" result.SamplesUsed
+        printfn "Overhead:          %.0fx" result.Overhead
+    | Error msg -> eprintfn "PEC failed: %s" msg
+}
 ```
 
-`mitigate` returns `Async<Result<PECResult, string>>`. `ErrorReduction` is the relative difference between the corrected and uncorrected values, `|corrected − uncorrected| / |uncorrected|`; without the ideal value the library cannot measure the true error reduction. `Overhead` is the number of sampled circuits (`Samples`); the baseline adds one more execution.
+`mitigateAsync` runs the sampled circuits one after another and returns `Task<Result<PECResult, string>>`. `ErrorReduction` is the relative difference between the corrected and uncorrected values, `|corrected − uncorrected| / |uncorrected|`; without the ideal value the library cannot measure the true error reduction. `Overhead` is the number of sampled circuits (`Samples`); the baseline adds one more execution.
 
 ### Noise Model Characterization
 
@@ -326,8 +332,8 @@ REM executors take a circuit and a shot count and return a histogram. `ReadoutEr
 open FSharp.Azure.Quantum.ReadoutErrorMitigation
 
 // REM executor: circuit -> shots -> histogram (keys with the highest qubit first)
-let sampleExecutor (c: Circuit) (shots: int) : Async<Result<Map<string, int>, string>> =
-    async {
+let sampleExecutor (c: Circuit) (shots: int) : Task<Result<Map<string, int>, string>> =
+    task {
         return
             Primitives.sample backend c shots
             |> Result.map (fun histogram ->
@@ -341,38 +347,40 @@ let sampleExecutor (c: Circuit) (shots: int) : Async<Result<Map<string, int>, st
 // Configure REM (defaultConfig: 10,000 shots, 95% confidence, clip negatives, 1% filter)
 let remConfig = defaultConfig |> withCalibrationShots 10000
 
-// Step 1: Calibrate (one-time per backend session): 2^n calibration circuits
-match measureCalibrationMatrix "noisy-local" 2 remConfig sampleExecutor |> Async.RunSynchronously with
-| Error msg -> eprintfn "Calibration failed: %s" msg
-| Ok calibration ->
-    // Matrix.[measured, prepared]; each column sums to 1
-    printfn "P(measure 00 | prepared 00): %.4f" calibration.Matrix.[0, 0]
-    printfn "P(measure 01 | prepared 00): %.4f" calibration.Matrix.[1, 0]
+task {
+    // Step 1: Calibrate (one-time per backend session): 2^n calibration circuits
+    match! measureCalibrationMatrixAsync "noisy-local" 2 remConfig sampleExecutor CancellationToken.None with
+    | Error msg -> eprintfn "Calibration failed: %s" msg
+    | Ok calibration ->
+        // Matrix.[measured, prepared]; each column sums to 1
+        printfn "P(measure 00 | prepared 00): %.4f" calibration.Matrix.[0, 0]
+        printfn "P(measure 01 | prepared 00): %.4f" calibration.Matrix.[1, 0]
 
-    // Step 2: Run your circuit
-    let bell =
-        circuit {
-            qubits 2
-            H 0
-            CNOT 0 1
-        }
+        // Step 2: Run your circuit
+        let bell =
+            circuit {
+                qubits 2
+                H 0
+                CNOT 0 1
+            }
 
-    match sampleExecutor bell 10000 |> Async.RunSynchronously with
-    | Error msg -> eprintfn "Execution failed: %s" msg
-    | Ok rawCounts ->
-        // Step 3: Apply correction
-        match correctReadoutErrors rawCounts calibration remConfig with
-        | Ok corrected ->
-            printfn "Raw counts: %A" rawCounts
-            printfn "Corrected counts: %A" corrected.Histogram
-            printfn "95%% intervals: %A" corrected.ConfidenceIntervals
-            printfn "Normalization check: %.4f" corrected.GoodnessOfFit
-        | Error msg -> eprintfn "Correction failed: %s" msg
+        match! sampleExecutor bell 10000 with
+        | Error msg -> eprintfn "Execution failed: %s" msg
+        | Ok rawCounts ->
+            // Step 3: Apply correction
+            match correctReadoutErrors rawCounts calibration remConfig with
+            | Ok corrected ->
+                printfn "Raw counts: %A" rawCounts
+                printfn "Corrected counts: %A" corrected.Histogram
+                printfn "95%% intervals: %A" corrected.ConfidenceIntervals
+                printfn "Normalization check: %.4f" corrected.GoodnessOfFit
+            | Error msg -> eprintfn "Correction failed: %s" msg
+}
 ```
 
 `correctReadoutErrors` returns `CorrectedResults`: the corrected `Histogram` (non-integer counts), `ConfidenceIntervals`, the `CalibrationUsed` and a `GoodnessOfFit` normalization check. The calibration must match the histogram's qubit count, otherwise the call returns an `Error`.
 
-`ReadoutErrorMitigation.mitigate circuit backendName config executor` runs calibration, execution and correction in one call. It recalibrates every time, so when you run several circuits, calibrate once with `measureCalibrationMatrix` and reuse the matrix with `correctReadoutErrors`.
+`ReadoutErrorMitigation.mitigateAsync circuit backendName config executor ct` runs calibration, execution and correction in one call and returns `Task<Result<CorrectedResults, string>>`. It recalibrates every time, so when you run several circuits, calibrate once with `measureCalibrationMatrixAsync` and reuse the matrix with `correctReadoutErrors`.
 
 ### Multi-Qubit Calibration
 
@@ -380,10 +388,10 @@ match measureCalibrationMatrix "noisy-local" 2 remConfig sampleExecutor |> Async
 
 ```fsharp
 // 1 qubit: 2 states (|0⟩, |1⟩)
-let cal1 = measureCalibrationMatrix "noisy-local" 1 remConfig sampleExecutor
+let cal1 = measureCalibrationMatrixAsync "noisy-local" 1 remConfig sampleExecutor CancellationToken.None
 
 // 3 qubits: 8 states (|000⟩, |001⟩, ..., |111⟩)
-let cal3 = measureCalibrationMatrix "noisy-local" 3 remConfig sampleExecutor
+let cal3 = measureCalibrationMatrixAsync "noisy-local" 3 remConfig sampleExecutor CancellationToken.None
 ```
 
 **Calibration Cost**:
@@ -460,8 +468,8 @@ let parityExpectation (histogram: Map<string, float>) =
         0.0
 
 /// Executor for ZNE/PEC that applies REM before computing the expectation value
-let remCorrectedExecutor (calibration: CalibrationMatrix) (c: Circuit) : Async<Result<float, string>> =
-    async {
+let remCorrectedExecutor (calibration: CalibrationMatrix) (c: Circuit) : Task<Result<float, string>> =
+    task {
         let! counts = sampleExecutor c 4000
 
         return
@@ -471,17 +479,14 @@ let remCorrectedExecutor (calibration: CalibrationMatrix) (c: Circuit) : Async<R
     }
 
 // Step 1: Calibrate REM (one-time), then Step 2: run ZNE with the corrected executor
-let remZne =
-    async {
-        match! measureCalibrationMatrix "noisy-local" 2 remConfig sampleExecutor with
-        | Error msg -> return Error msg
-        | Ok calibration ->
-            return! ZeroNoiseExtrapolation.mitigate vqeCircuit zneConfig (remCorrectedExecutor calibration)
-    }
-
-match Async.RunSynchronously remZne with
-| Ok result -> printfn "Mitigated value: %.4f" result.ZeroNoiseValue
-| Error msg -> eprintfn "Error: %s" msg
+task {
+    match! measureCalibrationMatrixAsync "noisy-local" 2 remConfig sampleExecutor CancellationToken.None with
+    | Error msg -> eprintfn "Error: %s" msg
+    | Ok calibration ->
+        match! ZeroNoiseExtrapolation.mitigateAsync vqeCircuit zneConfig (remCorrectedExecutor calibration) CancellationToken.None with
+        | Ok result -> printfn "Mitigated value: %.4f" result.ZeroNoiseValue
+        | Error msg -> eprintfn "Error: %s" msg
+}
 ```
 
 **Benefits**:
@@ -498,17 +503,14 @@ match Async.RunSynchronously remZne with
 The same corrected executor plugs into PEC:
 
 ```fsharp
-let remPec =
-    async {
-        match! measureCalibrationMatrix "noisy-local" 2 remConfig sampleExecutor with
-        | Error msg -> return Error msg
-        | Ok calibration ->
-            return! ProbabilisticErrorCancellation.mitigate vqeCircuit pecConfig (remCorrectedExecutor calibration)
-    }
-
-match Async.RunSynchronously remPec with
-| Ok result -> printfn "Mitigated value: %.4f" result.CorrectedExpectation
-| Error msg -> eprintfn "Error: %s" msg
+task {
+    match! measureCalibrationMatrixAsync "noisy-local" 2 remConfig sampleExecutor CancellationToken.None with
+    | Error msg -> eprintfn "Error: %s" msg
+    | Ok calibration ->
+        match! ProbabilisticErrorCancellation.mitigateAsync vqeCircuit pecConfig (remCorrectedExecutor calibration) CancellationToken.None with
+        | Ok result -> printfn "Mitigated value: %.4f" result.CorrectedExpectation
+        | Error msg -> eprintfn "Error: %s" msg
+}
 ```
 
 **Benefits**:
@@ -529,7 +531,7 @@ let criteria : ErrorMitigationStrategy.SelectionCriteria =
       Backend = { Id = "ionq.simulator"; Provider = "IonQ"; Name = "IonQ Simulator"; Status = "Available" }
       MaxCostUSD = Some 50.0
       RequiredAccuracy = None
-      Calibration = None } // or Some calibration from measureCalibrationMatrix
+      Calibration = None } // or Some calibration from measureCalibrationMatrixAsync
 
 let recommended = ErrorMitigationStrategy.selectStrategy criteria
 printfn "%s (estimated cost %.0fx)" recommended.Reasoning recommended.EstimatedCostMultiplier
@@ -547,7 +549,7 @@ What `selectStrategy` picks:
 | Budget below $10 | REM | none |
 | Otherwise | ZNE + REM | REM |
 
-`ErrorMitigationStrategy.applyStrategy histogram recommended` applies a recommendation to a finished histogram. Only the readout (REM) part can be applied after the fact, and only when the criteria carried a calibration matrix; otherwise the counts pass through unchanged and the result has `CorrectionApplied = false`. ZNE and PEC re-execute the circuit, so run them with their own `mitigate` functions as shown above.
+`ErrorMitigationStrategy.applyStrategy histogram recommended` applies a recommendation to a finished histogram. Only the readout (REM) part can be applied after the fact, and only when the criteria carried a calibration matrix; otherwise the counts pass through unchanged and the result has `CorrectionApplied = false`. ZNE and PEC re-execute the circuit, so run them with their own `mitigateAsync` functions as shown above.
 
 ### Strategy Selection Guide
 

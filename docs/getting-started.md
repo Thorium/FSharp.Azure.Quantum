@@ -44,6 +44,7 @@ Install-Package FSharp.Azure.Quantum
 Let's solve a simple Graph Coloring Problem using the quantum-first API:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 
@@ -57,14 +58,18 @@ let problem = graphColoring {
 }
 
 // Solve using QAOA quantum algorithm (LocalBackend simulation)
-match GraphColoring.solve problem 4 None with  // None = LocalBackend (default)
-| Ok solution ->
-    printfn "Colors used: %d" solution.ColorsUsed
-    solution.Assignments 
-    |> Map.iter (fun node color -> printfn "%s → %s" node color)
-| Error err -> 
-    printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 4 None CancellationToken.None with  // None = LocalBackend (default)
+    | Ok solution ->
+        printfn "Colors used: %d" solution.ColorsUsed
+        solution.Assignments 
+        |> Map.iter (fun node color -> printfn "%s → %s" node color)
+    | Error err -> 
+        printfn "Error: %s" err.Message
+}
 ```
+
+Samples are `task` blocks: `await` them in an application, or end a script with `|> Async.AwaitTask |> Async.RunSynchronously`.
 
 **Output** (QAOA is probabilistic, so the exact assignment can differ between runs):
 ```
@@ -77,7 +82,7 @@ R4 → EAX
 
 **What happens:**
 1. Computation expression builds graph coloring problem
-2. `GraphColoring.solve` encodes problem as QUBO
+2. `GraphColoring.solveAsync` encodes problem as QUBO
 3. QAOA quantum algorithm builds optimization circuit
 4. LocalBackend simulates quantum circuit (memory-derived width, free); this problem needs 4 nodes × 4 colors = 16 qubits
 5. Returns color assignments with validation
@@ -101,12 +106,14 @@ let edges = [
 let maxCutProblem = MaxCut.createProblem vertices edges
 
 // Solve with QAOA on LocalBackend (simulation)
-match MaxCut.solve maxCutProblem None with
-| Ok solution ->
-    printfn "Cut Value: %.2f" solution.CutValue
-    printfn "Partition S: %A" solution.PartitionS
-    printfn "Partition T: %A" solution.PartitionT
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync maxCutProblem None CancellationToken.None with
+    | Ok solution ->
+        printfn "Cut Value: %.2f" solution.CutValue
+        printfn "Partition S: %A" solution.PartitionS
+        printfn "Partition T: %A" solution.PartitionT
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### 2. **HybridSolver** - Optional Routing for Variable-Sized Problems
@@ -126,20 +133,22 @@ let distances = array2D [
 ]
 
 // 5 cities is below the advisor's thresholds, so this runs the classical solver
-match HybridSolver.solveTsp distances None None None with
-| Ok solution ->
-    printfn "Method: %A" solution.Method          // Classical or Quantum
-    printfn "Tour: %A" solution.Result.Tour
-    printfn "Length: %.2f" solution.Result.TourLength
-    printfn "Reasoning: %s" solution.Reasoning    // Explains routing decision
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveTspAsync distances None None None CancellationToken.None with
+    | Ok solution ->
+        printfn "Method: %A" solution.Method          // Classical or Quantum
+        printfn "Tour: %A" solution.Result.Tour
+        printfn "Length: %.2f" solution.Result.TourLength
+        printfn "Reasoning: %s" solution.Reasoning    // Explains routing decision
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 #### How HybridSolver Decides: Decision Flow
 
 ```
 ┌─────────────────────────────────────┐
-│    HybridSolver.solveTsp()          │
+│    HybridSolver.solveTspAsync()     │
 └──────────────┬──────────────────────┘
                │
                ▼
@@ -178,7 +187,7 @@ match HybridSolver.solveTsp distances None None None with
 **Key Decision Factors** (with `QuantumAdvisor.defaultThresholds`):
 - **Size < 20**: Classical, strongly recommended
 - **20 ≤ Size < 50**: Advisor says "consider quantum", but HybridSolver still runs the classical solver
-- **Size ≥ 50**: Quantum, if you called a `solve*WithBackend` function with a backend and the estimated cost is within the optional budget; otherwise classical
+- **Size ≥ 50**: Quantum, if you called a `solve*WithBackendAsync` function with a backend and the estimated cost is within the optional budget; otherwise classical
 - **forceMethod**: Overrides the decision (`Some HybridSolver.Quantum` uses the given backend, or a new LocalBackend)
 
 `solution.Reasoning` always says which branch was taken.
@@ -188,6 +197,7 @@ match HybridSolver.solveTsp distances None None None with
 Each problem type has a builder: a computation expression (`graphColoring { ... }`, `scheduledTask { ... }`) or `createProblem` helpers that take plain tuples:
 
 ```fsharp
+open System.Threading
 // Knapsack problem (resource allocation)
 let items = [
     ("Laptop", 2.0, 1000.0)   // (id, weight, value)
@@ -197,12 +207,14 @@ let items = [
 let knapsackProblem = Knapsack.createProblem items 3.0  // capacity = 3.0
 
 // Solve with QAOA quantum algorithm
-match Knapsack.solve knapsackProblem None with
-| Ok solution ->
-    printfn "Total Value: %.2f" solution.TotalValue
-    printfn "Total Weight: %.2f" solution.TotalWeight
-    solution.SelectedItems |> List.iter (fun item -> printfn "  - %s" item.Id)
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! Knapsack.solveAsync knapsackProblem None CancellationToken.None with
+    | Ok solution ->
+        printfn "Total Value: %.2f" solution.TotalValue
+        printfn "Total Weight: %.2f" solution.TotalWeight
+        solution.SelectedItems |> List.iter (fun item -> printfn "  - %s" item.Id)
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **When to Use Direct Quantum API vs HybridSolver:**
@@ -225,7 +237,7 @@ let wrong = array2D [
     [0.0; 1.0; 2.0]
     [1.0; 0.0; 3.0]
 ]
-// HybridSolver.solveTsp returns
+// HybridSolver.solveTspAsync returns
 // Error (ValidationError "Distance matrix must be square (got 2x3 dimensions)")
 ```
 
@@ -264,18 +276,21 @@ let symmetric = array2D [
 
 ```fsharp
 // ❌ WRONG: Not handling errors (would cause compiler error)
-// let solution = HybridSolver.solveTsp distances None None None
+// let! solution = HybridSolver.solveTspAsync distances None None None CancellationToken.None
 // printfn "%A" solution.Result  // Compiler error! 'solution' is Result<T,E>
 ```
 
 **✅ Fix:** Always pattern match on Result
 ```fsharp
+open System.Threading
 // ✅ CORRECT: Proper error handling
-match HybridSolver.solveTsp distances None None None with
-| Ok solution -> 
-    printfn "Success: %A" solution.Result
-| Error err -> 
-    eprintfn "Failed: %s" err.Message
+task {
+    match! HybridSolver.solveTspAsync distances None None None CancellationToken.None with
+    | Ok solution -> 
+        printfn "Success: %A" solution.Result
+    | Error err -> 
+        eprintfn "Failed: %s" err.Message
+}
 ```
 
 ### ❌ Pitfall 4: Budget Constraints Too Tight
@@ -306,10 +321,12 @@ Solvers return `QuantumResult<'T>`, which is `Result<'T, QuantumError>`. The err
 ```fsharp
 open FSharp.Azure.Quantum.Core
 
-match HybridSolver.solveTsp wrong None None None with
-| Ok _ -> ()
-| Error (QuantumError.ValidationError (field, reason)) -> eprintfn "Invalid %s: %s" field reason
-| Error err -> eprintfn "Failed (%s): %s" err.Category err.Message
+task {
+    match! HybridSolver.solveTspAsync wrong None None None CancellationToken.None with
+    | Ok _ -> ()
+    | Error (QuantumError.ValidationError (field, reason)) -> eprintfn "Invalid %s: %s" field reason
+    | Error err -> eprintfn "Failed (%s): %s" err.Category err.Message
+}
 ```
 
 ## Complete Error Handling Examples
@@ -319,78 +336,88 @@ match HybridSolver.solveTsp wrong None None None with
 ```fsharp
 open FSharp.Azure.Quantum.Core
 
-let solveTspRobust (distances: float[,]) =
-    // Validate input
-    let n = distances.GetLength(0)
-    if n <> distances.GetLength(1) then
-        Error (QuantumError.ValidationError ("distances", "Distance matrix must be square"))
-    elif n < 2 then
-        Error (QuantumError.ValidationError ("distances", "Need at least 2 cities"))
-    else
-        // Try solving with automatic routing
-        match HybridSolver.solveTsp distances None None None with
-        | Ok solution ->
-            printfn "✓ Success using %A solver" solution.Method
-            printfn "  Tour: %A" solution.Result.Tour
-            printfn "  Length: %.2f" solution.Result.TourLength
-            printfn "  Time: %.2f ms" solution.ElapsedMs
-            Ok solution
-            
-        | Error err ->
-            // Log error and return error (no classical fallback in this example)
-            eprintfn "⚠ HybridSolver failed: %s" err.Message
-            Error err
+let solveTspRobust (distances: float[,]) (cancellationToken: CancellationToken) =
+    task {
+        // Validate input
+        let n = distances.GetLength(0)
+        if n <> distances.GetLength(1) then
+            return Error (QuantumError.ValidationError ("distances", "Distance matrix must be square"))
+        elif n < 2 then
+            return Error (QuantumError.ValidationError ("distances", "Need at least 2 cities"))
+        else
+            // Try solving with automatic routing
+            match! HybridSolver.solveTspAsync distances None None None cancellationToken with
+            | Ok solution ->
+                printfn "✓ Success using %A solver" solution.Method
+                printfn "  Tour: %A" solution.Result.Tour
+                printfn "  Length: %.2f" solution.Result.TourLength
+                printfn "  Time: %.2f ms" solution.ElapsedMs
+                return Ok solution
+                
+            | Error err ->
+                // Log error and return error (no classical fallback in this example)
+                eprintfn "⚠ HybridSolver failed: %s" err.Message
+                return Error err
+    }
 
 // Usage
 let distancesRobust = array2D [[0.0; 10.0]; [10.0; 0.0]]
-match solveTspRobust distancesRobust with
-| Ok _ -> printfn "Problem solved!"
-| Error err -> eprintfn "Could not solve: %s" err.Message
+task {
+    match! solveTspRobust distancesRobust CancellationToken.None with
+    | Ok _ -> printfn "Problem solved!"
+    | Error err -> eprintfn "Could not solve: %s" err.Message
+}
 ```
 
 ### Portfolio Optimization with Validation
 
 ```fsharp
-let solvePortfolioSafely (assets: (string * float * float * float) list) (budget: float) =
-    // Validate assets
-    let invalidAssets = 
-        assets 
-        |> List.filter (fun (symbol, ret, risk, price) -> 
-            price <= 0.0 || risk < 0.0)
-    
-    if not (List.isEmpty invalidAssets) then
-        Error (QuantumError.ValidationError ("assets", $"Invalid assets: %A{invalidAssets}"))
-    elif budget <= 0.0 then
-        Error (QuantumError.ValidationError ("budget", $"Budget must be positive: {budget}"))
-    else
-        let constraints: PortfolioSolver.Constraints = {
-            Budget = budget
-            MinHolding = 0.0
-            MaxHolding = budget * 0.5  // Max 50% in any asset
-        }
-        
-        // Create asset records
-        let assetRecords: PortfolioSolver.Asset list = 
+open System.Threading
+let solvePortfolioSafely
+    (assets: (string * float * float * float) list)
+    (budget: float)
+    (cancellationToken: CancellationToken) =
+    task {
+        // Validate assets
+        let invalidAssets = 
             assets 
-            |> List.map (fun (symbol, ret, risk, price) ->
-                { Symbol = symbol; ExpectedReturn = ret; Risk = risk; Price = price })
+            |> List.filter (fun (symbol, ret, risk, price) -> 
+                price <= 0.0 || risk < 0.0)
         
-        // Validate budget constraint
-        match PortfolioSolver.validateBudgetConstraint assetRecords constraints with
-        | validation when not validation.IsValid ->
-            Error (QuantumError.ValidationError ("constraints", String.concat "; " validation.Messages))
-        | _ ->
-            // Solve
-            match HybridSolver.solvePortfolio assetRecords constraints None None None with
-            | Ok solution ->
-                printfn "✓ Portfolio optimized using %A" solution.Method
-                printfn "  Total Value: $%.2f" solution.Result.TotalValue
-                printfn "  Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
-                printfn "  Risk: %.2f" solution.Result.Risk
-                printfn "  Sharpe Ratio: %.2f" solution.Result.SharpeRatio
-                Ok solution
-            | Error err ->
-                Error err
+        if not (List.isEmpty invalidAssets) then
+            return Error (QuantumError.ValidationError ("assets", $"Invalid assets: %A{invalidAssets}"))
+        elif budget <= 0.0 then
+            return Error (QuantumError.ValidationError ("budget", $"Budget must be positive: {budget}"))
+        else
+            let constraints: PortfolioSolver.Constraints = {
+                Budget = budget
+                MinHolding = 0.0
+                MaxHolding = budget * 0.5  // Max 50% in any asset
+            }
+            
+            // Create asset records
+            let assetRecords: PortfolioSolver.Asset list = 
+                assets 
+                |> List.map (fun (symbol, ret, risk, price) ->
+                    { Symbol = symbol; ExpectedReturn = ret; Risk = risk; Price = price })
+            
+            // Validate budget constraint
+            match PortfolioSolver.validateBudgetConstraint assetRecords constraints with
+            | validation when not validation.IsValid ->
+                return Error (QuantumError.ValidationError ("constraints", String.concat "; " validation.Messages))
+            | _ ->
+                // Solve
+                match! HybridSolver.solvePortfolioAsync assetRecords constraints None None None cancellationToken with
+                | Ok solution ->
+                    printfn "✓ Portfolio optimized using %A" solution.Method
+                    printfn "  Total Value: $%.2f" solution.Result.TotalValue
+                    printfn "  Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
+                    printfn "  Risk: %.2f" solution.Result.Risk
+                    printfn "  Sharpe Ratio: %.2f" solution.Result.SharpeRatio
+                    return Ok solution
+                | Error err ->
+                    return Error err
+    }
 
 // Usage with error recovery
 let assets: (string * float * float * float) list = [
@@ -398,47 +425,51 @@ let assets: (string * float * float * float) list = [
     ("MSFT", 0.10, 0.15, 300.0)
 ]
 
-match solvePortfolioSafely assets 10000.0 with
-| Ok solution -> 
-    // Process successful result
-    solution.Result.Allocations 
-    |> List.iter (fun a -> printfn "  %s: $%.2f" a.Asset.Symbol a.Value)
-| Error err -> 
-    // Handle failure gracefully
-    eprintfn "Portfolio optimization failed: %s" err.Message
-    eprintfn "Try: Increase budget or reduce constraints"
+task {
+    match! solvePortfolioSafely assets 10000.0 CancellationToken.None with
+    | Ok solution -> 
+        // Process successful result
+        solution.Result.Allocations 
+        |> List.iter (fun a -> printfn "  %s: $%.2f" a.Asset.Symbol a.Value)
+    | Error err -> 
+        // Handle failure gracefully
+        eprintfn "Portfolio optimization failed: %s" err.Message
+        eprintfn "Try: Increase budget or reduce constraints"
+}
 ```
 
-`HybridSolver.solvePortfolio` treats the assets as independent (risk = sqrt(Σ (wᵢσᵢ)²)). When you have the covariance of the returns, `HybridSolver.solvePortfolioWithCovariance assets covariance constraints None None None None` validates it (square, one row per asset, symmetric, positive semidefinite, otherwise a `ValidationError`) and both solver paths report risk as sqrt(wᵀΣw).
+`HybridSolver.solvePortfolioAsync` treats the assets as independent (risk = sqrt(Σ (wᵢσᵢ)²)). When you have the covariance of the returns, `HybridSolver.solvePortfolioWithCovarianceAsync assets covariance constraints None None None None cancellationToken` validates it (square, one row per asset, symmetric, positive semidefinite, otherwise a `ValidationError`) and both solver paths report risk as sqrt(wᵀΣw).
 
 ### Handling Budget Limits
 
 The `budget` argument (USD) is a cost guard: when the advisor recommends quantum but the estimated cost exceeds the budget, HybridSolver runs the classical solver instead and says so in `Reasoning`. Exceeding the budget is not an error.
 
 ```fsharp
-let solveTspWithBudget (distances: float[,]) (maxBudget: float) =
-    printfn "Solving with budget=$%.2f" maxBudget
-    
-    match HybridSolver.solveTsp distances (Some maxBudget) None None with
-    | Ok solution when solution.Method = HybridSolver.Classical ->
-        // Classical was used (small problem, no backend, or over budget)
-        printfn "✓ Classical solver used: %s" solution.Reasoning
-        Ok solution
+let solveTspWithBudget (distances: float[,]) (maxBudget: float) (cancellationToken: CancellationToken) =
+    task {
+        printfn "Solving with budget=$%.2f" maxBudget
         
-    | Ok solution ->
-        printfn "✓ Quantum solver used: %s" solution.Reasoning
-        Ok solution
-        
-    | Error (QuantumError.ValidationError (field, reason)) ->
-        eprintfn "✗ Invalid input (%s): %s" field reason
-        Error (QuantumError.ValidationError (field, reason))
-        
-    | Error err ->
-        eprintfn "✗ Solver error: %s" err.Message
-        Error err
+        match! HybridSolver.solveTspAsync distances (Some maxBudget) None None cancellationToken with
+        | Ok solution when solution.Method = HybridSolver.Classical ->
+            // Classical was used (small problem, no backend, or over budget)
+            printfn "✓ Classical solver used: %s" solution.Reasoning
+            return Ok solution
+            
+        | Ok solution ->
+            printfn "✓ Quantum solver used: %s" solution.Reasoning
+            return Ok solution
+            
+        | Error (QuantumError.ValidationError (field, reason)) ->
+            eprintfn "✗ Invalid input (%s): %s" field reason
+            return Error (QuantumError.ValidationError (field, reason))
+            
+        | Error err ->
+            eprintfn "✗ Solver error: %s" err.Message
+            return Error err
+    }
 
 // Usage: $5 budget
-let result = solveTspWithBudget distances 5.0
+let result = solveTspWithBudget distances 5.0 CancellationToken.None
 ```
 
 > The `timeout` argument of the HybridSolver functions is accepted but not currently used; there is no solver timeout.
@@ -461,21 +492,21 @@ let distances = array2D [
 
 let backend = LocalBackendFactory.createUnified()
 
-// solveAsync returns a Task; run it synchronously in a script
-let runTsp config =
-    solveAsync backend distances config CancellationToken.None
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
+// solveAsync returns a Task<QuantumResult<_>>
+let runTsp config (cancellationToken: CancellationToken) =
+    solveAsync backend distances config cancellationToken
 
 // Option 1: Use default configuration (optimization enabled)
-match runTsp defaultConfig with
-| Ok solution ->
-    printfn "Best tour: %A" solution.Tour
-    printfn "Tour length: %.2f" solution.TourLength
-    printfn "Optimized parameters (gamma, beta): %A" solution.OptimizedParameters
-    printfn "Optimization converged: %A" solution.OptimizationConverged    // bool option
-    printfn "Iterations: %A" solution.OptimizationIterations              // int option
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! runTsp defaultConfig CancellationToken.None with
+    | Ok solution ->
+        printfn "Best tour: %A" solution.Tour
+        printfn "Tour length: %.2f" solution.TourLength
+        printfn "Optimized parameters (gamma, beta): %A" solution.OptimizedParameters
+        printfn "Optimization converged: %A" solution.OptimizationConverged    // bool option
+        printfn "Iterations: %A" solution.OptimizationIterations              // int option
+    | Error err -> printfn "Error: %s" err.Message
+}
 
 // Option 2: Custom configuration for fine-tuning
 let customConfig = {
@@ -485,15 +516,15 @@ let customConfig = {
     InitialParameters = (0.5, 0.5)   // Starting guess for (gamma, beta)
     MaxOptimizationIterations = 1000 // Cap the variational loop
 }
-let result = runTsp customConfig
+let result = runTsp customConfig CancellationToken.None
 
 // Option 3: No variational loop at all — one circuit at the initial parameters.
 // Use this when the backend is expensive (e.g. topological), since every
 // optimizer iteration is a full circuit execution.
-let fastResult = runTsp fastConfig
+let fastResult = runTsp fastConfig CancellationToken.None
 ```
 
-The synchronous `QuantumTspSolver.solve`, `solveWithDefaults` and `solveWithShots` still exist but are marked `[<Obsolete>]` in favour of `solveAsync`.
+`QuantumTspSolver.solveAsync` is the only entry point: a fixed shot count without optimization, or the default configuration on a `LocalBackend`, are both expressed through its `QuantumTspConfig` argument.
 
 ### How QAOA Parameter Optimization Works
 

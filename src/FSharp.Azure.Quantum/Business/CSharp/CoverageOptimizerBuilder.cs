@@ -130,17 +130,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             return CoverageResultWrapper.Convert(result.ResultValue);
         }
 
-        /// <summary>
-        /// Builds and executes the coverage optimization, blocking until it completes.
-        /// Returns a C#-native result with no F# types exposed.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
-        /// <returns>A <see cref="CoverageOptimizationResult"/> with the optimal coverage solution.</returns>
-        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
-        public CoverageOptimizationResult Build()
-        {
-            return BuildAsync().GetAwaiter().GetResult();
-        }
     }
 
     // ========================================================================

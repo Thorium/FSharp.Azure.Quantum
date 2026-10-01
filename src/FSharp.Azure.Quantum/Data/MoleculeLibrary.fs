@@ -35,7 +35,7 @@ namespace FSharp.Azure.Quantum.Data
 ///
 ///   // Configure and run VQE
 ///   let config = { ... Backend = Some backend ... }
-///   let energy = GroundStateEnergy.estimateEnergy water config
+///   let! energy = GroundStateEnergy.estimateEnergyAsync water config CancellationToken.None
 ///
 /// WHEN TO USE FACTORY METHODS INSTEAD:
 /// Use Molecule.createH2, Molecule.createLiH, etc. when you need:
@@ -192,7 +192,7 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
                              Double.Parse(parts.[2].Trim(), CultureInfo.InvariantCulture),
                              Double.Parse(parts.[3].Trim(), CultureInfo.InvariantCulture))
                     }
-            with _ ->
+            with :? FormatException | :? OverflowException ->
                 None
         else
             None
@@ -259,7 +259,7 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
     /// Parse a CSV line into a Molecule
     let private parseMoleculeLine (line: string) : Molecule option =
         // Skip comment lines and empty lines
-        if String.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith("#") then
+        if String.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#') then
             None
         else
             let fields = line.Split ','
@@ -284,7 +284,7 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
                             Category = category
                             Reference = reference
                         }
-                with _ ->
+                with :? FormatException | :? OverflowException ->
                     None
             else
                 None
@@ -336,17 +336,13 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
 
     /// Search molecules by name (partial match, case-insensitive)
     let search (query: string) : Molecule array =
-        let q = query.ToLowerInvariant()
-
         allMolecules.Value
-        |> Array.filter (fun m -> m.Name.ToLowerInvariant().Contains q)
+        |> Array.filter (fun m -> m.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
 
     /// Get molecules by category (exact match, case-insensitive)
     let byCategory (category: string) : Molecule array =
-        let cat = category.ToLowerInvariant()
-
         allMolecules.Value
-        |> Array.filter (fun m -> m.Category.ToLowerInvariant() = cat)
+        |> Array.filter (fun m -> String.Equals(m.Category, category, StringComparison.OrdinalIgnoreCase))
 
     /// Get all unique categories in the library
     let categories () : string array =

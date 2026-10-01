@@ -135,23 +135,20 @@ module TreeSearch =
 
     /// Follow a path from root state
     let private followPath<'T> (rootState: 'T) (path: int list) (moveGenerator: 'T -> 'T list) : 'T option =
+        // An out-of-range move index means the path does not exist in this tree: None, no exception.
+        path
+        |> List.fold
+            (fun state moveIdx ->
+                match state with
+                | None -> None
+                | Some s ->
+                    let moves = moveGenerator s
 
-        try
-            let finalState =
-                path
-                |> List.fold
-                    (fun state moveIdx ->
-                        let moves = moveGenerator state
-
-                        if moveIdx < List.length moves then
-                            List.item moveIdx moves
-                        else
-                            failwith "Invalid move index in path")
-                    rootState
-
-            Some finalState
-        with _ ->
-            None
+                    if moveIdx >= 0 && moveIdx < List.length moves then
+                        Some(List.item moveIdx moves)
+                    else
+                        None)
+            (Some rootState)
 
     // ========================================================================
     // THRESHOLD CALCULATION

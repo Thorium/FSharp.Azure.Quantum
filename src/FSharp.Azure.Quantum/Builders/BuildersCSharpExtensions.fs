@@ -255,45 +255,63 @@ type CSharpBuilders private () =
     /// <returns>Tuple of (all combinations, union of all items, combination count)</returns>
     /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
     static member FindAllValidCombinations(problem: Knapsack.Problem) =
-        Knapsack.findAllValidCombinations problem None
+        Knapsack.findAllValidCombinationsClassical problem
 
-    /// <summary>Find all valid combinations that sum exactly to capacity using quantum backend.</summary>
+    /// <summary>Find all valid combinations that sum exactly to capacity using quantum backend, without blocking the calling thread.</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <param name="backend">Quantum backend for QAOA execution</param>
-    /// <returns>Tuple of (all combinations, union of all items, combination count)</returns>
+    /// <param name="cancellationToken">Token that cancels the QAOA runs</param>
+    /// <returns>Task with a tuple of (all combinations, union of all items, combination count)</returns>
     /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
-    static member FindAllValidCombinations(problem: Knapsack.Problem, backend: BackendAbstraction.IQuantumBackend) =
-        Knapsack.findAllValidCombinations problem (Some backend)
+    static member FindAllValidCombinationsAsync
+        (
+            problem: Knapsack.Problem,
+            backend: BackendAbstraction.IQuantumBackend,
+            [<Optional>] cancellationToken: CancellationToken
+        ) =
+        Knapsack.findAllValidCombinationsAsync problem (Some backend) cancellationToken
 
     /// <summary>Find all exact combinations that sum to capacity (classical fallback).</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>List of all valid combinations</returns>
     /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
     static member FindAllExactCombinations(problem: Knapsack.Problem) =
-        Knapsack.findAllExactCombinations problem None
+        Knapsack.findAllExactCombinationsClassical problem
 
-    /// <summary>Find all exact combinations that sum to capacity using quantum backend.</summary>
+    /// <summary>Find all exact combinations that sum to capacity using quantum backend, without blocking the calling thread.</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <param name="backend">Quantum backend for QAOA execution</param>
-    /// <returns>List of all valid combinations</returns>
+    /// <param name="cancellationToken">Token that cancels the QAOA runs</param>
+    /// <returns>Task with the list of all valid combinations</returns>
     /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
-    static member FindAllExactCombinations(problem: Knapsack.Problem, backend: BackendAbstraction.IQuantumBackend) =
-        Knapsack.findAllExactCombinations problem (Some backend)
+    static member FindAllExactCombinationsAsync
+        (
+            problem: Knapsack.Problem,
+            backend: BackendAbstraction.IQuantumBackend,
+            [<Optional>] cancellationToken: CancellationToken
+        ) =
+        Knapsack.findAllExactCombinationsAsync problem (Some backend) cancellationToken
 
     /// <summary>Find union of all items across all exact combinations (classical fallback).</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>List of all items that appear in at least one valid combination</returns>
     /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
     static member FindAllCapturedItems(problem: Knapsack.Problem) =
-        Knapsack.findAllCapturedItems problem None
+        Knapsack.findAllCapturedItemsClassical problem
 
-    /// <summary>Find union of all items across all exact combinations using quantum backend.</summary>
+    /// <summary>Find union of all items across all exact combinations using quantum backend, without blocking the calling thread.</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <param name="backend">Quantum backend for QAOA execution</param>
-    /// <returns>List of all items that appear in at least one valid combination</returns>
+    /// <param name="cancellationToken">Token that cancels the QAOA runs</param>
+    /// <returns>Task with the list of all items that appear in at least one valid combination</returns>
     /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
-    static member FindAllCapturedItems(problem: Knapsack.Problem, backend: BackendAbstraction.IQuantumBackend) =
-        Knapsack.findAllCapturedItems problem (Some backend)
+    static member FindAllCapturedItemsAsync
+        (
+            problem: Knapsack.Problem,
+            backend: BackendAbstraction.IQuantumBackend,
+            [<Optional>] cancellationToken: CancellationToken
+        ) =
+        Knapsack.findAllCapturedItemsAsync problem (Some backend) cancellationToken
 
     // ============================================================================
     // TSP BUILDER EXTENSIONS
@@ -346,7 +364,8 @@ type CSharpBuilders private () =
     /// <param name="groverIterations">Amplitude-amplification iterations; more give higher precision (0 to 100)</param>
     /// <param name="shots">Measurement shots for the amplitude estimate (1 to 1,000,000)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
-    /// <returns>Async task with option price result</returns>
+    /// <param name="cancellationToken">Cancels the pricing</param>
+    /// <returns>Task with option price result</returns>
     /// <remarks>
     /// **RULE1 COMPLIANCE**: Backend is REQUIRED (not optional).
     ///
@@ -354,7 +373,7 @@ type CSharpBuilders private () =
     /// oracle queries where classical Monte Carlo needs O(1/ε²) samples: a quadratic
     /// advantage on fault-tolerant hardware, not a measured speedup of this library.
     /// </remarks>
-    static member PriceEuropeanCall
+    static member PriceEuropeanCallAsync
         (
             spotPrice: float,
             strikePrice: float,
@@ -364,9 +383,10 @@ type CSharpBuilders private () =
             numQubits: int,
             groverIterations: int,
             shots: int,
-            backend: IQuantumBackend
-        ) =
-        OptionPricing.priceEuropeanCall
+            backend: IQuantumBackend,
+            [<Optional>] cancellationToken: CancellationToken
+        ) : Task<QuantumResult<OptionPricing.OptionPrice>> =
+        OptionPricing.priceEuropeanCallAsync
             spotPrice
             strikePrice
             riskFreeRate
@@ -376,6 +396,7 @@ type CSharpBuilders private () =
             groverIterations
             shots
             backend
+            cancellationToken
 
     /// <summary>Price European put option using quantum Monte Carlo (C# helper).</summary>
     /// <param name="spotPrice">Current price of underlying asset</param>
@@ -387,8 +408,9 @@ type CSharpBuilders private () =
     /// <param name="groverIterations">Amplitude-amplification iterations; more give higher precision (0 to 100)</param>
     /// <param name="shots">Measurement shots for the amplitude estimate (1 to 1,000,000)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
-    /// <returns>Async task with option price result</returns>
-    static member PriceEuropeanPut
+    /// <param name="cancellationToken">Cancels the pricing</param>
+    /// <returns>Task with option price result</returns>
+    static member PriceEuropeanPutAsync
         (
             spotPrice: float,
             strikePrice: float,
@@ -398,9 +420,10 @@ type CSharpBuilders private () =
             numQubits: int,
             groverIterations: int,
             shots: int,
-            backend: IQuantumBackend
-        ) =
-        OptionPricing.priceEuropeanPut
+            backend: IQuantumBackend,
+            [<Optional>] cancellationToken: CancellationToken
+        ) : Task<QuantumResult<OptionPricing.OptionPrice>> =
+        OptionPricing.priceEuropeanPutAsync
             spotPrice
             strikePrice
             riskFreeRate
@@ -410,6 +433,7 @@ type CSharpBuilders private () =
             groverIterations
             shots
             backend
+            cancellationToken
 
     /// <summary>Price Asian call option using quantum Monte Carlo (C# helper).</summary>
     /// <param name="spotPrice">Current price of underlying asset</param>
@@ -422,8 +446,9 @@ type CSharpBuilders private () =
     /// <param name="groverIterations">Amplitude-amplification iterations; more give higher precision (0 to 100)</param>
     /// <param name="shots">Measurement shots for the amplitude estimate (1 to 1,000,000)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
-    /// <returns>Async task with option price result</returns>
-    static member PriceAsianCall
+    /// <param name="cancellationToken">Cancels the pricing</param>
+    /// <returns>Task with option price result</returns>
+    static member PriceAsianCallAsync
         (
             spotPrice: float,
             strikePrice: float,
@@ -434,9 +459,10 @@ type CSharpBuilders private () =
             numQubits: int,
             groverIterations: int,
             shots: int,
-            backend: IQuantumBackend
-        ) =
-        OptionPricing.priceAsianCall
+            backend: IQuantumBackend,
+            [<Optional>] cancellationToken: CancellationToken
+        ) : Task<QuantumResult<OptionPricing.OptionPrice>> =
+        OptionPricing.priceAsianCallAsync
             spotPrice
             strikePrice
             riskFreeRate
@@ -447,6 +473,7 @@ type CSharpBuilders private () =
             groverIterations
             shots
             backend
+            cancellationToken
 
     /// <summary>Price Asian put option using quantum Monte Carlo (C# helper).</summary>
     /// <param name="spotPrice">Current price of underlying asset</param>
@@ -459,8 +486,9 @@ type CSharpBuilders private () =
     /// <param name="groverIterations">Amplitude-amplification iterations; more give higher precision (0 to 100)</param>
     /// <param name="shots">Measurement shots for the amplitude estimate (1 to 1,000,000)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
-    /// <returns>Async task with option price result</returns>
-    static member PriceAsianPut
+    /// <param name="cancellationToken">Cancels the pricing</param>
+    /// <returns>Task with option price result</returns>
+    static member PriceAsianPutAsync
         (
             spotPrice: float,
             strikePrice: float,
@@ -471,9 +499,10 @@ type CSharpBuilders private () =
             numQubits: int,
             groverIterations: int,
             shots: int,
-            backend: IQuantumBackend
-        ) =
-        OptionPricing.priceAsianPut
+            backend: IQuantumBackend,
+            [<Optional>] cancellationToken: CancellationToken
+        ) : Task<QuantumResult<OptionPricing.OptionPrice>> =
+        OptionPricing.priceAsianPutAsync
             spotPrice
             strikePrice
             riskFreeRate
@@ -484,6 +513,7 @@ type CSharpBuilders private () =
             groverIterations
             shots
             backend
+            cancellationToken
 
     // ============================================================================
     // QUANTUM TREE SEARCH BUILDER EXTENSIONS
@@ -896,24 +926,6 @@ type CSharpBuilders private () =
 
         CoverageOptimizer.solveAsync problem cancellationToken
 
-    /// <summary>Solve a coverage optimization problem (C# helper).</summary>
-    /// <param name="universeSize">Total number of elements to cover</param>
-    /// <param name="options">Array of coverage options</param>
-    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
-    /// <param name="shots">Number of measurement shots (default: 1000)</param>
-    /// <returns>Result with coverage solution or error</returns>
-    [<Obsolete("Use CoverageProblemAsync for non-blocking execution against cloud backends")>]
-    static member CoverageProblem
-        (
-            universeSize: int,
-            options: CoverageOptimizer.CoverageOption[],
-            backend: IQuantumBackend,
-            [<OptionalArgument; DefaultParameterValue(1000)>] shots: int
-        ) : QuantumResult<CoverageOptimizer.CoverageResult> =
-        CSharpBuilders.CoverageProblemAsync(universeSize, options, backend, shots, CancellationToken.None)
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ============================================================================
     // RESOURCE PAIRING EXTENSIONS (Quantum Matching)
     // ============================================================================
@@ -962,24 +974,6 @@ type CSharpBuilders private () =
 
         ResourcePairing.solveAsync problem cancellationToken
 
-    /// <summary>Solve a resource pairing problem (C# helper).</summary>
-    /// <param name="participants">Array of participant identifiers</param>
-    /// <param name="compatibilities">Array of compatibility scores</param>
-    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
-    /// <param name="shots">Number of measurement shots (default: 1000)</param>
-    /// <returns>Result with optimal pairings or error</returns>
-    [<Obsolete("Use PairingProblemAsync for non-blocking execution against cloud backends")>]
-    static member PairingProblem
-        (
-            participants: string[],
-            compatibilities: ResourcePairing.Compatibility[],
-            backend: IQuantumBackend,
-            [<OptionalArgument; DefaultParameterValue(1000)>] shots: int
-        ) : QuantumResult<ResourcePairing.PairingResult> =
-        CSharpBuilders.PairingProblemAsync(participants, compatibilities, backend, shots, CancellationToken.None)
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ============================================================================
     // PACKING OPTIMIZER EXTENSIONS (Quantum Bin Packing)
     // ============================================================================
@@ -1020,24 +1014,6 @@ type CSharpBuilders private () =
             }
 
         PackingOptimizer.solveAsync problem cancellationToken
-
-    /// <summary>Solve a packing optimization problem (C# helper).</summary>
-    /// <param name="items">Array of items to pack</param>
-    /// <param name="binCapacity">Maximum capacity per bin/container</param>
-    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
-    /// <param name="shots">Number of measurement shots (default: 1000)</param>
-    /// <returns>Result with bin assignments or error</returns>
-    [<Obsolete("Use PackingProblemAsync for non-blocking execution against cloud backends")>]
-    static member PackingProblem
-        (
-            items: PackingOptimizer.PackingItem[],
-            binCapacity: float,
-            backend: IQuantumBackend,
-            [<OptionalArgument; DefaultParameterValue(1000)>] shots: int
-        ) : QuantumResult<PackingOptimizer.PackingResult> =
-        CSharpBuilders.PackingProblemAsync(items, binCapacity, backend, shots, CancellationToken.None)
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
 // ============================================================================
 // QUANTUM BACKEND EXTENSIONS - Task-based Async for C#
@@ -1196,21 +1172,21 @@ module QuantumChemistryCSharpExtensions =
     /// </summary>
     [<Extension>]
     let FromXYZTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
-        Molecule.fromXyzFileTask filePath CancellationToken.None
+        Molecule.fromXyzFileAsync filePath CancellationToken.None
 
     /// <summary>
     /// Save molecule to XYZ file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let SaveXYZTask (filePath: string) (molecule: Molecule) : Task<Result<unit, QuantumError>> =
-        Molecule.saveToXyzFileTask filePath molecule CancellationToken.None
+        Molecule.saveToXyzFileAsync filePath molecule CancellationToken.None
 
     /// <summary>
     /// Load molecule from FCIDump file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let FromFCIDumpTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
-        Molecule.fromFciDumpFileTask filePath CancellationToken.None
+        Molecule.fromFciDumpFileAsync filePath CancellationToken.None
 
 // ============================================================================
 // SVM MODEL SERIALIZATION EXTENSIONS - Task-based Async for C#
@@ -1339,8 +1315,17 @@ module OptionPricingExtensions =
         (backend: Core.BackendAbstraction.IQuantumBackend)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
 
-        OptionPricing.priceEuropeanPut spotPrice strikePrice riskFreeRate volatility timeToExpiry 6 5 1000 backend
-        |> Async.StartAsTask
+        OptionPricing.priceEuropeanPutAsync
+            spotPrice
+            strikePrice
+            riskFreeRate
+            volatility
+            timeToExpiry
+            6
+            5
+            1000
+            backend
+            CancellationToken.None
 
     /// <summary>
     /// Price Asian call option asynchronously using C# Task (enables async/await).
@@ -1372,7 +1357,7 @@ module OptionPricingExtensions =
         (backend: Core.BackendAbstraction.IQuantumBackend)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
 
-        OptionPricing.priceAsianCall
+        OptionPricing.priceAsianCallAsync
             spotPrice
             strikePrice
             riskFreeRate
@@ -1383,7 +1368,7 @@ module OptionPricingExtensions =
             5
             1000
             backend
-        |> Async.StartAsTask
+            CancellationToken.None
 
     /// <summary>
     /// Price Asian put option asynchronously using C# Task (enables async/await).
@@ -1415,7 +1400,7 @@ module OptionPricingExtensions =
         (backend: Core.BackendAbstraction.IQuantumBackend)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
 
-        OptionPricing.priceAsianPut
+        OptionPricing.priceAsianPutAsync
             spotPrice
             strikePrice
             riskFreeRate
@@ -1426,4 +1411,4 @@ module OptionPricingExtensions =
             5
             1000
             backend
-        |> Async.StartAsTask
+            CancellationToken.None

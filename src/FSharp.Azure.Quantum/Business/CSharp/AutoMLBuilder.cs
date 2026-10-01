@@ -253,19 +253,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         }
 
         /// <summary>
-        /// Run AutoML search to find the best model.
-        /// This will try multiple model types, architectures, and hyperparameters.
-        /// Returns the best model found with a detailed report.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown if search fails.</exception>
-        /// <returns>An <see cref="IAutoMLResult"/> containing the best model and search results.</returns>
-        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
-        public IAutoMLResult Build()
-        {
-            return BuildAsync().GetAwaiter().GetResult();
-        }
-
-        /// <summary>
         /// Run AutoML search to find the best model without blocking the calling thread.
         /// This will try multiple model types, architectures, and hyperparameters.
         /// Returns the best model found with a detailed report.
@@ -362,15 +349,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>Gets model metadata.</summary>
         AutoMLMetadata Metadata { get; }
-
-        /// <summary>
-        /// Make prediction with the best model.
-        /// Returns appropriate prediction type based on model type.
-        /// </summary>
-        /// <param name="features">Feature vector to predict.</param>
-        /// <returns>Prediction result (type depends on best model type).</returns>
-        [Obsolete("Use PredictAsync for non-blocking execution against cloud backends")]
-        object Predict(double[] features);
 
         /// <summary>
         /// Make prediction with the best model without blocking the calling thread.
@@ -560,12 +538,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                     Shots = hp.Shots,
                 };
             }
-        }
-
-        [Obsolete("Use PredictAsync for non-blocking execution against cloud backends")]
-        public object Predict(double[] features)
-        {
-            return PredictAsync(features).GetAwaiter().GetResult();
         }
 
         public async Task<object> PredictAsync(double[] features, CancellationToken cancellationToken = default)

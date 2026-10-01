@@ -21,6 +21,7 @@
 #endif
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -102,7 +103,9 @@ let calculateVQEEnergy (backend: IQuantumBackend) (molecule: Molecule) : Result<
 
     try
         let result =
-            GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
+            GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         let elapsed = (DateTime.Now - startTime).TotalSeconds
 

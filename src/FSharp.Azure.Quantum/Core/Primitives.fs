@@ -617,7 +617,8 @@ module Primitives =
     // counterpart to CUDA-Q's mqpu circuit batching.
     // ========================================================================
 
-    /// Sample many circuits concurrently on the same backend (e.g. a parameter sweep).
+    /// Sample many circuits concurrently on the same backend (e.g. a parameter sweep), at
+    /// most JobThrottle.MaxConcurrentSampledJobs at once on a sampling backend.
     /// Results are returned in input order.
     let sampleBatchAsync
         (backend: IQuantumBackend)
@@ -627,13 +628,17 @@ module Primitives =
         : Task<QuantumResult<Map<string, int>> list> =
         task {
             let! results =
-                Task.WhenAll(circuits |> List.map (fun c -> sampleAsync backend c shots cancellationToken))
+                circuits
+                |> List.map (fun c -> fun () -> sampleAsync backend c shots cancellationToken)
+                |> List.toArray
+                |> JobThrottle.throttled (JobThrottle.maxConcurrency backend) cancellationToken
 
             return List.ofArray results
         }
 
     /// Compute ⟨H⟩ for many circuits concurrently on the same backend (e.g. a VQE/QAOA
-    /// parameter sweep). Results are returned in input order.
+    /// parameter sweep), at most JobThrottle.MaxConcurrentSampledJobs at once on a sampling
+    /// backend. Results are returned in input order.
     let observeBatchAsync
         (backend: IQuantumBackend)
         (circuits: CircuitBuilder.Circuit list)
@@ -642,10 +647,10 @@ module Primitives =
         : Task<QuantumResult<float> list> =
         task {
             let! results =
-                Task.WhenAll(
-                    circuits
-                    |> List.map (fun c -> observeAsync backend c hamiltonian cancellationToken)
-                )
+                circuits
+                |> List.map (fun c -> fun () -> observeAsync backend c hamiltonian cancellationToken)
+                |> List.toArray
+                |> JobThrottle.throttled (JobThrottle.maxConcurrency backend) cancellationToken
 
             return List.ofArray results
         }

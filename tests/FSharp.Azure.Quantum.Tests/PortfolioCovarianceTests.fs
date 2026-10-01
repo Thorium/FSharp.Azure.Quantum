@@ -322,39 +322,41 @@ module PortfolioCovarianceTests =
         Assert.Equal<int array>([| 1; 1; 1 |], best None)
 
     [<Fact>]
-    let ``quantum solver with covariance diversifies into the uncorrelated asset`` () =
-        let assets, sigma, constraints = correlatedPairCase ()
-        let backend = Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+    let ``quantum solver with covariance diversifies into the uncorrelated asset`` () : Task =
+        task {
+            let assets, sigma, constraints = correlatedPairCase ()
+            let backend = Backends.LocalBackend.LocalBackend() :> IQuantumBackend
 
-        let config =
-            { QuantumPortfolioSolver.defaultConfig with
-                RiskAversion = 5.0
-            }
+            let config =
+                { QuantumPortfolioSolver.defaultConfig with
+                    RiskAversion = 5.0
+                }
 
-        let result =
-            QuantumPortfolioSolver.solveWithCovarianceAsync
-                backend
-                assets
-                sigma
-                constraints
-                config
-                CancellationToken.None
-            |> fun t -> t.GetAwaiter().GetResult()
+            let! result =
+                QuantumPortfolioSolver.solveWithCovarianceAsync
+                    backend
+                    assets
+                    sigma
+                    constraints
+                    config
+                    CancellationToken.None
 
-        match result with
-        | Error err -> Assert.Fail(err.Message)
-        | Ok solution ->
-            let held = solution.Allocations |> List.map (fun a -> a.Asset.Symbol) |> Set.ofList
-            Assert.Equal(2, held.Count)
-            Assert.Contains("C", held)
+            match result with
+            | Error err -> Assert.Fail(err.Message)
+            | Ok solution ->
+                let held = solution.Allocations |> List.map (fun a -> a.Asset.Symbol) |> Set.ofList
+                Assert.Equal(2, held.Count)
+                Assert.Contains("C", held)
 
-            // Each held asset gets one lot of Budget / 3; the rest stays uninvested.
-            for a in solution.Allocations do
-                Assert.Equal(1000.0, a.Value, 6)
+                // Each held asset gets one lot of Budget / 3; the rest stays uninvested.
+                for a in solution.Allocations do
+                    Assert.Equal(1000.0, a.Value, 6)
 
-            // Risk is sqrt(wᵀΣw) over the invested weights (0.5, 0.5 on one of A/B and C).
-            Assert.Equal(sqrt (0.25 * 0.09 + 0.25 * 0.09), solution.Risk, 10)
-            Assert.Equal(-(1.0 / 6.0) + 5.0 * 0.02, solution.BestEnergy, 10)
+                // Risk is sqrt(wᵀΣw) over the invested weights (0.5, 0.5 on one of A/B and C).
+                Assert.Equal(sqrt (0.25 * 0.09 + 0.25 * 0.09), solution.Risk, 10)
+                Assert.Equal(-(1.0 / 6.0) + 5.0 * 0.02, solution.BestEnergy, 10)
+        }
+        :> Task
 
     [<Fact>]
     let ``toQubo rejects an invalid covariance`` () =
@@ -438,7 +440,7 @@ module PortfolioCovarianceTests =
                 Assert.Equal(expected, solution.Result.Risk, 10)
                 Assert.True(solution.Result.Risk < PortfolioTypes.portfolioRisk assets weights None)
         }
-        :> System.Threading.Tasks.Task
+        :> Task
 
     [<Fact>]
     let ``solvePortfolioWithCovarianceAsync forced quantum reports sqrt(w'Sw)`` () =
@@ -471,7 +473,7 @@ module PortfolioCovarianceTests =
 
                 Assert.Equal(PortfolioTypes.portfolioRisk assets weights (Some sigma), solution.Result.Risk, 10)
         }
-        :> System.Threading.Tasks.Task
+        :> Task
 
     [<Fact>]
     let ``solvePortfolioWithCovarianceAsync rejects an invalid covariance on every path`` () =
@@ -509,7 +511,7 @@ module PortfolioCovarianceTests =
                     $"{method}: expected a covariance validation error"
                 )
         }
-        :> System.Threading.Tasks.Task
+        :> Task
 
     [<Fact>]
     let ``Portfolio.solve with covariance reports correlated risk`` () : Task =
@@ -630,7 +632,7 @@ module PortfolioCovarianceTests =
                 // 32 selections and thousands of samples: the best feasible one is always seen.
                 Assert.Equal(feasibleBest, solution.BestEnergy, 12)
         }
-        :> System.Threading.Tasks.Task
+        :> Task
 
     [<Fact>]
     let ``holding limits that cannot be met are validation errors`` () =
@@ -704,7 +706,7 @@ module PortfolioCovarianceTests =
             | Ok solution ->
                 Assert.DoesNotContain("BRKA", solution.Result.Allocations |> List.map (fun a -> a.Asset.Symbol))
         }
-        :> System.Threading.Tasks.Task
+        :> Task
 
     [<Fact>]
     let ``no affordable asset is a validation error`` () =
@@ -726,7 +728,7 @@ module PortfolioCovarianceTests =
 
             Assert.True(result |> isValidationError "Price")
         }
-        :> System.Threading.Tasks.Task
+        :> Task
 
     [<Fact>]
     let ``validateCovariance accepts an all-zero covariance`` () =
@@ -766,64 +768,64 @@ module PortfolioCovarianceTests =
         | a, b -> Assert.Fail($"%A{a} %A{b}")
 
     [<Fact>]
-    let ``QAOA angle grid concentrates probability on the best selections of a 12-asset problem`` () =
-        let n = 12
-        let rng = Random(2)
-        let a = Array2D.init n n (fun _ _ -> rng.NextDouble() * 0.6 - 0.15)
+    let ``QAOA angle grid concentrates probability on the best selections of a 12-asset problem`` () : Task =
+        task {
+            let n = 12
+            let rng = Random(2)
+            let a = Array2D.init n n (fun _ _ -> rng.NextDouble() * 0.6 - 0.15)
 
-        let sigma =
-            Array2D.init n n (fun i j -> (Seq.init n (fun k -> a.[i, k] * a.[j, k]) |> Seq.sum) / float n)
+            let sigma =
+                Array2D.init n n (fun i j -> (Seq.init n (fun k -> a.[i, k] * a.[j, k]) |> Seq.sum) / float n)
 
-        let mu = Array.init n (fun _ -> rng.NextDouble() * 0.4 - 0.05)
-        let assets = List.init n (fun i -> asset $"S{i}" mu.[i] (sqrt sigma.[i, i]) 10.0)
+            let mu = Array.init n (fun _ -> rng.NextDouble() * 0.4 - 0.05)
+            let assets = List.init n (fun i -> asset $"S{i}" mu.[i] (sqrt sigma.[i, i]) 10.0)
 
-        let constraints: PortfolioSolver.Constraints =
-            {
-                Budget = 12000.0
-                MinHolding = 0.0
-                MaxHolding = 12000.0
-            }
+            let constraints: PortfolioSolver.Constraints =
+                {
+                    Budget = 12000.0
+                    MinHolding = 0.0
+                    MaxHolding = 12000.0
+                }
 
-        let problem = problemOf assets constraints 8.0 (Some sigma)
-        let backend = localBackend ()
+            let problem = problemOf assets constraints 8.0 (Some sigma)
+            let backend = localBackend ()
 
-        match QuantumPortfolioSolver.toQubo problem with
-        | Error err -> Assert.Fail(err.Message)
-        | Ok qubo ->
-            let circuitMatrix, kept = QuantumPortfolioSolver.circuitQubo problem qubo
-            Assert.Equal(n, kept.Length)
-
-            let sampled =
-                (QuantumPortfolioSolver.sampleWithAngleGridAsync
-                    backend
-                    circuitMatrix
-                    QuantumPortfolioSolver.defaultConfig.InitialParameters
-                    100
-                    1000
-                    CancellationToken.None)
-                    .GetAwaiter()
-                    .GetResult()
-
-            match sampled with
+            match QuantumPortfolioSolver.toQubo problem with
             | Error err -> Assert.Fail(err.Message)
-            | Ok(_, angles) ->
-                // Exact state at the chosen angles: probability of the best 1% of all 4096
-                // selections (uniform sampling gives 0.01). Solver angles are in units of
-                // the normalised Hamiltonian.
-                let hamiltonian =
-                    QaoaCircuit.ProblemHamiltonian.fromQubo circuitMatrix
-                    |> QaoaCircuit.ProblemHamiltonian.normalize
+            | Ok qubo ->
+                let circuitMatrix, kept = QuantumPortfolioSolver.circuitQubo problem qubo
+                Assert.Equal(n, kept.Length)
 
-                let mixer = QaoaCircuit.MixerHamiltonian.create n
-                let circuit = QaoaCircuit.QaoaCircuit.build hamiltonian mixer [| angles |]
+                let! sampled =
+                    QuantumPortfolioSolver.sampleWithAngleGridAsync
+                        backend
+                        circuitMatrix
+                        QuantumPortfolioSolver.defaultConfig.InitialParameters
+                        100
+                        1000
+                        CancellationToken.None
 
-                match backend.ExecuteToState(CircuitAbstraction.QaoaCircuitWrapper(circuit)) with
+                match sampled with
                 | Error err -> Assert.Fail(err.Message)
-                | Ok state ->
-                    let best =
-                        Array.init (FSharp.Core.Operators.max 0 (1 <<< n)) (bitsOf n)
-                        |> Array.sortBy (QuantumPortfolioSolver.meanVarianceEnergy problem)
-                        |> Array.take ((1 <<< n) / 100)
+                | Ok(_, angles) ->
+                    // Exact state at the chosen angles: probability of the best 1% of all 4096
+                    // selections (uniform sampling gives 0.01). Solver angles are in units of
+                    // the normalised Hamiltonian.
+                    let hamiltonian =
+                        QaoaCircuit.ProblemHamiltonian.fromQubo circuitMatrix
+                        |> QaoaCircuit.ProblemHamiltonian.normalize
 
-                    let mass = best |> Array.sumBy (fun bits -> QuantumState.probability bits state)
-                    Assert.True(mass > 0.1, $"P(best 1%%) = {mass} at {angles}; uniform is 0.01")
+                    let mixer = QaoaCircuit.MixerHamiltonian.create n
+                    let circuit = QaoaCircuit.QaoaCircuit.build hamiltonian mixer [| angles |]
+
+                    match backend.ExecuteToState(CircuitAbstraction.QaoaCircuitWrapper(circuit)) with
+                    | Error err -> Assert.Fail(err.Message)
+                    | Ok state ->
+                        let best =
+                            Array.init (FSharp.Core.Operators.max 0 (1 <<< n)) (bitsOf n)
+                            |> Array.sortBy (QuantumPortfolioSolver.meanVarianceEnergy problem)
+                            |> Array.take ((1 <<< n) / 100)
+
+                        let mass = best |> Array.sumBy (fun bits -> QuantumState.probability bits state)
+                        Assert.True(mass > 0.1, $"P(best 1%%) = {mass} at {angles}; uniform is 0.01")
+        }

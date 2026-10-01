@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.Examples.DrugDiscovery.MolecularSimilarity
 open System
 open System.Diagnostics
 open System.IO
+open System.Threading
+open System.Threading.Tasks
 
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -88,30 +90,35 @@ module private Screening =
         |> Array.map (fun a -> MolecularData.tanimotoSimilarity candidateFp a.Fingerprint)
         |> Array.average
 
-    let quantumKernelSimilarity
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (shots: int)
-        (x1: float array)
-        (x2: float array)
-        =
-        let data = [| x1; x2 |]
-
-        match QuantumKernels.computeKernelMatrix backend featureMap data shots with
-        | Ok m -> m.[0, 1]
-        | Error _ -> 0.0
-
-    let averageQuantum
+    /// Average quantum-kernel similarity of every library compound to the actives, from
+    /// one actives × library kernel matrix: a single batch of circuits (bounded on a
+    /// sampling backend) instead of one blocking circuit per (candidate, active) pair.
+    /// A failed matrix scores every compound 0.0.
+    let averageQuantumAll
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (shots: int)
         (actives: ParsedMolecule array)
-        (candidate: ParsedMolecule)
-        =
-        actives
-        |> Array.map (fun a ->
-            quantumKernelSimilarity backend featureMap shots candidate.KernelFeatures a.KernelFeatures)
-        |> Array.average
+        (library: ParsedMolecule array)
+        : Task<float array> =
+        task {
+            let! kernel =
+                QuantumKernels.computeKernelMatrixTrainTestAsync
+                    backend
+                    featureMap
+                    (actives |> Array.map (fun a -> a.KernelFeatures))
+                    (library |> Array.map (fun c -> c.KernelFeatures))
+                    shots
+                    CancellationToken.None
+
+            return
+                match kernel with
+                | Ok m ->
+                    // m.[candidate, active]
+                    library
+                    |> Array.mapi (fun j _ -> actives |> Array.mapi (fun i _ -> m.[j, i]) |> Array.average)
+                | Error _ -> Array.create library.Length 0.0
+        }
 
 type Metrics =
     {
@@ -246,12 +253,12 @@ module Program =
                 let swQuantum = Stopwatch.StartNew()
                 let backend = LocalBackend() :> IQuantumBackend
 
-                let quantumResults =
-                    library
-                    |> Array.map (fun c ->
-                        let s = Screening.averageQuantum backend featureMap shots actives c
-                        (c, s))
-                    |> Array.sortByDescending snd
+                let quantumScores =
+                    Screening.averageQuantumAll backend featureMap shots actives library
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
+
+                let quantumResults = Array.zip library quantumScores |> Array.sortByDescending snd
 
                 swQuantum.Stop()
 

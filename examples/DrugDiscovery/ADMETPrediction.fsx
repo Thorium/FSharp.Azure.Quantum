@@ -186,6 +186,7 @@ References:
 
 open System
 open System.IO
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -649,7 +650,17 @@ let createFeatureMapCircuit (features: float array) (nQubits: int) : string =
 /// vectors by building a ZZ feature-map circuit and executing it on the quantum
 /// backend (real quantum kernel, not a classical approximation).
 let computeQuantumKernel (features1: float array) (features2: float array) : float =
-    match QuantumKernels.computeKernel backend (ZZFeatureMap featureMapDepth) features1 features2 quantumShots with
+    match
+        QuantumKernels.computeKernelAsync
+            backend
+            (ZZFeatureMap featureMapDepth)
+            features1
+            features2
+            quantumShots
+            CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok kernel -> kernel
     | Error _ ->
         // Defensive fallback (e.g. backend rejects the circuit): classical cosine kernel

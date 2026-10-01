@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 
 // Open the TaskScheduling namespace to make all types available
@@ -46,7 +48,7 @@ open FSharp.Azure.Quantum.TaskScheduling.Types
 ///       objective MinimizeMakespan
 ///   }
 ///
-///   let! result = solve problem
+///   let! result = solveQuantumAsync backend problem CancellationToken.None
 
 // ============================================================================
 // RE-EXPORT TYPES AND FUNCTIONS - Make everything available at FSharp.Azure.Quantum level
@@ -57,14 +59,13 @@ module TaskSchedulingTypes =
     open FSharp.Azure.Quantum.TaskScheduling.Types
 
     // Re-export builder functions
-    let scheduledTask<'T> =
-        FSharp.Azure.Quantum.TaskScheduling.Builders.scheduledTask<'T>
+    let scheduledTask<'T> = TaskScheduling.Builders.scheduledTask<'T>
 
-    let resource<'T> = FSharp.Azure.Quantum.TaskScheduling.Builders.resource<'T>
-    let crew = FSharp.Azure.Quantum.TaskScheduling.Builders.crew
+    let resource<'T> = TaskScheduling.Builders.resource<'T>
+    let crew = TaskScheduling.Builders.crew
 
     let scheduling<'TTask, 'TResource> =
-        FSharp.Azure.Quantum.TaskScheduling.Builders.scheduling<'TTask, 'TResource>
+        TaskScheduling.Builders.scheduling<'TTask, 'TResource>
 
     // Re-export time helper functions (redundant but explicit)
     let minutes = minutes
@@ -76,11 +77,17 @@ module TaskSchedulingTypes =
     /// Solve scheduling problem and return optimized schedule (classical dependency-only)
     ///
     /// Note: This solver handles dependencies but ignores resource capacity constraints.
-    /// For resource-constrained scheduling, use solveQuantum with IQuantumBackend.
+    /// For resource-constrained scheduling, use solveQuantumAsync with IQuantumBackend.
     /// Internal: classical dependency-only solver. Not part of the public quantum-first API.
-    /// Public callers must use solveQuantum with an IQuantumBackend (local simulator or cloud).
-    let internal solve (problem: SchedulingProblem<'TTask, 'TResource>) : Async<QuantumResult<Solution>> =
-        async { return FSharp.Azure.Quantum.TaskScheduling.ClassicalSolver.solve problem }
+    /// Public callers must use solveQuantumAsync with an IQuantumBackend (local simulator or cloud).
+    let internal solveAsync
+        (problem: SchedulingProblem<'TTask, 'TResource>)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return TaskScheduling.ClassicalSolver.solve problem
+        }
 
     /// Solve scheduling problem with resource constraints using quantum backend
     ///
@@ -99,16 +106,17 @@ module TaskSchedulingTypes =
     ///
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
-    ///   let! result = solveQuantum backend problem
-    let solveQuantum
+    ///   let! result = solveQuantumAsync backend problem CancellationToken.None
+    let solveQuantumAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: SchedulingProblem<'TTask, 'TResource>)
-        : Async<QuantumResult<Solution>> =
-        FSharp.Azure.Quantum.TaskScheduling.QuantumSolver.solveAsync backend problem
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution>> =
+        TaskScheduling.QuantumSolver.solveAsync backend problem cancellationToken
 
     /// Export schedule as Gantt chart to text file
     let exportGanttChart (solution: Solution) (filePath: string) : unit =
-        FSharp.Azure.Quantum.TaskScheduling.Export.exportGanttChart solution filePath
+        TaskScheduling.Export.exportGanttChart solution filePath
 
 // ============================================================================
 // C# INTEROP - Types for easier C# consumption
@@ -188,8 +196,3 @@ module Scheduling =
         static member MinimizeCost = MinimizeCost
         static member MaximizeResourceUtilization = MaximizeResourceUtilization
         static member MinimizeLateness = MinimizeLateness
-
-    /// Solve scheduling problem (synchronous for C#)
-    [<System.Obsolete("Use solve instead (returns Async). This synchronous wrapper blocks the calling thread.")>]
-    let internal solveClassical (problem: SchedulingProblem<'TTask, 'TResource>) : QuantumResult<Solution> =
-        solve problem |> Async.RunSynchronously

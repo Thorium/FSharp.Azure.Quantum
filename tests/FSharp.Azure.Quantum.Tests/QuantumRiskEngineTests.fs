@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
@@ -33,7 +34,7 @@ module QuantumRiskEngineTests =
     /// Await the Result-returning executeAsync and unwrap it, as the deprecated sync wrapper did.
     let private run config =
         task {
-            match! RiskEngine.executeAsync config with
+            match! RiskEngine.executeAsync config CancellationToken.None with
             | Ok report -> return report
             | Error e -> return failwith $"Expected Ok, got Error: {e}"
         }
@@ -362,35 +363,11 @@ module QuantumRiskEngineTests =
     // ASYNC EXECUTION TESTS
     // ========================================================================
 
-    #nowarn "44" // This test covers the deprecated synchronous `execute` wrapper on purpose.
-    [<Fact>]
-    let ``executeAsync should return same result as execute`` () =
-        task {
-            let config =
-                { defaultConfig with
-                    Metrics = [ ValueAtRisk; Volatility ]
-                    SimulationPaths = 1000
-                }
-
-            let syncReport = RiskEngine.execute config
-            // executeAsync now returns a Result; the classical Monte Carlo path always yields Ok.
-            match! RiskEngine.executeAsync config |> Async.StartImmediateAsTask with
-            | Ok asyncReport ->
-                // Both use same deterministic RNG seed=42, should produce identical results
-                Assert.Equal(syncReport.VaR, asyncReport.VaR)
-                Assert.Equal(syncReport.Volatility, asyncReport.Volatility)
-                Assert.Equal(syncReport.Method, asyncReport.Method)
-            | Error err -> failwith $"Expected Ok from classical path, got Error: {err.Message}"
-        }
-        :> Task
-
-    #warnon "44"
-
     [<Fact; Trait("Category", "Slow")>]
     let ``executeAsync with cancellation token should respect cancellation`` () =
         task {
-            use cts = new Threading.CancellationTokenSource()
-            cts.Cancel()
+            use cts = new CancellationTokenSource()
+            do! cts.CancelAsync()
 
             // The builder runs executeAsync with the configured token, so a cancelled
             // token cancels the analysis and awaiting it raises OperationCanceledException
@@ -548,9 +525,7 @@ module QuantumRiskEngineTests =
     [<Fact>]
     let ``quantumRiskEngine CE with no metrics should succeed with empty results`` () =
         task {
-            let! result = quantumRiskEngine { set_simulation_paths 500 }
-
-            match result with
+            match! quantumRiskEngine { set_simulation_paths 500 } with
             | Ok report ->
                 Assert.True(report.VaR.IsNone)
                 Assert.True(report.CVaR.IsNone)

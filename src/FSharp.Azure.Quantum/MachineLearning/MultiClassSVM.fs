@@ -77,28 +77,32 @@ module MultiClassSVM =
     ///   trainLabels - Training labels (0, 1, 2, ..., K-1)
     ///   config - SVM configuration
     ///   shots - Number of shots for quantum kernel evaluation
+    ///   cancellationToken - Cancels the kernel evaluations
     ///
     /// Returns:
     ///   Multi-class model or error message
-    let train
+    let trainAsync
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
         (trainData: float array array)
         (trainLabels: int array)
         (config: QuantumKernelSVM.SVMConfig)
         (shots: int)
-        : QuantumResult<MultiClassModel> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<MultiClassModel>> =
 
         // Validate inputs
         if trainData.Length = 0 then
-            Error(QuantumError.Other "Training data cannot be empty")
+            Task.FromResult(Error(QuantumError.Other "Training data cannot be empty"))
         elif trainLabels.Length = 0 then
-            Error(QuantumError.Other "Training labels cannot be empty")
+            Task.FromResult(Error(QuantumError.Other "Training labels cannot be empty"))
         elif trainData.Length <> trainLabels.Length then
-            Error(
-                QuantumError.ValidationError(
-                    "Input",
-                    $"Data and labels must have same length: {trainData.Length} vs {trainLabels.Length}"
+            Task.FromResult(
+                Error(
+                    QuantumError.ValidationError(
+                        "Input",
+                        $"Data and labels must have same length: {trainData.Length} vs {trainLabels.Length}"
+                    )
                 )
             )
         else
@@ -108,40 +112,69 @@ module MultiClassSVM =
             let numClasses = uniqueClasses.Length
 
             if numClasses < 2 then
-                Error(QuantumError.ValidationError("Input", $"Need at least 2 classes, found {numClasses}"))
+                Task.FromResult(
+                    Error(QuantumError.ValidationError("Input", $"Need at least 2 classes, found {numClasses}"))
+                )
             elif numClasses = 2 then
-                Error(QuantumError.Other "For binary classification, use QuantumKernelSVM.train directly")
+                Task.FromResult(Error(QuantumError.Other "For binary classification, use QuantumKernelSVM.trainAsync directly"))
             else
-                if config.Verbose then
-                    logInfo config.Logger "Training One-vs-Rest multi-class SVM..."
-                    logInfo config.Logger ($"  Classes: %d{numClasses} (%A{uniqueClasses})")
-
-                // Train one binary classifier per class (functional)
-                uniqueClasses
-                |> Array.map (fun classLabel ->
+                task {
                     if config.Verbose then
-                        logInfo config.Logger ($"  Training classifier for class %d{classLabel} vs rest...")
+                        logInfo config.Logger "Training One-vs-Rest multi-class SVM..."
+                        logInfo config.Logger ($"  Classes: %d{numClasses} (%A{uniqueClasses})")
 
-                    // Create binary labels (class vs. rest)
-                    let binaryLabels = createBinaryLabels trainLabels classLabel
+                    // Train one binary classifier per class, one after another; the first
+                    // failing classifier's error is the result
+                    let binaryModels = ResizeArray<QuantumKernelSVM.SVMModel>(numClasses)
+                    let mutable failure = None
+                    let mutable classIndex = 0
 
-                    // Train binary SVM
-                    QuantumKernelSVM.train backend featureMap trainData binaryLabels config shots
-                    |> Result.mapError (fun e ->
-                        QuantumError.OperationError(
-                            "MultiClassSVM training",
-                            $"Failed to train classifier for class {classLabel}: {e.Message}"
-                        )))
-                |> traverseResult
-                |> Result.map (fun binaryModels ->
-                    if config.Verbose then
-                        logInfo config.Logger "Multi-class training complete!"
+                    while failure.IsNone && classIndex < numClasses do
+                        let classLabel = uniqueClasses.[classIndex]
 
-                    {
-                        BinaryModels = binaryModels
-                        ClassLabels = uniqueClasses
-                        NumClasses = numClasses
-                    })
+                        if config.Verbose then
+                            logInfo config.Logger ($"  Training classifier for class %d{classLabel} vs rest...")
+
+                        // Create binary labels (class vs. rest)
+                        let binaryLabels = createBinaryLabels trainLabels classLabel
+
+                        // Train binary SVM
+                        match!
+                            QuantumKernelSVM.trainAsync
+                                backend
+                                featureMap
+                                trainData
+                                binaryLabels
+                                config
+                                shots
+                                cancellationToken
+                        with
+                        | Ok binaryModel -> binaryModels.Add binaryModel
+                        | Error e ->
+                            failure <-
+                                Some(
+                                    QuantumError.OperationError(
+                                        "MultiClassSVM training",
+                                        $"Failed to train classifier for class {classLabel}: {e.Message}"
+                                    )
+                                )
+
+                        classIndex <- classIndex + 1
+
+                    match failure with
+                    | Some e -> return Error e
+                    | None ->
+                        if config.Verbose then
+                            logInfo config.Logger "Multi-class training complete!"
+
+                        return
+                            Ok
+                                {
+                                    BinaryModels = binaryModels.ToArray()
+                                    ClassLabels = uniqueClasses
+                                    NumClasses = numClasses
+                                }
+                }
 
     // ========================================================================
     // PREDICTION
@@ -171,12 +204,16 @@ module MultiClassSVM =
             if shots <= 0 then
                 return Error(QuantumError.ValidationError("Input", "Number of shots must be positive"))
             else
-                // One binary classifier per class, evaluated concurrently
-                let! binaryPredictions =
-                    model.BinaryModels
-                    |> Array.map (fun binaryModel ->
-                        QuantumKernelSVM.predictAsync backend binaryModel sample shots cancellationToken)
-                    |> Task.WhenAll
+                // One binary classifier per class, in turn: each prediction already runs its
+                // support-vector kernels concurrently (bounded on a sampling backend), so a
+                // class-level fan-out on top would multiply the jobs in flight.
+                let binaryPredictions = Array.zeroCreate model.BinaryModels.Length
+
+                for i in 0 .. model.BinaryModels.Length - 1 do
+                    let! prediction =
+                        QuantumKernelSVM.predictAsync backend model.BinaryModels.[i] sample shots cancellationToken
+
+                    binaryPredictions.[i] <- prediction
 
                 return
                     binaryPredictions
@@ -201,20 +238,6 @@ module MultiClassSVM =
                             Confidence = confidence
                         })
         }
-
-    /// Predict class label for a single sample
-    ///
-    /// This is a synchronous wrapper around `predictAsync` for backward compatibility.
-    [<Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
-    let predict
-        (backend: IQuantumBackend)
-        (model: MultiClassModel)
-        (sample: float array)
-        (shots: int)
-        : QuantumResult<MultiClassPrediction> =
-        predictAsync backend model sample shots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // EVALUATION
@@ -249,23 +272,6 @@ module MultiClassSVM =
 
                 return float correctCount / float testData.Length
         }
-
-    /// Evaluate multi-class model on a dataset
-    ///
-    /// This is a synchronous wrapper around `evaluateAsync` for backward compatibility.
-    ///
-    /// Returns accuracy (fraction of correct predictions)
-    [<Obsolete("Use evaluateAsync for non-blocking execution against cloud backends")>]
-    let evaluate
-        (backend: IQuantumBackend)
-        (model: MultiClassModel)
-        (testData: float array array)
-        (testLabels: int array)
-        (shots: int)
-        : QuantumResult<float> =
-        evaluateAsync backend model testData testLabels shots CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // CONFUSION MATRIX & METRICS

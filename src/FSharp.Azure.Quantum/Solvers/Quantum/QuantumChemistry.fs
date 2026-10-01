@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Numerics
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum // For ErrorMitigationStrategy
 open FSharp.Azure.Quantum.Data // For PeriodicTable and ChemistryDataProviders
@@ -341,13 +342,15 @@ module Molecule =
     /// Validate molecule structure
     let validate (molecule: Molecule) : Result<unit, QuantumError> =
         // Check all bonds reference valid atoms
+        let numAtoms = molecule.Atoms.Length
+
         let invalidBonds =
             molecule.Bonds
             |> List.filter (fun bond ->
                 bond.Atom1 < 0
-                || bond.Atom1 >= molecule.Atoms.Length
+                || bond.Atom1 >= numAtoms
                 || bond.Atom2 < 0
-                || bond.Atom2 >= molecule.Atoms.Length)
+                || bond.Atom2 >= numAtoms)
 
         if not invalidBonds.IsEmpty then
             Error(QuantumError.ValidationError("Bonds", $"Bond references non-existent atom indices: %A{invalidBonds}"))
@@ -741,13 +744,13 @@ module Molecule =
     /// Convert a molecule from the MoleculeLibrary (Data layer) to QuantumChemistry.Molecule
     ///
     /// This enables using the pre-defined molecules from MoleculeLibrary with
-    /// quantum chemistry solvers like GroundStateEnergy.estimateEnergy.
+    /// quantum chemistry solvers like GroundStateEnergy.estimateEnergyAsync.
     ///
     /// Example:
     ///   open FSharp.Azure.Quantum.Data
     ///   open FSharp.Azure.Quantum.QuantumChemistry
     ///   let water = MoleculeLibrary.get "H2O" |> Molecule.fromLibrary
-    ///   let energy = GroundStateEnergy.estimateEnergy backend water
+    ///   let! energy = GroundStateEnergy.estimateEnergyAsync water config CancellationToken.None
     let fromLibrary (libMol: MoleculeLibrary.Molecule) : Molecule =
         {
             Name = libMol.Name
@@ -893,69 +896,37 @@ module Molecule =
         let instance = ChemistryDataProviders.Conversions.fromMoleculeData data
         fromInstance instance
 
-    /// Load molecule from XYZ file asynchronously (Task-based, zero bridging).
+    /// Load molecule from XYZ file asynchronously.
     ///
     /// Example:
-    ///   let! result = Molecule.fromXyzFileTask "water.xyz" ct
+    ///   let! result = Molecule.fromXyzFileAsync "water.xyz" ct
     ///   match result with
     ///   | Ok mol -> printfn "Loaded: %s" mol.Name
     ///   | Error e -> printfn "Error: %A" e
-    let fromXyzFileTask
+    let fromXyzFileAsync
         (filePath: string)
-        (ct: CancellationToken)
-        : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
+        (cancellationToken: CancellationToken)
+        : Task<Result<Molecule, QuantumError>> =
         task {
-            let! result = MoleculeFormats.Xyz.readAsync filePath ct
+            let! result = MoleculeFormats.Xyz.readAsync filePath cancellationToken
             return result |> Result.bind fromMoleculeData
         }
 
-    /// Load molecule from XYZ file asynchronously (F# Async wrapper).
-    [<System.Obsolete("Use fromXyzFileTask instead. This Async wrapper bridges through Async.AwaitTask.")>]
-    let fromXyzFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
-        async {
-            let! ct = Async.CancellationToken
-            let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
-            return result |> Result.bind fromMoleculeData
-        }
-
-    /// Load molecule from XYZ file synchronously.
-    [<System.Obsolete("Use fromXyzFileTask instead. This synchronous wrapper blocks the calling thread.")>]
-    let fromXyzFile (filePath: string) : Result<Molecule, QuantumError> =
-        fromXyzFileTask filePath CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-    /// Load molecule from FCIDump file asynchronously (Task-based, zero bridging).
+    /// Load molecule from FCIDump file asynchronously.
     ///
     /// Note: FCIDump files typically don't contain geometry, so the resulting
     /// Molecule will have placeholder atoms. Use for orbital/electron info only.
     ///
     /// Example:
-    ///   let! result = Molecule.fromFciDumpFileTask "h2.fcidump" ct
-    let fromFciDumpFileTask
+    ///   let! result = Molecule.fromFciDumpFileAsync "h2.fcidump" ct
+    let fromFciDumpFileAsync
         (filePath: string)
-        (ct: CancellationToken)
-        : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
+        (cancellationToken: CancellationToken)
+        : Task<Result<Molecule, QuantumError>> =
         task {
-            let! result = MoleculeFormats.FciDump.readAsync filePath ct
+            let! result = MoleculeFormats.FciDump.readAsync filePath cancellationToken
             return result |> Result.bind fromMoleculeData
         }
-
-    /// Load molecule from FCIDump file asynchronously (F# Async wrapper).
-    [<System.Obsolete("Use fromFciDumpFileTask instead. This Async wrapper bridges through Async.AwaitTask.")>]
-    let fromFciDumpFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
-        async {
-            let! ct = Async.CancellationToken
-            let! result = MoleculeFormats.FciDump.readAsync filePath ct |> Async.AwaitTask
-            return result |> Result.bind fromMoleculeData
-        }
-
-    /// Load molecule from FCIDump file synchronously.
-    [<System.Obsolete("Use fromFciDumpFileTask instead. This synchronous wrapper blocks the calling thread.")>]
-    let fromFciDumpFile (filePath: string) : Result<Molecule, QuantumError> =
-        fromFciDumpFileTask filePath CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Format molecule as XYZ string.
     ///
@@ -972,42 +943,23 @@ module Molecule =
 
         sb.ToString()
 
-    /// Save molecule to XYZ file asynchronously (Task-based, zero bridging).
+    /// Save molecule to XYZ file asynchronously.
     ///
     /// Example:
-    ///   let! result = Molecule.saveToXyzFileTask "output.xyz" molecule ct
-    let saveToXyzFileTask
+    ///   let! result = Molecule.saveToXyzFileAsync "output.xyz" molecule ct
+    let saveToXyzFileAsync
         (filePath: string)
         (molecule: Molecule)
-        (ct: CancellationToken)
-        : System.Threading.Tasks.Task<Result<unit, QuantumError>> =
+        (cancellationToken: CancellationToken)
+        : Task<Result<unit, QuantumError>> =
         task {
             try
                 let content = toXyz molecule
-                do! File.WriteAllTextAsync(filePath, content, ct)
+                do! File.WriteAllTextAsync(filePath, content, cancellationToken)
                 return Ok()
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error(QuantumError.IOError("WriteXYZ", filePath, ex.Message))
         }
-
-    /// Save molecule to XYZ file asynchronously (F# Async wrapper).
-    [<System.Obsolete("Use saveToXyzFileTask instead. This Async wrapper bridges through Async.AwaitTask.")>]
-    let saveToXyzFileAsync (filePath: string) (molecule: Molecule) : Async<Result<unit, QuantumError>> =
-        async {
-            try
-                let content = toXyz molecule
-                do! File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
-                return Ok()
-            with ex ->
-                return Error(QuantumError.IOError("WriteXYZ", filePath, ex.Message))
-        }
-
-    /// Save molecule to XYZ file synchronously.
-    [<System.Obsolete("Use saveToXyzFileTask instead. This synchronous wrapper blocks the calling thread.")>]
-    let saveToXyzFile (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
-        saveToXyzFileTask filePath molecule CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
 /// One peak of a quantum phase estimation outcome distribution: an eigenvalue of the
 /// (Trotterised) Hamiltonian that the prepared state overlaps.
@@ -1022,7 +974,7 @@ type PhaseEstimationPeak =
         Probability: float
     }
 
-/// Parameters and outcome of a chemistry QPE run (QPE.run).
+/// Parameters and outcome of a chemistry QPE run (QPE.runAsync).
 type PhaseEstimationDetails =
     {
         /// Counting (phase) qubits m: 2^m outcome bins
@@ -2184,6 +2136,8 @@ module FermionMapping =
         /// (singles first, then doubles, in the pool's order); the ansatz applies one Pauli
         /// rotation per term, in this order.
         let private clusterOperator (pool: UCCSD.ExcitationPool) (parameters: float[]) : QubitHamiltonian =
+            let numSingles = pool.Singles.Length
+
             let updatedPool: UCCSD.ExcitationPool =
                 {
                     Singles = pool.Singles |> List.mapi (fun i s -> { s with Amplitude = parameters.[i] })
@@ -2191,7 +2145,7 @@ module FermionMapping =
                         pool.Doubles
                         |> List.mapi (fun i d ->
                             { d with
-                                Amplitude = parameters.[pool.Singles.Length + i]
+                                Amplitude = parameters.[numSingles + i]
                             })
                 }
 
@@ -3161,13 +3115,17 @@ module FermionMapping =
         /// ChemistryVQEResult.Estimation.
         ///
         /// **Returns**:
-        ///   Async<Result<ChemistryVQEResult, QuantumError>> - Ground state energy and parameters
-        let runWith
+        ///   Result<ChemistryVQEResult, QuantumError> - Ground state energy and parameters
+        ///
+        /// The optimisation is synchronous: every backend call it makes is a direct
+        /// state-vector operation, so runWithAsync's task only carries the result.
+        /// cancellationToken is observed between iterations.
+        let private runWithCore
             (initialParameters: float[] option)
             (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
             (config: ChemistryVQEConfig)
-            : Async<Result<ChemistryVQEResult, QuantumError>> =
-            async {
+            (cancellationToken: CancellationToken)
+            : Result<ChemistryVQEResult, QuantumError> =
                 match config.Ansatz with
                 | UCCSD(numElectrons, numOrbitals) ->
 
@@ -3182,13 +3140,11 @@ module FermionMapping =
                     let totalParams = numSingles + numDoubles
 
                     // Step 1: Prepare initial state (Hartree-Fock or |0⟩)
-                    let! initialStateResult =
-                        async {
-                            if config.UseHFInitialState then
-                                return HartreeFock.prepareHartreeFockState numElectrons numOrbitals config.Backend
-                            else
-                                return config.Backend.InitializeState numOrbitals
-                        }
+                    let initialStateResult =
+                        if config.UseHFInitialState then
+                            HartreeFock.prepareHartreeFockState numElectrons numOrbitals config.Backend
+                        else
+                            config.Backend.InitializeState numOrbitals
 
                     // Initial UCCSD amplitudes: provided, or small seeded random values near zero.
                     let startingParameters () =
@@ -3203,19 +3159,18 @@ module FermionMapping =
                         initialParameters
                         |> Option.exists (fun provided -> provided.Length <> totalParams)
                         ->
-                        return
-                            Error(
-                                QuantumError.ValidationError(
-                                    "InitialParameters",
-                                    $"UCCSD({numElectrons} electrons, {numOrbitals} spin orbitals) takes {totalParams} parameters "
-                                    + $"({numSingles} singles + {numDoubles} doubles), got {initialParameters.Value.Length}"
-                                )
+                        Error(
+                            QuantumError.ValidationError(
+                                "InitialParameters",
+                                $"UCCSD({numElectrons} electrons, {numOrbitals} spin orbitals) takes {totalParams} parameters "
+                                + $"({numSingles} singles + {numDoubles} doubles), got {initialParameters.Value.Length}"
                             )
+                        )
                     // A backend that cannot apply gates one at a time (cloud hardware) runs
                     // whole circuits: sampled energies, SPSA.
                     | Error err when config.UseHFInitialState && UnifiedBackend.isIncrementalUnsupported err ->
-                        return runSampled (startingParameters ()) errorMitigation config numElectrons numOrbitals
-                    | Error err -> return Error err
+                        runSampled (startingParameters ()) errorMitigation config numElectrons numOrbitals
+                    | Error err -> Error err
                     | Ok initialState ->
                         let initialParameters = startingParameters ()
 
@@ -3317,6 +3272,8 @@ module FermionMapping =
                                         lineSearch s direction slope (step * 0.5))
 
                         let rec optimize (s: OptimizationState) : Result<ChemistryVQEResult, QuantumError> =
+                            cancellationToken.ThrowIfCancellationRequested()
+
                             if largest s.Gradient < gradientTolerance then
                                 finish { s with Converged = true }
                             elif s.Iteration >= config.MaxIterations then
@@ -3367,35 +3324,50 @@ module FermionMapping =
                                                     Converged = false
                                                 }))
 
-                        return
-                            evaluate initialParameters
-                            |> Result.bind (fun (state, energy) ->
-                                report 0 energy
+                        evaluate initialParameters
+                        |> Result.bind (fun (state, energy) ->
+                            report 0 energy
 
-                                gradientAt initialParameters
-                                |> Result.bind (fun gradient ->
-                                    optimize
-                                        {
-                                            Parameters = initialParameters
-                                            Energy = energy
-                                            Gradient = gradient
-                                            InverseHessian = identity ()
-                                            FreshHessian = true
-                                            Iteration = 0
-                                            FinalState = state
-                                            Converged = false
-                                        }))
-            }
+                            gradientAt initialParameters
+                            |> Result.bind (fun gradient ->
+                                optimize
+                                    {
+                                        Parameters = initialParameters
+                                        Energy = energy
+                                        Gradient = gradient
+                                        InverseHessian = identity ()
+                                        FreshHessian = true
+                                        Iteration = 0
+                                        FinalState = state
+                                        Converged = false
+                                    }))
+
+        /// Run UCCSD-VQE to find molecular ground state, starting from the given
+        /// excitation amplitudes (see the parameter notes above runWithCore).
+        ///
+        /// **Returns**:
+        ///   Task<Result<ChemistryVQEResult, QuantumError>> - Ground state energy and parameters
+        let runWithAsync
+            (initialParameters: float[] option)
+            (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
+            (config: ChemistryVQEConfig)
+            (cancellationToken: CancellationToken)
+            : Task<Result<ChemistryVQEResult, QuantumError>> =
+            task { return runWithCore initialParameters errorMitigation config cancellationToken }
 
         /// Run UCCSD-VQE to find molecular ground state
         ///
         /// **Parameters**:
         ///   config - VQE configuration with UCCSD ansatz
+        ///   cancellationToken - Cancels the optimisation between iterations
         ///
         /// **Returns**:
-        ///   Async<Result<ChemistryVQEResult, QuantumError>> - Ground state energy and parameters
-        let run (config: ChemistryVQEConfig) : Async<Result<ChemistryVQEResult, QuantumError>> =
-            runWith None None config
+        ///   Task<Result<ChemistryVQEResult, QuantumError>> - Ground state energy and parameters
+        let runAsync
+            (config: ChemistryVQEConfig)
+            (cancellationToken: CancellationToken)
+            : Task<Result<ChemistryVQEResult, QuantumError>> =
+            runWithAsync None None config cancellationToken
 
 // ============================================================================
 // MOLECULAR INTEGRALS (Pluggable Provider Interface)
@@ -3459,7 +3431,7 @@ module FermionMapping =
 // EXAMPLE USAGE:
 //   let provider = createPySCFProvider "sto-3g"  // From PySCFIntegration.fsx
 //   let config = { ... ; IntegralProvider = Some provider }
-//   let! result = GroundStateEnergy.estimateEnergy molecule config
+//   let! result = GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 //
 // ============================================================================
 
@@ -3934,7 +3906,9 @@ module Sto3gIntegrals =
                             f
                         else
                             history |> List.mapi (fun i (fi, _) -> fi * weights.[i]) |> List.reduce (+)
-                    with _ ->
+                    // A native LAPACK provider reports a singular B here; the managed provider
+                    // returns NaN weights instead, which the check above handles.
+                    with :? MathNet.Numerics.NativeInterfaceException ->
                         f
 
             /// RHF from the starting density p0 with Pulay DIIS, or with Roothaan steps whose new
@@ -4128,11 +4102,11 @@ type GroundStateMethod =
     | VQE
 
     /// Quantum phase estimation of the Trotterised e^(-iHt) from the Hartree-Fock state
-    /// (QPE.run): an eigenvalue per peak of the outcome distribution, needing system +
+    /// (QPE.runAsync): an eigenvalue per peak of the outcome distribution, needing system +
     /// counting qubits (12 for H2/STO-3G)
     | QPE
 
-    /// Tabulated classical reference energy (ClassicalDFT.run); runs no circuit.
+    /// Tabulated classical reference energy (ClassicalDFT.runAsync); runs no circuit.
     /// Used only when requested explicitly.
     | ClassicalDFT
 
@@ -4613,7 +4587,7 @@ module MolecularHamiltonian =
     ///
     /// Shortcut when you already hold integrals: call `buildFromIntegrals` directly with a
     /// `MolecularIntegrals` value such as the bundled `h2Sto3gIntegrals`, or integrals
-    /// loaded from an FCIDUMP file via `Molecule.fromFciDumpFileTask`.
+    /// loaded from an FCIDUMP file via `Molecule.fromFciDumpFileAsync`.
     let rec buildWithMapping
         (molecule: Molecule)
         (mapping: MappingMethod)
@@ -4687,11 +4661,11 @@ type EnergySource =
     /// Hardware-efficient VQE on the empirical prototype Hamiltonian of MolecularHamiltonian.build;
     /// not a physical molecular energy.
     | EmpiricalHamiltonian
-    /// Quantum phase estimation (QPE.run) of the Trotterised time evolution e^(-iHt) of the
+    /// Quantum phase estimation (QPE.runAsync) of the Trotterised time evolution e^(-iHt) of the
     /// Jordan-Wigner Hamiltonian of the provider's or the library's own integrals; see
     /// VQEResult.Estimation for t, Trotter steps, counting qubits and the outcome peaks.
     | QpeTrotterEvolution
-    /// ClassicalDFT.run's tabulated reference value; no quantum circuit ran.
+    /// ClassicalDFT.runAsync's tabulated reference value; no quantum circuit ran.
     | TabulatedReference
 
 /// Tabulated classical reference energies for H2, H2O and LiH near equilibrium, matched by
@@ -4707,7 +4681,8 @@ module ClassicalDFT =
     /// water, 5° of the 104.5° H-O-H angle.
     let private isTabulatedState (name: string) (molecule: Molecule) =
         let atomsOf (element: string) =
-            molecule.Atoms |> List.filter (fun a -> a.Element.ToUpperInvariant() = element)
+            molecule.Atoms
+            |> List.filter (fun a -> String.Equals(a.Element, element, StringComparison.OrdinalIgnoreCase))
 
         let near (expected: float) (actual: float) = abs (actual - expected) <= 0.05
 
@@ -4731,8 +4706,14 @@ module ClassicalDFT =
     /// The tabulated energy of a neutral singlet H2, H2O or LiH near its equilibrium
     /// geometry (matched by composition and geometry, not by name). Other charges, spin
     /// states and geometries are an Error: the table has no value for them.
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<float, QuantumError>> =
-        async {
+    let runAsync
+        (molecule: Molecule)
+        (config: SolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<float, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+
             match MoleculeIdentification.identify molecule with
             | Some name when not (isTabulatedState name molecule) ->
                 return
@@ -5060,7 +5041,7 @@ module VQE =
             member _.IsCancellationRequested =
                 inner |> Option.exists (fun r -> r.IsCancellationRequested)
 
-    /// Largest UCCSD parameter count VQE.run admits, checked before the qubit Hamiltonian is
+    /// Largest UCCSD parameter count VQE.runAsync admits, checked before the qubit Hamiltonian is
     /// built. Each optimisation iteration evaluates the energy twice per parameter; 52
     /// parameters (a (4e,4o) active space, 8 qubits) took 3 to 4 minutes on the local
     /// simulator, and the count grows as the fourth power of the active-space size.
@@ -5152,8 +5133,9 @@ module VQE =
         (source: EnergySource)
         (notes: string list)
         (config: SolverConfig)
-        : Async<Result<VQEResult, QuantumError>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<Result<VQEResult, QuantumError>> =
+        task {
             // Jordan-Wigner: one qubit per spin orbital.
             let numQubits = 2 * integrals.NumOrbitals
             let parameters = uccsdParameterCount integrals.NumElectrons numQubits
@@ -5207,7 +5189,11 @@ module VQE =
                         }
 
                     let! vqeResult =
-                        FermionMapping.ChemistryVQE.runWith config.InitialParameters config.ErrorMitigation vqeConfig
+                        FermionMapping.ChemistryVQE.runWithAsync
+                            config.InitialParameters
+                            config.ErrorMitigation
+                            vqeConfig
+                            cancellationToken
 
                     return
                         vqeResult
@@ -5243,14 +5229,17 @@ module VQE =
     /// - any other molecule → hardware-efficient VQE on the empirical prototype Hamiltonian
     ///   (Source = EmpiricalHamiltonian).
     /// UCCSD with more than MaxUccsdParameters parameters is an Error. Never substitutes a
-    /// tabulated energy; ClassicalDFT.run returns those on request. `basis` applies only to
+    /// tabulated energy; ClassicalDFT.runAsync returns those on request. `basis` applies only to
     /// the library's own H/He integrals: provider integrals carry their own basis.
-    let runInBasis
+    let runInBasisAsync
         (basis: string)
         (molecule: Molecule)
         (config: SolverConfig)
-        : Async<Result<VQEResult, QuantumError>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<Result<VQEResult, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+
             // Get backend (RULE1: backend is required)
             let backend =
                 config.Backend
@@ -5268,7 +5257,7 @@ module VQE =
                         ]
                     | _ -> []
 
-                return! runOnIntegrals backend integrals source notes config
+                return! runOnIntegrals backend integrals source notes config cancellationToken
             | Ok None, Some knownName ->
                 return
                     Error(
@@ -5277,7 +5266,7 @@ module VQE =
                             $"VQE for '{molecule.Name}' ({knownName}) needs molecular integrals for its geometry. "
                             + "Supply SolverConfig.IntegralProvider (a PySCF/Psi4 wrapper, or FciDumpIntegrals.fromFile "
                             + "for an FCIDUMP file); the library computes integrals itself only for H and He atoms. "
-                            + "ClassicalDFT.run returns a tabulated reference energy without running a circuit."
+                            + "ClassicalDFT.runAsync returns a tabulated reference energy without running a circuit."
                         )
                     )
             | Ok None, None ->
@@ -5331,9 +5320,13 @@ module VQE =
         }
 
     /// Run VQE to estimate ground state energy; H/He molecules without a provider use
-    /// STO-3G integrals (see runInBasis).
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQEResult, QuantumError>> =
-        runInBasis "STO-3G" molecule config
+    /// STO-3G integrals (see runInBasisAsync).
+    let runAsync
+        (molecule: Molecule)
+        (config: SolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<VQEResult, QuantumError>> =
+        runInBasisAsync "STO-3G" molecule config cancellationToken
 
 /// Hamiltonian Simulation using Trotter-Suzuki decomposition
 ///
@@ -5667,7 +5660,7 @@ module QPE =
     open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki
     open FSharp.Azure.Quantum.CircuitBuilder
 
-    /// Largest circuit (system + counting qubits) QPE.run builds.
+    /// Largest circuit (system + counting qubits) QPE.runAsync builds.
     [<Literal>]
     let MaxTotalQubits = 16
 
@@ -5929,12 +5922,15 @@ module QPE =
     /// Errors: no integrals (a molecule other than H/He without SolverConfig.IntegralProvider),
     /// spin states UCCSD-VQE also refuses, more than MaxTotalQubits qubits, fewer than 3
     /// counting qubits, a Trotter order other than 1 or 2, or fewer than one Trotter step.
-    let runWith
+    let runWithAsync
         (settings: Settings)
         (molecule: Molecule)
         (config: SolverConfig)
-        : Async<Result<VQE.VQEResult, QuantumError>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<Result<VQE.VQEResult, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+
             let backend =
                 config.Backend
                 |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
@@ -6094,26 +6090,31 @@ module QPE =
         }
 
     /// QPE with defaultSettings (Hartree-Fock state, STO-3G for H/He molecules).
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, QuantumError>> =
-        runWith defaultSettings molecule config
+    let runAsync
+        (molecule: Molecule)
+        (config: SolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<VQE.VQEResult, QuantumError>> =
+        runWithAsync defaultSettings molecule config cancellationToken
 
 /// Ground state energy estimation
 module GroundStateEnergy =
 
-    let estimateEnergyWith
+    let estimateEnergyWithAsync
         (method: GroundStateMethod)
         (molecule: Molecule)
         (config: SolverConfig)
-        : Async<Result<VQE.VQEResult, QuantumError>> =
+        (cancellationToken: CancellationToken)
+        : Task<Result<VQE.VQEResult, QuantumError>> =
 
         match method with
-        | GroundStateMethod.VQE -> VQE.run molecule config
+        | GroundStateMethod.VQE -> VQE.runAsync molecule config cancellationToken
 
-        | GroundStateMethod.QPE -> QPE.run molecule config
+        | GroundStateMethod.QPE -> QPE.runAsync molecule config cancellationToken
 
         | GroundStateMethod.ClassicalDFT ->
-            async {
-                let! energyResult = ClassicalDFT.run molecule config
+            task {
+                let! energyResult = ClassicalDFT.runAsync molecule config cancellationToken
 
                 return
                     energyResult
@@ -6132,12 +6133,17 @@ module GroundStateEnergy =
             }
 
         // Quantum-first: Automatic never substitutes the tabulated classical reference;
-        // VQE.run returns Error when the molecule cannot run.
-        | GroundStateMethod.Automatic -> VQE.run molecule config
+        // VQE.runAsync returns Error when the molecule cannot run.
+        | GroundStateMethod.Automatic -> VQE.runAsync molecule config cancellationToken
 
-    let estimateEnergy (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, QuantumError>> =
+    /// Ground state energy by config.Method.
+    let estimateEnergyAsync
+        (molecule: Molecule)
+        (config: SolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<VQE.VQEResult, QuantumError>> =
 
-        estimateEnergyWith config.Method molecule config
+        estimateEnergyWithAsync config.Method molecule config cancellationToken
 
 // ============================================================================
 // QUANTUM CHEMISTRY DOMAIN BUILDER - F# Computation Expression API (TKT-79)
@@ -6171,7 +6177,7 @@ module GroundStateEnergy =
 ///     ansatz UCCSD
 /// }
 ///
-/// let! result = solve problem
+/// let! result = solveAsync problem CancellationToken.None
 /// printfn "Energy: %.6f Ha" result.GroundStateEnergy
 /// </code>
 /// </remarks>
@@ -6314,7 +6320,7 @@ module QuantumChemistryBuilder =
     /// <summary>Source specification for loading molecules.</summary>
     /// <remarks>
     /// Allows deferred loading of molecules from various sources.
-    /// Actual I/O happens in solve() for proper error handling.
+    /// Actual I/O happens in solveAsync for proper error handling.
     /// </remarks>
     type MoleculeSource =
         /// Direct molecule instance (already loaded)
@@ -6345,9 +6351,9 @@ module QuantumChemistryBuilder =
             MaxIterations: int
             /// Initial VQE parameters (warm start)
             InitialParameters: float[] option
-            /// Molecular integrals for VQE (None: molecule_from_fcidump's file, else VQE.run's own selection)
+            /// Molecular integrals for VQE (None: molecule_from_fcidump's file, else VQE.runAsync's own selection)
             IntegralProvider: IntegralProvider option
-            /// Ground-state method: GroundStateMethod.QPE runs QPE.runWith; anything else (or
+            /// Ground-state method: GroundStateMethod.QPE runs QPE.runWithAsync; anything else (or
             /// None) runs UCCSD-VQE
             Method: GroundStateMethod option
         }
@@ -6474,8 +6480,8 @@ module QuantumChemistryBuilder =
             |> Seq.fold (fun state item -> this.Combine(state, fun () -> body item)) (this.Zero())
 
         /// <summary>Async support - let! binding for loading data.</summary>
-        member _.Bind(computation: Async<'T>, continuation: 'T -> ChemistryProblem) : Async<ChemistryProblem> =
-            async {
+        member _.Bind(computation: Task<'T>, continuation: 'T -> ChemistryProblem) : Task<ChemistryProblem> =
+            task {
                 let! value = computation
                 return continuation value
             }
@@ -6541,7 +6547,7 @@ module QuantumChemistryBuilder =
             }
 
         /// <summary>Choose the ground-state method: GroundStateMethod.QPE runs quantum phase
-        /// estimation of the Trotterised e^(-iHt) (QPE.runWith defaultSettings in the problem's
+        /// estimation of the Trotterised e^(-iHt) (QPE.runWithAsync defaultSettings in the problem's
         /// basis; no ansatz needed); VQE, Automatic or no method runs UCCSD-VQE.</summary>
         /// <param name="groundStateMethod">The method</param>
         [<CustomOperation("groundStateMethod")>]
@@ -6557,7 +6563,7 @@ module QuantumChemistryBuilder =
         /// <summary>Load molecule from XYZ file.</summary>
         /// <param name="filePath">Path to XYZ file</param>
         /// <remarks>
-        /// The file is loaded when solve() is called, not during builder construction.
+        /// The file is loaded when solveAsync is called, not during builder construction.
         /// This allows proper error handling in the Result type.
         /// </remarks>
         /// <example>
@@ -6579,7 +6585,7 @@ module QuantumChemistryBuilder =
         /// <param name="filePath">Path to FCIDump file</param>
         /// <remarks>
         /// FCIDump files contain molecular integrals but typically not geometry.
-        /// The resulting molecule has placeholder atoms; solve runs VQE on the file's
+        /// The resulting molecule has placeholder atoms; solveAsync runs VQE on the file's
         /// integrals (FciDumpIntegrals.fromFile) unless integralProvider is set.
         /// </remarks>
         [<CustomOperation("molecule_from_fcidump")>]
@@ -6685,21 +6691,23 @@ module QuantumChemistryBuilder =
 
     /// <summary>
     /// Load molecule from MoleculeSource.
-    /// Internal helper for deferred loading in solve().
+    /// Internal helper for deferred loading in solveAsync.
     /// </summary>
-    let private loadMoleculeFromSource (source: MoleculeSource) : Async<Result<Molecule, QuantumError>> =
-        async {
+    let private loadMoleculeFromSource
+        (source: MoleculeSource)
+        (cancellationToken: CancellationToken)
+        : Task<Result<Molecule, QuantumError>> =
+        task {
             match source with
             | Direct mol -> return Ok mol
 
             | XyzFile path ->
-                let! ct = Async.CancellationToken
-                let! result = Molecule.fromXyzFileTask path ct |> Async.AwaitTask
+                let! result = Molecule.fromXyzFileAsync path cancellationToken
                 return result
 
             | FciDumpFile path ->
                 // An FCIDUMP has no geometry: the molecule is a named placeholder and VQE
-                // takes the file's integrals (see solve).
+                // takes the file's integrals (see solveAsync).
                 return
                     FciDumpIntegrals.readFile path
                     |> Result.map (fun integrals ->
@@ -6727,17 +6735,22 @@ module QuantumChemistryBuilder =
     /// Transforms domain problem to VQE execution, runs calculation, and returns chemistry-specific result.
     /// </summary>
     /// <param name="problem">Chemistry problem specification</param>
-    /// <returns>Async result with ground state energy and bond information</returns>
-    let solve (problem: ChemistryProblem) : Async<Result<ChemistryResult, QuantumError>> =
-        async {
+    /// <param name="cancellationToken">Cancels file loading and the optimisation between iterations</param>
+    /// <returns>Task result with ground state energy and bond information</returns>
+    let solveAsync
+        (problem: ChemistryProblem)
+        (cancellationToken: CancellationToken)
+        : Task<Result<ChemistryResult, QuantumError>> =
+        task {
             // Load molecule from source (deferred I/O)
             let! moleculeResult =
                 match problem.Molecule with
-                | Some mol -> async { return Ok mol }
+                | Some mol -> Task.FromResult(Ok mol)
                 | None ->
                     match problem.MoleculeSource with
-                    | Some source -> loadMoleculeFromSource source
-                    | None -> async { return Error(QuantumError.ValidationError("Molecule", "No molecule specified")) }
+                    | Some source -> loadMoleculeFromSource source cancellationToken
+                    | None ->
+                        Task.FromResult(Error(QuantumError.ValidationError("Molecule", "No molecule specified")))
 
             match moleculeResult with
             | Error err -> return Error err
@@ -6768,7 +6781,7 @@ module QuantumChemistryBuilder =
                 let! vqeResult =
                     match problem.Method with
                     | Some GroundStateMethod.QPE ->
-                        QPE.runWith
+                        QPE.runWithAsync
                             { QPE.defaultSettings with
                                 Basis = problem.Basis.Value
                             }
@@ -6776,7 +6789,8 @@ module QuantumChemistryBuilder =
                             { vqeConfig with
                                 Method = GroundStateMethod.QPE
                             }
-                    | _ -> VQE.runInBasis problem.Basis.Value molecule vqeConfig
+                            cancellationToken
+                    | _ -> VQE.runInBasisAsync problem.Basis.Value molecule vqeConfig cancellationToken
 
                 // Transform result: Framework → Domain
                 let result =

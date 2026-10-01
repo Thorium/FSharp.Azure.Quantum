@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 open FSharp.Azure.Quantum.Core
 
@@ -136,13 +138,14 @@ module ReadoutErrorMitigation =
     ///       [ P(1|0)  P(1|1) ]            [ 0.02  0.98 ]
     ///
     /// Returns CalibrationMatrix for use in error correction.
-    let measureCalibrationMatrix
+    let measureCalibrationMatrixAsync
         (backend: string)
         (qubits: int)
         (config: REMConfig)
-        (executor: CircuitBuilder.Circuit -> int -> Async<Result<Map<string, int>, string>>)
-        : Async<Result<CalibrationMatrix, string>> =
-        async {
+        (executor: CircuitBuilder.Circuit -> int -> Task<Result<Map<string, int>, string>>)
+        (cancellationToken: CancellationToken)
+        : Task<Result<CalibrationMatrix, string>> =
+        task {
             try
                 if qubits < 1 || qubits > 10 then
                     return Error $"Qubit count must be 1-10 (got %d{qubits})"
@@ -165,41 +168,40 @@ module ReadoutErrorMitigation =
 
                         CircuitBuilder.empty qubits |> CircuitBuilder.addGates xGates
 
-                    let rec measureColumn j =
-                        async {
-                            if j >= dimension then
-                                return Ok()
-                            else
-                                match! executor (prepareBasisState j) config.CalibrationShots with
-                                | Error err ->
-                                    return
-                                        Error(
-                                            sprintf
-                                                "Failed to measure basis state |%s>: %s"
-                                                (intToBitstring j qubits)
-                                                err
-                                        )
-                                | Ok histogram ->
-                                    // Accumulate raw measured counts into column j...
-                                    for (bitstring, count) in Map.toList histogram do
-                                        let measured = bitstringToInt bitstring
+                    // Columns are measured one after another (a loop, not recursion: up to 1,024
+                    // synchronously completing executions must not grow the stack).
+                    let mutable failure = None
+                    let mutable j = 0
 
-                                        if measured >= 0 && measured < dimension then
-                                            matrix.[measured, j] <- matrix.[measured, j] + float count
-                                    // ...then normalise the column into a probability distribution so the
-                                    // confusion matrix is column-stochastic (each prepared state sums to 1).
-                                    let colSum = [ for m in 0 .. dimension - 1 -> matrix.[m, j] ] |> List.sum
+                    while failure.IsNone && j < dimension do
+                        cancellationToken.ThrowIfCancellationRequested()
 
-                                    if colSum > 0.0 then
-                                        for m in 0 .. dimension - 1 do
-                                            matrix.[m, j] <- matrix.[m, j] / colSum
+                        match! executor (prepareBasisState j) config.CalibrationShots with
+                        | Error err ->
+                            failure <-
+                                Some(
+                                    sprintf "Failed to measure basis state |%s>: %s" (intToBitstring j qubits) err
+                                )
+                        | Ok histogram ->
+                            // Accumulate raw measured counts into column j...
+                            for (bitstring, count) in Map.toList histogram do
+                                let measured = bitstringToInt bitstring
 
-                                    return! measureColumn (j + 1)
-                        }
+                                if measured >= 0 && measured < dimension then
+                                    matrix.[measured, j] <- matrix.[measured, j] + float count
+                            // ...then normalise the column into a probability distribution so the
+                            // confusion matrix is column-stochastic (each prepared state sums to 1).
+                            let colSum = [ for m in 0 .. dimension - 1 -> matrix.[m, j] ] |> List.sum
 
-                    match! measureColumn 0 with
-                    | Error err -> return Error err
-                    | Ok() ->
+                            if colSum > 0.0 then
+                                for m in 0 .. dimension - 1 do
+                                    matrix.[m, j] <- matrix.[m, j] / colSum
+
+                            j <- j + 1
+
+                    match failure with
+                    | Some err -> return Error err
+                    | None ->
                         return
                             Ok
                                 {
@@ -209,7 +211,7 @@ module ReadoutErrorMitigation =
                                     Backend = backend
                                     CalibrationShots = config.CalibrationShots
                                 }
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error $"Calibration measurement error: %s{ex.Message}"
         }
 
@@ -403,19 +405,20 @@ module ReadoutErrorMitigation =
     /// 4. Return corrected results with confidence intervals
     ///
     /// Returns CorrectedResults with 50-90% error reduction.
-    let mitigate
+    let mitigateAsync
         (circuit: CircuitBuilder.Circuit)
         (backend: string)
         (config: REMConfig)
-        (executor: CircuitBuilder.Circuit -> int -> Async<Result<Map<string, int>, string>>)
-        : Async<Result<CorrectedResults, string>> =
-        async {
+        (executor: CircuitBuilder.Circuit -> int -> Task<Result<Map<string, int>, string>>)
+        (cancellationToken: CancellationToken)
+        : Task<Result<CorrectedResults, string>> =
+        task {
             try
                 let qubits = CircuitBuilder.qubitCount circuit
 
                 // Step 1: Measure calibration matrix (can be cached and reused)
 
-                match! measureCalibrationMatrix backend qubits config executor with
+                match! measureCalibrationMatrixAsync backend qubits config executor cancellationToken with
                 | Error err -> return Error $"Calibration failed: %s{err}"
                 | Ok calibration ->
                     // Step 2: Execute actual circuit
@@ -428,7 +431,7 @@ module ReadoutErrorMitigation =
                         let correctionResult = correctReadoutErrors measured calibration config
 
                         return correctionResult
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error $"REM pipeline error: %s{ex.Message}"
         }
 

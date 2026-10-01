@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
 open FSharp.Azure.Quantum
+open System.Threading
 open System.Threading.Tasks
 
 module ZeroNoiseExtrapolationTests =
@@ -191,8 +192,8 @@ module ZeroNoiseExtrapolationTests =
     // Cycle #4: Full ZNE pipeline - Beautiful composition of all pieces!
 
     [<Fact>]
-    let ``mitigate should compose all ZNE steps`` () =
-        async {
+    let ``mitigate should compose all ZNE steps`` () : Task =
+        task {
             // Arrange: Simple circuit and configuration
             let circuit =
                 CircuitBuilder.empty 2
@@ -213,7 +214,7 @@ module ZeroNoiseExtrapolationTests =
 
             // Mock executor: Realistic noise model (noise decreases expectation)
             let mockExecutor (noisyCircuit: CircuitBuilder.Circuit) =
-                async {
+                task {
                     let gateCount = float (CircuitBuilder.gateCount noisyCircuit)
                     let baselineGates = 2.0 // Original circuit
                     let noiseLevelEstimate = gateCount / baselineGates
@@ -228,7 +229,7 @@ module ZeroNoiseExtrapolationTests =
             // Act: Run full ZNE pipeline
 
             // Assert: Should return successful ZNE result
-            match! ZeroNoiseExtrapolation.mitigate circuit config mockExecutor with
+            match! ZeroNoiseExtrapolation.mitigateAsync circuit config mockExecutor CancellationToken.None with
             | Ok zneResult ->
                 // Zero-noise value should be >= baseline
                 Assert.True(
@@ -246,12 +247,11 @@ module ZeroNoiseExtrapolationTests =
                 Assert.True(zneResult.GoodnessOfFit >= 0.0 && zneResult.GoodnessOfFit <= 1.0)
             | Error err -> Assert.Fail($"ZNE pipeline failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``mitigate should demonstrate error reduction`` () =
-        async {
+    let ``mitigate should demonstrate error reduction`` () : Task =
+        task {
             // Arrange: Circuit with known baseline noise
             let circuit = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
 
@@ -269,7 +269,7 @@ module ZeroNoiseExtrapolationTests =
 
             // Realistic executor: Linear noise degradation
             let mockExecutor (noisyCircuit: CircuitBuilder.Circuit) =
-                async {
+                task {
                     let noiseLevel = float (CircuitBuilder.gateCount noisyCircuit)
                     let baselineExpectation = 0.80 // Noisy baseline
                     let expectation = baselineExpectation - (noiseLevel - 1.0) * 0.1
@@ -279,7 +279,7 @@ module ZeroNoiseExtrapolationTests =
             // Act: Apply ZNE
 
             // Assert: Error reduction (zero-noise > baseline)
-            match! ZeroNoiseExtrapolation.mitigate circuit config mockExecutor with
+            match! ZeroNoiseExtrapolation.mitigateAsync circuit config mockExecutor CancellationToken.None with
             | Ok zneResult ->
                 // First measurement is baseline (1.0x noise)
                 let baseline = zneResult.MeasuredValues |> List.head |> snd
@@ -294,7 +294,6 @@ module ZeroNoiseExtrapolationTests =
                 )
             | Error err -> Assert.Fail($"ZNE failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     // Cycle #5: Configuration builders and defaults - Idiomatic F# usability
@@ -391,24 +390,23 @@ module ZeroNoiseExtrapolationTests =
     // Cycle #6: Edge cases and robustness - Production-ready error handling
 
     [<Fact>]
-    let ``mitigate should handle executor failures gracefully`` () =
-        async {
+    let ``mitigate should handle executor failures gracefully`` () : Task =
+        task {
             // Arrange: Circuit and config
             let circuit = CircuitBuilder.empty 1
             let config = ZeroNoiseExtrapolation.defaultIonQConfig
 
             // Failing executor
             let failingExecutor (_: CircuitBuilder.Circuit) =
-                async { return Error "Quantum hardware unavailable" }
+                task { return Error "Quantum hardware unavailable" }
 
             // Act: Attempt ZNE
 
             // Assert: Should propagate error gracefully
-            match! ZeroNoiseExtrapolation.mitigate circuit config failingExecutor with
+            match! ZeroNoiseExtrapolation.mitigateAsync circuit config failingExecutor CancellationToken.None with
             | Error err -> Assert.Contains("execution failed", err)
             | Ok _ -> Assert.Fail("Expected error for failing executor")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
@@ -434,8 +432,8 @@ module ZeroNoiseExtrapolationTests =
         Assert.Equal(CircuitBuilder.gateCount circuit, CircuitBuilder.gateCount result)
 
     [<Fact>]
-    let ``mitigate with single noise level should still work`` () =
-        async {
+    let ``mitigate with single noise level should still work`` () : Task =
+        task {
             // Arrange: Only baseline noise (edge case)
             let circuit = CircuitBuilder.empty 1
 
@@ -446,23 +444,22 @@ module ZeroNoiseExtrapolationTests =
                     MinSamples = 100
                 }
 
-            let executor (_: CircuitBuilder.Circuit) = async { return Ok 0.85 }
+            let executor (_: CircuitBuilder.Circuit) = task { return Ok 0.85 }
 
             // Act: Run ZNE
 
             // Assert: Should return baseline value
-            match! ZeroNoiseExtrapolation.mitigate circuit config executor with
+            match! ZeroNoiseExtrapolation.mitigateAsync circuit config executor CancellationToken.None with
             | Ok zneResult -> Assert.Equal(0.85, zneResult.ZeroNoiseValue, 2)
             | Error err -> Assert.Fail($"Should handle single noise level: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     // Cycle #7: Benchmark - Demonstrate 30-50% error reduction and 3x overhead
 
     [<Fact>]
-    let ``Benchmark ZNE should demonstrate 30-50 percent error reduction`` () =
-        async {
+    let ``Benchmark ZNE should demonstrate 30-50 percent error reduction`` () : Task =
+        task {
             // Arrange: Realistic noisy circuit simulation
             let circuit =
                 CircuitBuilder.empty 2
@@ -475,7 +472,7 @@ module ZeroNoiseExtrapolationTests =
 
             // Realistic noisy executor: Baseline has 20% error
             let noisyExecutor (noisyCircuit: CircuitBuilder.Circuit) =
-                async {
+                task {
                     let gateCount = float (CircuitBuilder.gateCount noisyCircuit)
                     let baselineGates = 3.0
                     let noiseLevel = gateCount / baselineGates
@@ -490,7 +487,7 @@ module ZeroNoiseExtrapolationTests =
             // Act: Run ZNE
 
             // Assert: Demonstrate error reduction
-            match! ZeroNoiseExtrapolation.mitigate circuit config noisyExecutor with
+            match! ZeroNoiseExtrapolation.mitigateAsync circuit config noisyExecutor CancellationToken.None with
             | Ok zneResult ->
                 // Baseline measurement (1.0x noise)
                 let baseline = zneResult.MeasuredValues |> List.head |> snd
@@ -520,12 +517,11 @@ module ZeroNoiseExtrapolationTests =
                     zneError
             | Error err -> Assert.Fail($"Benchmark failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Benchmark ZNE overhead should be 3x circuit executions`` () =
-        async {
+    let ``Benchmark ZNE overhead should be 3x circuit executions`` () : Task =
+        task {
             // Arrange: Track execution count with thread-safe counter
             let executionCount = ref 0
             let circuit = CircuitBuilder.empty 1
@@ -533,58 +529,49 @@ module ZeroNoiseExtrapolationTests =
             let config = ZeroNoiseExtrapolation.defaultIonQConfig // 3 noise levels
 
             let countingExecutor (_: CircuitBuilder.Circuit) =
-                async {
-                    // Thread-safe increment for parallel execution
-                    System.Threading.Interlocked.Increment(executionCount) |> ignore
+                task {
+                    // Thread-safe increment (executions now run one after another, but keep it safe)
+                    Interlocked.Increment(executionCount) |> ignore
                     return Ok 0.85
                 }
 
             // Act: Run ZNE
 
             // Assert: Exactly 3x overhead (3 noise levels)
-            match! ZeroNoiseExtrapolation.mitigate circuit config countingExecutor with
+            match! ZeroNoiseExtrapolation.mitigateAsync circuit config countingExecutor CancellationToken.None with
             | Ok _ ->
                 Assert.Equal(3, !executionCount)
                 printfn "✓ Benchmark: 3x overhead (3 circuit executions for 3 noise levels)"
             | Error err -> Assert.Fail($"Benchmark failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``Benchmark parallel execution should be faster than sequential`` () =
-        async {
+    let ``Benchmark slow executor runs once per noise level`` () : Task =
+        task {
             // Arrange: Simulate slow executor
             let circuit = CircuitBuilder.empty 1
             let config = ZeroNoiseExtrapolation.defaultIonQConfig
 
             let slowExecutor (_: CircuitBuilder.Circuit) =
-                async {
-                    do! Async.Sleep 10 // 10ms per execution
+                task {
+                    do! Task.Delay 10 // 10ms per execution
                     return Ok 0.85
                 }
 
-            // Act: Measure parallel execution time
+            // Act: Measure the wall-clock time; the 3 circuits run one after another
             let stopwatch = System.Diagnostics.Stopwatch.StartNew()
-            let! result = ZeroNoiseExtrapolation.mitigate circuit config slowExecutor
+            let! result = ZeroNoiseExtrapolation.mitigateAsync circuit config slowExecutor CancellationToken.None
             stopwatch.Stop()
 
-            // Assert: Parallel should be faster than sequential
+            // Assert: The run completes; timing is only reported, never asserted
             match result with
             | Ok _ ->
-                let parallelTime = stopwatch.ElapsedMilliseconds
-                // Parallel: ~10-50ms (with async overhead), Sequential would be: 3 * 10ms = 30ms
-                // Key point: Demonstrate parallel execution (3 circuits run concurrently)
+                let elapsed = stopwatch.ElapsedMilliseconds
+                // The 3 noise levels execute sequentially, so expect roughly 3 * 10ms = 30ms
+                // (plus scheduling overhead)
 
-                let theoreticalSequential = 30L
-                let speedup = float theoreticalSequential / float parallelTime
-
-                printfn
-                    "✓ Benchmark: Parallel execution %.1fx faster (%dms vs theoretical %dms sequential)"
-                    speedup
-                    parallelTime
-                    theoreticalSequential
+                printfn "✓ Benchmark: %d ms for 3 sequential executions of 10 ms" elapsed
             | Error err -> Assert.Fail($"Benchmark failed: %s{err}")
         }
-        |> Async.StartImmediateAsTask
         :> Task

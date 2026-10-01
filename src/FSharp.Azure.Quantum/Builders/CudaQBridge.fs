@@ -149,8 +149,10 @@ module CudaQBridge =
                     try
                         (if not proc.HasExited then
                              proc.Kill true)
-                    with _ ->
-                        ()
+                    with
+                    // No process was ever started, or it exited between the check and the kill.
+                    | :? System.InvalidOperationException
+                    | :? System.ComponentModel.Win32Exception -> ()
 
                 match ex with
                 | :? System.OperationCanceledException -> return Error "python run was cancelled"
@@ -199,7 +201,7 @@ module CudaQBridge =
                             let jsonLine =
                                 stdout.Split '\n'
                                 |> Array.map (fun s -> s.Trim())
-                                |> Array.filter (fun s -> s.StartsWith "{")
+                                |> Array.filter (fun s -> s.StartsWith '{')
                                 |> Array.tryLast
 
                             match jsonLine with

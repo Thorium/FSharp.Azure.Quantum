@@ -2,6 +2,8 @@ namespace FSharp.Azure.Quantum.Business
 
 open System
 open System.Numerics
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -113,7 +115,7 @@ module OptionPricing =
             GroverIterations: int
             Shots: int
             Backend: IQuantumBackend voption
-            CancellationToken: System.Threading.CancellationToken option
+            CancellationToken: CancellationToken option
         }
 
     // ========================================================================
@@ -218,7 +220,7 @@ module OptionPricing =
     /// 1. Encode GBM distribution using Möttönen (exact amplitude encoding)
     /// 2. Rotate payoff / maxPayoff onto an ancilla (uniformly controlled RY)
     /// 3. Estimate P(ancilla = 1) = E[payoff] / maxPayoff by maximum-likelihood amplitude
-    ///    estimation over Grover powers (QuantumMonteCarlo.estimateBoundedExpectation)
+    ///    estimation over Grover powers (QuantumMonteCarlo.estimateBoundedExpectationAsync)
     /// 4. Price = discount · maxPayoff · estimate; the 95% interval is 1.96 standard errors
     ///    of the same estimate
     ///
@@ -226,17 +228,17 @@ module OptionPricing =
     /// - Payoff rotation costs O(2^n) gates; tractable for n ≤ 10
     /// - Requires careful selection of numQubits based on price range
     /// - groverIterations affects accuracy: more iterations = higher precision
-    let priceWithCancellation
-        (cancellationTokenOpt: System.Threading.CancellationToken option)
+    let priceAsync
         (optionType: OptionType)
         (marketParams: MarketParameters)
         (numQubits: int)
         (groverIterations: int)
         (shots: int)
         (backend: IQuantumBackend)
-        : Async<QuantumResult<OptionPrice>> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<OptionPrice>> =
 
-        async {
+        task {
             // Validate inputs
             if numQubits < 2 then
                 return
@@ -314,21 +316,17 @@ module OptionPricing =
                 let scaledPayoffs =
                     payoffs |> Array.map (fun p -> if maxPayoff > 0.0 then p / maxPayoff else 0.0)
 
-                let estimation =
-                    QuantumMonteCarlo.estimateBoundedExpectation statePrep scaledPayoffs groverIterations shots backend
-
                 // Execute amplitude estimation on the quantum backend (✅ RULE1 compliant - backend required)
+                cancellationToken.ThrowIfCancellationRequested()
+
                 let! estimate =
-                    match cancellationTokenOpt with
-                    | Some token when token.IsCancellationRequested -> raise (OperationCanceledException token)
-                    | Some token ->
-                        Async.StartAsTask(
-                            estimation,
-                            cancellationToken = token,
-                            taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None
-                        )
-                        |> Async.AwaitTask
-                    | None -> estimation
+                    QuantumMonteCarlo.estimateBoundedExpectationAsync
+                        statePrep
+                        scaledPayoffs
+                        groverIterations
+                        shots
+                        backend
+                        cancellationToken
 
                 // Calculate discount factor
                 let discountFactor = exp (-marketParams.RiskFreeRate * marketParams.TimeToExpiry)
@@ -374,16 +372,6 @@ module OptionPricing =
                             }
         }
 
-    let price
-        (optionType: OptionType)
-        (marketParams: MarketParameters)
-        (numQubits: int)
-        (groverIterations: int)
-        (shots: int)
-        (backend: IQuantumBackend) // ✅ RULE1: Backend REQUIRED (not optional)
-        : Async<QuantumResult<OptionPrice>> =
-        priceWithCancellation None optionType marketParams numQubits groverIterations shots backend
-
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
     // ========================================================================
@@ -410,21 +398,20 @@ module OptionPricing =
 
         member _.Delay(f) = f
 
-        member _.Run(f) : Async<QuantumResult<OptionPrice>> =
+        /// Execute the pricing. The result is a task, so F# callers write
+        /// `let! result = optionPricing { ... }` inside `task { }`; the `cancellation_token`
+        /// operation, when given, cancels the run.
+        member _.Run(f) : Task<QuantumResult<OptionPrice>> =
             let config: OptionPricingConfig = f ()
 
             match config.Backend with
             | ValueSome b ->
-                priceWithCancellation
-                    config.CancellationToken
-                    config.OptionType
-                    config.Market
-                    config.NumQubits
-                    config.GroverIterations
-                    config.Shots
-                    b
+                let ct =
+                    defaultArg config.CancellationToken CancellationToken.None
+
+                priceAsync config.OptionType config.Market config.NumQubits config.GroverIterations config.Shots b ct
             | ValueNone ->
-                async { return Error(QuantumError.ValidationError("Backend", "Quantum Backend must be specified")) }
+                Task.FromResult(Error(QuantumError.ValidationError("Backend", "Quantum Backend must be specified")))
 
         // Custom Operations
 
@@ -466,7 +453,7 @@ module OptionPricing =
         member _.Backend(config: OptionPricingConfig, b) = { config with Backend = ValueSome b }
 
         [<CustomOperation("cancellation_token")>]
-        member _.CancellationToken(config: OptionPricingConfig, token: System.Threading.CancellationToken) =
+        member _.CancellationToken(config: OptionPricingConfig, token: CancellationToken) =
             { config with
                 CancellationToken = Some token
             }
@@ -477,57 +464,104 @@ module OptionPricing =
     // HELPER FUNCTIONS - For C# Interop and Simple Usage
     // ========================================================================
 
-    /// Price European Call option with explicit quantum configuration
-    let priceEuropeanCall spot strike rate vol expiry numQubits groverIterations shots backend =
-        let market =
-            {
-                SpotPrice = spot
-                StrikePrice = strike
-                RiskFreeRate = rate
-                Volatility = vol
-                TimeToExpiry = expiry
-            }
+    let private marketOf spot strike rate vol expiry : MarketParameters =
+        {
+            SpotPrice = spot
+            StrikePrice = strike
+            RiskFreeRate = rate
+            Volatility = vol
+            TimeToExpiry = expiry
+        }
 
-        price EuropeanCall market numQubits groverIterations shots backend
+    /// Price European Call option with explicit quantum configuration
+    let priceEuropeanCallAsync
+        spot
+        strike
+        rate
+        vol
+        expiry
+        numQubits
+        groverIterations
+        shots
+        backend
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<OptionPrice>> =
+        priceAsync
+            EuropeanCall
+            (marketOf spot strike rate vol expiry)
+            numQubits
+            groverIterations
+            shots
+            backend
+            cancellationToken
 
     /// Price European Put option with explicit quantum configuration
-    let priceEuropeanPut spot strike rate vol expiry numQubits groverIterations shots backend =
-        let market =
-            {
-                SpotPrice = spot
-                StrikePrice = strike
-                RiskFreeRate = rate
-                Volatility = vol
-                TimeToExpiry = expiry
-            }
-
-        price EuropeanPut market numQubits groverIterations shots backend
+    let priceEuropeanPutAsync
+        spot
+        strike
+        rate
+        vol
+        expiry
+        numQubits
+        groverIterations
+        shots
+        backend
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<OptionPrice>> =
+        priceAsync
+            EuropeanPut
+            (marketOf spot strike rate vol expiry)
+            numQubits
+            groverIterations
+            shots
+            backend
+            cancellationToken
 
     /// Price Asian Call option with explicit quantum configuration
-    let priceAsianCall spot strike rate vol expiry steps numQubits groverIterations shots backend =
-        let market =
-            {
-                SpotPrice = spot
-                StrikePrice = strike
-                RiskFreeRate = rate
-                Volatility = vol
-                TimeToExpiry = expiry
-            }
-
-        price (AsianCall steps) market numQubits groverIterations shots backend
+    let priceAsianCallAsync
+        spot
+        strike
+        rate
+        vol
+        expiry
+        steps
+        numQubits
+        groverIterations
+        shots
+        backend
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<OptionPrice>> =
+        priceAsync
+            (AsianCall steps)
+            (marketOf spot strike rate vol expiry)
+            numQubits
+            groverIterations
+            shots
+            backend
+            cancellationToken
 
     /// Price Asian Put option with explicit quantum configuration
-    let priceAsianPut spot strike rate vol expiry steps numQubits groverIterations shots backend =
-        let market =
-            {
-                SpotPrice = spot
-                StrikePrice = strike
-                RiskFreeRate = rate
-                Volatility = vol
-                TimeToExpiry = expiry
-            }
-
-        price (AsianPut steps) market numQubits groverIterations shots backend
+    let priceAsianPutAsync
+        spot
+        strike
+        rate
+        vol
+        expiry
+        steps
+        numQubits
+        groverIterations
+        shots
+        backend
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<OptionPrice>> =
+        priceAsync
+            (AsianPut steps)
+            (marketOf spot strike rate vol expiry)
+            numQubits
+            groverIterations
+            shots
+            backend
+            cancellationToken
 
     // ========================================================================
     // GREEKS - Option Sensitivities via Finite Differences
@@ -621,16 +655,17 @@ module OptionPricing =
     /// PERFORMANCE:
     /// Requires multiple quantum pricing calls (usually 5-9 depending on reuse).
     /// Parallel execution is recommended if backend supports it.
-    let calculateGreeks
+    let calculateGreeksAsync
         (optionType: OptionType)
         (market: MarketParameters)
         (config: GreeksConfig)
         (numQubits: int)
         (groverIterations: int)
         (backend: IQuantumBackend)
-        : Async<QuantumResult<OptionGreeks>> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<OptionGreeks>> =
 
-        async {
+        task {
             // Validate inputs
             if config.SpotBump <= 0.0 then
                 return Error(QuantumError.ValidationError("SpotBump", "Must be > 0"))
@@ -646,7 +681,7 @@ module OptionPricing =
 
                 // Helper to run pricing safely
                 let priceAt params' =
-                    priceWithCancellation None optionType params' numQubits groverIterations 1000 backend
+                    priceAsync optionType params' numQubits groverIterations 1000 backend cancellationToken
 
                 // Define scenarios for Finite Differences
 
@@ -800,27 +835,39 @@ module OptionPricing =
         }
 
     /// Calculate Greeks for European Call (convenience wrapper)
-    let greeksEuropeanCall spot strike rate vol expiry backend =
-        let market =
-            {
-                SpotPrice = spot
-                StrikePrice = strike
-                RiskFreeRate = rate
-                Volatility = vol
-                TimeToExpiry = expiry
-            }
-
-        calculateGreeks EuropeanCall market defaultGreeksConfig 6 5 backend
+    let greeksEuropeanCallAsync
+        spot
+        strike
+        rate
+        vol
+        expiry
+        backend
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<OptionGreeks>> =
+        calculateGreeksAsync
+            EuropeanCall
+            (marketOf spot strike rate vol expiry)
+            defaultGreeksConfig
+            6
+            5
+            backend
+            cancellationToken
 
     /// Calculate Greeks for European Put (convenience wrapper)
-    let greeksEuropeanPut spot strike rate vol expiry backend =
-        let market =
-            {
-                SpotPrice = spot
-                StrikePrice = strike
-                RiskFreeRate = rate
-                Volatility = vol
-                TimeToExpiry = expiry
-            }
-
-        calculateGreeks EuropeanPut market defaultGreeksConfig 6 5 backend
+    let greeksEuropeanPutAsync
+        spot
+        strike
+        rate
+        vol
+        expiry
+        backend
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<OptionGreeks>> =
+        calculateGreeksAsync
+            EuropeanPut
+            (marketOf spot strike rate vol expiry)
+            defaultGreeksConfig
+            6
+            5
+            backend
+            cancellationToken

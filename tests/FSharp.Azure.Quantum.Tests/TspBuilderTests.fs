@@ -47,10 +47,8 @@ module TspBuilderTests =
             let problem = TSP.createProblem cities
 
             // Act
-            let! result = TSP.solveAsync problem None CancellationToken.None
-
             // Assert
-            match result with
+            match! TSP.solveAsync problem None CancellationToken.None with
             | Ok tour ->
                 Assert.Equal(3, tour.Cities.Length)
                 Assert.True(tour.TotalDistance > 0.0)
@@ -67,10 +65,8 @@ module TspBuilderTests =
             let problem = TSP.createProblem cities
 
             // Act
-            let! result = TSP.solveAsync problem None CancellationToken.None
-
             // Assert
-            match result with
+            match! TSP.solveAsync problem None CancellationToken.None with
             | Ok tour ->
                 Assert.Equal(3, tour.Cities.Length)
                 Assert.True(tour.TotalDistance > 0.0)
@@ -91,10 +87,8 @@ module TspBuilderTests =
             let problem = TSP.createProblem cities
 
             // Act
-            let! result = TSP.solveAsync problem None CancellationToken.None
-
             // Assert
-            match result with
+            match! TSP.solveAsync problem None CancellationToken.None with
             | Ok tour ->
                 let uniqueCities = tour.Cities |> Set.ofList
                 Assert.Equal(3, uniqueCities.Count) // All cities unique
@@ -109,10 +103,8 @@ module TspBuilderTests =
             let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.5, 1.0) ]
 
             // Act
-            let! result = TSP.solveDirectlyAsync cities None CancellationToken.None
-
             // Assert
-            match result with
+            match! TSP.solveDirectlyAsync cities None CancellationToken.None with
             | Ok tour ->
                 Assert.Equal(3, tour.Cities.Length)
                 Assert.True(tour.IsValid)
@@ -132,10 +124,8 @@ module TspBuilderTests =
                 Some(LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
 
             // Act
-            let! result = TSP.solveAsync problem backend CancellationToken.None
-
             // Assert
-            match result with
+            match! TSP.solveAsync problem backend CancellationToken.None with
             | Ok tour ->
                 Assert.Equal(3, tour.Cities.Length)
                 Assert.True(tour.IsValid)

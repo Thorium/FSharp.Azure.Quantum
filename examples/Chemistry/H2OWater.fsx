@@ -55,6 +55,7 @@
 #load "../_common/ChemistryIntegrals.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
@@ -569,7 +570,9 @@ let private computeEnergy
     let config = solverConfig backend maxIter tol provider
 
     let result =
-        GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
+        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     let elapsed = (DateTime.Now - startTime).TotalSeconds
 

@@ -59,12 +59,13 @@ module DrugDiscoverySolvers =
         QaoaExecutionHelpers.createObjectiveFunction backend qubo problemHam mixerHam numLayers shots
 
     /// Execute QAOA with Nelder-Mead parameter optimization
-    let private executeQaoaWithOptimization
+    let private executeQaoaWithOptimizationAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
         (config: QaoaConfig)
-        : Result<int[] * (float * float)[] * bool, QuantumError> =
-        QaoaExecutionHelpers.executeQaoaWithOptimization backend qubo config
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[] * (float * float)[] * bool, QuantumError>> =
+        QaoaExecutionHelpers.executeQaoaWithOptimizationAsync backend qubo config cancellationToken
 
     /// Execute QAOA with grid search (fallback when optimization disabled)
     let private executeQaoaWithGridSearchAsync
@@ -86,7 +87,9 @@ module DrugDiscoverySolvers =
         : Task<Result<int[] * (float * float)[] option * bool option, QuantumError>> =
         quantumResultTask {
             if config.EnableOptimization then
-                let! (bits, optParams, converged) = executeQaoaWithOptimization backend qubo config
+                let! (bits, optParams, converged) =
+                    executeQaoaWithOptimizationAsync backend qubo config cancellationToken
+
                 return (bits, Some optParams, Some converged)
             else
                 let! (bits, optParams) =
@@ -168,13 +171,14 @@ module DrugDiscoverySolvers =
         /// Constraint repair: remove conflicting nodes (keep higher weight)
         let private repairConstraints (problem: Problem) (bits: int[]) : int[] =
             let repaired = Array.copy bits
+            let nodes = List.toArray problem.Nodes
 
             // Find and fix violations
             for (i, j) in problem.Edges do
                 if repaired.[i] = 1 && repaired.[j] = 1 then
                     // Both selected but adjacent - remove the one with lower weight
-                    let wi = problem.Nodes.[i].Weight
-                    let wj = problem.Nodes.[j].Weight
+                    let wi = nodes.[i].Weight
+                    let wj = nodes.[j].Weight
                     if wi >= wj then repaired.[j] <- 0 else repaired.[i] <- 0
 
             repaired
@@ -234,34 +238,6 @@ module DrugDiscoverySolvers =
                             OptimizationConverged = converged
                         }
             }
-
-        /// Solve using quantum QAOA with advanced features
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solveWithConfig
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (config: QaoaConfig)
-            : Result<Solution, QuantumError> =
-            solveWithConfigAsync backend problem config CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-
-        /// Solve using quantum QAOA with default configuration
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solve
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (shots: int)
-            : Result<Solution, QuantumError> =
-
-            let config =
-                { defaultConfig with
-                    FinalShots = shots
-                }
-
-            solveWithConfigAsync backend problem config CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
 
         /// Classical greedy solver for comparison
         let internal solveClassical (problem: Problem) : Solution =
@@ -510,38 +486,11 @@ module DrugDiscoverySolvers =
                         }
             }
 
-        /// Solve using quantum QAOA with advanced features
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solveWithConfig
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (config: QaoaConfig)
-            : Result<Solution, QuantumError> =
-            solveWithConfigAsync backend problem config CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-
-        /// Solve using quantum QAOA with default configuration
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solve
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (shots: int)
-            : Result<Solution, QuantumError> =
-
-            let config =
-                { defaultConfig with
-                    FinalShots = shots
-                }
-
-            solveWithConfigAsync backend problem config CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-
         /// Classical greedy solver for comparison
         let internal solveClassical (problem: Problem) : Solution =
             // Greedy: iteratively select node with highest marginal gain
-            let n = problem.Nodes.Length
+            let nodes = List.toArray problem.Nodes
+            let n = nodes.Length
             let selected = Array.zeroCreate n
 
             for _ in 1 .. problem.K do
@@ -549,7 +498,7 @@ module DrugDiscoverySolvers =
                     [ 0 .. n - 1 ]
                     |> List.filter (fun i -> selected.[i] = 0)
                     |> List.maxBy (fun i ->
-                        let node = problem.Nodes.[i]
+                        let node = nodes.[i]
                         // Marginal gain: node score + synergy with already selected
                         let synergy =
                             problem.Edges
@@ -655,7 +604,8 @@ module DrugDiscoverySolvers =
         /// pushed the optimum toward budget-saturating picks regardless of value.)
         /// Matrix layout: n item variables first, then the slack bits.
         let toQubo (problem: Problem) : float[,] =
-            let n = problem.Items.Length
+            let items = List.toArray problem.Items
+            let n = items.Length
             let beta = problem.DiversityWeight
             let budget = problem.Budget
             let numSlackBits = slackBitsForBound budget
@@ -678,14 +628,14 @@ module DrugDiscoverySolvers =
             // Unified budget-constraint coefficient vector:
             // item costs first, then slack powers of two
             let coeffs =
-                [ for i in 0 .. n - 1 -> (i, problem.Items.[i].Cost) ]
+                [ for i in 0 .. n - 1 -> (i, items.[i].Cost) ]
                 @ [ for t in 0 .. numSlackBits - 1 -> (n + t, pown 2.0 t) ]
 
             // Linear terms:
             // From objective: -value_i (maximize value, items only)
             // From constraint: λ * (c_v² - 2*budget*c_v) for every variable
             for (v, c) in coeffs do
-                let objective = if v < n then -problem.Items.[v].Value else 0.0
+                let objective = if v < n then -items.[v].Value else 0.0
                 qubo.[v, v] <- objective + penalty * (c * c - 2.0 * budget * c)
 
             // Quadratic terms (symmetric split, half at each of [u,v] and [v,u]):
@@ -818,34 +768,6 @@ module DrugDiscoverySolvers =
                             OptimizationConverged = converged
                         }
             }
-
-        /// Solve using quantum QAOA with advanced features
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solveWithConfig
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (config: QaoaConfig)
-            : Result<Solution, QuantumError> =
-            solveWithConfigAsync backend problem config CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-
-        /// Solve using quantum QAOA with default configuration
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solve
-            (backend: BackendAbstraction.IQuantumBackend)
-            (problem: Problem)
-            (shots: int)
-            : Result<Solution, QuantumError> =
-
-            let config =
-                { defaultConfig with
-                    FinalShots = shots
-                }
-
-            solveWithConfigAsync backend problem config CancellationToken.None
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
 
         /// Classical greedy solver for comparison
         let internal solveClassical (problem: Problem) : Solution =

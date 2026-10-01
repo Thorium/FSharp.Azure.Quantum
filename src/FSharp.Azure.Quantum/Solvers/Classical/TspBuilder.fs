@@ -177,23 +177,6 @@ module TSP =
                 return! Error(QuantumError.OperationError("TSP solve", $"Failed: {ex.Message}"))
         }
 
-    /// Solve TSP problem using quantum optimization (QAOA)
-    ///
-    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
-    /// it blocks the calling thread until the backend has answered.
-    ///
-    /// PARAMETERS:
-    ///   problem - TSP problem with cities and distance matrix
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///
-    /// RETURNS:
-    ///   QuantumResult with Tour (city names, distance, validity) or QuantumError
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve (problem: TspProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Tour> =
-        solveAsync problem backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Convenience function: Create problem and solve in one step using quantum optimization, asynchronously
     ///
     /// PARAMETERS:
@@ -213,22 +196,3 @@ module TSP =
         : Task<QuantumResult<Tour>> =
         let problem = createProblem cities
         solveAsync problem backend cancellationToken
-
-    /// Convenience function: Create problem and solve in one step using quantum optimization
-    ///
-    /// This is a synchronous wrapper around `solveDirectlyAsync` for backward compatibility.
-    ///
-    /// PARAMETERS:
-    ///   cities - List of (name, x, y) tuples defining city locations
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///
-    /// RETURNS:
-    ///   Result with Tour or error message
-    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
-    let solveDirectly
-        (cities: (string * float * float) list)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<Tour> =
-        solveDirectlyAsync cities backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously

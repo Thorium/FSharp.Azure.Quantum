@@ -114,9 +114,7 @@ module PredictiveModelBuilderTests =
                     TrainFeatures = [||]
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("empty", msg.ToLower())
             | other -> failwith $"Expected ValidationError for empty features, got {other}"
         }
@@ -130,9 +128,7 @@ module PredictiveModelBuilderTests =
                     TrainTargets = [||]
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("empty", msg.ToLower())
             | other -> failwith $"Expected ValidationError for empty targets, got {other}"
         }
@@ -146,9 +142,7 @@ module PredictiveModelBuilderTests =
                     TrainTargets = [| 1.0; 2.0 |]
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("match", msg.ToLower())
             | other -> failwith $"Expected ValidationError for mismatched lengths, got {other}"
         }
@@ -163,9 +157,7 @@ module PredictiveModelBuilderTests =
                     TrainTargets = [| 1.0; 2.0 |]
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("at least one", msg.ToLower())
             | other -> failwith $"Expected ValidationError for zero-length features, got {other}"
         }
@@ -180,9 +172,7 @@ module PredictiveModelBuilderTests =
                     TrainTargets = [| 1.0; 2.0 |]
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("same length", msg.ToLower())
             | other -> failwith $"Expected ValidationError for inconsistent features, got {other}"
         }
@@ -196,9 +186,7 @@ module PredictiveModelBuilderTests =
                     LearningRate = 0.0
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("positive", msg.ToLower())
             | other -> failwith $"Expected ValidationError for zero learning rate, got {other}"
         }
@@ -212,9 +200,7 @@ module PredictiveModelBuilderTests =
                     MaxEpochs = 0
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("positive", msg.ToLower())
             | other -> failwith $"Expected ValidationError for zero epochs, got {other}"
         }
@@ -228,9 +214,7 @@ module PredictiveModelBuilderTests =
                     ConvergenceThreshold = 0.0
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("positive", msg.ToLower())
             | other -> failwith $"Expected ValidationError for zero convergence threshold, got {other}"
         }
@@ -244,9 +228,7 @@ module PredictiveModelBuilderTests =
                     Shots = 0
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("positive", msg.ToLower())
             | other -> failwith $"Expected ValidationError for zero shots, got {other}"
         }
@@ -278,9 +260,7 @@ module PredictiveModelBuilderTests =
                     ProblemType = MultiClass 3
                 } // labels 0-3 but only 3 classes (0-2 valid)
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("range", msg.ToLower())
             | other -> failwith $"Expected ValidationError for out-of-range labels, got {other}"
         }
@@ -293,9 +273,7 @@ module PredictiveModelBuilderTests =
     [<Fact>]
     let ``train Quantum regression should succeed`` () =
         task {
-            let! trained = trainAsync defaultRegressionProblem CancellationToken.None
-
-            match trained with
+            match! trainAsync defaultRegressionProblem CancellationToken.None with
             | Ok model ->
                 Assert.Equal(Regression, model.Metadata.ProblemType)
                 Assert.Equal(Quantum, model.Metadata.Architecture)
@@ -314,9 +292,7 @@ module PredictiveModelBuilderTests =
                     Architecture = Hybrid
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
                 // Hybrid uses HHL first, falls back to classical if needed
                 Assert.Equal(Regression, model.Metadata.ProblemType)
@@ -333,9 +309,7 @@ module PredictiveModelBuilderTests =
                     Architecture = Classical
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
                 Assert.Equal(Regression, model.Metadata.ProblemType)
                 Assert.Equal(Classical, model.Metadata.Architecture)
@@ -355,9 +329,7 @@ module PredictiveModelBuilderTests =
                     Architecture = Hybrid
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
                 Assert.Equal(Regression, model.Metadata.ProblemType)
                 Assert.False(Double.IsNaN model.Metadata.TrainingScore, "R² should be a finite number")
@@ -377,9 +349,7 @@ module PredictiveModelBuilderTests =
     [<Fact>]
     let ``train Quantum multi-class should succeed`` () =
         task {
-            let! trained = trainAsync defaultMultiClassProblem CancellationToken.None
-
-            match trained with
+            match! trainAsync defaultMultiClassProblem CancellationToken.None with
             | Ok model ->
                 Assert.Equal(MultiClass 3, model.Metadata.ProblemType)
                 Assert.Equal(Quantum, model.Metadata.Architecture)
@@ -397,9 +367,7 @@ module PredictiveModelBuilderTests =
                     Architecture = Hybrid
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
                 Assert.Equal(MultiClass 3, model.Metadata.ProblemType)
                 Assert.Equal(Hybrid, model.Metadata.Architecture)
@@ -415,9 +383,7 @@ module PredictiveModelBuilderTests =
                     Architecture = Classical
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
                 Assert.Equal(MultiClass 3, model.Metadata.ProblemType)
                 Assert.Equal(Classical, model.Metadata.Architecture)
@@ -442,13 +408,9 @@ module PredictiveModelBuilderTests =
                     Architecture = Hybrid
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
-                let! prediction = predictAsync [| 1.0; 1.0 |] model None None CancellationToken.None
-
-                match prediction with
+                match! predictAsync [| 1.0; 1.0 |] model None None CancellationToken.None with
                 | Ok pred ->
                     Assert.True(Double.IsFinite pred.Value, $"Prediction value should be finite, got {pred.Value}")
                     Assert.True(pred.ModelType.Length > 0, "ModelType should not be empty")
@@ -460,13 +422,9 @@ module PredictiveModelBuilderTests =
     [<Fact>]
     let ``predict regression on multi-class model should return error`` () =
         task {
-            let! trained = trainAsync defaultMultiClassProblem CancellationToken.None
-
-            match trained with
+            match! trainAsync defaultMultiClassProblem CancellationToken.None with
             | Ok model ->
-                let! prediction = predictAsync [| 0.1; 0.1 |] model None None CancellationToken.None
-
-                match prediction with
+                match! predictAsync [| 0.1; 0.1 |] model None None CancellationToken.None with
                 | Error(QuantumError.Other msg) -> Assert.Contains("predictCategory", msg)
                 | other -> failwith $"Expected error directing to predictCategory, got {other}"
             | Error e -> failwith $"train should succeed, got error: {e}"
@@ -480,11 +438,9 @@ module PredictiveModelBuilderTests =
     [<Fact>]
     let ``predictCategory after training should return valid category`` () =
         task {
-            let! trained = trainAsync defaultMultiClassProblem CancellationToken.None
-
-            match trained with
+            match! trainAsync defaultMultiClassProblem CancellationToken.None with
             | Ok model ->
-                match predictCategory [| 0.1; 0.1 |] model None None with
+                match! predictCategoryAsync [| 0.1; 0.1 |] model None None CancellationToken.None with
                 | Ok pred ->
                     Assert.True(
                         pred.Category >= 0 && pred.Category < 3,
@@ -511,11 +467,9 @@ module PredictiveModelBuilderTests =
                     Architecture = Hybrid
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
-                match predictCategory [| 1.0; 1.0 |] model None None with
+                match! predictCategoryAsync [| 1.0; 1.0 |] model None None CancellationToken.None with
                 | Error(QuantumError.Other msg) -> Assert.Contains("predict", msg.ToLower())
                 | other -> failwith $"Expected error directing to predict, got {other}"
             | Error e -> failwith $"train should succeed, got error: {e}"
@@ -530,11 +484,9 @@ module PredictiveModelBuilderTests =
                     Architecture = Classical
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
-                match predictCategory [| 0.5; 0.9 |] model None None with
+                match! predictCategoryAsync [| 0.5; 0.9 |] model None None CancellationToken.None with
                 | Ok pred ->
                     Assert.True(pred.Category >= 0 && pred.Category < 3)
                     Assert.Equal(3, pred.Probabilities.Length)
@@ -560,9 +512,7 @@ module PredictiveModelBuilderTests =
                     Architecture = Hybrid
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
                 let! evaluation =
                     evaluateRegressionAsync features targets model CancellationToken.None
@@ -586,9 +536,7 @@ module PredictiveModelBuilderTests =
     [<Fact>]
     let ``evaluateRegression on multi-class model should return error`` () =
         task {
-            let! trained = trainAsync defaultMultiClassProblem CancellationToken.None
-
-            match trained with
+            match! trainAsync defaultMultiClassProblem CancellationToken.None with
             | Ok model ->
                 let features, targets = makeRegressionData ()
 
@@ -612,11 +560,9 @@ module PredictiveModelBuilderTests =
             let features, targets = makeMultiClassData ()
             let intLabels = targets |> Array.map int
 
-            let! trained = trainAsync defaultMultiClassProblem CancellationToken.None
-
-            match trained with
+            match! trainAsync defaultMultiClassProblem CancellationToken.None with
             | Ok model ->
-                match evaluateMultiClass features intLabels model with
+                match! evaluateMultiClassAsync features intLabels model CancellationToken.None with
                 | Ok metrics ->
                     Assert.True(
                         metrics.Accuracy >= 0.0 && metrics.Accuracy <= 1.0,
@@ -642,11 +588,12 @@ module PredictiveModelBuilderTests =
                     Architecture = Hybrid
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok model ->
-                match evaluateMultiClass [| [| 1.0; 1.0 |] |] [| 0 |] model with
+                let! evaluation =
+                    evaluateMultiClassAsync [| [| 1.0; 1.0 |] |] [| 0 |] model CancellationToken.None
+
+                match evaluation with
                 | Error(QuantumError.Other msg) -> Assert.Contains("evaluateRegression", msg)
                 | other -> failwith $"Expected error directing to evaluateRegression, got {other}"
             | Error e -> failwith $"train should succeed, got error: {e}"
@@ -660,9 +607,7 @@ module PredictiveModelBuilderTests =
     [<Fact>]
     let ``trained model metadata should have correct values`` () =
         task {
-            let! trained = trainAsync defaultRegressionProblem CancellationToken.None
-
-            match trained with
+            match! trainAsync defaultRegressionProblem CancellationToken.None with
             | Ok model ->
                 Assert.Equal(Regression, model.Metadata.ProblemType)
                 Assert.Equal(2, model.Metadata.NumFeatures)
@@ -760,9 +705,7 @@ module PredictiveModelBuilderTests =
     [<Fact>]
     let ``CE predictiveModel with empty data should return ValidationError`` () =
         task {
-            let! result = predictiveModel { trainWith [||] [||] }
-
-            match result with
+            match! predictiveModel { trainWith [||] [||] } with
             | Error(QuantumError.ValidationError _) -> ()
             | Ok _ -> failwith "Should return error for empty data"
             | Error e -> failwith $"Expected ValidationError, got: {e}"

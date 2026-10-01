@@ -251,7 +251,8 @@ module QuantumGraphColoringSolver =
             let vertexIndexMap =
                 problem.Vertices |> List.mapi (fun i vertex -> vertex, i) |> Map.ofList
 
-            let numVertices = problem.Vertices.Length
+            let vertices = problem.Vertices |> List.toArray
+            let numVertices = vertices.Length
             let numColors = problem.NumColors
             let numVars = numVertices * numColors
 
@@ -264,7 +265,7 @@ module QuantumGraphColoringSolver =
                         for v in 0 .. numVertices - 1 do
                             for c in 0 .. numColors - 1 do
                                 let quboVar = v * numColors + c
-                                yield quboVar, (problem.Vertices.[v], c)
+                                yield quboVar, (vertices.[v], c)
                     }
                     |> Map.ofSeq
 
@@ -288,7 +289,7 @@ module QuantumGraphColoringSolver =
                     |> List.fold
                         (fun qubo v ->
                             // Check if vertex has fixed color
-                            let vertexName = problem.Vertices.[v]
+                            let vertexName = vertices.[v]
 
                             match Map.tryFind vertexName problem.FixedColors with
                             | Some fixedColor ->
@@ -381,7 +382,7 @@ module QuantumGraphColoringSolver =
                 let quboTerms =
                     seq {
                         for v in 0 .. numVertices - 1 do
-                            let vertexName = problem.Vertices.[v]
+                            let vertexName = vertices.[v]
 
                             if not (problem.FixedColors.ContainsKey vertexName) then
                                 match Map.tryFind vertexName preferences.AvoidColors with
@@ -727,7 +728,7 @@ module QuantumGraphColoringSolver =
         (problem: GraphColoringProblem)
         (preferences: ColoringPreferences)
         (penaltyWeight: float)
-        (startTime: DateTime)
+        (stopwatch: System.Diagnostics.Stopwatch)
         : Result<GraphColoringSolution, QuantumError> =
         match validateEncoding problem preferences with
         | Error err -> Error err
@@ -739,7 +740,7 @@ module QuantumGraphColoringSolver =
                 { summarizeAssignments problem assignments with
                     BackendName = NoCircuitBackendName
                     NumShots = 0
-                    ElapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                    ElapsedMs = stopwatch.Elapsed.TotalMilliseconds
                     BestEnergy = coloringEnergy problem penaltyWeight preferences assignments
                 }
 
@@ -767,7 +768,7 @@ module QuantumGraphColoringSolver =
         : Task<Result<GraphColoringSolution, QuantumError>> =
         task {
 
-            let startTime = DateTime.Now
+            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
 
             try
                 // Step 1: Validate problem inputs
@@ -782,7 +783,7 @@ module QuantumGraphColoringSolver =
                             )
                         )
                 elif problem.Edges.IsEmpty then
-                    return colorWithoutCircuit problem preferences config.PenaltyWeight startTime
+                    return colorWithoutCircuit problem preferences config.PenaltyWeight stopwatch
                 else
                     // Step 2: Encode graph coloring as QUBO
                     match toQuboWithPreferences problem config.PenaltyWeight preferences with
@@ -819,7 +820,7 @@ module QuantumGraphColoringSolver =
                             // Step 10: Pick the best sample for the goal
                             let bestSolution = selectBest problem preferences solutions
 
-                            let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
                             return
                                 Ok
@@ -848,7 +849,7 @@ module QuantumGraphColoringSolver =
     ///   - problem: Graph coloring problem (vertices, edges, colors)
     ///   - config: QAOA configuration (shots, colors, parameters)
     ///
-    /// Returns: Async<Result<GraphColoringSolution, QuantumError>> - Async computation with result or error
+    /// Returns: Task<Result<GraphColoringSolution, QuantumError>> - Task with result or error
     ///
     /// Example:
     ///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
@@ -866,35 +867,6 @@ module QuantumGraphColoringSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<GraphColoringSolution, QuantumError>> =
         solveWithPreferencesAsync backend problem defaultPreferences config cancellationToken
-
-    /// Solve graph coloring problem using quantum QAOA (synchronous wrapper)
-    ///
-    /// This is a synchronous wrapper around solveAsync for backward compatibility.
-    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
-    ///
-    /// Parameters:
-    ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
-    ///   - problem: Graph coloring problem (vertices, edges, colors)
-    ///   - config: QAOA configuration (shots, colors, parameters)
-    ///
-    /// Returns: Ok with best coloring found, or Error with QuantumError
-    ///
-    /// Example:
-    ///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-    ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...]; NumColors = 3; FixedColors = Map.empty }
-    ///   let config = defaultConfig 3
-    ///   match solve backend problem config with
-    ///   | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
-    ///   | Error msg -> printfn "Error: %s" msg
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: GraphColoringProblem)
-        (config: QaoaConfig)
-        : Result<GraphColoringSolution, QuantumError> =
-        solveAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ================================================================================
     // CLASSICAL GREEDY SOLVER (for comparison)

@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
@@ -71,7 +73,7 @@ module QuantumDistributions =
             /// Quantum entropy used (number of quantum bits)
             ///
             /// - Pure simulation (`sample`): 53 qubits (IEEE 754 double precision)
-            /// - Backend-based (`sampleWithBackend`): 10 qubits (configurable)
+            /// - Backend-based (`sampleWithBackendAsync`): 10 qubits (configurable)
             QuantumBitsUsed: int
         }
 
@@ -194,7 +196,7 @@ module QuantumDistributions =
     /// Sample from distribution using quantum random bits (pure simulation)
     ///
     /// **Note:** This uses the standalone QRNG (no backend required).
-    /// For backend-based sampling, use `sampleWithBackend`.
+    /// For backend-based sampling, use `sampleWithBackendAsync`.
     let sample (dist: Distribution) : Result<SampleResult, string> =
         match validateDistribution dist with
         | Error msg -> Error msg
@@ -292,12 +294,13 @@ module QuantumDistributions =
         (backend: IQuantumBackend)
         (intent: SampleIntent)
         (plan: SamplePlan)
-        : Async<QuantumResult<SampleResult>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SampleResult>> =
+        task {
             match plan with
             | SamplePlan.GenerateUniformViaQrng ->
 
-                match! QRNG.generateWithBackend intent.NumQubits backend with
+                match! QRNG.generateWithBackendAsync intent.NumQubits backend cancellationToken with
                 | Error err -> return Error err
                 | Ok qrng ->
                     match qrng.AsInteger with
@@ -341,35 +344,40 @@ module QuantumDistributions =
     /// between precision and performance. This provides sufficient
     /// precision for most statistical applications while keeping execution fast.
     ///
-    /// **Randomness source:** QRNG.generateWithBackend. On a shot-sampling (cloud) backend,
+    /// **Randomness source:** QRNG.generateWithBackendAsync. On a shot-sampling (cloud) backend,
     /// which must be created with shots = 1, the uniform draw is one measured 10-qubit shot:
     /// one billed job per sample. On a simulator it is simulated (classical) randomness.
-    let sampleWithBackend (dist: Distribution) (backend: IQuantumBackend) : Async<QuantumResult<SampleResult>> =
+    let sampleWithBackendAsync
+        (dist: Distribution)
+        (backend: IQuantumBackend)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SampleResult>> =
 
-        async {
+        task {
             let intent = { Distribution = dist; NumQubits = 10 }
 
             match plan backend intent with
             | Error err -> return Error err
-            | Ok chosenPlan -> return! executePlan backend intent chosenPlan
+            | Ok chosenPlan -> return! executePlan backend intent chosenPlan cancellationToken
         }
 
     /// Sample multiple values from distribution using quantum backend
     ///
     /// **RULE1 Compliance:** Requires explicit backend parameter (no default)
     ///
-    /// **Cost:** samples are generated sequentially, one QRNG.generateWithBackend call each.
+    /// **Cost:** samples are generated sequentially, one QRNG.generateWithBackendAsync call each.
     /// On a shot-sampling (cloud) backend, created with shots = 1, that is one billed job per
     /// sample, so `count` samples are `count` jobs (up to 10,000): bound them with the
     /// backend's JobBudget. No sample is derived from another by classical resampling.
-    let sampleManyWithBackend
+    let sampleManyWithBackendAsync
         (dist: Distribution)
         (count: int)
         (backend: IQuantumBackend)
         (progressReporter: Progress.IProgressReporter option)
-        : Async<QuantumResult<SampleResult[]>> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SampleResult[]>> =
 
-        async {
+        task {
             if count <= 0 then
                 return Error(QuantumError.ValidationError("Count", "must be positive"))
             elif count > 10000 then
@@ -387,25 +395,26 @@ module QuantumDistributions =
                             Progress.PhaseChanged("Quantum Sampling", Some $"Generating {count} quantum samples...")
                         ))
 
-                    // Generate samples sequentially
-                    let rec generateSamples (remaining: int) (acc: SampleResult list) =
-                        async {
-                            if remaining = 0 then
-                                return Ok(acc |> List.rev |> Array.ofList)
-                            else
-                                // Report progress
-                                let currentSample = count - remaining + 1
+                    // Generate samples sequentially (a loop, not recursion: a long run of
+                    // synchronously completing samples must not grow the stack)
+                    let samples = ResizeArray<SampleResult>(count)
+                    let mutable failure = None
 
-                                progressReporter
-                                |> Option.iter (fun r -> r.Report(Progress.IterationUpdate(currentSample, count, None)))
+                    while failure.IsNone && samples.Count < count do
+                        // Report progress
+                        let currentSample = samples.Count + 1
 
+                        progressReporter
+                        |> Option.iter (fun r -> r.Report(Progress.IterationUpdate(currentSample, count, None)))
 
-                                match! executePlan backend intent chosenPlan with
-                                | Error execErr -> return Error execErr
-                                | Ok sample -> return! generateSamples (remaining - 1) (sample :: acc)
-                        }
+                        match! executePlan backend intent chosenPlan cancellationToken with
+                        | Error execErr -> failure <- Some execErr
+                        | Ok sample -> samples.Add sample
 
-                    let! result = generateSamples count []
+                    let result =
+                        match failure with
+                        | Some execErr -> Error execErr
+                        | None -> Ok(samples.ToArray())
 
                     // Report completion
                     match result with

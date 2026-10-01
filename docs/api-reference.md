@@ -47,9 +47,10 @@ type QuantumResult<'T> = Result<'T, QuantumError>
 
 ### Basic Error Handling
 
-The problem builders return `QuantumResult<'T>` for consistent, type-safe error handling:
+The problem builders return `Task<QuantumResult<'T>>` for consistent, type-safe error handling:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphColoring
@@ -61,11 +62,13 @@ let problem = graphColoring {
     colors ["Red"; "Blue"; "Green"]
 }
 
-match GraphColoring.solve problem 3 None with
-| Ok solution -> 
-    printfn "Success! Colors used: %d" solution.ColorsUsed
-| Error err -> 
-    printfn "Error: %s" err.Message  // Human-readable message
+task {
+    match! GraphColoring.solveAsync problem 3 None CancellationToken.None with
+    | Ok solution -> 
+        printfn "Success! Colors used: %d" solution.ColorsUsed
+    | Error err -> 
+        printfn "Error: %s" err.Message  // Human-readable message
+}
 ```
 
 ### QuantumError Types
@@ -93,25 +96,27 @@ Pattern match on error types for custom handling:
 ```fsharp
 let cities = TSP.createProblem [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.5, 1.0) ]
 
-match TSP.solve cities None with
-| Ok tour -> printfn "Tour: %A" tour.Cities
-| Error (QuantumError.ValidationError (field, reason)) ->
-    printfn "Invalid %s: %s" field reason
-| Error (QuantumError.BackendError (backend, reason)) ->
-    printfn "Backend %s failed: %s" backend reason
-    // Retry with different backend
-| Error err ->
-    printfn "Unexpected error: %s" err.Message
+task {
+    match! TSP.solveAsync cities None CancellationToken.None with
+    | Ok tour -> printfn "Tour: %A" tour.Cities
+    | Error (QuantumError.ValidationError (field, reason)) ->
+        printfn "Invalid %s: %s" field reason
+    | Error (QuantumError.BackendError (backend, reason)) ->
+        printfn "Backend %s failed: %s" backend reason
+        // Retry with different backend
+    | Error err ->
+        printfn "Unexpected error: %s" err.Message
+}
 ```
 
 ### Computation Expression (Recommended)
 
-Use the `quantumResult` builder (from `FSharp.Azure.Quantum.Core`) to avoid nested match clauses:
+Use the `quantumResultTask` builder (from `FSharp.Azure.Quantum.Core`, the Task-based twin of `quantumResult`) to avoid nested match clauses:
 
 ```fsharp
-let colorsNeeded (problem: GraphColoringProblem) = quantumResult {
+let colorsNeeded (problem: GraphColoringProblem) (cancellationToken: CancellationToken) = quantumResultTask {
     do! GraphColoring.validate problem
-    let! solution = GraphColoring.solve problem 3 None
+    let! solution = GraphColoring.solveAsync problem 3 None cancellationToken
     if solution.IsValid then
         return solution.ColorsUsed
     else
@@ -128,6 +133,7 @@ See [QuantumResult Builder Guide](quantumresult-builder-guide.md) for complete d
 ### Pattern 1: Simple Auto-Solve (Recommended)
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 
@@ -139,12 +145,14 @@ let problem = graphColoring {
     colors ["Red"; "Blue"; "Green"]
 }
 
-match GraphColoring.solve problem 3 None with
-| Ok solution -> 
-    printfn "Colors used: %d" solution.ColorsUsed
-    printfn "Valid: %b" solution.IsValid
-| Error err -> 
-    printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 None CancellationToken.None with
+    | Ok solution -> 
+        printfn "Colors used: %d" solution.ColorsUsed
+        printfn "Valid: %b" solution.IsValid
+    | Error err -> 
+        printfn "Error: %s" err.Message
+}
 ```
 
 ### Pattern 2: Cloud Backend
@@ -160,31 +168,35 @@ let workspaceUrl = "https://eastus.quantum.azure.com/subscriptions/<sub>/resourc
 let cloudBackend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
 
 // Solve on the cloud backend
-match GraphColoring.solve problem 3 (Some cloudBackend) with
-| Ok solution -> 
-    printfn "Colors used: %d" solution.ColorsUsed
-    printfn "Valid: %b" solution.IsValid
-| Error err -> 
-    printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 (Some cloudBackend) CancellationToken.None with
+    | Ok solution -> 
+        printfn "Colors used: %d" solution.ColorsUsed
+        printfn "Valid: %b" solution.IsValid
+    | Error err -> 
+        printfn "Error: %s" err.Message
+}
 ```
 
 ### Pattern 3: Inspect Solution Details
 
 ```fsharp
 // Solve and inspect detailed results
-match GraphColoring.solve problem 3 None with
-| Ok solution -> 
-    printfn "Solution found!"
-    printfn "  Colors used: %d" solution.ColorsUsed
-    printfn "  Conflicts: %d" solution.ConflictCount
-    printfn "  Valid: %b" solution.IsValid
-    
-    // Print color assignments
-    solution.Assignments
-    |> Map.iter (fun node color ->
-        printfn "  %s -> %s" node color
-    )
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 None CancellationToken.None with
+    | Ok solution -> 
+        printfn "Solution found!"
+        printfn "  Colors used: %d" solution.ColorsUsed
+        printfn "  Conflicts: %d" solution.ConflictCount
+        printfn "  Valid: %b" solution.IsValid
+        
+        // Print color assignments
+        solution.Assignments
+        |> Map.iter (fun node color ->
+            printfn "  %s -> %s" node color
+        )
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ---
@@ -258,18 +270,19 @@ type ColoringSolution = {
 
 ```text
 val validate : GraphColoringProblem → QuantumResult<unit>
-val solve : GraphColoringProblem → int → IQuantumBackend option → QuantumResult<ColoringSolution>
+val solveAsync : GraphColoringProblem → int → IQuantumBackend option → CancellationToken → Task<QuantumResult<ColoringSolution>>
 val node : string → string list → ColoredNode
 ```
 
-**Parameters of `solve`:**
+**Parameters of `solveAsync`:**
 - `problem` - Graph coloring problem specification
 - `numColors` - Number of colors the QAOA encoding uses (capped at the number of available colors and `MaxColors`); qubits needed = nodes × encoded colors
 - `backend` - Quantum backend (None = new LocalBackend)
+- `cancellationToken` - Cancels the backend execution
 
 **Computation expression operations:** `node id conflicts`, `nodes [ColoredNode list]`, `colors [...]` (required), `objective`, `maxColors`, `conflictPenalty`. The builder validates the problem when it finishes and throws if it is invalid (no nodes, no colors, unknown conflict references, ...).
 
-> **Note:** `solve` encodes every option: `ConflictPenalty` multiplies the conflict penalty, `MaxColors` limits the encoded colors to the first `MaxColors`, `AvoidColors` and `Objective` add soft QUBO terms and pick among the samples, and `Priority` breaks ties. A graph with no conflicts runs no circuit (`IsQuantum = false`). See [Graph Coloring API](GraphColoring-API.md) for the weights.
+> **Note:** `solveAsync` encodes every option: `ConflictPenalty` multiplies the conflict penalty, `MaxColors` limits the encoded colors to the first `MaxColors`, `AvoidColors` and `Objective` add soft QUBO terms and pick among the samples, and `Priority` breaks ties. A graph with no conflicts runs no circuit (`IsQuantum = false`). See [Graph Coloring API](GraphColoring-API.md) for the weights.
 
 ### Example
 
@@ -288,13 +301,15 @@ let registers = graphColoring {
     objective MinimizeColors
 }
 
-match GraphColoring.solve registers 4 None with
-| Ok solution ->
-    printfn "Registers needed: %d" solution.ColorsUsed
-    solution.Assignments 
-    |> Map.iter (fun var reg -> printfn "%s → %s" var reg)
-| Error err ->
-    printfn "Allocation failed: %s" err.Message
+task {
+    match! GraphColoring.solveAsync registers 4 None CancellationToken.None with
+    | Ok solution ->
+        printfn "Registers needed: %d" solution.ColorsUsed
+        solution.Assignments 
+        |> Map.iter (fun var reg -> printfn "%s → %s" var reg)
+    | Error err ->
+        printfn "Allocation failed: %s" err.Message
+}
 ```
 
 ---
@@ -318,7 +333,7 @@ val cycleGraph : string list → float → MaxCutProblem
 val pathGraph : string list → float → MaxCutProblem
 val gridGraph : int → int → float → MaxCutProblem
 val starGraph : string → string list → float → MaxCutProblem
-val solve : MaxCutProblem → IQuantumBackend option → QuantumResult<Solution>
+val solveAsync : MaxCutProblem → IQuantumBackend option → CancellationToken → Task<QuantumResult<Solution>>
 val calculateCutValue : MaxCutProblem → string list → float
 ```
 
@@ -359,13 +374,15 @@ let edges = [
 
 let problem_maxcut = MaxCut.createProblem vertices edges
 
-match MaxCut.solve problem_maxcut None with
-| Ok solution ->
-    printfn "Partition 1: %A" solution.PartitionS
-    printfn "Partition 2: %A" solution.PartitionT
-    printfn "Inter-partition traffic: %.2f" solution.CutValue
-| Error err ->
-    printfn "Partitioning failed: %s" err.Message
+task {
+    match! MaxCut.solveAsync problem_maxcut None CancellationToken.None with
+    | Ok solution ->
+        printfn "Partition 1: %A" solution.PartitionS
+        printfn "Partition 2: %A" solution.PartitionT
+        printfn "Inter-partition traffic: %.2f" solution.CutValue
+    | Error err ->
+        printfn "Partitioning failed: %s" err.Message
+}
 ```
 
 ---
@@ -384,7 +401,7 @@ match MaxCut.solve problem_maxcut None with
 
 ```text
 val createProblem : (string * float * float) list → float → Problem
-val solve : Problem → IQuantumBackend option → QuantumResult<Solution>
+val solveAsync : Problem → IQuantumBackend option → CancellationToken → Task<QuantumResult<Solution>>
 ```
 
 **Parameters:**
@@ -432,17 +449,19 @@ let cargo = [
 
 let problem_knapsack = Knapsack.createProblem cargo 300.0  // 300kg capacity
 
-match Knapsack.solve problem_knapsack None with
-| Ok solution ->
-    printfn "Total value: $%.2f" solution.TotalValue
-    printfn "Weight: %.2f/%.2f kg" solution.TotalWeight problem_knapsack.Capacity
-    printfn "Efficiency: $%.2f/kg" solution.Efficiency
-    
-    solution.SelectedItems 
-    |> List.iter (fun item -> 
-        printfn "  Load: %s (%.2f kg, $%.2f)" item.Id item.Weight item.Value)
-| Error err ->
-    printfn "Optimization failed: %s" err.Message
+task {
+    match! Knapsack.solveAsync problem_knapsack None CancellationToken.None with
+    | Ok solution ->
+        printfn "Total value: $%.2f" solution.TotalValue
+        printfn "Weight: %.2f/%.2f kg" solution.TotalWeight problem_knapsack.Capacity
+        printfn "Efficiency: $%.2f/kg" solution.Efficiency
+        
+        solution.SelectedItems 
+        |> List.iter (fun item -> 
+            printfn "  Load: %s (%.2f kg, $%.2f)" item.Id item.Weight item.Value)
+    | Error err ->
+        printfn "Optimization failed: %s" err.Message
+}
 ```
 
 ---
@@ -461,13 +480,13 @@ match Knapsack.solve problem_knapsack None with
 
 ```text
 val createProblem : (string * float * float) list → TspProblem
-val solve : TspProblem → IQuantumBackend option → QuantumResult<Tour>
+val solveAsync : TspProblem → IQuantumBackend option → CancellationToken → Task<QuantumResult<Tour>>
 ```
 
 **Parameters:**
 - `cities` - (name, x, y) coordinate tuples; distances are Euclidean
 
-Qubits needed: cities² (4 cities = 16 qubits), so QAOA on the local simulator is limited to a handful of cities. For larger instances use `HybridSolver.solveTsp`, whose classical path has no qubit limit.
+Qubits needed: cities² (4 cities = 16 qubits), so QAOA on the local simulator is limited to a handful of cities. For larger instances use `HybridSolver.solveTspAsync`, whose classical path has no qubit limit.
 
 ### Types
 
@@ -500,12 +519,14 @@ let stops = [
 
 let problem_tsp = TSP.createProblem stops
 
-match TSP.solve problem_tsp None with
-| Ok tour ->
-    printfn "Optimal route: %s" (String.concat " → " tour.Cities)
-    printfn "Total distance: %.2f km" tour.TotalDistance
-| Error err ->
-    printfn "Route optimization failed: %s" err.Message
+task {
+    match! TSP.solveAsync problem_tsp None CancellationToken.None with
+    | Ok tour ->
+        printfn "Optimal route: %s" (String.concat " → " tour.Cities)
+        printfn "Total distance: %.2f km" tour.TotalDistance
+    | Error err ->
+        printfn "Route optimization failed: %s" err.Message
+}
 ```
 
 ---
@@ -526,7 +547,7 @@ match TSP.solve problem_tsp None with
 val createProblem : (string * float * float * float) list → float → PortfolioProblem
 val createProblemWithCovariance : (string * float * float * float) list → float → float[,] → PortfolioProblem
 val createProblemWithCorrelation : (string * float * float * float) list → float → float[,] → QuantumResult<PortfolioProblem>
-val solve : PortfolioProblem → IQuantumBackend option → QuantumResult<PortfolioAllocation>
+val solveAsync : PortfolioProblem → IQuantumBackend option → CancellationToken → Task<QuantumResult<PortfolioAllocation>>
 ```
 
 **Parameters:**
@@ -537,9 +558,9 @@ val solve : PortfolioProblem → IQuantumBackend option → QuantumResult<Portfo
 
 Qubits needed: one per asset.
 
-**Risk and the objective.** Without a covariance the assets are treated as independent and risk = sqrt(Σ (wᵢσᵢ)²), σᵢ = `Risk`. With one, risk = sqrt(wᵀΣw) and the QUBO carries the covariance terms. `solve` returns a `ValidationError` for a covariance that is not square, not one row per asset, not symmetric or not positive semidefinite (tolerance `PortfolioTypes.CovarianceTolerance` × the largest variance).
+**Risk and the objective.** Without a covariance the assets are treated as independent and risk = sqrt(Σ (wᵢσᵢ)²), σᵢ = `Risk`. With one, risk = sqrt(wᵀΣw) and the QUBO carries the covariance terms. `solveAsync` returns a `ValidationError` for a covariance that is not square, not one row per asset, not symmetric or not positive semidefinite (tolerance `PortfolioTypes.CovarianceTolerance` × the largest variance).
 
-The QUBO is the discretised mean-variance problem: selecting asset i buys one lot of weight s of the budget, so w = s·x, and QAOA minimises −μᵀw + λ wᵀΣw (λ = risk aversion, 0.5 in `solve`). s is 1/n, raised to MinHolding/Budget or lowered to MaxHolding/Budget when the holding limits require it; with s > 1/n at most ⌊1/s⌋ assets fit the budget. Budget not bought stays uninvested. Shares may be fractional, but an asset is only bought when one lot covers at least one share (the classical greedy has the same rule); unaffordable assets get no qubit. The solver samples p = 1 QAOA (cost Hamiltonian scaled to a largest coefficient of 1 by the shared pipeline) on a grid of angles with γ > 0, the minimising sign, samples again at the angles with the lowest mean energy, and returns the best feasible sample. `QuantumPortfolioSolver.toQubo` builds the QUBO with `ProblemTransformer.encodePortfolioCorrelation`; `QuantumPortfolioSolver.solveWithCovarianceAsync` is the algorithm-level entry point.
+The QUBO is the discretised mean-variance problem: selecting asset i buys one lot of weight s of the budget, so w = s·x, and QAOA minimises −μᵀw + λ wᵀΣw (λ = risk aversion, 0.5 in `solveAsync`). s is 1/n, raised to MinHolding/Budget or lowered to MaxHolding/Budget when the holding limits require it; with s > 1/n at most ⌊1/s⌋ assets fit the budget. Budget not bought stays uninvested. Shares may be fractional, but an asset is only bought when one lot covers at least one share (the classical greedy has the same rule); unaffordable assets get no qubit. The solver samples p = 1 QAOA (cost Hamiltonian scaled to a largest coefficient of 1 by the shared pipeline) on a grid of angles with γ > 0, the minimising sign, samples again at the angles with the lowest mean energy, and returns the best feasible sample. `QuantumPortfolioSolver.toQubo` builds the QUBO with `ProblemTransformer.encodePortfolioCorrelation`; `QuantumPortfolioSolver.solveWithCovarianceAsync` is the algorithm-level entry point.
 
 `PortfolioTypes` also has `validateCovariance`, `covarianceFromCorrelation`, `portfolioVariance` and `portfolioRisk`.
 
@@ -578,17 +599,19 @@ let assets = [
 
 let problem_portfolio = Portfolio.createProblem assets 50000.0  // $50k budget
 
-match Portfolio.solve problem_portfolio None with
-| Ok allocation ->
-    printfn "Portfolio value: $%.2f" allocation.TotalValue
-    printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
-    printfn "Portfolio risk: %.2f" allocation.Risk
-    
-    allocation.Allocations 
-    |> List.iter (fun (symbol, shares, value) ->
-        printfn "  %s: %.2f shares = $%.2f" symbol shares value)
-| Error err ->
-    printfn "Allocation failed: %s" err.Message
+task {
+    match! Portfolio.solveAsync problem_portfolio None CancellationToken.None with
+    | Ok allocation ->
+        printfn "Portfolio value: $%.2f" allocation.TotalValue
+        printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
+        printfn "Portfolio risk: %.2f" allocation.Risk
+        
+        allocation.Allocations 
+        |> List.iter (fun (symbol, shares, value) ->
+            printfn "  %s: %.2f shares = $%.2f" symbol shares value)
+    | Error err ->
+        printfn "Allocation failed: %s" err.Message
+}
 
 // With correlations between the assets
 let correlation =
@@ -599,12 +622,14 @@ let correlation =
         [ 0.0; 0.0; 0.0; 1.0 ]
     ]
 
-match Portfolio.createProblemWithCorrelation assets 50000.0 correlation with
-| Ok correlated ->
-    match Portfolio.solve correlated None with
-    | Ok allocation -> printfn "Risk with correlations: %.4f" allocation.Risk
-    | Error err -> printfn "Allocation failed: %s" err.Message
-| Error err -> printfn "Invalid correlation: %s" err.Message
+task {
+    match Portfolio.createProblemWithCorrelation assets 50000.0 correlation with
+    | Ok correlated ->
+        match! Portfolio.solveAsync correlated None CancellationToken.None with
+        | Ok allocation -> printfn "Risk with correlations: %.4f" allocation.Risk
+        | Error err -> printfn "Allocation failed: %s" err.Message
+    | Error err -> printfn "Invalid correlation: %s" err.Message
+}
 ```
 
 ---
@@ -662,8 +687,8 @@ val createSink : id:string → demand:int → Node
 val createIntermediate : id:string → capacity:int → Node
 val createRoute : from:string → to_:string → cost:float → Route
 val createProblem : Node list → Route list → NetworkFlowProblem
-val solve : NetworkFlowProblem → IQuantumBackend option → QuantumResult<FlowSolution>
-val solveDirectly : Node list → Route list → IQuantumBackend option → QuantumResult<FlowSolution>
+val solveAsync : NetworkFlowProblem → IQuantumBackend option → CancellationToken → Task<QuantumResult<FlowSolution>>
+val solveDirectlyAsync : Node list → Route list → IQuantumBackend option → CancellationToken → Task<QuantumResult<FlowSolution>>
 ```
 
 Qubits needed: one per route.
@@ -691,16 +716,18 @@ let routes = [
 
 let flowProblem = NetworkFlow.createProblem nodes routes
 
-match NetworkFlow.solve flowProblem None with
-| Ok flow ->
-    printfn "Total cost: $%.2f" flow.TotalCost
-    printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
-    
-    flow.SelectedRoutes 
-    |> List.iter (fun (from, to_, amount) ->
-        printfn "  %s → %s: %.2f units" from to_ amount)
-| Error err ->
-    printfn "Optimization failed: %s" err.Message
+task {
+    match! NetworkFlow.solveAsync flowProblem None CancellationToken.None with
+    | Ok flow ->
+        printfn "Total cost: $%.2f" flow.TotalCost
+        printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
+        
+        flow.SelectedRoutes 
+        |> List.iter (fun (from, to_, amount) ->
+            printfn "  %s → %s: %.2f units" from to_ amount)
+    | Error err ->
+        printfn "Optimization failed: %s" err.Message
+}
 ```
 
 ---
@@ -709,28 +736,30 @@ match NetworkFlow.solve flowProblem None with
 
 **Module:** `FSharp.Azure.Quantum.HybridSolver`
 
-Routes a problem to a classical heuristic or to a quantum solver. `QuantumAdvisor` recommends by problem size (`QuantumAdvisor.defaultThresholds`: classical below 20, "consider quantum" from 20, "strongly quantum" from 50). HybridSolver runs quantum only when the advisor strongly recommends it **and** a backend was passed (the `...WithBackend` functions), unless you force a method.
+Routes a problem to a classical heuristic or to a quantum solver. `QuantumAdvisor` recommends by problem size (`QuantumAdvisor.defaultThresholds`: classical below 20, "consider quantum" from 20, "strongly quantum" from 50). HybridSolver runs quantum only when the advisor strongly recommends it **and** a backend was passed (the `...WithBackendAsync` functions), unless you force a method.
 
 ```text
-val solveTsp          : distances:float[,] → budget:float option → timeout:float option → forceMethod:SolverMethod option
-                        → QuantumResult<Solution<TspSolver.TspSolution>>
-val solvePortfolio    : assets:PortfolioSolver.Asset list → constraints:PortfolioSolver.Constraints
-                        → budget → timeout → forceMethod → QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>
-val solvePortfolioWithCovariance : assets:PortfolioSolver.Asset list → covariance:float[,] → constraints
-                        → budget → timeout → forceMethod → backend:IQuantumBackend option
-                        → QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>
-val solveMaxCut       : QuantumMaxCutSolver.MaxCutProblem → budget → timeout → forceMethod
-                        → QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>>
-val solveKnapsack     : QuantumKnapsackSolver.KnapsackProblem → budget → timeout → forceMethod
-                        → QuantumResult<Solution<QuantumKnapsackSolver.KnapsackSolution>>
-val solveGraphColoring : QuantumGraphColoringSolver.GraphColoringProblem → numColors:int → budget → timeout → forceMethod
-                        → QuantumResult<Solution<QuantumGraphColoringSolver.GraphColoringSolution>>
+val solveTspAsync     : distances:float[,] → budget:float option → timeout:float option → forceMethod:SolverMethod option
+                        → cancellationToken:CancellationToken → Task<QuantumResult<Solution<TspSolver.TspSolution>>>
+val solvePortfolioAsync : assets:PortfolioSolver.Asset list → constraints:PortfolioSolver.Constraints
+                        → budget → timeout → forceMethod → cancellationToken
+                        → Task<QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>>
+val solvePortfolioWithCovarianceAsync : assets:PortfolioSolver.Asset list → covariance:float[,] → constraints
+                        → budget → timeout → forceMethod → backend:IQuantumBackend option → cancellationToken
+                        → Task<QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>>
+val solveMaxCutAsync  : QuantumMaxCutSolver.MaxCutProblem → budget → timeout → forceMethod → cancellationToken
+                        → Task<QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>>>
+val solveKnapsackAsync : QuantumKnapsackSolver.KnapsackProblem → budget → timeout → forceMethod → cancellationToken
+                        → Task<QuantumResult<Solution<QuantumKnapsackSolver.KnapsackSolution>>>
+val solveGraphColoringAsync : QuantumGraphColoringSolver.GraphColoringProblem → numColors:int → budget → timeout
+                        → forceMethod → cancellationToken
+                        → Task<QuantumResult<Solution<QuantumGraphColoringSolver.GraphColoringSolution>>>
 
-// Each has a ...WithBackend variant taking a final IQuantumBackend option;
-// solveTspWithBackendAndConfig also takes a QuantumTspSolver.QuantumTspConfig.
-// solvePortfolioWithCovariance validates the covariance and passes it to both paths, which
+// Each has a ...WithBackendAsync variant taking an IQuantumBackend option before the token;
+// solveTspWithBackendAndConfigAsync also takes a QuantumTspSolver.QuantumTspConfig.
+// solvePortfolioWithCovarianceAsync validates the covariance and passes it to both paths, which
 // then report risk as sqrt(w'Σw); the classical path still picks assets by return/risk ratio.
-// solvePortfolio treats the assets as independent.
+// solvePortfolioAsync treats the assets as independent.
 
 type SolverMethod = Classical | Quantum
 
@@ -769,9 +798,11 @@ open FSharp.Azure.Quantum.Backends
 let backend = LocalBackendFactory.createUnified()   // or: LocalBackend.LocalBackend() :> IQuantumBackend
 
 // Use with any solver
-match GraphColoring.solve problem 3 (Some backend) with
-| Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 (Some backend) CancellationToken.None with
+    | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Cloud Backends (via CloudBackendFactory)
@@ -790,9 +821,11 @@ let quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "q
 let atom       = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atom-computing.sim" 1000
 let iqm        = CloudBackendFactory.createIqm httpClient workspaceUrl "iqm.sim" 1000
 
-match GraphColoring.solve problem 3 (Some ionq) with
-| Ok solution -> printfn "Executed on: %s" solution.BackendName
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 (Some ionq) CancellationToken.None with
+    | Ok solution -> printfn "Executed on: %s" solution.BackendName
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ```text
@@ -841,9 +874,11 @@ open FSharp.Azure.Quantum.Backends
 let budget = CloudBackendHelpers.JobBudget.Limit 500
 let budgetedIonQ = CloudBackends.IonQCloudBackend(httpClient, workspaceUrl, "ionq.simulator", 1000, jobBudget = budget)
 
-match GraphColoring.solve problem 3 (Some(budgetedIonQ :> BackendAbstraction.IQuantumBackend)) with
-| Ok solution -> printfn "Done after %d jobs" budget.Submitted
-| Error err -> printfn "Error (after %d jobs): %s" budget.Submitted err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 (Some(budgetedIonQ :> BackendAbstraction.IQuantumBackend)) CancellationToken.None with
+    | Ok solution -> printfn "Done after %d jobs" budget.Submitted
+    | Error err -> printfn "Error (after %d jobs): %s" budget.Submitted err.Message
+}
 ```
 
 > **Result format:** cloud results are measurement histograms, and the returned `QuantumState` is reconstructed from them in tiers by circuit width: a dense state vector up to `StateVector.maxQubits`, a `SparseState` (observed outcomes only) from there through 31 qubits, and `QuantumState.MeasurementHistogram` (bitstring → count, at most `shots` entries) above that. The histogram tier has no width limit, so wide devices such as Quantinuum H2 (56 qubits) and IonQ Forte (36 qubits) are usable.
@@ -904,9 +939,10 @@ match backend with
 
 **Class:** `FSharp.Azure.Quantum.CSharpBuilders` (static methods taking arrays of value tuples)
 
-The main problem builders have C#-friendly static methods. F# `option` parameters take `null` for `None`, and results are `FSharpResult` values with `IsOk`, `ResultValue` and `ErrorValue`:
+The main problem builders have C#-friendly static methods. F# `option` parameters take `null` for `None`, and the `...Async` solvers return a `Task` of an `FSharpResult` value with `IsOk`, `ResultValue` and `ErrorValue`:
 
 ```csharp
+using System.Threading;
 using FSharp.Azure.Quantum;
 using static FSharp.Azure.Quantum.CSharpBuilders;
 
@@ -917,7 +953,7 @@ var edges = new[] {
     (source: "B", target: "C", weight: 2.0)
 };
 var maxCutProblem = MaxCutProblem(vertices, edges);
-var result = MaxCut.solve(maxCutProblem, null);
+var result = await MaxCut.solveAsync(maxCutProblem, null, CancellationToken.None);
 if (result.IsOk) Console.WriteLine(result.ResultValue.CutValue);
 else Console.WriteLine(result.ErrorValue.Message);
 
@@ -941,7 +977,7 @@ var portfolioProblem = PortfolioProblem(assets, budget: 10000.0);
 var correlatedProblem = PortfolioProblem(assets, budget: 10000.0, covariance: new double[,] { { 0.0225 } });
 ```
 
-`CSharpBuilders` also has entry points for the business and advanced builders (`CoverageProblem`, `PairingProblem`, `PackingProblem`, `FactorInteger`, `SolveTreeSearch`, `PriceEuropeanCall`, ...), and `QuantumBackendCSharpExtensions` adds Task-returning helpers such as `backend.ExecuteToStateTask(circuit)`. All live in `Builders/BuildersCSharpExtensions.fs`. See `examples/CSharpConsumer` for a complete C# project.
+`CSharpBuilders` also has entry points for the business and advanced builders (`CoverageProblemAsync`, `PairingProblemAsync`, `PackingProblemAsync`, `FactorInteger`, `SolveTreeSearch`, `PriceEuropeanCallAsync`, ...), and `QuantumBackendCSharpExtensions` adds Task-returning helpers such as `backend.ExecuteToStateTask(circuit)`. All live in `Builders/BuildersCSharpExtensions.fs`. See `examples/CSharpConsumer` for a complete C# project.
 
 ---
 
@@ -949,16 +985,18 @@ var correlatedProblem = PortfolioProblem(assets, budget: 10000.0, covariance: ne
 
 ### Result Type
 
-The solvers return `QuantumResult<'T>` (= `Result<'T, QuantumError>`; see [Error Handling](#error-handling)):
+The solvers return `Task<QuantumResult<'T>>` (`QuantumResult<'T>` = `Result<'T, QuantumError>`; see [Error Handling](#error-handling)):
 
 ```fsharp
-match MaxCut.solve problem_maxcut None with
-| Ok solution -> 
-    // Success case
-    printfn "Solution: %A" solution
-| Error err -> 
-    // Failure case: a QuantumError, not a string
-    printfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync problem_maxcut None CancellationToken.None with
+    | Ok solution -> 
+        // Success case
+        printfn "Solution: %A" solution
+    | Error err -> 
+        // Failure case: a QuantumError, not a string
+        printfn "Error: %s" err.Message
+}
 ```
 
 ### IQuantumBackend Interface
@@ -1314,36 +1352,25 @@ val highQualityConfig : QaoaSolverConfig   // Larger budget (3 layers, 200/2000 
 
 ### Dense QUBO Functions
 
-The synchronous `executeQaoaCircuit`, `executeQaoaWithGridSearch`, `executeFromQubo` and `executeWithBudget` (and their sparse counterparts `executeQaoaCircuitSparse`, `executeQaoaWithGridSearchSparse`) are marked `[<Obsolete>]` in favour of the `...Async` variants below; `executeQaoaWithOptimization` and `executeQaoaWithOptimizationSparse` are not.
+Every execution entry point is Task-based and takes a `CancellationToken`; there are no blocking variants.
 
 ```text
 val evaluateQubo :
     qubo:float[,] → bits:int[] → float
-
-val executeQaoaCircuit :
-    backend:IQuantumBackend → problemHam:ProblemHamiltonian → mixerHam:MixerHamiltonian
-    → parameters:(float * float)[] → shots:int → Result<int[][], QuantumError>
-
-val executeQaoaWithOptimization :
-    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
-    → Result<int[] * (float * float)[] * bool, QuantumError>
-
-val executeQaoaWithGridSearch :
-    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
-    → Result<int[] * (float * float)[], QuantumError>
-
-val executeFromQubo :
-    backend:IQuantumBackend → qubo:float[,] → parameters:(float * float)[] → shots:int
-    → Result<int[][], QuantumError>
 ```
 
-**Async variants** (Task-based, with `CancellationToken` and `maxConcurrency` for grid search):
+**Execution functions** (Task-based, with `CancellationToken` and `maxConcurrency` for grid search):
 
 ```text
 val executeQaoaCircuitAsync :
     backend:IQuantumBackend → problemHam:ProblemHamiltonian → mixerHam:MixerHamiltonian
     → parameters:(float * float)[] → shots:int → cancellationToken:CancellationToken
     → Task<Result<int[][], QuantumError>>
+
+val executeQaoaWithOptimizationAsync :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → cancellationToken:CancellationToken
+    → Task<Result<int[] * (float * float)[] * bool, QuantumError>>
 
 val executeQaoaWithGridSearchAsync :
     backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
@@ -1372,27 +1399,20 @@ Memory-efficient path that avoids allocating dense `float[,]` arrays. Preferred 
 ```text
 val evaluateQuboSparse :
     quboMap:Map<int * int, float> → bits:int[] → float
-
-val executeQaoaCircuitSparse :
-    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
-    → parameters:(float * float)[] → shots:int → Result<int[][], QuantumError>
-
-val executeQaoaWithOptimizationSparse :
-    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
-    → config:QaoaSolverConfig → Result<int[] * (float * float)[] * bool, QuantumError>
-
-val executeQaoaWithGridSearchSparse :
-    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
-    → config:QaoaSolverConfig → Result<int[] * (float * float)[], QuantumError>
 ```
 
-**Async variants:**
+**Execution functions:**
 
 ```text
 val executeQaoaCircuitSparseAsync :
     backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
     → parameters:(float * float)[] → shots:int → cancellationToken:CancellationToken
     → Task<Result<int[][], QuantumError>>
+
+val executeQaoaWithOptimizationSparseAsync :
+    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
+    → config:QaoaSolverConfig → cancellationToken:CancellationToken
+    → Task<Result<int[] * (float * float)[] * bool, QuantumError>>
 
 val executeQaoaWithGridSearchSparseAsync :
     backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
@@ -1426,13 +1446,9 @@ type ExecutionBudget = {
 ```text
 val defaultBudget : ExecutionBudget
     // 1000 shots, no time limit, AdaptiveToBudgetBackend
-
-val executeWithBudget :
-    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
-    → budget:ExecutionBudget → Result<int[] * (float * float)[] * bool, QuantumError>
 ```
 
-**Async variant:**
+**Execution function:**
 
 ```text
 val executeWithBudgetAsync :
@@ -1444,6 +1460,7 @@ val executeWithBudgetAsync :
 ### Example: Sparse QUBO Execution
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
 
 let backend = LocalBackendFactory.createUnified()
@@ -1456,14 +1473,16 @@ let quboMap =
         (0, 1),  2.0
     ]
 
-match executeQaoaWithOptimizationSparse backend 2 quboMap defaultConfig with
-| Ok (bestBits, parameters, converged) ->
-    let energy = evaluateQuboSparse quboMap bestBits
-    printfn "Best bitstring: %A" bestBits
-    printfn "Energy: %.4f" energy
-    printfn "Converged: %b" converged
-| Error err ->
-    printfn "Error: %s" err.Message
+task {
+    match! executeQaoaWithOptimizationSparseAsync backend 2 quboMap defaultConfig CancellationToken.None with
+    | Ok (bestBits, parameters, converged) ->
+        let energy = evaluateQuboSparse quboMap bestBits
+        printfn "Best bitstring: %A" bestBits
+        printfn "Energy: %.4f" energy
+        printfn "Converged: %b" converged
+    | Error err ->
+        printfn "Error: %s" err.Message
+}
 ```
 
 ### Example: Budget-Constrained Execution
@@ -1634,7 +1653,7 @@ let maxCutConfig : QuantumMaxCutSolver.QaoaConfig = {
 let solverProblem : QuantumMaxCutSolver.MaxCutProblem =
     { Vertices = problem_maxcut.Vertices; Edges = problem_maxcut.Edges }
 
-// solveAsync returns a Task (the synchronous solve is marked [<Obsolete>])
+// solveAsync returns a Task
 let maxCutResult =
     QuantumMaxCutSolver.solveAsync backend solverProblem maxCutConfig CancellationToken.None
     |> Async.AwaitTask
@@ -1652,22 +1671,28 @@ match maxCutResult with
 
 ```fsharp
 // Pattern 1: Match on Result
-match GraphColoring.solve problem 3 None with
-| Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
-| Error err -> eprintfn "Failed: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 None CancellationToken.None with
+    | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
+    | Error err -> eprintfn "Failed: %s" err.Message
+}
 
 // Pattern 2: Result.map
-problem
-|> fun p -> GraphColoring.solve p 3 None
-|> Result.map (fun solution -> solution.Cost)
-|> Result.defaultValue infinity
+task {
+    let! result = GraphColoring.solveAsync problem 3 None CancellationToken.None
+    return
+        result
+        |> Result.map (fun solution -> solution.Cost)
+        |> Result.defaultValue infinity
+}
 
 // Pattern 3: Railway-oriented programming
-let workflow p =
-    p
-    |> GraphColoring.validate
-    |> Result.bind (fun () -> GraphColoring.solve p 3 None)
-    |> Result.map (fun solution -> solution.Assignments)
+let workflow p (cancellationToken: CancellationToken) =
+    quantumResultTask {
+        do! GraphColoring.validate p
+        let! solution = GraphColoring.solveAsync p 3 None cancellationToken
+        return solution.Assignments
+    }
 ```
 
 ---
@@ -1679,13 +1704,15 @@ let workflow p =
 ```fsharp
 // Test with a small instance on LocalBackend first (MaxCut needs at least one edge)
 let testProblem = MaxCut.createProblem ["A"; "B"; "C"] [ ("A", "B", 1.0); ("B", "C", 1.0) ]
-match MaxCut.solve testProblem None with
-| Ok _ -> 
-    // Works! Now scale up: one qubit per vertex
-    let ringVertices = [ for i in 1 .. 12 -> $"V{i}" ]
-    let largeProblem = MaxCut.cycleGraph ringVertices 1.0
-    printfn "Created larger problem with %d vertices" largeProblem.VertexCount
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync testProblem None CancellationToken.None with
+    | Ok _ -> 
+        // Works! Now scale up: one qubit per vertex
+        let ringVertices = [ for i in 1 .. 12 -> $"V{i}" ]
+        let largeProblem = MaxCut.cycleGraph ringVertices 1.0
+        printfn "Created larger problem with %d vertices" largeProblem.VertexCount
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### 2. Use Problem Validation
@@ -1693,11 +1720,13 @@ match MaxCut.solve testProblem None with
 ```fsharp
 // Validate before solving
 let validated =
-    match GraphColoring.validate problem with
-    | Ok () -> 
-        GraphColoring.solve problem 3 None
-    | Error err -> 
-        Error err
+    task {
+        match GraphColoring.validate problem with
+        | Ok () -> 
+            return! GraphColoring.solveAsync problem 3 None CancellationToken.None
+        | Error err -> 
+            return Error err
+    }
 ```
 
 ### 3. Reuse a Backend
@@ -1708,9 +1737,15 @@ let sharedBackend = LocalBackendFactory.createUnified()
 
 let problems = [ problem; problem_scheduling ]
 
-problems 
-|> List.map (fun p -> GraphColoring.solve p 3 (Some sharedBackend))
-|> List.choose Result.toOption
+task {
+    let solutions = ResizeArray()
+
+    for p in problems do
+        let! result = GraphColoring.solveAsync p 3 (Some sharedBackend) CancellationToken.None
+        result |> Result.iter solutions.Add
+
+    return List.ofSeq solutions
+}
 ```
 
 ---

@@ -17,7 +17,7 @@ open FSharp.Azure.Quantum.Core
 /// COMPARISON:
 ///   // Business Domain (Recommended for most users):
 ///   open FSharp.Azure.Quantum
-///   let tour = TSP.solve cities None  // Automatic LocalBackend
+///   let! tour = TSP.solveAsync cities None CancellationToken.None  // Automatic LocalBackend
 ///
 ///   // Algorithm Level (This module - for experts):
 ///   open FSharp.Azure.Quantum.Quantum
@@ -132,259 +132,253 @@ module QuantumTspSolver =
             OptimizationConverged: bool option
         }
 
-    /// Shared implementation of solve and solveAsync.
-    let private solveCore
+    /// Shared implementation of solveAsync.
+    /// The Nelder-Mead evaluations run one after another (each step depends on the previous
+    /// evaluation); the final execution is awaited.
+    let private solveCoreAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (distances: float[,])
         (config: QuantumTspConfig)
-        : Result<QuantumTspSolution, QuantumError> =
+        (cancellationToken: CancellationToken)
+        : Task<Result<QuantumTspSolution, QuantumError>> =
+        task {
+            let startTime = DateTime.UtcNow
 
-        let startTime = DateTime.UtcNow
+            // Validate inputs
+            let numCities = distances.GetLength 0
+            let requiredQubits = numCities * numCities // TSP uses N^2 qubits for N cities
 
-        // Validate inputs
-        let numCities = distances.GetLength 0
-        let requiredQubits = numCities * numCities // TSP uses N^2 qubits for N cities
-
-        // Backend capacity, when the backend declares one (IQubitLimitedBackend).
-        // Checking here — rather than letting the backend fail deep inside circuit
-        // execution — lets the message name the problem size, the backend and its
-        // limit, instead of a bare "qubits must be between 0 and N".
-        let capacityError =
-            BackendAbstraction.UnifiedBackend.getRunnableQubits backend
-            |> Option.bind (fun maxQubits ->
-                if requiredQubits > maxQubits then
-                    Some(
-                        QuantumError.ValidationError(
-                            "numCities",
-                            $"TSP with {numCities} cities needs {requiredQubits} qubits (N²), but backend '{backend.Name}' supports at most {maxQubits} qubits"
-                        )
-                    )
-                else
-                    None)
-
-        if numCities < 2 then
-            Error(QuantumError.ValidationError("numCities", "TSP requires at least 2 cities"))
-        elif config.FinalShots <= 0 then
-            Error(QuantumError.ValidationError("numShots", "Number of shots must be positive"))
-        elif config.EnableOptimization && config.MaxOptimizationIterations <= 0 then
-            Error(
-                QuantumError.ValidationError(
-                    "MaxOptimizationIterations",
-                    $"must be > 0 when optimization is enabled, got {config.MaxOptimizationIterations}"
-                )
-            )
-        elif capacityError.IsSome then
-            Error capacityError.Value
-        else
-            try
-                // Step 1: Build GraphOptimization problem from distance matrix
-                let nodes =
-                    List.init (max 0 numCities) (fun i -> GraphOptimization.node (string i) i)
-
-                let edges =
-                    [
-                        for i in 0 .. numCities - 1 do
-                            for j in i + 1 .. numCities - 1 do
-                                yield GraphOptimization.edge (string i) (string j) distances.[i, j]
-                    ]
-
-                let problem =
-                    GraphOptimization
-                        .GraphOptimizationBuilder()
-                        .Nodes(nodes)
-                        .Edges(edges)
-                        .Objective(GraphOptimization.MinimizeTotalWeight)
-                        .Build()
-
-                // Step 2: Convert to QUBO matrix
-                let quboMatrix = GraphOptimization.toQubo problem
-
-                // Step 3: Generate QAOA circuit components from QUBO
-                let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-
-                // Step 4: Optimize QAOA parameters (gamma, beta) using classical optimizer
-                let (finalGamma, finalBeta), optimizationInfo =
-                    if config.EnableOptimization then
-                        // Expected QUBO energy of the p = 1 state (exact on a state-vector
-                        // backend), shared with the other QAOA solvers
-                        let objectiveFn =
-                            QaoaExecutionHelpers.createObjectiveFunction
-                                backend
-                                quboArray
-                                problemHam
-                                mixerHam
-                                1
-                                config.OptimizationShots
-
-                        // Initial parameters and bounds: γ ∈ [0, π], β ∈ [0, π/2]
-                        let (initGamma, initBeta) = config.InitialParameters
-                        let initialGuess = [| initGamma; initBeta |]
-                        let lowerBounds = [| 0.0; 0.0 |]
-                        let upperBounds = [| Math.PI; Math.PI / 2.0 |]
-
-                        // Run classical optimizer to find best parameters
-                        // (default tolerance; iteration budget from the config)
-                        let optimizationResult =
-                            QaoaOptimizer.Optimizer.minimizeWithBounds
-                                objectiveFn
-                                initialGuess
-                                lowerBounds
-                                upperBounds
-                                1e-6
-                                config.MaxOptimizationIterations
-
-                        let optGamma = optimizationResult.OptimizedParameters.[0]
-                        let optBeta = optimizationResult.OptimizedParameters.[1]
-
-                        ((optGamma, optBeta),
-                         (Some(optGamma, optBeta), Some optimizationResult.Iterations, Some optimizationResult.Converged))
-                    else
-                        // Use initial parameters without optimization
-                        (config.InitialParameters, (None, None, None))
-
-                let (optParams, optIters, optConverged) = optimizationInfo
-
-                // Step 5: Execute final QAOA circuit with optimized parameters
-                let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                let parameters = [| finalGamma, finalBeta |]
-
-                match
-                    (QaoaExecutionHelpers.executeFromQuboAsync
-                        backend
-                        quboArray
-                        parameters
-                        config.FinalShots
-                        CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult()
-                with
-                | Error err -> Error err
-                | Ok measurements ->
-
-                    // Step 7: Decode measurements to tours
-                    let tourResults =
-                        measurements
-                        |> Array.map (fun measurement ->
-                            // Convert measurement to QUBO solution (int list)
-                            let quboSolution = Array.toList measurement
-
-                            // Decode to graph solution
-                            let graphSolution = GraphOptimization.decodeSolution problem quboSolution
-
-                            // Extract tour from selected edges
-                            match graphSolution.SelectedEdges with
-                            | Some edges when edges.Length > 0 ->
-                                // Build tour from edges (order may vary, reconstruct sequence)
-                                let rec buildTour currentCity visited path =
-                                    if List.length visited = numCities then
-                                        List.rev path
-                                    else
-                                        // Find edge from current city
-                                        let nextEdge =
-                                            edges
-                                            |> List.tryFind (fun e ->
-                                                (e.Source = string currentCity || e.Target = string currentCity)
-                                                && not (
-                                                    List.contains (int e.Source) visited
-                                                    && List.contains (int e.Target) visited
-                                                ))
-
-                                        match nextEdge with
-                                        | Some edge ->
-                                            let nextCity =
-                                                if edge.Source = string currentCity then
-                                                    int edge.Target
-                                                else
-                                                    int edge.Source
-
-                                            buildTour nextCity (nextCity :: visited) (nextCity :: path)
-                                        | None ->
-                                            // Incomplete tour, pad with missing cities in order
-                                            let missing =
-                                                [ 0 .. numCities - 1 ]
-                                                |> List.filter (fun c -> not (List.contains c visited))
-
-                                            List.rev path @ missing
-
-                                let tour = buildTour 0 [ 0 ] [ 0 ] |> Array.ofList
-                                let tourLength = TspSolver.calculateTourLength distances tour
-                                Some(tour, tourLength)
-                            | _ -> None)
-                        |> Array.choose id
-
-                    if tourResults.Length = 0 then
-                        Error(
-                            QuantumError.OperationError(
-                                "DecodeSolution",
-                                "No valid tours found in quantum measurements"
+            // Backend capacity, when the backend declares one (IQubitLimitedBackend).
+            // Checking here — rather than letting the backend fail deep inside circuit
+            // execution — lets the message name the problem size, the backend and its
+            // limit, instead of a bare "qubits must be between 0 and N".
+            let capacityError =
+                BackendAbstraction.UnifiedBackend.getRunnableQubits backend
+                |> Option.bind (fun maxQubits ->
+                    if requiredQubits > maxQubits then
+                        Some(
+                            QuantumError.ValidationError(
+                                "numCities",
+                                $"TSP with {numCities} cities needs {requiredQubits} qubits (N²), but backend '{backend.Name}' supports at most {maxQubits} qubits"
                             )
                         )
                     else
-                        // Group by tour and count frequencies
-                        let tourFrequencies =
-                            tourResults
-                            |> Array.groupBy fst
-                            |> Array.map (fun (tour, instances) ->
-                                let frequency = instances.Length
-                                let length = instances.[0] |> snd
-                                (tour, length, frequency))
-                            |> Array.sortBy (fun (_, length, _) -> length)
+                        None)
 
-                        // Best tour (shortest)
-                        let (bestTour, bestLength, _) = tourFrequencies.[0]
+            if numCities < 2 then
+                return Error(QuantumError.ValidationError("numCities", "TSP requires at least 2 cities"))
+            elif config.FinalShots <= 0 then
+                return Error(QuantumError.ValidationError("numShots", "Number of shots must be positive"))
+            elif config.EnableOptimization && config.MaxOptimizationIterations <= 0 then
+                return
+                    Error(
+                        QuantumError.ValidationError(
+                            "MaxOptimizationIterations",
+                            $"must be > 0 when optimization is enabled, got {config.MaxOptimizationIterations}"
+                        )
+                    )
+            elif capacityError.IsSome then
+                return Error capacityError.Value
+            else
+                try
+                    // Step 1: Build GraphOptimization problem from distance matrix
+                    let nodes =
+                        List.init (max 0 numCities) (fun i -> GraphOptimization.node (string i) i)
 
-                        let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                    let edges =
+                        [
+                            for i in 0 .. numCities - 1 do
+                                for j in i + 1 .. numCities - 1 do
+                                    yield GraphOptimization.edge (string i) (string j) distances.[i, j]
+                        ]
 
-                        Ok
-                            {
-                                Tour = bestTour
-                                TourLength = bestLength
-                                BackendName = backend.Name
-                                NumShots = config.FinalShots
-                                ElapsedMs = elapsedMs
-                                BestEnergy = bestLength // For TSP, tour length is the energy
-                                TopSolutions =
-                                    tourFrequencies |> Array.take (min 5 tourFrequencies.Length) |> Array.toList
-                                OptimizedParameters = optParams
-                                OptimizationIterations = optIters
-                                OptimizationConverged = optConverged
-                            }
+                    let problem =
+                        GraphOptimization
+                            .GraphOptimizationBuilder()
+                            .Nodes(nodes)
+                            .Edges(edges)
+                            .Objective(GraphOptimization.MinimizeTotalWeight)
+                            .Build()
 
-            with ex ->
-                Error(QuantumError.OperationError("QuantumTspSolver", $"Quantum TSP solver failed: %s{ex.Message}"))
+                    // Step 2: Convert to QUBO matrix
+                    let quboMatrix = GraphOptimization.toQubo problem
 
-    /// Solve TSP using quantum backend via QAOA
+                    // Step 3: Generate QAOA circuit components from QUBO
+                    let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
+                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
+                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
+
+                    // Step 4: Optimize QAOA parameters (gamma, beta) using classical optimizer
+                    let (finalGamma, finalBeta), optimizationInfo =
+                        if config.EnableOptimization then
+                            // Expected QUBO energy of the p = 1 state (exact on a state-vector
+                            // backend), shared with the other QAOA solvers
+                            let expectedEnergy =
+                                QaoaExecutionHelpers.createObjectiveFunction
+                                    backend
+                                    quboArray
+                                    problemHam
+                                    mixerHam
+                                    1
+                                    config.OptimizationShots
+
+                            let objectiveFn (parameters: float[]) =
+                                cancellationToken.ThrowIfCancellationRequested()
+                                expectedEnergy parameters
+
+                            // Initial parameters and bounds: γ ∈ [0, π], β ∈ [0, π/2]
+                            let (initGamma, initBeta) = config.InitialParameters
+                            let initialGuess = [| initGamma; initBeta |]
+                            let lowerBounds = [| 0.0; 0.0 |]
+                            let upperBounds = [| Math.PI; Math.PI / 2.0 |]
+
+                            // Run classical optimizer to find best parameters
+                            // (default tolerance; iteration budget from the config)
+                            let optimizationResult =
+                                QaoaOptimizer.Optimizer.minimizeWithBounds
+                                    objectiveFn
+                                    initialGuess
+                                    lowerBounds
+                                    upperBounds
+                                    1e-6
+                                    config.MaxOptimizationIterations
+
+                            let optGamma = optimizationResult.OptimizedParameters.[0]
+                            let optBeta = optimizationResult.OptimizedParameters.[1]
+
+                            ((optGamma, optBeta),
+                             (Some(optGamma, optBeta), Some optimizationResult.Iterations, Some optimizationResult.Converged))
+                        else
+                            // Use initial parameters without optimization
+                            (config.InitialParameters, (None, None, None))
+
+                    let (optParams, optIters, optConverged) = optimizationInfo
+
+                    // Step 5: Execute final QAOA circuit with optimized parameters
+                    let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
+                    let parameters = [| finalGamma, finalBeta |]
+
+                    let! finalResult =
+                        QaoaExecutionHelpers.executeFromQuboAsync
+                            backend
+                            quboArray
+                            parameters
+                            config.FinalShots
+                            cancellationToken
+
+                    match finalResult with
+                    | Error err -> return Error err
+                    | Ok measurements ->
+
+                        // Step 7: Decode measurements to tours
+                        let tourResults =
+                            measurements
+                            |> Array.map (fun measurement ->
+                                // Convert measurement to QUBO solution (int list)
+                                let quboSolution = Array.toList measurement
+
+                                // Decode to graph solution
+                                let graphSolution = GraphOptimization.decodeSolution problem quboSolution
+
+                                // Extract tour from selected edges
+                                match graphSolution.SelectedEdges with
+                                | Some edges when edges.Length > 0 ->
+                                    // Build tour from edges (order may vary, reconstruct sequence)
+                                    let rec buildTour currentCity visited path =
+                                        if List.length visited = numCities then
+                                            List.rev path
+                                        else
+                                            // Find edge from current city
+                                            let nextEdge =
+                                                edges
+                                                |> List.tryFind (fun e ->
+                                                    (e.Source = string currentCity || e.Target = string currentCity)
+                                                    && not (
+                                                        List.contains (int e.Source) visited
+                                                        && List.contains (int e.Target) visited
+                                                    ))
+
+                                            match nextEdge with
+                                            | Some edge ->
+                                                let nextCity =
+                                                    if edge.Source = string currentCity then
+                                                        int edge.Target
+                                                    else
+                                                        int edge.Source
+
+                                                buildTour nextCity (nextCity :: visited) (nextCity :: path)
+                                            | None ->
+                                                // Incomplete tour, pad with missing cities in order
+                                                let missing =
+                                                    [ 0 .. numCities - 1 ]
+                                                    |> List.filter (fun c -> not (List.contains c visited))
+
+                                                List.rev path @ missing
+
+                                    let tour = buildTour 0 [ 0 ] [ 0 ] |> Array.ofList
+                                    let tourLength = TspSolver.calculateTourLength distances tour
+                                    Some(tour, tourLength)
+                                | _ -> None)
+                            |> Array.choose id
+
+                        if tourResults.Length = 0 then
+                            return
+                                Error(
+                                    QuantumError.OperationError(
+                                        "DecodeSolution",
+                                        "No valid tours found in quantum measurements"
+                                    )
+                                )
+                        else
+                            // Group by tour and count frequencies
+                            let tourFrequencies =
+                                tourResults
+                                |> Array.groupBy fst
+                                |> Array.map (fun (tour, instances) ->
+                                    let frequency = instances.Length
+                                    let length = instances.[0] |> snd
+                                    (tour, length, frequency))
+                                |> Array.sortBy (fun (_, length, _) -> length)
+
+                            // Best tour (shortest)
+                            let (bestTour, bestLength, _) = tourFrequencies.[0]
+
+                            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+
+                            return
+                                Ok
+                                    {
+                                        Tour = bestTour
+                                        TourLength = bestLength
+                                        BackendName = backend.Name
+                                        NumShots = config.FinalShots
+                                        ElapsedMs = elapsedMs
+                                        BestEnergy = bestLength // For TSP, tour length is the energy
+                                        TopSolutions =
+                                            tourFrequencies |> Array.take (min 5 tourFrequencies.Length) |> Array.toList
+                                        OptimizedParameters = optParams
+                                        OptimizationIterations = optIters
+                                        OptimizationConverged = optConverged
+                                    }
+
+                with ex when not (ex :? OperationCanceledException) ->
+                    return
+                        Error(
+                            QuantumError.OperationError("QuantumTspSolver", $"Quantum TSP solver failed: %s{ex.Message}")
+                        )
+        }
+
+    /// Solve TSP using quantum backend via QAOA (async).
     ///
     /// Full Pipeline:
     /// 1. Distance matrix → GraphOptimization problem
     /// 2. GraphOptimization → QUBO matrix
     /// 3. QUBO → QaoaCircuit (Hamiltonians + layers)
-    /// 4. (Optional) Optimize QAOA parameters (gamma, beta) using classical optimizer
+    /// 4. (Optional) Optimize QAOA parameters (gamma, beta) using classical optimizer;
+    ///    its evaluations run one after another (each step depends on the previous one)
     /// 5. Execute circuit on quantum backend with optimized parameters
     /// 6. Decode measurements → tours
     /// 7. Return best tour
-    ///
-    /// Parameters:
-    ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
-    ///   distances - Distance matrix between cities (NxN)
-    ///   config - Configuration for optimization and execution
-    ///
-    /// Returns:
-    ///   Result with QuantumTspSolution or QuantumError
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (distances: float[,])
-        (config: QuantumTspConfig)
-        : Result<QuantumTspSolution, QuantumError> =
-        solveCore backend distances config
-
-    /// Solve TSP using quantum backend via QAOA (async).
-    /// Wraps the synchronous solve in a task; the Nelder-Mead optimization loop
-    /// is inherently sequential (each step depends on previous evaluation),
-    /// so true async parallelism is not applicable here.
     let solveAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (distances: float[,])
@@ -393,32 +387,5 @@ module QuantumTspSolver =
         : Task<Result<QuantumTspSolution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveCore backend distances config
+            return! solveCoreAsync backend distances config cancellationToken
         }
-
-    /// Solve TSP with default configuration (LocalBackend, optimization enabled)
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solveWithDefaults (distances: float[,]) : Result<QuantumTspSolution, QuantumError> =
-        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
-
-        solveAsync backend distances defaultConfig CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-    /// Solve TSP with custom number of shots (backward compatibility - no optimization)
-    /// Note: For parameter optimization, use solve with full QuantumTspConfig
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solveWithShots
-        (backend: BackendAbstraction.IQuantumBackend)
-        (distances: float[,])
-        (numShots: int)
-        : Result<QuantumTspSolution, QuantumError> =
-        let config =
-            { defaultConfig with
-                FinalShots = numShots
-                EnableOptimization = false
-            }
-
-        solveAsync backend distances config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously

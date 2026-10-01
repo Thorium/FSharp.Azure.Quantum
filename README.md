@@ -136,6 +136,7 @@ repository needed. See [Running Examples](https://github.com/Thorium/FSharp.Azur
 ### F# Computation Expressions
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 
@@ -149,18 +150,23 @@ let problem = graphColoring {
 }
 
 // Solve using quantum optimization (QAOA)
-match GraphColoring.solve problem 4 None with
-| Ok solution ->
-    printfn "Colors used: %d" solution.ColorsUsed
-    solution.Assignments 
-    |> Map.iter (fun node color -> printfn "%s → %s" node color)
-| Error err -> 
-    printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 4 None CancellationToken.None with
+    | Ok solution ->
+        printfn "Colors used: %d" solution.ColorsUsed
+        solution.Assignments 
+        |> Map.iter (fun node color -> printfn "%s → %s" node color)
+    | Error err -> 
+        printfn "Error: %s" err.Message
+}
 ```
+
+Samples are `task` blocks: `await` them in an application, or end a script with `|> Async.AwaitTask |> Async.RunSynchronously`.
 
 ### C# Fluent API
 
 ```csharp
+using System.Threading;
 using FSharp.Azure.Quantum;
 using static FSharp.Azure.Quantum.CSharpBuilders;
 
@@ -174,7 +180,7 @@ var edges = new[] {
 };
 
 var problem = MaxCutProblem(vertices, edges);
-var result = MaxCut.solve(problem, null);
+var result = await MaxCut.solveAsync(problem, null, CancellationToken.None);
 
 if (result.IsOk) {
     var solution = result.ResultValue;
@@ -186,7 +192,7 @@ if (result.IsOk) {
 
 **What happens:**
 1. Computation expression builds graph coloring problem
-2. `GraphColoring.solve` calls `QuantumGraphColoringSolver` internally
+2. `GraphColoring.solveAsync` calls `QuantumGraphColoringSolver` internally
 3. QAOA quantum algorithm encodes problem as QUBO (Quadratic Unconstrained Binary Optimization)
 4. LocalBackend simulates quantum circuit (memory-derived width)
 5. Returns color assignments with validation
@@ -202,6 +208,7 @@ if (result.IsOk) {
 **Use Case:** Register allocation, frequency assignment, exam scheduling
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 
@@ -214,12 +221,14 @@ let problem = graphColoring {
     objective MinimizeColors
 }
 
-match GraphColoring.solve problem 3 None with
-| Ok solution ->
-    printfn "Valid coloring: %b" solution.IsValid
-    printfn "Colors used: %d/%d" solution.ColorsUsed 3
-    printfn "Conflicts: %d" solution.ConflictCount
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 None CancellationToken.None with
+    | Ok solution ->
+        printfn "Valid coloring: %b" solution.IsValid
+        printfn "Colors used: %d/%d" solution.ColorsUsed 3
+        printfn "Conflicts: %d" solution.ConflictCount
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### MaxCut
@@ -239,12 +248,14 @@ let edges = [
 
 let problem = MaxCut.createProblem vertices edges
 
-match MaxCut.solve problem None with
-| Ok solution ->
-    printfn "Partition S: %A" solution.PartitionS
-    printfn "Partition T: %A" solution.PartitionT
-    printfn "Cut value: %.2f" solution.CutValue
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync problem None CancellationToken.None with
+    | Ok solution ->
+        printfn "Partition S: %A" solution.PartitionS
+        printfn "Partition T: %A" solution.PartitionT
+        printfn "Cut value: %.2f" solution.CutValue
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Knapsack (0/1)
@@ -261,12 +272,14 @@ let items = [
 
 let problem = Knapsack.createProblem items 5.0  // capacity = 5.0
 
-match Knapsack.solve problem None with
-| Ok solution ->
-    printfn "Total value: $%.2f" solution.TotalValue
-    printfn "Total weight: %.2f/%.2f" solution.TotalWeight problem.Capacity
-    printfn "Items: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! Knapsack.solveAsync problem None CancellationToken.None with
+    | Ok solution ->
+        printfn "Total value: $%.2f" solution.TotalValue
+        printfn "Total weight: %.2f/%.2f" solution.TotalWeight problem.Capacity
+        printfn "Items: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Traveling Salesperson Problem (TSP)
@@ -285,11 +298,13 @@ let cities = [
 
 let problem = TSP.createProblem cities
 
-match TSP.solve problem None with
-| Ok tour ->
-    printfn "Optimal route: %s" (String.concat " → " tour.Cities)
-    printfn "Total distance: %.2f" tour.TotalDistance
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! TSP.solveAsync problem None CancellationToken.None with
+    | Ok tour ->
+        printfn "Optimal route: %s" (String.concat " → " tour.Cities)
+        printfn "Total distance: %.2f" tour.TotalDistance
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Portfolio Optimization
@@ -305,16 +320,18 @@ let assets = [
 
 let problem = Portfolio.createProblem assets 10000.0  // budget
 
-match Portfolio.solve problem None with
-| Ok allocation ->
-    printfn "Portfolio value: $%.2f" allocation.TotalValue
-    printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
-    printfn "Risk: %.2f" allocation.Risk
-    
-    allocation.Allocations 
-    |> List.iter (fun (symbol, shares, value) ->
-        printfn "  %s: %.2f shares ($%.2f)" symbol shares value)
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! Portfolio.solveAsync problem None CancellationToken.None with
+    | Ok allocation ->
+        printfn "Portfolio value: $%.2f" allocation.TotalValue
+        printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
+        printfn "Risk: %.2f" allocation.Risk
+        
+        allocation.Allocations 
+        |> List.iter (fun (symbol, shares, value) ->
+            printfn "  %s: %.2f shares ($%.2f)" symbol shares value)
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 Without a covariance the assets are treated as independent: risk = sqrt(Σ (wᵢσᵢ)²). Give the covariance (or a correlation matrix, scaled by each asset's risk) for mean-variance with correlations: the QAOA objective includes the covariance terms and the reported risk is sqrt(wᵀΣw).
@@ -322,12 +339,14 @@ Without a covariance the assets are treated as independent: risk = sqrt(Σ (wᵢ
 ```fsharp
 let correlation = array2D [ [ 1.0; 0.6; 0.7 ]; [ 0.6; 1.0; 0.8 ]; [ 0.7; 0.8; 1.0 ] ]
 
-match Portfolio.createProblemWithCorrelation assets 10000.0 correlation with
-| Ok correlated ->
-    match Portfolio.solve correlated None with
-    | Ok allocation -> printfn "Risk with correlations: %.2f" allocation.Risk
-    | Error err -> printfn "Error: %s" err.Message
-| Error err -> printfn "Invalid correlation matrix: %s" err.Message
+task {
+    match Portfolio.createProblemWithCorrelation assets 10000.0 correlation with
+    | Ok correlated ->
+        match! Portfolio.solveAsync correlated None CancellationToken.None with
+        | Ok allocation -> printfn "Risk with correlations: %.2f" allocation.Risk
+        | Error err -> printfn "Error: %s" err.Message
+    | Error err -> printfn "Invalid correlation matrix: %s" err.Message
+}
 ```
 
 A covariance that is not square, not one row per asset, not symmetric or not positive semidefinite gives a `ValidationError`. `Portfolio.createProblemWithCovariance assets budget covariance` takes the covariance directly.
@@ -339,6 +358,7 @@ A covariance that is not square, not one row per asset, not symmetric or not pos
 [![Supply chain route activation: classical greedy and QAOA](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/SupplyChain/_images/supply-chain-flow.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/SupplyChain/NetworkFlowOptimization)
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 
 let nodes = [
@@ -357,11 +377,13 @@ let routes = [
 let problem = NetworkFlow.createProblem nodes routes
 
 // Pass Some backend to run on quantum hardware/simulator; None uses the default.
-match NetworkFlow.solve problem None with
-| Ok flow ->
-    printfn "Total cost: $%.2f" flow.TotalCost
-    printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
-| Error err -> printfn "Error: %A" err
+task {
+    match! NetworkFlow.solveAsync problem None CancellationToken.None with
+    | Ok flow ->
+        printfn "Total cost: $%.2f" flow.TotalCost
+        printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
+    | Error err -> printfn "Error: %A" err
+}
 ```
 
 ### Task Scheduling
@@ -369,6 +391,7 @@ match NetworkFlow.solve problem None with
 **Use Case:** Manufacturing workflows, project management, resource allocation with dependencies
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.TaskScheduling
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -417,7 +440,12 @@ let problem = scheduling {
 
 // Solve with a quantum backend (qubits = tasks x time slots)
 let backend = LocalBackend() :> IQuantumBackend
-match solveQuantum backend problem |> Async.RunSynchronously with
+
+match
+    solveQuantumAsync backend problem CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok solution ->
     printfn "Makespan: %.2f hours" solution.Makespan.TotalHours
     solution.Assignments
@@ -430,7 +458,7 @@ match solveQuantum backend problem |> Async.RunSynchronously with
 **Features:**
 - Dependency Management - Precedence constraints (task A before task B)
 - Resource Constraints - Limited workers, machines, budget
-- Quantum Optimization - QAOA for resource-constrained scheduling (`solveQuantum`)
+- Quantum Optimization - QAOA for resource-constrained scheduling (`solveQuantumAsync`)
 - Classical scheduler - `ClassicalSolver.solve` for dependency-only problems (ignores resource capacity)
 - Gantt Chart Export - `exportGanttChart solution "schedule.txt"`
 
@@ -792,6 +820,7 @@ The `Algorithms/` directory contains foundational quantum algorithms for learnin
 Train quantum neural networks for classification tasks:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.MachineLearning
@@ -826,16 +855,18 @@ let numQubits = trainFeatures.[0].Length
 let initialParams = VariationalForms.randomParameters variationalForm numQubits (Some 42)
 
 // Train the classifier
-match VQC.train backend featureMap variationalForm initialParams trainFeatures trainLabels config with
-| Ok result ->
-    // Make predictions
-    let testPoint = [| 0.5; 0.5 |]
-    match VQC.predict backend featureMap variationalForm result.Parameters testPoint 1000 with
-    | Ok prediction ->
-        printfn "Prediction: %d (probability: %.2f%%)" 
-            prediction.Label (prediction.Probability * 100.0)
-    | Error err -> printfn "Error: %s" err.Message
-| Error err -> printfn "Training failed: %s" err.Message
+task {
+    match! VQC.trainAsync backend featureMap variationalForm initialParams trainFeatures trainLabels config CancellationToken.None with
+    | Ok result ->
+        // Make predictions
+        let testPoint = [| 0.5; 0.5 |]
+        match! VQC.predictAsync backend featureMap variationalForm result.Parameters testPoint 1000 CancellationToken.None with
+        | Ok prediction ->
+            printfn "Prediction: %d (probability: %.2f%%)" 
+                prediction.Label (prediction.Probability * 100.0)
+        | Error err -> printfn "Error: %s" err.Message
+    | Error err -> printfn "Training failed: %s" err.Message
+}
 ```
 
 ### Quantum Kernel SVM
@@ -843,6 +874,7 @@ match VQC.train backend featureMap variationalForm initialParams trainFeatures t
 Use quantum feature spaces for support vector machines:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.MachineLearning
@@ -865,16 +897,18 @@ let config : QuantumKernelSVM.SVMConfig = {
 }
 
 // Train SVM with quantum kernel
-match QuantumKernelSVM.train backend featureMap trainData trainLabels config 1000 with
-| Ok model ->
-    // Evaluate on test data
-    let testData = [| [| 0.5; 0.5 |]; [| 0.2; 0.8 |] |]
-    let testLabels = [| 0; 1 |]
-    
-    match QuantumKernelSVM.evaluate backend model testData testLabels 1000 with
-    | Ok accuracy -> printfn "Test accuracy: %.2f%%" (accuracy * 100.0)
-    | Error err -> printfn "Evaluation error: %s" err.Message
-| Error err -> printfn "Training error: %s" err.Message
+task {
+    match! QuantumKernelSVM.trainAsync backend featureMap trainData trainLabels config 1000 CancellationToken.None with
+    | Ok model ->
+        // Evaluate on test data
+        let testData = [| [| 0.5; 0.5 |]; [| 0.2; 0.8 |] |]
+        let testLabels = [| 0; 1 |]
+        
+        match! QuantumKernelSVM.evaluateAsync backend model testData testLabels 1000 CancellationToken.None with
+        | Ok accuracy -> printfn "Test accuracy: %.2f%%" (accuracy * 100.0)
+        | Error err -> printfn "Evaluation error: %s" err.Message
+    | Error err -> printfn "Training error: %s" err.Message
+}
 ```
 
 **QML Features:**
@@ -934,15 +968,17 @@ let network = SocialNetworkAnalyzer.socialNetwork {
     shots 1000
 }
 
-match network with
-| Ok result ->
-    printfn "Communities found: %d" result.Communities.Length
-    
-    for comm in result.Communities do
-        printfn "Community: %A" comm.Members
-        printfn "  Strength: %.0f%% connected" (comm.Strength * 100.0)
-        printfn "  Internal connections: %d" comm.InternalConnections
-| Error err -> printfn "Error: %A" err
+task {
+    match! network with
+    | Ok result ->
+        printfn "Communities found: %d" result.Communities.Length
+        
+        for comm in result.Communities do
+            printfn "Community: %A" comm.Members
+            printfn "  Strength: %.0f%% connected" (comm.Strength * 100.0)
+            printfn "  Internal connections: %d" comm.InternalConnections
+    | Error err -> printfn "Error: %A" err
+}
 ```
 
 **Business Use Cases:**
@@ -1012,27 +1048,29 @@ let schedule = ConstraintScheduler.constraintScheduler {
     shots 1500
 }
 
-match schedule with
-| Ok result ->
-    match result.BestSchedule with
-    | Some sched ->
-        printfn "Optimal Shift Assignments:"
-        for assignment in sched.Assignments do
-            printfn "  %s → %s ($%.2f/hour)" 
-                assignment.Task 
-                assignment.Resource 
-                assignment.Cost
-        
-        printfn "\nTotal Cost: $%.2f" sched.TotalCost
-        printfn "Constraints Satisfied: %d / %d hard, %d / %d soft" 
-            sched.HardConstraintsSatisfied 
-            sched.TotalHardConstraints
-            sched.SoftConstraintsSatisfied 
-            sched.TotalSoftConstraints
-        printfn "Feasible: %b" sched.IsFeasible
-    | None ->
-        printfn "No feasible schedule found"
-| Error err -> printfn "Error: %A" err
+task {
+    match! schedule with
+    | Ok result ->
+        match result.BestSchedule with
+        | Some sched ->
+            printfn "Optimal Shift Assignments:"
+            for assignment in sched.Assignments do
+                printfn "  %s → %s ($%.2f/hour)" 
+                    assignment.Task 
+                    assignment.Resource 
+                    assignment.Cost
+            
+            printfn "\nTotal Cost: $%.2f" sched.TotalCost
+            printfn "Constraints Satisfied: %d / %d hard, %d / %d soft" 
+                sched.HardConstraintsSatisfied 
+                sched.TotalHardConstraints
+                sched.SoftConstraintsSatisfied 
+                sched.TotalSoftConstraints
+            printfn "Feasible: %b" sched.IsFeasible
+        | None ->
+            printfn "No feasible schedule found"
+    | Error err -> printfn "Error: %A" err
+}
 ```
 
 **Business Use Cases:**
@@ -1071,36 +1109,40 @@ match schedule with
 ### AutoML - Automated Machine Learning
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business
 
 // Training data: each sample is a float array of features, with a numeric label
 let features = [| [| 0.1; 0.2 |]; [| 0.9; 0.8 |]; [| 0.2; 0.1 |]; [| 0.8; 0.9 |] |]
 let labels   = [| 0.0; 1.0; 0.0; 1.0 |]
 
-// The CE runs the automated model search and returns Result<AutoMLResult, _>
-let automlResult =
-    AutoML.autoML {
-        trainWith features labels
-        tryBinaryClassification true
-        maxTrials 20
-        validationSplit 0.2
-    }
+// The CE runs the automated model search and returns Task<QuantumResult<AutoMLResult>>
+task {
+    let! automlResult =
+        AutoML.autoML {
+            trainWith features labels
+            tryBinaryClassification true
+            maxTrials 20
+            validationSplit 0.2
+        }
 
-match automlResult with
-| Ok result ->
-    printfn "Best model: %s (validation score %.2f%%)" result.BestModelType (result.Score * 100.0)
-    printfn "Best architecture: %A" result.BestArchitecture
+    match automlResult with
+    | Ok result ->
+        printfn "Best model: %s (validation score %.2f%%)" result.BestModelType (result.Score * 100.0)
+        printfn "Best architecture: %A" result.BestArchitecture
 
-    // Use the best model for a prediction
-    match AutoML.predict [| 0.85; 0.85 |] result with
-    | Ok prediction -> printfn "Prediction: %A" prediction
+        // Use the best model for a prediction
+        match! AutoML.predictAsync [| 0.85; 0.85 |] result CancellationToken.None with
+        | Ok prediction -> printfn "Prediction: %A" prediction
+        | Error err -> printfn "Error: %A" err
     | Error err -> printfn "Error: %A" err
-| Error err -> printfn "Error: %A" err
+}
 ```
 
 ### Anomaly Detection - Security & Fraud Detection
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business
 
 // Train on NORMAL examples only (one-class anomaly detection).
@@ -1110,94 +1152,102 @@ let normalTraffic =
        [| 0.15; 0.25; 0.0 |]
        [| 0.12; 0.18; 0.1 |] |]
 
-// The CE trains the detector and returns Result<Detector, _>
-let detectorResult =
-    AnomalyDetector.anomalyDetection {
-        trainOnNormalData normalTraffic
-        sensitivity AnomalyDetector.High
-        contaminationRate 0.05
-    }
+// The CE trains the detector and returns Task<QuantumResult<Detector>>
+task {
+    let! detectorResult =
+        AnomalyDetector.anomalyDetection {
+            trainOnNormalData normalTraffic
+            sensitivity AnomalyDetector.High
+            contaminationRate 0.05
+        }
 
-match detectorResult with
-| Ok detector ->
-    // Score a new sample against the trained detector
-    let sample = [| 0.9; 0.95; 0.8 |]
-    match AnomalyDetector.check sample detector with
-    | Ok result ->
-        printfn "Anomaly: %b (score %.3f)" result.IsAnomaly result.AnomalyScore
+    match detectorResult with
+    | Ok detector ->
+        // Score a new sample against the trained detector
+        let sample = [| 0.9; 0.95; 0.8 |]
+        match! AnomalyDetector.checkAsync sample detector CancellationToken.None with
+        | Ok result ->
+            printfn "Anomaly: %b (score %.3f)" result.IsAnomaly result.AnomalyScore
+        | Error err -> printfn "Error: %A" err
     | Error err -> printfn "Error: %A" err
-| Error err -> printfn "Error: %A" err
+}
 ```
 
 ### Binary Classification - Fraud Detection
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business
 
 // Labeled transactions: features as float arrays, labels 0 = legitimate, 1 = fraud
 let trainX = [| [| 0.1; 0.2 |]; [| 0.9; 0.8 |]; [| 0.2; 0.1 |]; [| 0.85; 0.9 |] |]
 let trainY = [| 0; 1; 0; 1 |]
 
-// The CE trains the classifier and returns Result<Classifier, _>
-let classifierResult =
-    BinaryClassifier.binaryClassification {
-        trainWith trainX trainY
-        architecture BinaryClassifier.Hybrid   // Quantum feature map + classical SVM
-        maxEpochs 50
-    }
+// The CE trains the classifier and returns Task<QuantumResult<Classifier>>
+task {
+    let! classifierResult =
+        BinaryClassifier.binaryClassification {
+            trainWith trainX trainY
+            architecture BinaryClassifier.Hybrid   // Quantum feature map + classical SVM
+            maxEpochs 50
+        }
 
-match classifierResult with
-| Ok model ->
-    // Evaluate on held-out data (features, labels, classifier)
-    let testX = [| [| 0.15; 0.2 |]; [| 0.8; 0.85 |] |]
-    let testY = [| 0; 1 |]
-    match BinaryClassifier.evaluate testX testY model with
-    | Ok metrics ->
-        printfn "Precision: %.2f%%" (metrics.Precision * 100.0)
-        printfn "Recall: %.2f%%" (metrics.Recall * 100.0)
-        printfn "F1 Score: %.2f" metrics.F1Score
-    | Error err -> printfn "Error: %A" err
+    match classifierResult with
+    | Ok model ->
+        // Evaluate on held-out data (features, labels, classifier)
+        let testX = [| [| 0.15; 0.2 |]; [| 0.8; 0.85 |] |]
+        let testY = [| 0; 1 |]
+        match! BinaryClassifier.evaluateAsync testX testY model CancellationToken.None with
+        | Ok metrics ->
+            printfn "Precision: %.2f%%" (metrics.Precision * 100.0)
+            printfn "Recall: %.2f%%" (metrics.Recall * 100.0)
+            printfn "F1 Score: %.2f" metrics.F1Score
+        | Error err -> printfn "Error: %A" err
 
-    // Classify a new sample
-    match BinaryClassifier.predict [| 0.82; 0.88 |] model with
-    | Ok prediction ->
-        printfn "Label: %d (%.2f%% confidence)" prediction.Label (prediction.Confidence * 100.0)
-    | Error err -> printfn "Error: %A" err
-| Error err -> printfn "Training failed: %A" err
+        // Classify a new sample
+        match! BinaryClassifier.predictAsync [| 0.82; 0.88 |] model CancellationToken.None with
+        | Ok prediction ->
+            printfn "Label: %d (%.2f%% confidence)" prediction.Label (prediction.Confidence * 100.0)
+        | Error err -> printfn "Error: %A" err
+    | Error err -> printfn "Training failed: %A" err
+}
 ```
 
 ### Predictive Modeling - Customer Churn Prediction
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Business
 
 // Historical customers: features (e.g. tenure, monthly charges), target = churn score
 let history = [| [| 12.0; 50.0 |]; [| 1.0; 90.0 |]; [| 24.0; 40.0 |]; [| 2.0; 95.0 |] |]
 let targets = [| 0.0; 1.0; 0.0; 1.0 |]
 
-// The CE trains the model and returns Result<Model, _>
-let modelResult =
-    PredictiveModel.predictiveModel {
-        trainWith history targets
-        problemType PredictiveModel.Regression
-        architecture PredictiveModel.Hybrid
-        maxEpochs 50
-    }
+// The CE trains the model and returns Task<QuantumResult<Model>>
+task {
+    let! modelResult =
+        PredictiveModel.predictiveModel {
+            trainWith history targets
+            problemType PredictiveModel.Regression
+            architecture PredictiveModel.Hybrid
+            maxEpochs 50
+        }
 
-match modelResult with
-| Ok model ->
-    // Score an active customer (backend / shots optional -> None None uses defaults)
-    match PredictiveModel.predict [| 3.0; 92.0 |] model None None with
-    | Ok prediction -> printfn "Predicted churn score: %.3f" prediction.Value
+    match modelResult with
+    | Ok model ->
+        // Score an active customer (backend / shots optional -> None None uses defaults)
+        match! PredictiveModel.predictAsync [| 3.0; 92.0 |] model None None CancellationToken.None with
+        | Ok prediction -> printfn "Predicted churn score: %.3f" prediction.Value
+        | Error err -> printfn "Error: %A" err
     | Error err -> printfn "Error: %A" err
-| Error err -> printfn "Error: %A" err
+}
 ```
 
 ### Similarity Search - Product Recommendations
 
 Build a `SearchIndex` from a catalog with `similaritySearch { ... }`, then rank
-neighbours with `SimilaritySearch.findSimilar queryItem queryFeatures topN index`
-(returns `QuantumResult<SearchResults<'T>>`).
+neighbours with `SimilaritySearch.findSimilarAsync queryItem queryFeatures topN index cancellationToken`
+(returns `Task<QuantumResult<SearchResults<'T>>>`).
 
 ▶ Full runnable example: [`examples/SimilaritySearch/ProductRecommendations.fsx`](examples/SimilaritySearch/ProductRecommendations.fsx)
 
@@ -1236,7 +1286,7 @@ The HybridSolver provides a unified API that:
 
 **Decision Framework** (`QuantumAdvisor.defaultThresholds`):
 - Small problems (below 50 variables) → classical solver (milliseconds, $0)
-- Large problems (50 variables or more) → quantum solver (seconds to minutes, provider pricing), **only** if you passed a backend (the `...WithBackend` functions) and the estimated cost is within the budget; otherwise the classical solver runs and `Reasoning` says why
+- Large problems (50 variables or more) → quantum solver (seconds to minutes, provider pricing), **only** if you passed a backend (the `...WithBackendAsync` functions) and the estimated cost is within the budget; otherwise the classical solver runs and `Reasoning` says why
 - Automatic cost guards and recommendations: the cost of a QAOA run is estimated with `CostEstimation` from the backend name (IonQ: $12.42 base per job, $97.50 with error mitigation, plus per-gate-per-shot charges; Rigetti: $0.02 per 10 ms of QPU time; Quantinuum: subscription-priced; simulators: free). For the one-layer, 1000-shot QAOA circuit HybridSolver prices, a 10-variable problem estimates at about $60 on IonQ and a 50-variable problem at about $1,230, so set a budget before routing large problems to paid hardware.
 - `forceMethod = Some Classical` / `Some Quantum` bypasses the advisor (forced quantum uses the given backend, or a new LocalBackend)
 
@@ -1245,6 +1295,7 @@ The HybridSolver provides a unified API that:
 The HybridSolver supports five optimization problems: TSP, Portfolio, MaxCut, Knapsack and Graph Coloring. MaxCut, Knapsack and Graph Coloring take the solver-level problem records from `FSharp.Azure.Quantum.Quantum`.
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Classical
@@ -1256,14 +1307,16 @@ let distances = array2D [[0.0; 10.0; 15.0];
                           [10.0; 0.0; 20.0]; 
                           [15.0; 20.0; 0.0]]
 
-match HybridSolver.solveTsp distances None None None with
-| Ok solution ->
-    printfn "Method used: %A" solution.Method           // Classical or Quantum
-    printfn "Reasoning: %s" solution.Reasoning          // Why this method?
-    printfn "Time: %.2f ms" solution.ElapsedMs
-    printfn "Tour: %A" solution.Result.Tour
-    printfn "Length: %.2f" solution.Result.TourLength
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveTspAsync distances None None None CancellationToken.None with
+    | Ok solution ->
+        printfn "Method used: %A" solution.Method           // Classical or Quantum
+        printfn "Reasoning: %s" solution.Reasoning          // Why this method?
+        printfn "Time: %.2f ms" solution.ElapsedMs
+        printfn "Tour: %A" solution.Result.Tour
+        printfn "Length: %.2f" solution.Result.TourLength
+    | Error err -> printfn "Error: %s" err.Message
+}
 
 // MaxCut: convert the builder problem to the solver-level record
 let maxCutProblem = MaxCut.createProblem ["A"; "B"; "C"; "D"] [("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0)]
@@ -1272,25 +1325,29 @@ let hybridMaxCut : QuantumMaxCutSolver.MaxCutProblem =
 
 // Pass a backend so that large problems can run on it; budget = Some 50.0 USD
 let backend = LocalBackend() :> IQuantumBackend
-match HybridSolver.solveMaxCutWithBackend hybridMaxCut (Some 50.0) None None (Some backend) with
-| Ok solution ->
-    printfn "Method: %A" solution.Method
-    printfn "Cut Value: %.2f" solution.Result.CutValue
-    match solution.Recommendation with
-    | Some recommendation -> printfn "Advisor: %s" recommendation.Reasoning
-    | None -> ()
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveMaxCutWithBackendAsync hybridMaxCut (Some 50.0) None None (Some backend) CancellationToken.None with
+    | Ok solution ->
+        printfn "Method: %A" solution.Method
+        printfn "Cut Value: %.2f" solution.Result.CutValue
+        match solution.Recommendation with
+        | Some recommendation -> printfn "Advisor: %s" recommendation.Reasoning
+        | None -> ()
+    | Error err -> printfn "Error: %s" err.Message
+}
 
 // Knapsack
 let knapsack = Knapsack.createProblem [("laptop", 3.0, 1000.0); ("phone", 0.5, 500.0); ("tablet", 1.5, 700.0)] 4.0
 let knapsackProblem : QuantumKnapsackSolver.KnapsackProblem =
     { Items = knapsack.Items; Capacity = knapsack.Capacity }
 
-match HybridSolver.solveKnapsack knapsackProblem None None None with
-| Ok solution ->
-    printfn "Total Value: %.2f" solution.Result.TotalValue
-    printfn "Items: %A" (solution.Result.SelectedItems |> List.map (fun i -> i.Id))
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveKnapsackAsync knapsackProblem None None None CancellationToken.None with
+    | Ok solution ->
+        printfn "Total Value: %.2f" solution.Result.TotalValue
+        printfn "Items: %A" (solution.Result.SelectedItems |> List.map (fun i -> i.Id))
+    | Error err -> printfn "Error: %s" err.Message
+}
 
 // Graph Coloring
 let graphProblem : QuantumGraphColoringSolver.GraphColoringProblem = {
@@ -1300,11 +1357,13 @@ let graphProblem : QuantumGraphColoringSolver.GraphColoringProblem = {
     FixedColors = Map.empty
 }
 
-match HybridSolver.solveGraphColoring graphProblem 3 None None None with
-| Ok solution ->
-    printfn "Colors Used: %d/3" solution.Result.ColorsUsed
-    printfn "Valid: %b" solution.Result.IsValid
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solveGraphColoringAsync graphProblem 3 None None None CancellationToken.None with
+    | Ok solution ->
+        printfn "Colors Used: %d/3" solution.Result.ColorsUsed
+        printfn "Valid: %b" solution.Result.IsValid
+    | Error err -> printfn "Error: %s" err.Message
+}
 
 // Portfolio Optimization
 let assets : PortfolioSolver.Asset list = [
@@ -1313,18 +1372,22 @@ let assets : PortfolioSolver.Asset list = [
 ]
 let constraints : PortfolioSolver.Constraints = { Budget = 10000.0; MinHolding = 0.0; MaxHolding = 6000.0 }
 
-match HybridSolver.solvePortfolio assets constraints None None None with
-| Ok solution ->
-    printfn "Portfolio Value: $%.2f" solution.Result.TotalValue
-    printfn "Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solvePortfolioAsync assets constraints None None None CancellationToken.None with
+    | Ok solution ->
+        printfn "Portfolio Value: $%.2f" solution.Result.TotalValue
+        printfn "Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
+    | Error err -> printfn "Error: %s" err.Message
+}
 
 // With a covariance matrix (validated) both paths report risk as sqrt(wᵀΣw)
 let covariance = array2D [ [ 0.0225; 0.0126 ]; [ 0.0126; 0.0196 ] ]
 
-match HybridSolver.solvePortfolioWithCovariance assets covariance constraints None None None None with
-| Ok solution -> printfn "Risk: %.2f%%" (solution.Result.Risk * 100.0)
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! HybridSolver.solvePortfolioWithCovarianceAsync assets covariance constraints None None None None CancellationToken.None with
+    | Ok solution -> printfn "Risk: %.2f%%" (solution.Result.Risk * 100.0)
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Features
@@ -1484,6 +1547,8 @@ graph TB
 
 **Example:**
 ```fsharp
+open System.Threading
+
 // F# computation expression
 let problem = graphColoring {
     node "R1" ["R2"]
@@ -1491,7 +1556,7 @@ let problem = graphColoring {
 }
 
 // Delegates to Layer 2
-GraphColoring.solve problem 2 None
+GraphColoring.solveAsync problem 2 None CancellationToken.None
 ```
 
 #### **Layer 2: Quantum Solvers** 🟠
@@ -1507,11 +1572,12 @@ GraphColoring.solve problem 2 None
 
 **Example:**
 ```fsharp
-// Called internally by GraphColoring.solve
-QuantumGraphColoringSolver.solve
+// Called internally by GraphColoring.solveAsync
+QuantumGraphColoringSolver.solveAsync
     backend                                       // IQuantumBackend
     graphProblem                                  // QuantumGraphColoringSolver.GraphColoringProblem
     (QuantumGraphColoringSolver.defaultConfig 3)  // QAOA parameters (shots, colors, penalty weight)
+    CancellationToken.None                        // Cancels the QAOA run
 ```
 
 #### **Layer 3: Quantum Backends** 🔵
@@ -1531,6 +1597,7 @@ QuantumGraphColoringSolver.solve
 
 **Example:**
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -1556,11 +1623,13 @@ let backend_atom = CloudBackendFactory.createAtomComputing httpClient workspaceU
 let backend_iqm = CloudBackendFactory.createIqm httpClient workspaceUrl "iqm.sim" 1000
 
 // Pass to solver
-match GraphColoring.solve problem 3 (Some backend_quantinuum) with
-| Ok solution -> 
-    printfn "Backend used: %s" solution.BackendName
-| Error err ->
-    printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 3 (Some backend_quantinuum) CancellationToken.None with
+    | Ok solution -> 
+        printfn "Backend used: %s" solution.BackendName
+    | Error err ->
+        printfn "Error: %s" err.Message
+}
 ```
 
 Hardware targets follow the same pattern; check your workspace for the targets it offers.
@@ -1582,6 +1651,7 @@ Hardware targets follow the same pattern; check your workspace for the targets i
 ### D-Wave Quantum Annealer
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
@@ -1615,12 +1685,14 @@ let problem = MaxCut.createProblem vertices edges
 
 // Solve using the D-Wave backend (implements IQuantumBackend)
 // The backend extracts the QUBO from the QAOA circuit and anneals it
-match MaxCut.solve problem (Some (mockBackend :> IQuantumBackend)) with
-| Ok solution ->
-    printfn "Cut value: %.2f" solution.CutValue
-    printfn "Partition S: %A" solution.PartitionS
-    printfn "Partition T: %A" solution.PartitionT
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync problem (Some (mockBackend :> IQuantumBackend)) CancellationToken.None with
+    | Ok solution ->
+        printfn "Cut value: %.2f" solution.CutValue
+        printfn "Partition S: %A" solution.PartitionS
+        printfn "Partition T: %A" solution.PartitionT
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 **D-Wave Features:**
@@ -1645,9 +1717,11 @@ match MaxCut.solve problem (Some (mockBackend :> IQuantumBackend)) with
 ### Backend Comparison
 
 ```fsharp
+open System.Threading
+
 // Small problem: Use local simulation
 let smallProblem = MaxCut.createProblem ["A"; "B"; "C"] [("A","B",1.0)]
-let result1 = MaxCut.solve smallProblem None  // LocalBackend
+let result1 = MaxCut.solveAsync smallProblem None CancellationToken.None  // LocalBackend
 
 // Medium problem: Use Azure Quantum (backend_ionq from the Layer 3 example above)
 let mediumProblem = 
@@ -1655,7 +1729,7 @@ let mediumProblem =
         [for i in 1..20 -> sprintf "V%d" i]
         [for i in 1..19 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
 
-let result2 = MaxCut.solve mediumProblem (Some backend_ionq)  // 20 qubits
+let result2 = MaxCut.solveAsync mediumProblem (Some backend_ionq) CancellationToken.None  // 20 qubits
 
 // Large problem: Use D-Wave quantum annealer
 let largeProblem =
@@ -1666,7 +1740,7 @@ let largeProblem =
 // Create D-Wave backend (mock for testing; RealDWaveBackend.createFromEnv () for production)
 let annealer = DWaveBackend.createMockDWaveBackend Advantage_System6_1 None :> IQuantumBackend
 
-let result3 = MaxCut.solve largeProblem (Some annealer)  // 100 variables on a 5640-qubit annealer
+let result3 = MaxCut.solveAsync largeProblem (Some annealer) CancellationToken.None  // 100 variables on a 5640-qubit annealer
 ```
 
 **Backend Selection Guide:**
@@ -1805,12 +1879,13 @@ The high-level solvers (QAOA, QFT, Grover) take any of these through the same in
 
 ### Azure Quantum Workspace Management
 
-**Production-ready hybrid approach: Workspace quota management (Microsoft.Azure.Quantum.Client) + proven HTTP cloud backends for job execution**
+**Production-ready hybrid approach: Workspace quota management (Azure.Quantum.Jobs) + proven HTTP cloud backends for job execution**
 
 ```fsharp
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
 open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
 open FSharp.Azure.Quantum.Backends.CloudBackends
 
@@ -1827,9 +1902,9 @@ let bellCircuit =
     |> CircuitBuilder.addGate (CircuitBuilder.H 0)
     |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
 
-async {
+task {
     // Check remaining quota before execution
-    let! quota = workspace.GetTotalQuotaAsync()
+    let! quota = workspace.GetTotalQuotaAsync(CancellationToken.None)
 
     match quota.Remaining with
     | Some remaining when remaining < 10.0 ->
@@ -1845,7 +1920,7 @@ async {
         match Primitives.sample backend bellCircuit 1000 with
         | Ok counts -> printfn "Counts: %A" counts
         | Error err -> printfn "Error: %s" err.Message
-} |> Async.RunSynchronously
+}
 ```
 
 **What you get:**
@@ -2090,7 +2165,7 @@ compilation and estimation toolchain (all in `Builders/`):
 - **`ResourceEstimation`** — logical resource estimates (qubits / gates / T-count / depth) via `estimateLogical` and physical surface-code estimates via `estimatePhysical`.
 - **`QirEmitter`** — emit circuits as QIR base-profile textual LLVM IR for Azure Quantum submission.
 - **Weighted MAX-SAT** — per-clause weights in `QuantumSatSolver` (`clause` / `weightedClause`); solutions report `SatisfiedWeight` / `TotalWeight`.
-- **`AutoML.TrainedModel`** — AutoML returns a typed `TrainedModel` discriminated union (no `obj` unboxing in `predict`).
+- **`AutoML.TrainedModel`** — AutoML returns a typed `TrainedModel` discriminated union (no `obj` unboxing in `predictAsync`).
 - **`CudaQBridge`** — hand a circuit to **NVIDIA CUDA-Q** for GPU / tensor-network / density-matrix simulation. CUDA-Q has no .NET binding, so this is a *source hand-off*: `CudaQBridge.toKernelSource "nvidia" shots circuit` emits a runnable CUDA-Q Python kernel (pure, dependency-free); `CudaQBridge.runAsync` optionally executes it via a local `python`+`cudaq` and parses the counts (returns `Error`, not an exception, when CUDA-Q isn't installed).
 
 These are exercised by the tests under `tests/` (e.g. `QubitRoutingTests`, `ResourceEstimationTests`, `QirEmitterTests`, `NoiseModelTests`).
@@ -2140,6 +2215,8 @@ All three techniques work on `CircuitBuilder.Circuit` values and take an **execu
 **F# Example:**
 ```fsharp
 open System.Numerics
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -2161,8 +2238,8 @@ let ansatz =
     |> CircuitBuilder.addGate (CircuitBuilder.RY (1, 0.4))
 
 // Executor for ZNE and PEC: circuit -> expectation value
-let executor (c: CircuitBuilder.Circuit) : Async<Result<float, string>> =
-    async { return Primitives.observe noisyBackend c zz |> Result.mapError (fun e -> e.Message) }
+let executor (c: CircuitBuilder.Circuit) : Task<Result<float, string>> =
+    task { return Primitives.observe noisyBackend c zz |> Result.mapError (fun e -> e.Message) }
 
 // Configure ZNE
 let zneConfig : ZeroNoiseExtrapolation.ZNEConfig = {
@@ -2175,15 +2252,17 @@ let zneConfig : ZeroNoiseExtrapolation.ZNEConfig = {
     MinSamples = 1000
 }
 
-match ZeroNoiseExtrapolation.mitigate ansatz zneConfig executor |> Async.RunSynchronously with
-| Ok zneResult ->
-    printfn "Zero-noise value: %f" zneResult.ZeroNoiseValue
-    printfn "R² goodness of fit: %f" zneResult.GoodnessOfFit
-    printfn "Measured values:"
-    zneResult.MeasuredValues 
-    |> List.iter (fun (noise, value) -> printfn "  λ=%.1f: %f" noise value)
-| Error msg -> 
-    printfn "ZNE failed: %s" msg
+task {
+    match! ZeroNoiseExtrapolation.mitigateAsync ansatz zneConfig executor CancellationToken.None with
+    | Ok zneResult ->
+        printfn "Zero-noise value: %f" zneResult.ZeroNoiseValue
+        printfn "R² goodness of fit: %f" zneResult.GoodnessOfFit
+        printfn "Measured values:"
+        zneResult.MeasuredValues 
+        |> List.iter (fun (noise, value) -> printfn "  λ=%.1f: %f" noise value)
+    | Error msg -> 
+        printfn "ZNE failed: %s" msg
+}
 ```
 
 **When to use:**
@@ -2222,14 +2301,16 @@ let pecConfig : ProbabilisticErrorCancellation.PECConfig = {
     Seed = Some 42
 }
 
-match ProbabilisticErrorCancellation.mitigate ansatz pecConfig executor |> Async.RunSynchronously with
-| Ok pecResult ->
-    printfn "Corrected expectation: %f" pecResult.CorrectedExpectation
-    printfn "Uncorrected (noisy): %f" pecResult.UncorrectedExpectation
-    printfn "Relative change: %.1f%%" (pecResult.ErrorReduction * 100.0)
-    printfn "Overhead: %.1fx" pecResult.Overhead
-| Error msg -> 
-    printfn "PEC failed: %s" msg
+task {
+    match! ProbabilisticErrorCancellation.mitigateAsync ansatz pecConfig executor CancellationToken.None with
+    | Ok pecResult ->
+        printfn "Corrected expectation: %f" pecResult.CorrectedExpectation
+        printfn "Uncorrected (noisy): %f" pecResult.UncorrectedExpectation
+        printfn "Relative change: %.1f%%" (pecResult.ErrorReduction * 100.0)
+        printfn "Overhead: %.1fx" pecResult.Overhead
+    | Error msg -> 
+        printfn "PEC failed: %s" msg
+}
 ```
 
 `ErrorReduction` is the relative difference between the corrected and uncorrected values; without the ideal value the library cannot measure the true error reduction.
@@ -2260,8 +2341,8 @@ match ProbabilisticErrorCancellation.mitigate ansatz pecConfig executor |> Async
 ```fsharp
 // REM executor: circuit -> shots -> histogram. REM reads bitstrings with the highest
 // qubit first, while Primitives.sample writes qubit 0 first, so each key is reversed.
-let sampleExecutor (c: CircuitBuilder.Circuit) (shots: int) : Async<Result<Map<string, int>, string>> =
-    async {
+let sampleExecutor (c: CircuitBuilder.Circuit) (shots: int) : Task<Result<Map<string, int>, string>> =
+    task {
         return
             Primitives.sample noisyBackend c shots
             |> Result.map (fun histogram ->
@@ -2277,35 +2358,37 @@ let remConfig =
     |> ReadoutErrorMitigation.withCalibrationShots 10000
     |> ReadoutErrorMitigation.withConfidenceLevel 0.95
 
-// Step 1: Calibrate the confusion matrix (run once, reuse the result)
-match ReadoutErrorMitigation.measureCalibrationMatrix "noisy-local" 2 remConfig sampleExecutor |> Async.RunSynchronously with
-| Error msg -> 
-    printfn "Calibration failed: %s" msg
-| Ok calibMatrix ->
-    printfn "Calibration complete: %d qubits, %d shots, backend %s"
-        calibMatrix.Qubits calibMatrix.CalibrationShots calibMatrix.Backend
+task {
+    // Step 1: Calibrate the confusion matrix (run once, reuse the result)
+    match! ReadoutErrorMitigation.measureCalibrationMatrixAsync "noisy-local" 2 remConfig sampleExecutor CancellationToken.None with
+    | Error msg -> 
+        printfn "Calibration failed: %s" msg
+    | Ok calibMatrix ->
+        printfn "Calibration complete: %d qubits, %d shots, backend %s"
+            calibMatrix.Qubits calibMatrix.CalibrationShots calibMatrix.Backend
 
-    // Step 2: Correct a measured histogram (no extra executions)
-    let bellState =
-        CircuitBuilder.empty 2
-        |> CircuitBuilder.addGate (CircuitBuilder.H 0)
-        |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+        // Step 2: Correct a measured histogram (no extra executions)
+        let bellState =
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
 
-    match sampleExecutor bellState 10000 |> Async.RunSynchronously with
-    | Error msg -> printfn "Execution failed: %s" msg
-    | Ok noisyHistogram ->
-        match ReadoutErrorMitigation.correctReadoutErrors noisyHistogram calibMatrix remConfig with
-        | Ok corrected ->
-            printfn "\nCorrected histogram:"
-            corrected.Histogram 
-            |> Map.iter (fun state count -> printfn "  |%s⟩: %.1f" state count)
-            
-            printfn "\nConfidence intervals (95%%):"
-            corrected.ConfidenceIntervals
-            |> Map.iter (fun state (lower, upper) -> 
-                printfn "  |%s⟩: [%.1f, %.1f]" state lower upper)
-        | Error msg -> 
-            printfn "Correction failed: %s" msg
+        match! sampleExecutor bellState 10000 with
+        | Error msg -> printfn "Execution failed: %s" msg
+        | Ok noisyHistogram ->
+            match ReadoutErrorMitigation.correctReadoutErrors noisyHistogram calibMatrix remConfig with
+            | Ok corrected ->
+                printfn "\nCorrected histogram:"
+                corrected.Histogram 
+                |> Map.iter (fun state count -> printfn "  |%s⟩: %.1f" state count)
+                
+                printfn "\nConfidence intervals (95%%):"
+                corrected.ConfidenceIntervals
+                |> Map.iter (fun state (lower, upper) -> 
+                    printfn "  |%s⟩: [%.1f, %.1f]" state lower upper)
+            | Error msg -> 
+                printfn "Correction failed: %s" msg
+}
 ```
 
 **When to use:**
@@ -2330,7 +2413,7 @@ let criteria : ErrorMitigationStrategy.SelectionCriteria = {
     Backend = { Id = "ionq.simulator"; Provider = "IonQ"; Name = "IonQ Simulator"; Status = "Available" }
     MaxCostUSD = Some 50.0
     RequiredAccuracy = None
-    Calibration = None   // or Some calibration from measureCalibrationMatrix
+    Calibration = None   // or Some calibration from measureCalibrationMatrixAsync
 }
 
 // Get recommended strategy
@@ -2359,7 +2442,7 @@ match ErrorMitigationStrategy.applyStrategy measuredCounts recommendation with
     printfn "Mitigation failed: %s" err.Message
 ```
 
-`applyStrategy` can only apply the readout (REM) part after the fact, and only when the criteria carried a calibration matrix; otherwise the counts pass through unchanged with `CorrectionApplied = false`. ZNE and PEC re-execute the circuit, so run them with their own `mitigate` functions.
+`applyStrategy` can only apply the readout (REM) part after the fact, and only when the criteria carried a calibration matrix; otherwise the counts pass through unchanged with `CorrectionApplied = false`. ZNE and PEC re-execute the circuit, so run them with their own `mitigateAsync` functions.
 
 **What `selectStrategy` picks:**
 
@@ -2392,8 +2475,8 @@ let parityExpectation (histogram: Map<string, float>) =
             acc + sign * count / total)
         0.0
 
-let remCorrectedExecutor (calibration: ReadoutErrorMitigation.CalibrationMatrix) (c: CircuitBuilder.Circuit) =
-    async {
+let remCorrectedExecutor (calibration: ReadoutErrorMitigation.CalibrationMatrix) (c: CircuitBuilder.Circuit) : Task<Result<float, string>> =
+    task {
         let! counts = sampleExecutor c 4000
 
         return
@@ -2402,17 +2485,14 @@ let remCorrectedExecutor (calibration: ReadoutErrorMitigation.CalibrationMatrix)
             |> Result.map (fun corrected -> parityExpectation corrected.Histogram)
     }
 
-let remZne =
-    async {
-        match! ReadoutErrorMitigation.measureCalibrationMatrix "noisy-local" 2 remConfig sampleExecutor with
-        | Error msg -> return Error msg
-        | Ok calibration ->
-            return! ZeroNoiseExtrapolation.mitigate ansatz zneConfig (remCorrectedExecutor calibration)
-    }
-
-match Async.RunSynchronously remZne with
-| Ok result -> printfn "Mitigated value: %.4f" result.ZeroNoiseValue
-| Error msg -> eprintfn "Error: %s" msg
+task {
+    match! ReadoutErrorMitigation.measureCalibrationMatrixAsync "noisy-local" 2 remConfig sampleExecutor CancellationToken.None with
+    | Error msg -> eprintfn "Error: %s" msg
+    | Ok calibration ->
+        match! ZeroNoiseExtrapolation.mitigateAsync ansatz zneConfig (remCorrectedExecutor calibration) CancellationToken.None with
+        | Ok result -> printfn "Mitigated value: %.4f" result.ZeroNoiseValue
+        | Error msg -> eprintfn "Error: %s" msg
+}
 ```
 
 ---
@@ -2466,6 +2546,7 @@ Error mitigation includes comprehensive testing: each technique has its own test
 ### QAOA Configuration
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -2489,9 +2570,11 @@ let coloringProblem : QuantumGraphColoringSolver.GraphColoringProblem = {
 
 // Use custom config
 let backend = LocalBackend() :> IQuantumBackend
-match QuantumGraphColoringSolver.solve backend coloringProblem quantumConfig with
-| Ok result -> printfn "Colors used: %d" result.ColorsUsed
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! QuantumGraphColoringSolver.solveAsync backend coloringProblem quantumConfig CancellationToken.None with
+    | Ok result -> printfn "Colors used: %d" result.ColorsUsed
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ---
@@ -2637,7 +2720,7 @@ parameter-shift gradients), with the same `MaxCloudJobs` cap (`AdaptQaoaConfig`)
 It's wired into the business layer too: `AdaptQaoa.solveQubo backend numQubits quboMap config`
 solves any QUBO end-to-end (Ising mapping → adaptive ansatz → best sampled assignment), and
 **`MaxCut.solveWithAdaptQaoa problem backendOption`** (`None` = local simulator) offers ADAPT-QAOA as a
-drop-in alternative to the fixed-mixer `MaxCut.solve` — same `Solution` type (partition, cut value).
+drop-in alternative to the fixed-mixer `MaxCut.solveAsync` — same `Solution` type (partition, cut value).
 
 ▶ Runnable examples: [`examples/Algorithms/AdaptVqe.fsx`](examples/Algorithms/AdaptVqe.fsx) ·
 [`examples/MaxCut/AdaptQaoaMaxCut.fsx`](examples/MaxCut/AdaptQaoaMaxCut.fsx)
@@ -2684,6 +2767,7 @@ classical result.** If a quantum run cannot produce an answer it returns `Error`
 does not quietly hand back a classical approximation dressed up as a quantum result.
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.GraphColoring
 
 let registers = graphColoring {
@@ -2693,7 +2777,7 @@ let registers = graphColoring {
 }
 
 // ✅ QUANTUM: QAOA-based optimization on a real backend (None = local simulator)
-GraphColoring.solve registers 3 None
+GraphColoring.solveAsync registers 3 None CancellationToken.None
 
 // ❌ NO SILENT FALLBACK: if the quantum path fails, you get Error — not a hidden
 //    classical answer. Reach for a dedicated classical library when you want one.
@@ -3200,15 +3284,13 @@ let program = topological backend {
     return outcome
 }
 
-let result =
-    TopologicalBuilder.execute backend program
-    |> Async.AwaitTask |> Async.RunSynchronously
-
-match result with
-| Ok particle ->
-    printfn "Fusion outcome: %A" particle  // Vacuum or Psi
-| Error err ->
-    printfn "Error: %s" err.Message
+task {
+    match! TopologicalBuilder.execute backend program with
+    | Ok particle ->
+        printfn "Fusion outcome: %A" particle  // Vacuum or Psi
+    | Error err ->
+        printfn "Error: %s" err.Message
+}
 ```
 
 ### Key Concepts
@@ -3324,6 +3406,7 @@ circuit and anneal it), a QUBO problem targets **annealing hardware** through th
 API — just pass a D-Wave backend:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.DWaveBackend
@@ -3331,7 +3414,7 @@ open FSharp.Azure.Quantum.Backends.DWaveTypes
 
 let triangle = MaxCut.createProblem ["A"; "B"; "C"] [("A", "B", 1.0); ("B", "C", 1.0); ("C", "A", 1.0)]
 let annealer = MockDWaveBackend(Advantage_System6_1, seed = 42) :> IQuantumBackend
-MaxCut.solve triangle (Some annealer)   // solved by simulated/real annealing, not QAOA gates
+MaxCut.solveAsync triangle (Some annealer) CancellationToken.None   // solved by simulated/real annealing, not QAOA gates
 ```
 
 ---

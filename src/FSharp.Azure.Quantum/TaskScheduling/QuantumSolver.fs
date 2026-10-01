@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
 
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
@@ -58,12 +60,13 @@ module QuantumSolver =
     ///
     /// Example:
     ///   let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
-    ///   let! result = solveQuantum backend problem
+    ///   let! result = solveQuantumAsync backend problem CancellationToken.None
     let solveAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: SchedulingProblem<'TTask, 'TResource>)
-        : Async<QuantumResult<Solution>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution>> =
+        task {
             // Validate problem first
             match Validation.validateProblem problem with
             | Error err -> return Error err
@@ -165,7 +168,6 @@ module QuantumSolver =
                         // (normalised cost Hamiltonian, minimisation convention)
                         let gamma, beta = 0.5, 0.5
                         let numShots = 1000
-                        let! cancellationToken = Async.CancellationToken
 
                         let! execution =
                             QaoaExecutionHelpers.executeFromQuboAsync
@@ -174,7 +176,6 @@ module QuantumSolver =
                                 [| (gamma, beta) |]
                                 numShots
                                 cancellationToken
-                            |> Async.AwaitTask
 
                         match execution with
                         | Error err -> return Error err

@@ -45,6 +45,7 @@ Usage:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.TaskScheduling // For types
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -282,7 +283,10 @@ if not quiet then
 
 let startTime = DateTime.UtcNow
 
-let result = solveQuantum backend problem |> Async.RunSynchronously
+let result =
+    solveQuantumAsync backend problem CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 let elapsed = DateTime.UtcNow - startTime
 
@@ -446,7 +450,7 @@ let scheduleResult: (Solution * float * float * float) option =
             printfn "  ✗ Ignores resource capacity constraints"
             printfn "  ✗ Cannot optimize resource allocation"
             printfn ""
-            printfn "Quantum Solver (solveQuantum):"
+            printfn "Quantum Solver (solveQuantumAsync):"
             printfn "  ✓ Handles dependencies AND resource constraints"
             printfn "  ✓ Optimizes resource allocation via QUBO encoding"
             printfn "  ✓ Finds near-optimal solutions for NP-hard problems"

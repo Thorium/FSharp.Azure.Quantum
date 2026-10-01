@@ -84,6 +84,7 @@ References:
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
 
+open System.Threading
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping
 open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping.UCCSD
@@ -304,7 +305,7 @@ allResults.Add paramAnalysisRow
 // full-CI ground state to < 0.1 kcal/mol, so the VQE energy below is a genuine,
 // physically meaningful estimate — not a placeholder. The bundled integrals are
 // fixed to the equilibrium geometry; integrals at an arbitrary bond length require
-// an integral provider (e.g. PySCF) or an FCIDUMP file (Molecule.fromFciDumpFileTask).
+// an integral provider (e.g. PySCF) or an FCIDUMP file (Molecule.fromFciDumpFileAsync).
 if abs (bondLength - 0.7414) > 1e-3 then
     eprintfn "NOTE: bundled STO-3G integrals are for R = 0.7414 Å; --bond-length %.4f is" bondLength
     eprintfn "      not applied to the Hamiltonian (geometry-specific integrals are fixed)."
@@ -411,7 +412,10 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
             printfn "Starting optimization..."
             printfn ""
 
-        let vqeResult = ChemistryVQE.run vqeConfig |> Async.RunSynchronously
+        let vqeResult =
+            ChemistryVQE.runAsync vqeConfig CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         match vqeResult with
         | Error err ->

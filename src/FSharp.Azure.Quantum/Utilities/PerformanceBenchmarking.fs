@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open Microsoft.Extensions.Logging
@@ -130,13 +132,14 @@ module PerformanceBenchmarking =
     // ============================================================================
 
     /// Benchmark classical TSP solver
-    let benchmarkClassicalTSP
+    let benchmarkClassicalTSPAsync
         (cities: (string * float * float) array)
         (repetitions: int)
         (logger: ILogger option)
-        : Async<BenchmarkResult> =
+        (cancellationToken: CancellationToken)
+        : Task<BenchmarkResult> =
 
-        async {
+        task {
             // Validate input
             if cities.Length < 2 then
                 failwithf "Cannot benchmark TSP with less than 2 cities (got %d)" cities.Length
@@ -144,13 +147,12 @@ module PerformanceBenchmarking =
             if repetitions < 1 then
                 failwithf "Repetitions must be at least 1 (got %d)" repetitions
 
-            let! cancellationToken = Async.CancellationToken
             let runs = ResizeArray<float * float>()
 
             for _ in 1..repetitions do
                 let sw = System.Diagnostics.Stopwatch.StartNew()
                 let problem = TSP.createProblem (cities |> Array.toList)
-                let! solution = TSP.solveAsync problem None cancellationToken |> Async.AwaitTask
+                let! solution = TSP.solveAsync problem None cancellationToken
                 sw.Stop()
 
                 match solution with
@@ -164,7 +166,7 @@ module PerformanceBenchmarking =
             // Ensure we got at least one successful result
             if results.IsEmpty then
                 failwith
-                    $"All TSP solver runs failed - cannot produce benchmark result, calling benchmarkClassicalTSP with cities: {cities}, repetitions: {repetitions}, logger: {logger}"
+                    $"All TSP solver runs failed - cannot produce benchmark result, calling benchmarkClassicalTSPAsync with cities: {cities}, repetitions: {repetitions}, logger: {logger}"
 
             let avgTime = results |> List.averageBy fst |> ceil |> int64
 
@@ -188,14 +190,15 @@ module PerformanceBenchmarking =
     // ============================================================================
 
     /// Benchmark classical Portfolio solver
-    let benchmarkClassicalPortfolio
+    let benchmarkClassicalPortfolioAsync
         (assets: (string * float * float * float) list)
         (budget: float)
         (repetitions: int)
         (logger: ILogger option)
-        : Async<BenchmarkResult> =
+        (cancellationToken: CancellationToken)
+        : Task<BenchmarkResult> =
 
-        async {
+        task {
             // Validate input
             if assets.Length < 1 then
                 failwithf "Cannot benchmark Portfolio with less than 1 asset (got %d)" assets.Length
@@ -206,15 +209,13 @@ module PerformanceBenchmarking =
             if repetitions < 1 then
                 failwithf "Repetitions must be at least 1 (got %d)" repetitions
 
-            let! cancellationToken = Async.CancellationToken
             let runs = ResizeArray<float * float>()
 
             for _ in 1..repetitions do
                 let sw = System.Diagnostics.Stopwatch.StartNew()
                 let problem = Portfolio.createProblem assets budget
 
-                let! solution =
-                    Portfolio.solveAsync problem None cancellationToken |> Async.AwaitTask
+                let! solution = Portfolio.solveAsync problem None cancellationToken
 
                 sw.Stop()
 
@@ -229,7 +230,7 @@ module PerformanceBenchmarking =
             // Ensure we got at least one successful result
             if results.IsEmpty then
                 failwith
-                    $"All Portfolio solver runs failed - cannot produce benchmark result, calling benchmarkClassicalPortfolio with assets: {assets}, budget: {budget}, repetitions: {repetitions}, logger: {logger}"
+                    $"All Portfolio solver runs failed - cannot produce benchmark result, calling benchmarkClassicalPortfolioAsync with assets: {assets}, budget: {budget}, repetitions: {repetitions}, logger: {logger}"
 
             let avgTime = results |> List.averageBy fst |> ceil |> int64
 
@@ -252,34 +253,46 @@ module PerformanceBenchmarking =
     // BENCHMARK SUITE EXECUTION
     // ============================================================================
 
-    /// Run complete benchmark suite for TSP problems
-    let runTSPBenchmarkSuite (config: BenchmarkConfig) : Async<BenchmarkResult list> =
-        async {
-            let! results =
-                config.ProblemSizes
-                |> List.map (fun size ->
-                    async {
-                        let cities = generateRandomCities size (Some(size * 42)) // Deterministic seed
-                        return! benchmarkClassicalTSP cities config.Repetitions None
-                    })
-                |> Async.Parallel
+    /// Run complete benchmark suite for TSP problems.
+    /// Problem sizes run one after another so each timing measures a solver run
+    /// that is not competing with the other sizes for the same cores.
+    let runTSPBenchmarkSuiteAsync
+        (config: BenchmarkConfig)
+        (cancellationToken: CancellationToken)
+        : Task<BenchmarkResult list> =
+        task {
+            let results = ResizeArray<BenchmarkResult>(config.ProblemSizes.Length)
 
-            return results |> Array.toList
+            for size in config.ProblemSizes do
+                cancellationToken.ThrowIfCancellationRequested()
+                let cities = generateRandomCities size (Some(size * 42)) // Deterministic seed
+                let! result = benchmarkClassicalTSPAsync cities config.Repetitions None cancellationToken
+                results.Add result
+
+            return List.ofSeq results
         }
 
-    /// Run complete benchmark suite for Portfolio problems
-    let runPortfolioBenchmarkSuite (config: BenchmarkConfig) (budget: float) : Async<BenchmarkResult list> =
-        async {
-            let! results =
-                config.ProblemSizes
-                |> List.map (fun size ->
-                    async {
-                        let assets = generateRandomAssets size (Some(size * 37)) // Deterministic seed
-                        return! benchmarkClassicalPortfolio assets budget config.Repetitions None
-                    })
-                |> Async.Parallel
+    /// Run complete benchmark suite for Portfolio problems.
+    /// Problem sizes run one after another so each timing measures a solver run
+    /// that is not competing with the other sizes for the same cores.
+    let runPortfolioBenchmarkSuiteAsync
+        (config: BenchmarkConfig)
+        (budget: float)
+        (cancellationToken: CancellationToken)
+        : Task<BenchmarkResult list> =
+        task {
+            let results = ResizeArray<BenchmarkResult>(config.ProblemSizes.Length)
 
-            return results |> Array.toList
+            for size in config.ProblemSizes do
+                cancellationToken.ThrowIfCancellationRequested()
+                let assets = generateRandomAssets size (Some(size * 37)) // Deterministic seed
+
+                let! result =
+                    benchmarkClassicalPortfolioAsync assets budget config.Repetitions None cancellationToken
+
+                results.Add result
+
+            return List.ofSeq results
         }
 
     // ============================================================================

@@ -184,7 +184,7 @@ module AutoML =
             ProgressReporter: Core.Progress.IProgressReporter option
 
             /// Optional cancellation token for early termination
-            CancellationToken: System.Threading.CancellationToken option
+            CancellationToken: CancellationToken option
         }
 
     /// Trained model produced by an AutoML trial.
@@ -453,12 +453,13 @@ module AutoML =
 
         PredictiveModel.trainAsync problem cancellationToken
 
-    let private tryAnomalyDetectionModel
+    let private tryAnomalyDetectionModelAsync
         (trainX: float array array)
         (arch: Architecture)
         (hyperparams: HyperparameterConfig)
         (backend: IQuantumBackend option)
-        : QuantumResult<AnomalyDetector.Detector> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<AnomalyDetector.Detector>> =
 
         let problem: AnomalyDetector.DetectionProblem =
             {
@@ -475,13 +476,14 @@ module AutoML =
                 CancellationToken = None
             }
 
-        AnomalyDetector.train problem
+        AnomalyDetector.trainAsync problem cancellationToken
 
-    let private trySimilaritySearchModel
+    let private trySimilaritySearchModelAsync
         (trainX: float array array)
         (hyperparams: HyperparameterConfig)
         (backend: IQuantumBackend option)
-        : QuantumResult<SimilaritySearch.SearchIndex<obj>> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SimilaritySearch.SearchIndex<obj>>> =
 
         // Create indexed items (boxed item index, features)
         let items = trainX |> Array.mapi (fun i features -> (box i, features))
@@ -501,7 +503,7 @@ module AutoML =
                 Logger = None
             }
 
-        SimilaritySearch.build problem
+        SimilaritySearch.buildAsync problem cancellationToken
 
     // ========================================================================
     // GENUINE EVALUATION OF UNSUPERVISED TRIALS
@@ -545,41 +547,49 @@ module AutoML =
 
     /// Genuine anomaly-detection score: run the detector over the labelled validation
     /// set and compare its anomaly flags to the ground-truth labels via balanced accuracy.
-    let private scoreAnomalyDetector
+    /// Samples are checked one after another; a sample whose check fails is left out.
+    let private scoreAnomalyDetectorAsync
         (detector: AnomalyDetector.Detector)
         (valX: float array array)
         (valY: float array)
-        : float =
-        let paired =
-            Array.zip valX valY
-            |> Array.choose (fun (x, y) ->
-                AnomalyDetector.check x detector
-                |> Result.toOption
-                |> Option.map (fun pred -> ((if pred.IsAnomaly then 1.0 else 0.0), y)))
+        (cancellationToken: CancellationToken)
+        : Task<float> =
+        task {
+            let paired = ResizeArray<float * float>(valX.Length)
 
-        if paired.Length = 0 then
-            0.0
-        else
-            balancedAccuracy (paired |> Array.map fst) (paired |> Array.map snd)
+            for (x, y) in Array.zip valX valY do
+                match! AnomalyDetector.checkAsync x detector cancellationToken with
+                | Ok pred -> paired.Add(((if pred.IsAnomaly then 1.0 else 0.0), y))
+                | Error _ -> ()
+
+            return
+                if paired.Count = 0 then
+                    0.0
+                else
+                    balancedAccuracy (paired |> Seq.map fst |> Array.ofSeq) (paired |> Seq.map snd |> Array.ofSeq)
+        }
 
     /// Genuine similarity-search score: average precision@k over the labelled validation
     /// set, where a retrieved neighbour is "relevant" if it shares the query's label.
     /// Measures whether the index actually groups same-class items, rather than scoring
     /// by index size. The index keys are the boxed training-row indices (see
     /// trySimilaritySearchModel), which map back to training labels.
-    let private scoreSimilarityIndex
+    /// Queries run one after another; a query that fails or matches nothing is left out.
+    let private scoreSimilarityIndexAsync
         (index: SimilaritySearch.SearchIndex<obj>)
         (trainY: float array)
         (valX: float array array)
         (valY: float array)
-        : float =
+        (cancellationToken: CancellationToken)
+        : Task<float> =
         let k = min 5 index.Items.Length
 
-        let perQuery =
-            Array.zip valX valY
-            |> Array.choose (fun (qFeatures, qLabel) ->
+        task {
+            let perQuery = ResizeArray<float>(valX.Length)
+
+            for (qFeatures, qLabel) in Array.zip valX valY do
                 // Use a sentinel key (-1) absent from the index so no item is excluded as self.
-                match SimilaritySearch.findSimilar (box -1) qFeatures k index with
+                match! SimilaritySearch.findSimilarAsync (box -1) qFeatures k index cancellationToken with
                 | Ok results when results.Matches.Length > 0 ->
                     let relevant =
                         results.Matches
@@ -589,10 +599,11 @@ module AutoML =
                             | _ -> false)
                         |> Array.length
 
-                    Some(float relevant / float results.Matches.Length)
-                | _ -> None)
+                    perQuery.Add(float relevant / float results.Matches.Length)
+                | _ -> ()
 
-        if perQuery.Length = 0 then 0.0 else Array.average perQuery
+            return if perQuery.Count = 0 then 0.0 else Seq.average perQuery
+        }
 
     // ========================================================================
     // TRIAL GENERATION
@@ -987,22 +998,29 @@ module AutoML =
                                         | AnomalyDetection ->
                                             let normalData = trainX
 
-                                            return
-                                                tryAnomalyDetectionModel
-                                                    normalData
-                                                    trial.Architecture
-                                                    trial.Hyperparameters
-                                                    (Some backend)
-                                                |> Result.map (fun detector ->
+                                            let! outcome =
+                                                quantumResultTask {
+                                                    let! detector =
+                                                        tryAnomalyDetectionModelAsync
+                                                            normalData
+                                                            trial.Architecture
+                                                            trial.Hyperparameters
+                                                            (Some backend)
+                                                            cancellationToken
+
                                                     // Genuine evaluation against ground-truth labels (balanced accuracy)
-                                                    let score = scoreAnomalyDetector detector valX valY
+                                                    let! score = scoreAnomalyDetectorAsync detector valX valY cancellationToken
 
                                                     if problemWithToken.Verbose then
                                                         logInfo
                                                             problemWithToken.Logger
                                                             $"  [OK] Balanced accuracy: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
 
-                                                    (score, detector))
+                                                    return (score, detector)
+                                                }
+
+                                            return
+                                                outcome
                                                 |> Result.map (fun (score, detector) ->
                                                     createSuccessResult score (AnomalyModel detector))
                                                 |> Result.orElseWith (fun e ->
@@ -1011,18 +1029,29 @@ module AutoML =
 
                                                     Ok(createFailureResult e.Message))
                                         | SimilaritySearch ->
-                                            return
-                                                trySimilaritySearchModel trainX trial.Hyperparameters (Some backend)
-                                                |> Result.map (fun searchIndex ->
+                                            let! outcome =
+                                                quantumResultTask {
+                                                    let! searchIndex =
+                                                        trySimilaritySearchModelAsync
+                                                            trainX
+                                                            trial.Hyperparameters
+                                                            (Some backend)
+                                                            cancellationToken
+
                                                     // Genuine retrieval quality: label-based precision@k on the validation set
-                                                    let score = scoreSimilarityIndex searchIndex trainY valX valY
+                                                    let! score =
+                                                        scoreSimilarityIndexAsync searchIndex trainY valX valY cancellationToken
 
                                                     if problemWithToken.Verbose then
                                                         logInfo
                                                             problemWithToken.Logger
                                                             $"  [OK] Precision@k: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
 
-                                                    (score, searchIndex))
+                                                    return (score, searchIndex)
+                                                }
+
+                                            return
+                                                outcome
                                                 |> Result.map (fun (score, searchIndex) ->
                                                     createSuccessResult score (SimilarityModel searchIndex))
                                                 |> Result.orElseWith (fun e ->
@@ -1132,13 +1161,6 @@ module AutoML =
                         )
         }
 
-    /// Run AutoML search to find best model
-    [<System.Obsolete("Use searchAsync for non-blocking execution against cloud backends")>]
-    let search (problem: AutoMLProblem) : QuantumResult<AutoMLResult> =
-        searchAsync problem CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ========================================================================
     // PREDICTION - Use best model
     // ========================================================================
@@ -1170,7 +1192,8 @@ module AutoML =
                     return prediction |> Result.map RegressionPrediction
 
                 | AnomalyModel detector ->
-                    return AnomalyDetector.check features detector |> Result.map AnomalyPrediction
+                    let! prediction = AnomalyDetector.checkAsync features detector cancellationToken
+                    return prediction |> Result.map AnomalyPrediction
 
                 | SimilarityModel searchIndex ->
                     // For similarity search, use the first index item as a query fallback
@@ -1181,19 +1204,13 @@ module AutoML =
                         // Limit topN to number of items minus 1 (exclude query itself)
                         let topN = min 5 (searchIndex.Items.Length - 1) |> max 1
 
-                        return
-                            SimilaritySearch.findSimilar firstItem features topN searchIndex
-                            |> Result.map SimilarityPrediction
+                        let! matches =
+                            SimilaritySearch.findSimilarAsync firstItem features topN searchIndex cancellationToken
+
+                        return matches |> Result.map SimilarityPrediction
             with ex ->
                 return Error(QuantumError.ValidationError("Input", $"Prediction failed: {ex.Message}"))
         }
-
-    /// Predict with AutoML result (wrapper for underlying model)
-    [<System.Obsolete("Use predictAsync for non-blocking execution against cloud backends")>]
-    let predict (features: float array) (result: AutoMLResult) : QuantumResult<Prediction> =
-        predictAsync features result CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -1374,7 +1391,7 @@ module AutoML =
         /// <summary>Set a cancellation token for early termination.</summary>
         /// <param name="token">Cancellation token</param>
         [<CustomOperation("cancellationToken")>]
-        member _.CancellationToken(problem: AutoMLProblem, token: System.Threading.CancellationToken) =
+        member _.CancellationToken(problem: AutoMLProblem, token: CancellationToken) =
             { problem with
                 CancellationToken = Some token
             }

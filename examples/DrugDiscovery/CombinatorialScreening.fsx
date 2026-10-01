@@ -44,6 +44,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -425,7 +426,11 @@ let toDiverseSelectionProblem (compoundList: Compound list) (bgt: float) (divWei
 let problem = toDiverseSelectionProblem compounds budget diversityWeight
 
 let startTime = DateTime.Now
-let solveResult = DiverseSelection.solve backend problem shots
+let solveResult =
+    DiverseSelection.solveWithConfigAsync backend problem { defaultConfig with FinalShots = shots } CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
 let elapsed = (DateTime.Now - startTime).TotalSeconds
 
 let hasFailure = Result.isError solveResult

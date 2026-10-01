@@ -125,17 +125,16 @@ module ResourcePairing =
 
     /// Decode a QuantumMatchingSolver.Solution to PairingResult
     let private decodeSolution (problem: PairingProblem) (solution: QuantumMatchingSolver.Solution) : PairingResult =
+        let participants = problem.Participants |> List.toArray
+
         let pairings =
             solution.SelectedEdges
             |> List.choose (fun edge ->
-                if
-                    edge.Source < problem.Participants.Length
-                    && edge.Target < problem.Participants.Length
-                then
+                if edge.Source < participants.Length && edge.Target < participants.Length then
                     Some
                         {
-                            Participant1 = problem.Participants.[edge.Source]
-                            Participant2 = problem.Participants.[edge.Target]
+                            Participant1 = participants.[edge.Source]
+                            Participant2 = participants.[edge.Target]
                             Weight = edge.Weight
                         }
                 else
@@ -166,6 +165,8 @@ module ResourcePairing =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<PairingResult>> =
         quantumResultTask {
+            let knownParticipants = System.Collections.Generic.HashSet<ParticipantId>(problem.Participants)
+
             if problem.Participants.Length < 2 then
                 return! Error(QuantumError.ValidationError("Participants", "must have at least 2 participants"))
             elif problem.Compatibilities.IsEmpty then
@@ -176,8 +177,8 @@ module ResourcePairing =
             elif
                 problem.Compatibilities
                 |> List.exists (fun c ->
-                    not (List.contains c.Participant1 problem.Participants)
-                    || not (List.contains c.Participant2 problem.Participants))
+                    not (knownParticipants.Contains c.Participant1)
+                    || not (knownParticipants.Contains c.Participant2))
             then
                 return!
                     Error(QuantumError.ValidationError("Participants", "compatibility references unknown participant"))
@@ -202,13 +203,6 @@ module ResourcePairing =
 
                 return decodeSolution problem solution
         }
-
-    /// Execute resource pairing optimization
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve (problem: PairingProblem) : QuantumResult<PairingResult> =
-        solveAsync problem CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

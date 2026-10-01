@@ -366,74 +366,79 @@ module QuantumMatchingSolver =
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
     // ========================================================================
 
-    /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+    /// Shared implementation of solveWithConfigAsync.
     let private solveWithConfigCore
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Result<Solution, QuantumError> =
+        : Task<Result<Solution, QuantumError>> =
 
         match validateProblem problem with
-        | Error err -> Error err
+        | Error err -> Task.FromResult(Error err)
         | Ok() ->
-            let solveSingle (subProblem: Problem) =
-                let edges = normalizeEdges subProblem.Edges
+            let solveSingle (subProblem: Problem) : Task<Result<Solution, QuantumError>> =
+                task {
+                    let edges = normalizeEdges subProblem.Edges
 
-                match toQubo subProblem with
-                | Error err -> Error err
-                | Ok qubo ->
-                    let result =
-                        if config.EnableOptimization then
-                            executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                        else
-                            // Sequential (maxConcurrency = 1) grid search, as before
-                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
-                                .GetAwaiter()
-                                .GetResult()
-                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+                    match toQubo subProblem with
+                    | Error err -> return Error err
+                    | Ok qubo ->
+                        let! result =
+                            if config.EnableOptimization then
+                                task {
+                                    let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
 
-                    match result with
-                    | Error err -> Error err
-                    | Ok(bits, optParams, converged) ->
-                        let needsRepair =
-                            let decoded = decodeSolution edges bits
-                            not decoded.IsValid
-
-                        let finalBits, wasRepaired =
-                            if config.EnableConstraintRepair && needsRepair then
-                                (repairConstraints edges bits, true)
+                                    return
+                                        optimized
+                                        |> Result.map (fun (bits, optParams, converged) ->
+                                            (bits, Some optParams, Some converged))
+                                }
                             else
-                                (bits, false)
+                                task {
+                                    // Sequential (maxConcurrency = 1) grid search, as before
+                                    let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
 
-                        let solution = decodeSolution edges finalBits
+                                    return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+                                }
 
-                        Ok
-                            { solution with
-                                BackendName = backend.Name
-                                NumShots = config.FinalShots
-                                WasRepaired = wasRepaired
-                                OptimizedParameters = optParams
-                                OptimizationConverged = converged
-                            }
+                        match result with
+                        | Error err -> return Error err
+                        | Ok(bits, optParams, converged) ->
+                            let needsRepair =
+                                let decoded = decodeSolution edges bits
+                                not decoded.IsValid
 
-            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
+                            let finalBits, wasRepaired =
+                                if config.EnableConstraintRepair && needsRepair then
+                                    (repairConstraints edges bits, true)
+                                else
+                                    (bits, false)
 
-    /// Solve maximum matching using QAOA with full configuration control.
-    /// Automatically decomposes into connected components when the problem
-    /// exceeds backend qubit capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (config: Config)
-        : Result<Solution, QuantumError> =
-        solveWithConfigCore backend problem config CancellationToken.None
+                            let solution = decodeSolution edges finalBits
+
+                            return
+                                Ok
+                                    { solution with
+                                        BackendName = backend.Name
+                                        NumShots = config.FinalShots
+                                        WasRepaired = wasRepaired
+                                        OptimizedParameters = optParams
+                                        OptimizationConverged = converged
+                                    }
+                }
+
+            ProblemDecomposition.solveWithDecompositionAsync
+                backend
+                problem
+                estimateQubits
+                decompose
+                recombine
+                solveSingle
 
     /// Solve maximum matching using QAOA with full configuration control (async).
-    /// Wraps the synchronous solveWithConfig in a task; will become truly async
-    /// once ProblemDecomposition supports async solve functions.
+    /// Automatically decomposes into connected components when the problem
+    /// exceeds backend qubit capacity.
     let solveWithConfigAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -442,25 +447,8 @@ module QuantumMatchingSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfigCore backend problem config cancellationToken
+            return! solveWithConfigCore backend problem config cancellationToken
         }
-
-    /// Solve maximum matching using QAOA with default configuration.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (shots: int)
-        : Result<Solution, QuantumError> =
-
-        let config =
-            { defaultConfig with
-                FinalShots = shots
-            }
-
-        solveWithConfigAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // CLASSICAL SOLVER (Rule 1: private — not exposed without backend)

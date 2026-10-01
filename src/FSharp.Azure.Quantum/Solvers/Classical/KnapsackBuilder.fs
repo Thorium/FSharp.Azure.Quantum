@@ -203,7 +203,7 @@ module Knapsack =
     /// EXAMPLE:
     ///   let problem = Knapsack.randomInstance 10 100.0 500.0 0.5
     let randomInstance (numItems: int) (maxWeight: float) (maxValue: float) (capacityRatio: float) : Problem =
-        let rng = System.Random()
+        let rng = Random()
 
         let items =
             [ 1..numItems ]
@@ -303,23 +303,6 @@ module Knapsack =
             with ex ->
                 return! Error(QuantumError.OperationError("Knapsack solve failed: ", $"Failed: {ex.Message}"))
         }
-
-    /// Solve Knapsack problem using quantum optimization (QAOA)
-    ///
-    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
-    /// it blocks the calling thread until the backend has answered.
-    ///
-    /// PARAMETERS:
-    ///   problem - Knapsack problem with items and capacity
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///
-    /// RETURNS:
-    ///   Result with Solution (selected items, value, feasibility) or error message
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Solution> =
-        solveAsync problem backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Solve Knapsack using classical greedy algorithm (for comparison)
     ///
@@ -508,38 +491,17 @@ module Knapsack =
         let problem = createProblem items capacity
         solveAsync problem backend cancellationToken
 
-    /// Convenience function: Create problem and solve in one step using quantum optimization
-    ///
-    /// This is a synchronous wrapper around `solveDirectlyAsync` for backward compatibility.
-    ///
-    /// PARAMETERS:
-    ///   items - List of (id, weight, value) tuples
-    ///   capacity - Maximum total weight allowed
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///
-    /// RETURNS:
-    ///   Result with Solution or error message
-    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
-    let solveDirectly
-        (items: (string * float * float) list)
-        (capacity: float)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<Solution> =
-        solveDirectlyAsync items capacity backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     // ============================================================================
     // EXACT SUM ENUMERATION - FIND ALL VALID COMBINATIONS
     // ============================================================================
 
     /// Classical fallback: Find ALL valid combinations that sum exactly to capacity.
-    /// Private implementation used when no quantum backend is provided.
+    /// Internal implementation used when no quantum backend is provided.
     ///
     /// ALGORITHM:
     /// Recursive backtracking to explore all possible subsets.
     /// Time complexity: O(2^n) - exponential, suitable for small n (typically < 20 items)
-    let private findAllExactCombinationsClassical (problem: Problem) : Item list list =
+    let internal findAllExactCombinationsClassical (problem: Problem) : Item list list =
         let rec findCombinations (items: Item list) (target: float) (current: Item list) : Item list list =
             let currentSum = current |> List.sumBy (fun item -> item.Weight)
 
@@ -564,6 +526,18 @@ module Knapsack =
 
         findCombinations problem.Items problem.Capacity []
 
+    /// Classical fallback: union of all items across all exact combinations (no quantum backend).
+    let internal findAllCapturedItemsClassical (problem: Problem) : Item list =
+        findAllExactCombinationsClassical problem
+        |> List.concat
+        |> List.distinctBy (fun item -> item.Id)
+
+    /// Classical fallback: all exact combinations, their union and the combination count (no quantum backend).
+    let internal findAllValidCombinationsClassical (problem: Problem) : Item list list * Item list * int =
+        let combinations = findAllExactCombinationsClassical problem
+        let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
+        (combinations, allItems, List.length combinations)
+
     /// Find ALL valid combinations that sum exactly to capacity using quantum QAOA.
     ///
     /// QUANTUM-FIRST API (RULE 1 COMPLIANT):
@@ -587,36 +561,46 @@ module Knapsack =
     ///
     /// EXAMPLE:
     ///   let problem = Knapsack.createProblem [("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0)] 7.0
-    ///   let combinations = Knapsack.findAllExactCombinations problem (Some backend)
+    ///   let! combinations = Knapsack.findAllExactCombinationsAsync problem (Some backend) CancellationToken.None
     ///   // Returns: [[A,B], [C,D]] - both combinations that sum exactly to 7
-    let findAllExactCombinations
+    let findAllExactCombinationsAsync
         (problem: Problem)
         (backend: BackendAbstraction.IQuantumBackend option)
-        : Item list list =
+        (cancellationToken: CancellationToken)
+        : Task<Item list list> =
         match backend with
         | None ->
             // Classical fallback (no quantum backend provided)
-            findAllExactCombinationsClassical problem
+            Task.FromResult(findAllExactCombinationsClassical problem)
         | Some quantumBackend ->
             // Quantum path: use iterative QAOA via QuantumKnapsackSolver
-            let quantumItems = problem.Items
+            task {
+                let quantumItems = problem.Items
 
-            let config = QuantumKnapsackSolver.defaultSubsetSumConfig
+                let config = QuantumKnapsackSolver.defaultSubsetSumConfig
 
-            match
-                QuantumKnapsackSolver.findAllExactCombinations quantumBackend quantumItems problem.Capacity config
-            with
-            | Ok result ->
-                // Convert quantum items back to domain items
-                result.Combinations
-            | Error _ ->
-                // On quantum error, fall back to classical
-                findAllExactCombinationsClassical problem
+                match!
+                    QuantumKnapsackSolver.findAllExactCombinationsAsync
+                        quantumBackend
+                        quantumItems
+                        problem.Capacity
+                        config
+                        cancellationToken
+                with
+                | Ok result ->
+                    // Convert quantum items back to domain items
+                    return result.Combinations
+                | Error _ ->
+                    // On quantum error, fall back to classical — unless the error is the
+                    // caller's own cancellation, which must not start an exhaustive search.
+                    cancellationToken.ThrowIfCancellationRequested()
+                    return findAllExactCombinationsClassical problem
+            }
 
     /// Find all items that appear in at least one valid combination (union of all combinations)
     ///
     /// QUANTUM-FIRST API (RULE 1 COMPLIANT):
-    /// ✅ Accepts optional IQuantumBackend parameter — delegates to quantum findAllExactCombinations
+    /// ✅ Accepts optional IQuantumBackend parameter — delegates to quantum findAllExactCombinationsAsync
     ///
     /// ALGORITHM:
     /// 1. Find all exact combinations using quantum QAOA (or classical fallback)
@@ -635,12 +619,18 @@ module Knapsack =
     ///   List of all items that appear in at least one valid combination
     ///
     /// EXAMPLE:
-    ///   let unionItems = Knapsack.findAllCapturedItems problem (Some backend)
+    ///   let! unionItems = Knapsack.findAllCapturedItemsAsync problem (Some backend) CancellationToken.None
     ///   // For capacity=7, items=[2,5,3,4]: Returns all 4 items (appear in some combination)
-    let findAllCapturedItems (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : Item list =
-        let allCombinations = findAllExactCombinations problem backend
+    let findAllCapturedItemsAsync
+        (problem: Problem)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (cancellationToken: CancellationToken)
+        : Task<Item list> =
+        task {
+            let! allCombinations = findAllExactCombinationsAsync problem backend cancellationToken
 
-        allCombinations |> List.concat |> List.distinctBy (fun item -> item.Id)
+            return allCombinations |> List.concat |> List.distinctBy (fun item -> item.Id)
+        }
 
     /// Find all valid combinations that sum exactly to capacity, with detailed results
     ///
@@ -648,7 +638,7 @@ module Knapsack =
     /// ✅ Accepts optional IQuantumBackend parameter
     ///
     /// CONVENIENCE FUNCTION:
-    /// Combines findAllExactCombinations and findAllCapturedItems into one call.
+    /// Combines findAllExactCombinationsAsync and findAllCapturedItemsAsync into one call.
     /// Useful when you need both individual combinations and their union.
     ///
     /// PARAMETERS:
@@ -659,18 +649,22 @@ module Knapsack =
     ///   Tuple of (all combinations, union of all items, combination count)
     ///
     /// EXAMPLE:
-    ///   let (combinations, unionItems, count) = Knapsack.findAllValidCombinations problem (Some backend)
+    ///   let! (combinations, unionItems, count) =
+    ///       Knapsack.findAllValidCombinationsAsync problem (Some backend) CancellationToken.None
     ///   printfn "Found %d valid combinations" count
     ///   printfn "Total unique items across all solutions: %d" (List.length unionItems)
-    let findAllValidCombinations
+    let findAllValidCombinationsAsync
         (problem: Problem)
         (backend: BackendAbstraction.IQuantumBackend option)
-        : (Item list list * Item list * int) =
-        let combinations = findAllExactCombinations problem backend
-        let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
-        let count = List.length combinations
+        (cancellationToken: CancellationToken)
+        : Task<Item list list * Item list * int> =
+        task {
+            let! combinations = findAllExactCombinationsAsync problem backend cancellationToken
+            let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
+            let count = List.length combinations
 
-        (combinations, allItems, count)
+            return (combinations, allItems, count)
+        }
 
     // ============================================================================
     // ENHANCED SOLVE WITH MODE SELECTION
@@ -691,7 +685,7 @@ module Knapsack =
     ///   problem - Knapsack problem with items and capacity
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
     ///   findAll - If true, finds ALL exact combinations; if false, finds one optimal solution
-    ///   cancellationToken - Cancels the backend execution (standard mode)
+    ///   cancellationToken - Cancels the backend execution (both modes)
     ///
     /// RETURNS:
     ///   If findAll=true: Solution with ALL items from all valid exact-sum combinations
@@ -715,7 +709,7 @@ module Knapsack =
             // Uses quantum QAOA when backend is provided
             quantumResultTask {
                 try
-                    let allCapturedItems = findAllCapturedItems problem backend
+                    let! allCapturedItems = findAllCapturedItemsAsync problem backend cancellationToken
                     let totalWeight = allCapturedItems |> List.sumBy (fun item -> item.Weight)
                     let totalValue = allCapturedItems |> List.sumBy (fun item -> item.Value)
 
@@ -751,29 +745,6 @@ module Knapsack =
         else
             // STANDARD MODE: Find one optimal solution
             solveAsync problem backend cancellationToken
-
-    /// Solve Knapsack with optional mode: find one optimal solution OR all exact combinations
-    ///
-    /// This is a synchronous wrapper around `solveWithModeAsync` for backward compatibility:
-    /// it blocks the calling thread until the backend has answered.
-    ///
-    /// PARAMETERS:
-    ///   problem - Knapsack problem with items and capacity
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///   findAll - If true, finds ALL exact combinations; if false, finds one optimal solution
-    ///
-    /// RETURNS:
-    ///   If findAll=true: Solution with ALL items from all valid exact-sum combinations
-    ///   If findAll=false: Solution with ONE optimal subset (standard knapsack)
-    [<Obsolete("Use solveWithModeAsync for non-blocking execution against cloud backends")>]
-    let solveWithMode
-        (problem: Problem)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        (findAll: bool)
-        : QuantumResult<Solution> =
-        solveWithModeAsync problem backend findAll CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ============================================================================
     // VALIDATION AND UTILITIES

@@ -7,7 +7,7 @@ The Task Scheduling domain builder defines and solves task scheduling problems w
 1. **F# computation expression builders** (`scheduledTask { }`, `resource { }`, `scheduling { }`) - dependencies are declared on the task that has them (`after "TaskA"`)
 2. **C# helpers** (the `Scheduling` module: `Scheduling.task`, `Scheduling.SchedulingBuilder`) - method chaining for C#
 
-Both produce the same `SchedulingProblem<'TTask, 'TResource>` record, which you solve with `solveQuantum` (QUBO + QAOA on an `IQuantumBackend`). A classical scheduler that ignores resource capacities, `ClassicalSolver.solve`, is also public.
+Both produce the same `SchedulingProblem<'TTask, 'TResource>` record, which you solve with `solveQuantumAsync` (QUBO + QAOA on an `IQuantumBackend`). A classical scheduler that ignores resource capacities, `ClassicalSolver.solve`, is also public.
 
 ---
 
@@ -59,6 +59,7 @@ The builders are generic in the task payload type (`ScheduledTask<'T>`); tasks b
 ### F# Computation Expression
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.TaskScheduling
 open FSharp.Azure.Quantum.Backends
@@ -81,13 +82,17 @@ let taskB : ScheduledTask<unit> = scheduledTask {
 let problem : SchedulingProblem<unit, unit> = scheduling {
     tasks [taskA; taskB]
     objective MinimizeMakespan
-    timeHorizon (hours 3.0)  // Keep close to the expected makespan (see "How solveQuantum works")
+    timeHorizon (hours 3.0)  // Keep close to the expected makespan (see "How solveQuantumAsync works")
 }
 
 // Solve on the local simulator (2 tasks x 6 time slots = 12 qubits)
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-match solveQuantum backend problem |> Async.RunSynchronously with
+match
+    solveQuantumAsync backend problem CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok solution ->
     printfn "Makespan: %.1f minutes" solution.Makespan.TotalMinutes
     exportGanttChart solution "schedule.txt"
@@ -95,7 +100,7 @@ match solveQuantum backend problem |> Async.RunSynchronously with
     printfn "Failed: %s" err.Message
 ```
 
-`open FSharp.Azure.Quantum` brings the builders, `solveQuantum`, `exportGanttChart` and the time helpers into scope; `open FSharp.Azure.Quantum.TaskScheduling` brings the types (`ScheduledTask`, `SchedulingProblem`, `Solution`, the `Objective` cases, `Dependency`).
+`open FSharp.Azure.Quantum` brings the builders, `solveQuantumAsync`, `exportGanttChart` and the time helpers into scope; `open FSharp.Azure.Quantum.TaskScheduling` brings the types (`ScheduledTask`, `SchedulingProblem`, `Solution`, the `Objective` cases, `Dependency`).
 
 ### C#
 
@@ -128,10 +133,7 @@ var problem = Scheduling.SchedulingBuilder<string, string>.Create<string, string
 
 // Solve
 var backend = new LocalBackend.LocalBackend();
-var result = FSharpAsync.RunSynchronously(
-    TaskSchedulingTypes.solveQuantum(backend, problem),
-    FSharpOption<int>.None,
-    FSharpOption<CancellationToken>.None);
+var result = await TaskSchedulingTypes.solveQuantumAsync(backend, problem, CancellationToken.None);
 
 if (result.IsOk)
 {
@@ -170,9 +172,9 @@ Define individual tasks with duration, dependencies and constraints.
 | `deadline` | `TimeSpan` | Latest completion time, as an offset from the schedule start | `deadline (minutes 180.0)` |
 | `earliestStart` | `TimeSpan` | Earliest allowed start time, as an offset | `earliestStart (minutes 60.0)` |
 
-Missed deadlines are reported in `Solution.DeadlineViolations`; they do not make `solveQuantum` fail.
+Missed deadlines are reported in `Solution.DeadlineViolations`; they do not make `solveQuantumAsync` fail.
 
-`earliestStart` is a hard constraint for both solvers. `priority` only breaks ties: `solveQuantum` picks, among sampled schedules that are equally good by the objective, the one with the smallest Σ priority × end time, so higher-priority tasks finish first. `ClassicalSolver.solve` starts every task at its own earliest feasible time, so priority does not change its result.
+`earliestStart` is a hard constraint for both solvers. `priority` only breaks ties: `solveQuantumAsync` picks, among sampled schedules that are equally good by the objective, the one with the smallest Σ priority × end time, so higher-priority tasks finish first. `ClassicalSolver.solve` starts every task at its own earliest feasible time, so priority does not change its result.
 
 **Examples:**
 
@@ -361,20 +363,21 @@ From C#, use `TimeSpan.FromMinutes`, `TimeSpan.FromHours` and `TimeSpan.FromDays
 
 ## Functions
 
-### `solveQuantum`
+### `solveQuantumAsync`
 
 Solve the scheduling problem on a quantum backend.
 
 **Signature:**
 
 ```text
-val solveQuantum :
+val solveQuantumAsync :
     backend:IQuantumBackend ->
     problem:SchedulingProblem<'TTask, 'TResource> ->
-    Async<QuantumResult<Solution>>
+    cancellationToken:CancellationToken ->
+    Task<QuantumResult<Solution>>
 ```
 
-> **Note:** This API returns F# `Async<_>`. Backend-level async operations use Task-based APIs with `CancellationToken`. See [Backend Switching](backend-switching.md) for `task { }` patterns.
+> **Note:** This API returns a `Task<_>` and takes a `CancellationToken`, like the backend-level APIs. See [Backend Switching](backend-switching.md) for `task { }` patterns.
 
 **Parameters:**
 - `backend` - Any `IQuantumBackend`, e.g. `LocalBackend.LocalBackend() :> IQuantumBackend`
@@ -407,7 +410,11 @@ val solveQuantum :
 **Example:**
 
 ```fsharp
-match solveQuantum backend problem |> Async.RunSynchronously with
+match
+    solveQuantumAsync backend problem CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok solution ->
     printfn "Makespan: %.1f minutes" solution.Makespan.TotalMinutes
     printfn "Total Cost: $%.2f" solution.TotalCost
@@ -431,12 +438,12 @@ match solveQuantum backend problem |> Async.RunSynchronously with
 - All tasks have non-empty, unique IDs
 - All dependencies reference existing tasks
 
-Circular dependencies are not rejected up front: `solveQuantum` then finds no feasible sample and returns an `Error`.
+Circular dependencies are not rejected up front: `solveQuantumAsync` then finds no feasible sample and returns an `Error`.
 
-#### How `solveQuantum` works
+#### How `solveQuantumAsync` works
 
 1. **Time slots.** Time is split into a small grid of equal slots. The window is `max timeHorizon (total task duration)`. The slot count starts from window ÷ shortest task duration, is capped so that tasks × slots stays near 18 (at most 10 slots, at least 2), and is never below the length of the longest dependency chain. Slot length = window ÷ slot count, and every task starts on a slot boundary.
-2. **Allowed start slots.** A (task, slot) pair is forbidden when the slot starts before the task's `earliestStart`, or when a task started there would not fit inside an availability window of every resource it requires. If some task has no allowed slot on the grid, `solveQuantum` returns a `ValidationError` on `"AvailableWindows"` naming the task, before running any circuit.
+2. **Allowed start slots.** A (task, slot) pair is forbidden when the slot starts before the task's `earliestStart`, or when a task started there would not fit inside an availability window of every resource it requires. If some task has no allowed slot on the grid, `solveQuantumAsync` returns a `ValidationError` on `"AvailableWindows"` naming the task, before running any circuit.
 3. **QUBO.** One binary variable per (task, slot) - so **qubits = tasks × slots** - with penalty terms for "start exactly once", dependencies, resource capacity and forbidden start slots, plus the objective. Forbidden slots stay in the QUBO (with a penalty), so they still count towards the qubits.
 4. **QAOA.** One layer with fixed angles (γ = β = 0.5), 1000 shots.
 5. **Decode and check.** In each shot the bits of forbidden slots are cleared, and each task takes its earliest remaining set slot. Shots that leave a task without a start, break a dependency, overload a resource, start a task before its `earliestStart` or outside a resource window are discarded. The best remaining schedule by the objective is returned, with ties broken by priority.
@@ -474,7 +481,7 @@ val exportGanttChart : solution:Solution -> filePath:string -> unit
 ```
 
 **Parameters:**
-- `solution` - Scheduling solution from `solveQuantum` or `ClassicalSolver.solve`
+- `solution` - Scheduling solution from `solveQuantumAsync` or `ClassicalSolver.solve`
 - `filePath` - Output file path (e.g., "schedule.txt"); the file is overwritten
 
 **Output Format:**
@@ -486,7 +493,11 @@ val exportGanttChart : solution:Solution -> filePath:string -> unit
 **Example:**
 
 ```fsharp
-match solveQuantum backend problem |> Async.RunSynchronously with
+match
+    solveQuantumAsync backend problem CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok solution ->
     exportGanttChart solution "my-schedule.txt"
     printfn "Gantt chart saved!"
@@ -552,7 +563,10 @@ let problem : SchedulingProblem<unit, unit> = scheduling {
     timeHorizon (minutes 60.0)  // 6 slots of 10 minutes: 3 tasks x 6 slots = 18 qubits
 }
 
-let result = solveQuantum backend problem |> Async.RunSynchronously
+let result =
+    solveQuantumAsync backend problem CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 // Best possible: makespan 45 minutes (sequential execution)
 ```
@@ -578,7 +592,7 @@ var problem = Scheduling.SchedulingBuilder<string, string>.Create<string, string
     .TimeHorizon(TimeSpan.FromMinutes(60.0))
     .Build();
 
-// Solve with TaskSchedulingTypes.solveQuantum as in the Quick Start
+// Solve with TaskSchedulingTypes.solveQuantumAsync as in the Quick Start
 ```
 
 ### Example 2: Parallel Tasks with Resources
@@ -611,7 +625,10 @@ let sharedProblem : SchedulingProblem<unit, unit> = scheduling {
     timeHorizon (hours 3.0)  // 3 slots of 1 hour: 2 tasks x 3 slots = 6 qubits
 }
 
-let sharedResult = solveQuantum backend sharedProblem |> Async.RunSynchronously
+let sharedResult =
+    solveQuantumAsync backend sharedProblem CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 // Tasks are serialized because the worker has capacity 1
 ```
 
@@ -636,7 +653,11 @@ let deadlineProblem : SchedulingProblem<unit, unit> = scheduling {
     timeHorizon (hours 3.0)
 }
 
-match solveQuantum backend deadlineProblem |> Async.RunSynchronously with
+match
+    solveQuantumAsync backend deadlineProblem CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Ok solution ->
     if solution.IsValid then
         printfn "✅ All deadlines met!"
@@ -796,7 +817,7 @@ match ClassicalSolver.solve startupProblem with
 - Critical path: SafetyMechanical → InitCooling → StartPump1/StartPump2 → StartTurbine → SyncGrid → FullPower
 - Makespan: 140 minutes; the 180-minute deadline is met
 
-`solveQuantum` is not an option for this problem on the local simulator: the six-task chain needs at least 6 slots, so the grid is 9 tasks × 6 slots = 54 qubits, and `LocalBackend` returns an `Error` saying so.
+`solveQuantumAsync` is not an option for this problem on the local simulator: the six-task chain needs at least 6 slots, so the grid is 9 tasks × 6 slots = 54 qubits, and `LocalBackend` returns an `Error` saying so.
 
 ---
 
@@ -811,7 +832,7 @@ The computation expression builders are F#-only. C# uses the `Scheduling` module
 | `Scheduling.SchedulingBuilder<TTask, TResource>.Create<TTask, TResource>()` | Fluent builder: `.Tasks`, `.Resources`, `.AddDependency`, `.Objective`, `.TimeHorizon`, `.Build()`. `Create` has its own type parameters, which C# cannot infer, so pass them explicitly |
 | `Scheduling.SchedulingObjective.MinimizeMakespan` (etc.) | The `Objective` values |
 | `Types.Dependency.NewFinishToStart(pred, succ, lag)` | A finish-to-start dependency with a `TimeSpan` lag |
-| `TaskSchedulingTypes.solveQuantum(backend, problem)` | The solver; returns `FSharpAsync<FSharpResult<Solution, QuantumError>>` |
+| `TaskSchedulingTypes.solveQuantumAsync(backend, problem, cancellationToken)` | The solver; returns `Task<FSharpResult<Solution, QuantumError>>` |
 | `TaskSchedulingTypes.exportGanttChart(solution, path)` | Gantt chart export |
 
 ### Awaiting the Result
@@ -819,15 +840,9 @@ The computation expression builders are F#-only. C# uses the `Scheduling` module
 ```csharp
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.FSharp.Control;
 using Microsoft.FSharp.Core;
 
-var solveTask = FSharpAsync.StartAsTask(
-    TaskSchedulingTypes.solveQuantum(backend, problem),
-    FSharpOption<TaskCreationOptions>.None,
-    FSharpOption<CancellationToken>.None);
-
-var result = await solveTask;
+var result = await TaskSchedulingTypes.solveQuantumAsync(backend, problem, CancellationToken.None);
 if (result.IsOk)
 {
     foreach (var assignment in result.ResultValue.Assignments)
@@ -868,9 +883,9 @@ let taskB : ScheduledTask<unit> = scheduledTask {
 
 Prefer `"InitCoolingSystem"`, `"StartPump1"`, `"SafetyElectricalCheck"` over `"Task1"`, `"T2"`, `"X"` - the IDs appear in results, errors and Gantt charts (cut to 12 characters there).
 
-### 4. Set `timeHorizon` for `solveQuantum`
+### 4. Set `timeHorizon` for `solveQuantumAsync`
 
-Pick a horizon near the expected makespan (the total duration of the critical path, or of all tasks if they share one resource). The slot grid is built from it; see [How `solveQuantum` works](#how-solvequantum-works).
+Pick a horizon near the expected makespan (the total duration of the critical path, or of all tasks if they share one resource). The slot grid is built from it; see [How `solveQuantumAsync` works](#how-solvequantumasync-works).
 
 ### 5. Use Deadlines for Time-Critical Tasks
 
@@ -919,15 +934,15 @@ let orphan : ScheduledTask<unit> = scheduledTask {
 
 ### Issue: "the schedule needs N qubits ... and (backend) can run M"
 
-**Cause:** tasks × time slots exceeds what the backend can run (see [How `solveQuantum` works](#how-solvequantum-works)).
+**Cause:** tasks × time slots exceeds what the backend can run (see [How `solveQuantumAsync` works](#how-solvequantumasync-works)).
 
 **Solution:** Split the problem, shorten long dependency chains, use a larger backend, or - when resources don't matter - use `ClassicalSolver.solve`.
 
 ### Issue: `ValidationError` on "AvailableWindows"
 
-**Cause:** A task cannot start anywhere that satisfies its `earliestStart` and fits inside an availability window of every resource it requires. With `ClassicalSolver.solve` no window is long enough after the task becomes ready. With `solveQuantum` no slot boundary of the grid qualifies, for example because `earliestStart` lies beyond the scheduling window or a window is shorter than the slot spacing allows.
+**Cause:** A task cannot start anywhere that satisfies its `earliestStart` and fits inside an availability window of every resource it requires. With `ClassicalSolver.solve` no window is long enough after the task becomes ready. With `solveQuantumAsync` no slot boundary of the grid qualifies, for example because `earliestStart` lies beyond the scheduling window or a window is shorter than the slot spacing allows.
 
-**Solution:** Widen or add windows, shorten the task, or with `solveQuantum` set `timeHorizon` so that the grid reaches the window and has a slot boundary inside it.
+**Solution:** Widen or add windows, shorten the task, or with `solveQuantumAsync` set `timeHorizon` so that the grid reaches the window and has a slot boundary inside it.
 
 ### Issue: "No valid solutions found from quantum measurements"
 
@@ -939,7 +954,7 @@ let orphan : ScheduledTask<unit> = scheduledTask {
 
 **Cause:** `ClassicalSolver.solve` ignores resource capacities.
 
-**Solution:** Use `solveQuantum`, which rejects samples that overload a resource, or add explicit dependencies to force serialization:
+**Solution:** Use `solveQuantumAsync`, which rejects samples that overload a resource, or add explicit dependencies to force serialization:
 
 ```fsharp
 let first : ScheduledTask<unit> = scheduledTask {
@@ -958,8 +973,8 @@ let second : ScheduledTask<unit> = scheduledTask {
 
 ## Limitations
 
-- `solveQuantum` handles small problems only (tasks × slots within the backend's qubit budget; about 20 qubits on `LocalBackend` by default).
-- `solveQuantum` start times fall on slot boundaries, so an `earliestStart` or window opening between two boundaries moves the task to the next boundary; a coarse grid can leave a short window with no allowed slot.
+- `solveQuantumAsync` handles small problems only (tasks × slots within the backend's qubit budget; about 20 qubits on `LocalBackend` by default).
+- `solveQuantumAsync` start times fall on slot boundaries, so an `earliestStart` or window opening between two boundaries moves the task to the next boundary; a coarse grid can leave a short window with no allowed slot.
 - `ClassicalSolver.solve` ignores resource capacities.
 - `priority` only breaks ties between equally good schedules.
 - Circular dependencies are not detected up front.

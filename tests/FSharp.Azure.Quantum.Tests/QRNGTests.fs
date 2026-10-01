@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Algorithms.QRNG
@@ -293,44 +294,41 @@ module QRNGTests =
     // ========================================================================
 
     [<Fact>]
-    let ``generateWithBackend works with LocalBackend`` () =
-        async {
+    let ``generateWithBackend works with LocalBackend`` () : Task =
+        task {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
 
-            match! generateWithBackend 10 backend with
+            match! generateWithBackendAsync 10 backend CancellationToken.None with
             | Ok qrng ->
                 Assert.Equal(10, qrng.Bits.Length)
                 Assert.True(qrng.Entropy >= 0.0 && qrng.Entropy <= 1.0)
             | Error msg -> Assert.True(false, $"Should succeed with LocalBackend: {msg}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``generateWithBackend fails with excessive bits`` () =
-        async {
+    let ``generateWithBackend fails with excessive bits`` () : Task =
+        task {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
 
-            match! generateWithBackend 2000 backend with
+            match! generateWithBackendAsync 2000 backend CancellationToken.None with
             | Ok _ -> Assert.True(false, "Should fail with excessive bits")
             | Error msg -> Assert.Contains("too large", msg.Message)
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``generateWithBackend fails with zero bits`` () =
-        async {
+    let ``generateWithBackend fails with zero bits`` () : Task =
+        task {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
 
-            match! generateWithBackend 0 backend with
+            match! generateWithBackendAsync 0 backend CancellationToken.None with
             | Ok _ -> Assert.True(false, "Should fail with zero bits")
             | Error msg -> Assert.Contains("must be positive", msg.Message)
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     // ========================================================================
@@ -605,45 +603,43 @@ module QuantumDistributionsTests =
     // ========================================================================
 
     [<Fact>]
-    let ``sampleWithBackend works with LocalBackend`` () =
-        async {
+    let ``sampleWithBackend works with LocalBackend`` () : Task =
+        task {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = StandardNormal
 
 
-            match! sampleWithBackend dist backend with
+            match! sampleWithBackendAsync dist backend CancellationToken.None with
             | Ok sample ->
                 Assert.Equal(10, sample.QuantumBitsUsed)
                 // Value should be reasonable for N(0,1) - allow wide range
                 Assert.True(sample.Value > -10.0 && sample.Value < 10.0)
             | Error msg -> Assert.True(false, $"Should succeed with LocalBackend: {msg}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``sampleWithBackend validates distribution parameters`` () =
-        async {
+    let ``sampleWithBackend validates distribution parameters`` () : Task =
+        task {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = Normal(0.0, -1.0) // Invalid stddev
 
 
-            match! sampleWithBackend dist backend with
+            match! sampleWithBackendAsync dist backend CancellationToken.None with
             | Ok _ -> Assert.True(false, "Should fail with invalid distribution")
             | Error err -> Assert.Contains("stddev must be positive", err.Message)
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``sampleManyWithBackend generates correct number of samples`` () =
-        async {
+    let ``sampleManyWithBackend generates correct number of samples`` () : Task =
+        task {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = Uniform(0.0, 1.0)
             let count = 10
 
 
-            match! sampleManyWithBackend dist count backend None with
+            match! sampleManyWithBackendAsync dist count backend None CancellationToken.None with
             | Ok samples ->
                 Assert.Equal(count, samples.Length)
 
@@ -653,35 +649,32 @@ module QuantumDistributionsTests =
                     Assert.Equal(10, s.QuantumBitsUsed))
             | Error msg -> Assert.True(false, $"Should succeed: {msg}")
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``sampleManyWithBackend fails with excessive count`` () =
-        async {
+    let ``sampleManyWithBackend fails with excessive count`` () : Task =
+        task {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = StandardNormal
 
 
-            match! sampleManyWithBackend dist 20000 backend None with
+            match! sampleManyWithBackendAsync dist 20000 backend None CancellationToken.None with
             | Ok _ -> Assert.True(false, "Should fail with excessive count")
             | Error err -> Assert.Contains("too large", err.Message)
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     [<Fact>]
-    let ``sampleManyWithBackend fails with zero count`` () =
-        async {
+    let ``sampleManyWithBackend fails with zero count`` () : Task =
+        task {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = StandardNormal
 
 
-            match! sampleManyWithBackend dist 0 backend None with
+            match! sampleManyWithBackendAsync dist 0 backend None CancellationToken.None with
             | Ok _ -> Assert.True(false, "Should fail with zero count")
             | Error err -> Assert.Contains("must be positive", err.Message)
         }
-        |> Async.StartImmediateAsTask
         :> Task
 
     // ========================================================================
@@ -876,56 +869,62 @@ module QuantumDistributionsTests =
     // ========================================================================
 
     [<Fact>]
-    let ``generateWithBackend reads the single measured shot of a one-shot cloud job`` () =
-        let cloud = CloudStyleBackends.ShotSamplingCloud(1, 17)
+    let ``generateWithBackend reads the single measured shot of a one-shot cloud job`` () : Task =
+        task {
+            let cloud = CloudStyleBackends.ShotSamplingCloud(1, 17)
 
-        for _ in 1..5 do
-            match generateWithBackend 12 cloud |> Async.RunSynchronously with
-            | Error e -> Assert.Fail($"one-shot QRNG failed: {e}")
-            | Ok qrng ->
-                // The job's one outcome, in the Azure convention (rightmost = qubit 0).
-                let measured = cloud.Histograms |> List.last |> Map.toList
+            for _ in 1..5 do
+                match! generateWithBackendAsync 12 cloud CancellationToken.None with
+                | Error e -> Assert.Fail($"one-shot QRNG failed: {e}")
+                | Ok qrng ->
+                    // The job's one outcome, in the Azure convention (rightmost = qubit 0).
+                    let measured = cloud.Histograms |> List.last |> Map.toList
 
-                match measured with
-                | [ (key, 1) ] ->
-                    let expected = key.ToCharArray() |> Array.rev |> Array.map ((=) '1')
-                    Assert.Equal<bool[]>(expected, qrng.Bits)
-                | other -> Assert.Fail($"expected one measured shot, got {other}")
+                    match measured with
+                    | [ (key, 1) ] ->
+                        let expected = key.ToCharArray() |> Array.rev |> Array.map ((=) '1')
+                        Assert.Equal<bool[]>(expected, qrng.Bits)
+                    | other -> Assert.Fail($"expected one measured shot, got {other}")
 
-        // One job per call.
-        Assert.Equal(5, cloud.Jobs)
+            // One job per call.
+            Assert.Equal(5, cloud.Jobs)
+        }
+        :> Task
 
     [<Fact>]
-    let ``generateWithBackend never picks among measured outcomes classically`` () =
-        // A job that reports two outcomes: choosing one of them would need classical randomness.
-        let twoOutcomes =
-            CloudStyleBackends.FixedHistogramCloud(Map.ofList [ "0", 1; "1", 1 ], 1, 1)
+    let ``generateWithBackend never picks among measured outcomes classically`` () : Task =
+        task {
+            // A job that reports two outcomes: choosing one of them would need classical randomness.
+            let twoOutcomes =
+                CloudStyleBackends.FixedHistogramCloud(Map.ofList [ "0", 1; "1", 1 ], 1, 1)
 
-        match generateWithBackend 1 twoOutcomes |> Async.RunSynchronously with
-        | Error(QuantumError.BackendError("QRNG", _)) -> ()
-        | other -> Assert.Fail($"expected a BackendError, got {other}")
+            match! generateWithBackendAsync 1 twoOutcomes CancellationToken.None with
+            | Error(QuantumError.BackendError("QRNG", _)) -> ()
+            | other -> Assert.Fail($"expected a BackendError, got {other}")
 
-        // A many-shot backend returns only counts, so it is refused before any job runs.
-        let manyShots = CloudStyleBackends.ShotSamplingCloud(1000, 1)
+            // A many-shot backend returns only counts, so it is refused before any job runs.
+            let manyShots = CloudStyleBackends.ShotSamplingCloud(1000, 1)
 
-        match generateWithBackend 8 manyShots |> Async.RunSynchronously with
-        | Error(QuantumError.ValidationError("backend", message)) -> Assert.Contains("shots = 1", message)
-        | other -> Assert.Fail($"expected a ValidationError, got {other}")
+            match! generateWithBackendAsync 8 manyShots CancellationToken.None with
+            | Error(QuantumError.ValidationError("backend", message)) -> Assert.Contains("shots = 1", message)
+            | other -> Assert.Fail($"expected a ValidationError, got {other}")
 
-        Assert.Equal(0, manyShots.Jobs)
+            Assert.Equal(0, manyShots.Jobs)
+        }
+        :> Task
 
     [<Fact>]
     let ``QuantumDistributions on a one-shot cloud backend costs one job per sample`` () =
         task {
             let cloud = CloudStyleBackends.ShotSamplingCloud(1, 4)
 
-            match
-                FSharp.Azure.Quantum.Algorithms.QuantumDistributions.sampleManyWithBackend
+            match!
+                FSharp.Azure.Quantum.Algorithms.QuantumDistributions.sampleManyWithBackendAsync
                     (FSharp.Azure.Quantum.Algorithms.QuantumDistributions.Uniform(0.0, 1.0))
                     6
                     cloud
                     None
-                |> Async.RunSynchronously
+                    CancellationToken.None
             with
             | Error e -> Assert.Fail($"sampling failed: {e}")
             | Ok samples ->
@@ -938,10 +937,10 @@ module QuantumDistributionsTests =
             let manyShots = CloudStyleBackends.ShotSamplingCloud(1000, 4)
 
             match!
-                FSharp.Azure.Quantum.Algorithms.QuantumDistributions.sampleWithBackend
+                FSharp.Azure.Quantum.Algorithms.QuantumDistributions.sampleWithBackendAsync
                     FSharp.Azure.Quantum.Algorithms.QuantumDistributions.StandardNormal
                     manyShots
-                |> Async.StartImmediateAsTask
+                    CancellationToken.None
             with
             | Error(QuantumError.ValidationError("backend", _)) -> ()
             | other -> Assert.Fail($"expected a ValidationError, got {other}")

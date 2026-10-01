@@ -167,12 +167,13 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         }
 
         /// <summary>
-        /// Build the similarity search index.
+        /// Build the similarity search index without blocking the calling thread.
         /// Returns an index ready for similarity searches.
         /// </summary>
+        /// <param name="cancellationToken">Cancels the kernel evaluation.</param>
         /// <exception cref="InvalidOperationException">Thrown if indexing fails.</exception>
         /// <returns>The built similarity search index.</returns>
-        public ISimilaritySearchIndex<T> Build()
+        public async Task<ISimilaritySearchIndex<T>> BuildAsync(CancellationToken cancellationToken = default)
         {
             // Build F# problem specification
             var problem = new SimilaritySearch.SearchProblem<T>(
@@ -189,7 +190,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 logger: FSharpOption<Microsoft.Extensions.Logging.ILogger>.None);
 
             // Build index
-            var result = SimilaritySearch.build(problem);
+            var result = await SimilaritySearch.buildAsync(problem, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -274,27 +275,30 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     public interface ISimilaritySearchIndex<T>
     {
         /// <summary>
-        /// Find top N most similar items to the query item.
+        /// Find top N most similar items to the query item without blocking the calling thread.
         /// </summary>
         /// <param name="queryItem">Item to find similar items for.</param>
         /// <param name="queryFeatures">Feature vector for query item.</param>
         /// <param name="topN">Number of results to return.</param>
+        /// <param name="cancellationToken">Cancels the search.</param>
         /// <returns>Search results with top matches.</returns>
-        SearchResults<T> FindSimilar(T queryItem, double[] queryFeatures, int topN);
+        Task<SearchResults<T>> FindSimilarAsync(T queryItem, double[] queryFeatures, int topN, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Find all items similar to query above threshold.
+        /// Find all items similar to query above threshold without blocking the calling thread.
         /// </summary>
         /// <param name="queryFeatures">Feature vector for query.</param>
+        /// <param name="cancellationToken">Cancels the search.</param>
         /// <returns>All matching items.</returns>
-        Match<T>[] FindAllSimilar(double[] queryFeatures);
+        Task<Match<T>[]> FindAllSimilarAsync(double[] queryFeatures, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Find groups of duplicate/near-duplicate items.
+        /// Find groups of duplicate/near-duplicate items without blocking the calling thread.
         /// </summary>
         /// <param name="threshold">Similarity threshold for duplicates.</param>
+        /// <param name="cancellationToken">Cancels the kernel evaluation.</param>
         /// <returns>Groups of similar items.</returns>
-        DuplicateGroup<T>[] FindDuplicates(double threshold);
+        Task<DuplicateGroup<T>[]> FindDuplicatesAsync(double threshold, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Cluster items into groups based on similarity.
@@ -376,9 +380,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             _index = index;
         }
 
-        public SearchResults<T> FindSimilar(T queryItem, double[] queryFeatures, int topN)
+        public async Task<SearchResults<T>> FindSimilarAsync(T queryItem, double[] queryFeatures, int topN, CancellationToken cancellationToken = default)
         {
-            var result = SimilaritySearch.findSimilar(queryItem, queryFeatures, topN, _index);
+            var result = await SimilaritySearch.findSimilarAsync(queryItem, queryFeatures, topN, _index, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -400,9 +404,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             };
         }
 
-        public Match<T>[] FindAllSimilar(double[] queryFeatures)
+        public async Task<Match<T>[]> FindAllSimilarAsync(double[] queryFeatures, CancellationToken cancellationToken = default)
         {
-            var result = SimilaritySearch.findAllSimilar(queryFeatures, _index);
+            var result = await SimilaritySearch.findAllSimilarAsync(queryFeatures, _index, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -419,9 +423,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             }).ToArray();
         }
 
-        public DuplicateGroup<T>[] FindDuplicates(double threshold)
+        public async Task<DuplicateGroup<T>[]> FindDuplicatesAsync(double threshold, CancellationToken cancellationToken = default)
         {
-            var result = SimilaritySearch.findDuplicates(threshold, _index);
+            var result = await SimilaritySearch.findDuplicatesAsync(threshold, _index, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {

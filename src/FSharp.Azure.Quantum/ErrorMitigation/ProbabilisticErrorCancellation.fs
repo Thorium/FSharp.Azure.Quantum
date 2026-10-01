@@ -1,5 +1,9 @@
 namespace FSharp.Azure.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
+
 /// Probabilistic Error Cancellation (PEC) error mitigation module.
 ///
 /// Implements quasi-probability decomposition to achieve 2-3x accuracy improvement.
@@ -229,7 +233,7 @@ module ProbabilisticErrorCancellation =
     /// Returns index i with probability pᵢ.
     ///
     /// Uses cumulative probability method for efficient sampling.
-    let private sampleCategorical (probabilities: float list) (rng: System.Random) : int =
+    let private sampleCategorical (probabilities: float list) (rng: Random) : int =
         let cumulative = probabilities |> List.scan (+) 0.0 |> List.skip 1 // Remove initial 0.0 (List.scan always produces at least one element)
 
         let u = rng.NextDouble()
@@ -254,7 +258,7 @@ module ProbabilisticErrorCancellation =
     /// Returns: (sampled_gate_sequence, weight) where weight = ±Normalization
     let sampleQuasiProb
         (decomposition: QuasiProbDecomposition)
-        (rng: System.Random)
+        (rng: Random)
         : CircuitBuilder.Gate list * float =
         // Step 1: Convert quasi-probabilities to proper probabilities
         // qᵢ = |pᵢ| / Σ|pⱼ|
@@ -291,12 +295,13 @@ module ProbabilisticErrorCancellation =
     /// Achieves 2-3x accuracy improvement at cost of 10-100x overhead.
     ///
     /// Returns: PECResult with corrected expectation, error reduction, and overhead metrics.
-    let mitigate
+    let mitigateAsync
         (circuit: CircuitBuilder.Circuit)
         (config: PECConfig)
-        (executor: CircuitBuilder.Circuit -> Async<Result<float, string>>)
-        : Async<Result<PECResult, string>> =
-        async {
+        (executor: CircuitBuilder.Circuit -> Task<Result<float, string>>)
+        (cancellationToken: CancellationToken)
+        : Task<Result<PECResult, string>> =
+        task {
             try
                 // Step 1: Decompose all gates in the circuit
                 let gateDecompositions =
@@ -314,7 +319,7 @@ module ProbabilisticErrorCancellation =
                         | _ -> decomposeSingleQubitGate gate config.NoiseModel)
 
                 // Step 2: Monte Carlo sampling - execute samples in parallel
-                let rng = System.Random(config.Seed |> Option.defaultValue 42)
+                let rng = Random(config.Seed |> Option.defaultValue 42)
 
                 // Generate all samples first (for reproducibility with seed)
                 let samples =
@@ -330,28 +335,30 @@ module ProbabilisticErrorCancellation =
                                 (gates @ sampledGates, weight * gateWeight))
                             ([], 1.0))
 
-                // Execute all sampled circuits
-                let! sampleResults =
-                    samples
-                    |> List.map (fun (sampledGates, totalWeight) ->
-                        async {
-                            // Build clean circuit with sampled gates. sampledGates is in program
-                            // order (the original circuit was reversed at step 1), but
-                            // CircuitBuilder.Circuit stores Gates most-recent-first, so reverse it
-                            // back — otherwise a conforming executor (which List.rev's) runs the
-                            // sampled circuit backwards, inconsistently with the baseline.
-                            let sampledCircuit: CircuitBuilder.Circuit =
-                                {
-                                    QubitCount = circuit.QubitCount
-                                    Gates = List.rev sampledGates
-                                }
+                // Execute all sampled circuits, one after another (a sequential sample loop:
+                // never fanned out unbounded against a backend)
+                let sampleResults = ResizeArray<Result<float * float, string>>(config.Samples)
 
-                            // Execute sampled circuit
-                            let! executionResult = executor sampledCircuit
+                for (sampledGates, totalWeight) in samples do
+                    cancellationToken.ThrowIfCancellationRequested()
 
-                            return executionResult |> Result.map (fun expectation -> expectation, totalWeight)
-                        })
-                    |> Async.Parallel
+                    // Build clean circuit with sampled gates. sampledGates is in program
+                    // order (the original circuit was reversed at step 1), but
+                    // CircuitBuilder.Circuit stores Gates most-recent-first, so reverse it
+                    // back — otherwise a conforming executor (which List.rev's) runs the
+                    // sampled circuit backwards, inconsistently with the baseline.
+                    let sampledCircuit: CircuitBuilder.Circuit =
+                        {
+                            QubitCount = circuit.QubitCount
+                            Gates = List.rev sampledGates
+                        }
+
+                    // Execute sampled circuit
+                    let! executionResult = executor sampledCircuit
+
+                    sampleResults.Add(executionResult |> Result.map (fun expectation -> expectation, totalWeight))
+
+                let sampleResults = sampleResults.ToArray()
 
                 // Check for execution failures
                 let failures =
@@ -397,6 +404,6 @@ module ProbabilisticErrorCancellation =
                                 Overhead = overhead
                             })
                         |> Result.mapError (sprintf "Baseline execution failed: %s")
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error $"PEC pipeline error: %s{ex.Message}"
         }

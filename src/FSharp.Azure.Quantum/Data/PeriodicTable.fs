@@ -76,8 +76,10 @@ module PeriodicTable =
                         Group = Int32.Parse(fields.[6].Trim())
                         Period = Int32.Parse(fields.[7].Trim())
                     }
-            with _ ->
-                None
+            with
+            // Eight fields are guaranteed above; only the numeric columns can fail to parse.
+            | :? FormatException
+            | :? OverflowException -> None
         else
             None
 

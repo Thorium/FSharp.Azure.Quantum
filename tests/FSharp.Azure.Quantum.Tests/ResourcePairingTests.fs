@@ -138,44 +138,43 @@ module ResourcePairingTests =
     // PROGRAMMATIC API TESTS
     // ========================================================================
 
-    #nowarn "44" // This test covers the deprecated synchronous `solve` wrapper on purpose.
     [<Fact>]
     let ``ResourcePairing API - programmatic solve`` () =
-        let backend = localBackend ()
+        task {
+            let backend = localBackend ()
 
-        let problem =
-            {
-                Participants = [ "Alice"; "Bob"; "Carol" ]
-                Compatibilities =
-                    [
-                        {
-                            Participant1 = "Alice"
-                            Participant2 = "Bob"
-                            Weight = 0.9
-                        }
-                        {
-                            Participant1 = "Alice"
-                            Participant2 = "Carol"
-                            Weight = 0.4
-                        }
-                        {
-                            Participant1 = "Bob"
-                            Participant2 = "Carol"
-                            Weight = 0.6
-                        }
-                    ]
-                Backend = Some backend
-                Shots = 1000
-            }
+            let problem =
+                {
+                    Participants = [ "Alice"; "Bob"; "Carol" ]
+                    Compatibilities =
+                        [
+                            {
+                                Participant1 = "Alice"
+                                Participant2 = "Bob"
+                                Weight = 0.9
+                            }
+                            {
+                                Participant1 = "Alice"
+                                Participant2 = "Carol"
+                                Weight = 0.4
+                            }
+                            {
+                                Participant1 = "Bob"
+                                Participant2 = "Carol"
+                                Weight = 0.6
+                            }
+                        ]
+                    Backend = Some backend
+                    Shots = 1000
+                }
 
-        let result = ResourcePairing.solve problem
-
-        match result with
-        | Ok r ->
-            Assert.Equal(3, r.TotalParticipants)
-            Assert.True(r.TotalScore >= 0.0)
-        | Error e -> Assert.Fail($"Programmatic solve failed: %A{e}")
-    #warnon "44"
+            match! ResourcePairing.solveAsync problem CancellationToken.None with
+            | Ok r ->
+                Assert.Equal(3, r.TotalParticipants)
+                Assert.True(r.TotalScore >= 0.0)
+            | Error e -> Assert.Fail($"Programmatic solve failed: %A{e}")
+        }
+        :> Task
 
     // ========================================================================
     // VALIDATION ERROR TESTS
@@ -192,9 +191,7 @@ module ResourcePairingTests =
                     Shots = 1000
                 }
 
-            let! result = ResourcePairing.solveAsync problem CancellationToken.None
-
-            match result with
+            match! ResourcePairing.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Participants", _)) -> ()
             | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
         }
@@ -211,9 +208,7 @@ module ResourcePairingTests =
                     Shots = 1000
                 }
 
-            let! result = ResourcePairing.solveAsync problem CancellationToken.None
-
-            match result with
+            match! ResourcePairing.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Participants", _)) -> ()
             | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
         }
@@ -230,9 +225,7 @@ module ResourcePairingTests =
                     Shots = 1000
                 }
 
-            let! result = ResourcePairing.solveAsync problem CancellationToken.None
-
-            match result with
+            match! ResourcePairing.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Compatibilities", _)) -> ()
             | other -> Assert.Fail($"Expected Compatibilities validation error, got: %A{other}")
         }
@@ -256,9 +249,7 @@ module ResourcePairingTests =
                     Shots = 1000
                 }
 
-            let! result = ResourcePairing.solveAsync problem CancellationToken.None
-
-            match result with
+            match! ResourcePairing.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Weight", _)) -> ()
             | other -> Assert.Fail($"Expected Weight validation error, got: %A{other}")
         }
@@ -282,9 +273,7 @@ module ResourcePairingTests =
                     Shots = 1000
                 }
 
-            let! result = ResourcePairing.solveAsync problem CancellationToken.None
-
-            match result with
+            match! ResourcePairing.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Participants", _)) -> ()
             | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
         }

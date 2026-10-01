@@ -25,6 +25,7 @@
 open FSharp.Azure.Quantum.Examples.Common
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -137,7 +138,9 @@ pr "Running quantum network flow optimization (%d shots)..." cliShots
 let startTime = DateTime.UtcNow
 
 let solutionResult =
-    QuantumNetworkFlowSolver.solveWithShots quantumBackend flowProblem cliShots
+    QuantumNetworkFlowSolver.solveWithShotsAsync quantumBackend flowProblem cliShots CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 
 let elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds
 

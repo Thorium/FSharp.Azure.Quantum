@@ -42,6 +42,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -509,7 +510,15 @@ if not quiet then
 let problem = toInfluenceProblem proteins interactions k synergyWeight
 
 let startTime = DateTime.Now
-let solveResult = InfluenceMaximization.solve backend problem shots
+let solveResult =
+    InfluenceMaximization.solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with FinalShots = shots }
+        CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
 let elapsed = (DateTime.Now - startTime).TotalSeconds
 
 let hasFailure = Result.isError solveResult

@@ -36,17 +36,17 @@ let distances = array2D [
 ]
 
 /// Run the quantum TSP solver on any backend
-let solveTsp (backend: IQuantumBackend) (distances: float[,]) =
-    solveAsync backend distances defaultConfig CancellationToken.None
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
+let solveTsp (backend: IQuantumBackend) (distances: float[,]) (cancellationToken: CancellationToken) =
+    solveAsync backend distances defaultConfig cancellationToken
 
 // Local simulator backend (width derived from available memory)
 let localBackend = LocalBackendFactory.createUnified()
 
-match solveTsp localBackend distances with
-| Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! solveTsp localBackend distances CancellationToken.None with
+    | Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
+    | Error err -> printfn "Error: %s" err.Message
+}
 
 // Cloud backends (IonQ, Rigetti, ...) are created with CloudBackendFactory - see below
 ```
@@ -59,13 +59,13 @@ match solveTsp localBackend distances with
 
 ```fsharp
 /// Solve TSP problem with a chosen backend
-let solveWithChosenBackend distances =
+let solveWithChosenBackend distances (cancellationToken: CancellationToken) =
     // CHANGE THIS ONE LINE TO SWITCH BACKENDS:
     let backend = LocalBackendFactory.createUnified()  // ← Local simulation
     // let backend = CloudBackends.CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
 
     // Same solver API for all backends
-    solveTsp backend distances
+    solveTsp backend distances cancellationToken
 
 // Use it
 let distances2 = array2D [
@@ -74,12 +74,14 @@ let distances2 = array2D [
     [ 2.0; 1.5; 0.0 ]
 ]
 
-match solveWithChosenBackend distances2 with
-| Ok solution ->
-    printfn "Best tour: %A" solution.Tour
-    printfn "Tour length: %.2f" solution.TourLength
-| Error err ->
-    eprintfn "Error: %s" err.Message
+task {
+    match! solveWithChosenBackend distances2 CancellationToken.None with
+    | Ok solution ->
+        printfn "Best tour: %A" solution.Tour
+        printfn "Tour length: %.2f" solution.TourLength
+    | Error err ->
+        eprintfn "Error: %s" err.Message
+}
 ```
 
 ### Uniform Result Format
@@ -159,9 +161,11 @@ module BackendConfig =
 // Usage
 let config = BackendConfig.fromEnvironment ()
 let backend = BackendConfig.getBackend config
-match solveTsp backend distances with
-| Ok solution -> printfn "Solution: %A" solution
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! solveTsp backend distances CancellationToken.None with
+    | Ok solution -> printfn "Solution: %A" solution
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 Set backend via environment variable:
@@ -190,12 +194,14 @@ let square =
         [ "A"; "B"; "C"; "D" ]
         [ ("A", "B", 1.0); ("B", "C", 1.0); ("C", "D", 1.0); ("D", "A", 1.0) ]
 
-match MaxCut.solve square (Some localBackend) with
-| Ok solution ->
-    printfn "Cut value: %.1f" solution.CutValue
-    printfn "Partition S: %A" solution.PartitionS
-| Error err ->
-    eprintfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync square (Some localBackend) CancellationToken.None with
+    | Ok solution ->
+        printfn "Cut value: %.1f" solution.CutValue
+        printfn "Partition S: %A" solution.PartitionS
+    | Error err ->
+        eprintfn "Error: %s" err.Message
+}
 ```
 
 This API provides:
@@ -298,7 +304,7 @@ let runnable = UnifiedBackend.getRunnableQubits limitedBackend
 
 Solvers check `UnifiedBackend.getRunnableQubits` before running:
 
-- **TSP** needs N² qubits for N cities. If that exceeds the backend's runnable width, `solve`/`solveAsync` return a `ValidationError` that names the problem size and the limit; they do not split the problem. On the local simulator with default settings that means at most 4 cities.
+- **TSP** needs N² qubits for N cities. If that exceeds the backend's runnable width, `solveAsync` returns a `ValidationError` that names the problem size and the limit; it does not split the problem. On the local simulator with default settings that means at most 4 cities.
 - **Vertex cover, clique and matching** use `ProblemDecomposition.solveWithDecomposition`: when the problem is wider than the limit and the graph has several connected components, each component is solved separately on the same backend and the results are merged. A single component that is too wide is still run as a whole.
 - **Set cover, SAT, bin packing and binary ILP** go through the same decomposition entry point, but they do not split problems yet.
 
@@ -312,9 +318,13 @@ let twoTriangles : QuantumVertexCoverSolver.Problem =
 
 // If the graph were wider than the backend's runnable width, each triangle
 // would be solved on its own and the covers combined.
-match QuantumVertexCoverSolver.solve localBackend twoTriangles 1000 with
-| Ok solution -> printfn "Cover: %A (valid: %b)" (solution.CoverVertices |> List.map _.Id) solution.IsValid
-| Error err -> eprintfn "Error: %s" err.Message
+let coverConfig = { QuantumVertexCoverSolver.defaultConfig with FinalShots = 1000 }
+
+task {
+    match! QuantumVertexCoverSolver.solveWithConfigAsync localBackend twoTriangles coverConfig CancellationToken.None with
+    | Ok solution -> printfn "Cover: %A (valid: %b)" (solution.CoverVertices |> List.map _.Id) solution.IsValid
+    | Error err -> eprintfn "Error: %s" err.Message
+}
 ```
 
 ## Async Backend Execution
@@ -464,7 +474,7 @@ All cloud backends implement the same `IQuantumBackend` interface (sync and asyn
 What differs on cloud backends:
 
 - **Whole circuits only.** They refuse incremental `ApplyOperation` and claim no algorithm intent (QFT, QPE, Grover…), so algorithms build the complete gate circuit and submit it with `ExecuteToState`. Before conversion each backend transpiles the circuit to its provider's gates (`GateTranspiler.transpileForBackendFully`): T/TDG, CP, CRZ, CCX, MCZ and the other composite gates are decomposed, and the Braket backend does the same by device ARN.
-- **Measured shots, not amplitudes.** They implement `IShotSamplingBackend`: the returned state holds √(count/shots) with no phases. `Primitives.observe` therefore measures each qubit-wise commuting group of Pauli terms in its own rotated basis (`Primitives.sampledExpectation`, one job per group, with a standard error), ADAPT-VQE and ADAPT-QAOA switch to measured energies with parameter-shift gradients, and `Primitives.sample` returns the backend's own counts (the requested shot count must equal the backend's). `QRNG.generateWithBackend` needs a backend created with `shots = 1`: its bits are that one measured shot. Algorithms that measure the returned state (`UnifiedBackend.measureState`) get the job's own recorded shots, never resampled ones and never more than the job measured. Protocols made of many independent trials (BB84 transmissions, E91 pairs, teleportation tomography) run their trials side by side in circuits as wide as the backend runs (at most 16 qubits, `WholeCircuit.runTrials`) and use every shot of every job.
+- **Measured shots, not amplitudes.** They implement `IShotSamplingBackend`: the returned state holds √(count/shots) with no phases. `Primitives.observe` therefore measures each qubit-wise commuting group of Pauli terms in its own rotated basis (`Primitives.sampledExpectation`, one job per group, with a standard error), ADAPT-VQE and ADAPT-QAOA switch to measured energies with parameter-shift gradients, and `Primitives.sample` returns the backend's own counts (the requested shot count must equal the backend's). `QRNG.generateWithBackendAsync` needs a backend created with `shots = 1`: its bits are that one measured shot. Algorithms that measure the returned state (`UnifiedBackend.measureState`) get the job's own recorded shots, never resampled ones and never more than the job measured. Protocols made of many independent trials (BB84 transmissions, E91 pairs, teleportation tomography) run their trials side by side in circuits as wide as the backend runs (at most 16 qubits, `WholeCircuit.runTrials`) and use every shot of every job.
 - **Every `ExecuteToState` is a separately billed job.** Iterative algorithms submit many (one per energy, gradient term or sample; a 3-city TSP by QAOA is several hundred). Pass a `JobBudget` to cap them; the job after the limit is refused with a `QuotaExceeded` error before it is submitted. A budget can be shared by several backends, and every cloud backend exposes its budget through `IJobCountingBackend`, including how many jobs it has submitted. Without one, jobs are counted but not limited.
 
 ```fsharp
@@ -497,9 +507,11 @@ Backend switching is a **one-line code change** - no refactoring needed!
 let chosenBackend = LocalBackendFactory.createUnified()
 
 // Everything else stays the same!
-match solveTsp chosenBackend distances with
-| Ok solution -> printfn "Solution: %A" solution
-| Error err -> eprintfn "Error: %s" err.Message
+task {
+    match! solveTsp chosenBackend distances CancellationToken.None with
+    | Ok solution -> printfn "Solution: %A" solution
+    | Error err -> eprintfn "Error: %s" err.Message
+}
 ```
 
 **Benefits:**

@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Topological.Tests
 
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Topological
@@ -560,30 +561,40 @@ module TopologicalBackendTests =
     // ========================================================================
 
     [<Fact>]
-    let ``Quantum Monte Carlo runs on the topological backend and matches the simulator`` () =
-        // E[v] over a uniform 2-qubit distribution with values 0.1, 0.4, 0.6, 0.9 is 0.5. The
-        // topological state's logical-qubit probabilities feed the amplitude-estimation fit
-        // exactly as a simulator's state vector does.
-        let prep =
-            CircuitBuilder.empty 2
-            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
-            |> CircuitBuilder.addGate (CircuitBuilder.H 1)
+    let ``Quantum Monte Carlo runs on the topological backend and matches the simulator`` () : Task =
+        task {
+            // E[v] over a uniform 2-qubit distribution with values 0.1, 0.4, 0.6, 0.9 is 0.5. The
+            // topological state's logical-qubit probabilities feed the amplitude-estimation fit
+            // exactly as a simulator's state vector does.
+            let prep =
+                CircuitBuilder.empty 2
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+                |> CircuitBuilder.addGate (CircuitBuilder.H 1)
 
-        let values = [| 0.1; 0.4; 0.6; 0.9 |]
+            let values = [| 0.1; 0.4; 0.6; 0.9 |]
 
-        let estimate (backend: IQuantumBackend) =
-            match
-                FSharp.Azure.Quantum.Algorithms.QuantumMonteCarlo.estimateBoundedExpectation prep values 2 1000 backend
-                |> Async.RunSynchronously
-            with
-            | Ok result -> result
-            | Error err -> failwith $"{backend.Name}: {err.Message}"
+            let estimate (backend: IQuantumBackend) =
+                task {
+                    match!
+                        FSharp.Azure.Quantum.Algorithms.QuantumMonteCarlo.estimateBoundedExpectationAsync
+                            prep
+                            values
+                            2
+                            1000
+                            backend
+                            System.Threading.CancellationToken.None
+                    with
+                    | Ok result -> return result
+                    | Error err -> return failwith $"{backend.Name}: {err.Message}"
+                }
 
-        let local = estimate (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend())
+            let! local = estimate (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend())
 
-        let topological =
-            estimate (TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20))
+            let! topological =
+                estimate (TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20))
 
-        Assert.Equal(0.5, topological.Expectation, 4)
-        Assert.Equal(local.Expectation, topological.Expectation, 6)
-        Assert.Equal(local.StandardError, topological.StandardError, 6)
+            Assert.Equal(0.5, topological.Expectation, 4)
+            Assert.Equal(local.Expectation, topological.Expectation, 6)
+            Assert.Equal(local.StandardError, topological.StandardError, 6)
+        }
+        :> Task

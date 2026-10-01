@@ -188,7 +188,7 @@ module EkertQKD =
             /// Whether Eve intercepts (for testing)
             EveIntercepts: bool
             /// Random seed used (for reproducibility)
-            Seed: int option
+            Seed: int voption
         }
 
     [<RequireQualifiedAccess>]
@@ -252,7 +252,7 @@ module EkertQKD =
             AliceBases = aliceBases
             BobBases = bobBases
             EveIntercepts = withEve
-            Seed = seed
+            Seed = ValueOption.ofOption seed
         }
 
     // ========================================================================
@@ -618,8 +618,8 @@ module EkertQKD =
 
             let rng =
                 match intent.Seed with
-                | Some s -> Random(s + 1) // Offset seed to avoid correlation with basis choices
-                | None -> Random()
+                | ValueSome s -> Random(s + 1) // Offset seed to avoid correlation with basis choices
+                | ValueNone -> Random()
 
             // Asked up front, before any pair runs, so that a backend that runs complete
             // circuits only gets every pair as circuits rather than the first one failing.

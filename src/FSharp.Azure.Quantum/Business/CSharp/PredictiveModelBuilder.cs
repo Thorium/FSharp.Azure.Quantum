@@ -222,18 +222,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         }
 
         /// <summary>
-        /// Build and train the predictive model.
-        /// Returns a trained model ready for predictions.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
-        /// <returns>A trained <see cref="IPredictiveModel"/> instance.</returns>
-        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
-        public IPredictiveModel Build()
-        {
-            return BuildAsync().GetAwaiter().GetResult();
-        }
-
-        /// <summary>
         /// Build and train the predictive model without blocking the calling thread.
         /// Returns a trained model ready for predictions.
         /// </summary>
@@ -274,17 +262,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             }
 
             return new PredictiveModelWrapper(result.ResultValue);
-        }
-
-        /// <summary>
-        /// Load a previously trained model from file.
-        /// </summary>
-        /// <param name="path">Path to the saved model file.</param>
-        /// <returns>A loaded <see cref="IPredictiveModel"/> instance.</returns>
-        [Obsolete("Use LoadFromAsync for non-blocking file I/O")]
-        public static IPredictiveModel LoadFrom(string path)
-        {
-            return LoadFromAsync(path).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -366,15 +343,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     public interface IPredictiveModel
     {
         /// <summary>
-        /// Predict continuous value (regression only).
-        /// </summary>
-        /// <param name="features">Feature vector to predict.</param>
-        /// <returns>Regression prediction with value and confidence.</returns>
-        /// <exception cref="InvalidOperationException">If model is not regression type.</exception>
-        [Obsolete("Use PredictAsync for non-blocking execution against cloud backends")]
-        RegressionPrediction Predict(double[] features);
-
-        /// <summary>
         /// Predict continuous value (regression only) without blocking the calling thread.
         /// </summary>
         /// <param name="features">Feature vector to predict.</param>
@@ -382,15 +350,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <returns>Regression prediction with value and confidence.</returns>
         /// <exception cref="InvalidOperationException">If model is not regression type.</exception>
         Task<RegressionPrediction> PredictAsync(double[] features, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Predict category (multi-class only).
-        /// </summary>
-        /// <param name="features">Feature vector to classify.</param>
-        /// <returns>Category prediction with probabilities.</returns>
-        /// <exception cref="InvalidOperationException">If model is not multi-class type.</exception>
-        [Obsolete("Use PredictCategoryAsync for non-blocking execution against cloud backends")]
-        CategoryPrediction PredictCategory(double[] features);
 
         /// <summary>
         /// Predict category (multi-class only) without blocking the calling thread.
@@ -402,15 +361,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         Task<CategoryPrediction> PredictCategoryAsync(double[] features, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Evaluate regression model on test set.
-        /// </summary>
-        /// <param name="testFeatures">Test features matrix.</param>
-        /// <param name="testTargets">Test targets array.</param>
-        /// <returns>Regression evaluation metrics.</returns>
-        [Obsolete("Use EvaluateRegressionAsync for non-blocking execution against cloud backends")]
-        RegressionMetrics EvaluateRegression(double[][] testFeatures, double[] testTargets);
-
-        /// <summary>
         /// Evaluate regression model on test set without blocking the calling thread.
         /// </summary>
         /// <param name="testFeatures">Test features matrix.</param>
@@ -420,15 +370,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         Task<RegressionMetrics> EvaluateRegressionAsync(double[][] testFeatures, double[] testTargets, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Evaluate multi-class model on test set.
-        /// </summary>
-        /// <param name="testFeatures">Test features matrix.</param>
-        /// <param name="testTargets">Test targets array.</param>
-        /// <returns>Multi-class evaluation metrics.</returns>
-        [Obsolete("Use EvaluateMultiClassAsync for non-blocking execution against cloud backends")]
-        MultiClassMetrics EvaluateMultiClass(double[][] testFeatures, int[] testTargets);
-
-        /// <summary>
         /// Evaluate multi-class model on test set without blocking the calling thread.
         /// </summary>
         /// <param name="testFeatures">Test features matrix.</param>
@@ -436,13 +377,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <param name="cancellationToken">Cancels the evaluation.</param>
         /// <returns>Multi-class evaluation metrics.</returns>
         Task<MultiClassMetrics> EvaluateMultiClassAsync(double[][] testFeatures, int[] testTargets, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Save model to file.
-        /// </summary>
-        /// <param name="path">Path to save the model.</param>
-        [Obsolete("Use SaveToAsync for non-blocking file I/O")]
-        void SaveTo(string path);
 
         /// <summary>
         /// Save model to file without blocking the calling thread.
@@ -572,12 +506,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             _model = model;
         }
 
-        [Obsolete("Use PredictAsync for non-blocking execution against cloud backends")]
-        public RegressionPrediction Predict(double[] features)
-        {
-            return PredictAsync(features).GetAwaiter().GetResult();
-        }
-
         public async Task<RegressionPrediction> PredictAsync(double[] features, CancellationToken cancellationToken = default)
         {
             var result = await PredictiveModel.predictAsync(
@@ -609,12 +537,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             };
         }
 
-        [Obsolete("Use PredictCategoryAsync for non-blocking execution against cloud backends")]
-        public CategoryPrediction PredictCategory(double[] features)
-        {
-            return PredictCategoryAsync(features).GetAwaiter().GetResult();
-        }
-
         public async Task<CategoryPrediction> PredictCategoryAsync(double[] features, CancellationToken cancellationToken = default)
         {
             var result = await PredictiveModel.predictCategoryAsync(
@@ -640,12 +562,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             };
         }
 
-        [Obsolete("Use EvaluateRegressionAsync for non-blocking execution against cloud backends")]
-        public RegressionMetrics EvaluateRegression(double[][] testFeatures, double[] testTargets)
-        {
-            return EvaluateRegressionAsync(testFeatures, testTargets).GetAwaiter().GetResult();
-        }
-
         public async Task<RegressionMetrics> EvaluateRegressionAsync(double[][] testFeatures, double[] testTargets, CancellationToken cancellationToken = default)
         {
             var result = await PredictiveModel.evaluateRegressionAsync(testFeatures, testTargets, _model, cancellationToken).ConfigureAwait(false);
@@ -664,12 +580,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 MSE = metrics.MSE,
                 RMSE = metrics.RMSE,
             };
-        }
-
-        [Obsolete("Use EvaluateMultiClassAsync for non-blocking execution against cloud backends")]
-        public MultiClassMetrics EvaluateMultiClass(double[][] testFeatures, int[] testTargets)
-        {
-            return EvaluateMultiClassAsync(testFeatures, testTargets).GetAwaiter().GetResult();
         }
 
         public async Task<MultiClassMetrics> EvaluateMultiClassAsync(double[][] testFeatures, int[] testTargets, CancellationToken cancellationToken = default)
@@ -691,12 +601,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 F1Score = metrics.F1Score,
                 ConfusionMatrix = metrics.ConfusionMatrix,
             };
-        }
-
-        [Obsolete("Use SaveToAsync for non-blocking file I/O")]
-        public void SaveTo(string path)
-        {
-            SaveToAsync(path).GetAwaiter().GetResult();
         }
 
         public async Task SaveToAsync(string path, CancellationToken cancellationToken = default)

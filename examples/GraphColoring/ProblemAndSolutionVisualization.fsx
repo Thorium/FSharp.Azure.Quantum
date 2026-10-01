@@ -20,6 +20,7 @@
 #load "../_common/Reporting.fs"
 
 open System.IO
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 open FSharp.Azure.Quantum.Visualization
@@ -123,7 +124,11 @@ pr ""
 pr "--- Step 2: Solving... ---"
 pr ""
 
-match GraphColoring.solve registerAllocation numColors (Some quantumBackend) with
+match
+    GraphColoring.solveAsync registerAllocation numColors (Some quantumBackend) CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+with
 | Error err -> pr "[FAIL] %s" err.Message
 
 | Ok solution ->

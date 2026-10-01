@@ -5,6 +5,7 @@ open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum // For ErrorMitigationStrategy
 open System.Threading.Tasks
+open System.Threading
 
 /// Tests for Molecule Representation (Task 1)
 module MoleculeTests =
@@ -357,7 +358,7 @@ module GroundStateEnergyTests =
             // Act
 
             // Assert
-            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            match! GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None with
             | Ok vqeResult ->
                 // UCCSD-VQE on the bundled H2/STO-3G integrals: FCI -1.13727 Ha within chemical accuracy
                 let expected = -1.13727
@@ -395,7 +396,7 @@ module GroundStateEnergyTests =
             // Act
 
             // Assert
-            match! GroundStateEnergy.estimateEnergy h2o config |> Async.StartImmediateAsTask with
+            match! GroundStateEnergy.estimateEnergyAsync h2o config CancellationToken.None with
             | Ok vqeResult ->
                 Assert.Fail($"H2O has no bundled integrals; got energy {vqeResult.Energy} from {vqeResult.Source}")
             | Error err -> Assert.Contains("IntegralProvider", err.Message)
@@ -422,8 +423,7 @@ module GroundStateEnergyTests =
 
             // Act
             let! result =
-                GroundStateEnergy.estimateEnergyWith GroundStateMethod.VQE h2 config
-                |> Async.StartImmediateAsTask
+                GroundStateEnergy.estimateEnergyWithAsync GroundStateMethod.VQE h2 config CancellationToken.None
 
             // Assert
             Assert.True(result |> Result.isOk, "VQE should complete successfully")
@@ -450,8 +450,7 @@ module GroundStateEnergyTests =
 
             // Act
             let! result =
-                GroundStateEnergy.estimateEnergyWith GroundStateMethod.ClassicalDFT h2 config
-                |> Async.StartImmediateAsTask
+                GroundStateEnergy.estimateEnergyWithAsync GroundStateMethod.ClassicalDFT h2 config CancellationToken.None
 
             // Assert
             match result with
@@ -490,7 +489,7 @@ module GroundStateEnergyTests =
 
             // Act
             let! result =
-                GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask
+                GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
 
             // Assert
             match result with
@@ -526,8 +525,7 @@ module GroundStateEnergyTests =
 
             // Act
             let! result =
-                GroundStateEnergy.estimateEnergy invalidMolecule config
-                |> Async.StartImmediateAsTask
+                GroundStateEnergy.estimateEnergyAsync invalidMolecule config CancellationToken.None
 
             // Assert
             result
@@ -557,7 +555,7 @@ module GroundStateEnergyTests =
             // Act
 
             // Assert
-            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            match! GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None with
             | Ok vqeResult ->
                 // Energy should be negative and in reasonable range for H2
                 Assert.True(vqeResult.Energy < 0.0, "Ground state energy should be negative")
@@ -589,7 +587,7 @@ module GroundStateEnergyTests =
             // Assert
             // Hitting the iteration cap is not an error: VQE returns its best energy and
             // reports Converged = false.
-            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            match! GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None with
             | Ok r ->
                 Assert.True(r.Energy < 0.0, $"H2 ground-state energy should be negative, got {r.Energy}")
 
@@ -623,7 +621,7 @@ module GroundStateEnergyTests =
 
             // Act
             let! result =
-                GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask
+                GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None
 
             // Assert
             Assert.True(result |> Result.isOk, "Should accept initial parameters")
@@ -1076,7 +1074,7 @@ module MolecularInputTests =
                 // Act
 
                 // Assert
-                match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
+                match! Molecule.fromXyzFileAsync tempFile CancellationToken.None with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal("H2 molecule", molecule.Name)
@@ -1118,7 +1116,7 @@ module MolecularInputTests =
                 // Act
 
                 // Assert
-                match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
+                match! Molecule.fromXyzFileAsync tempFile CancellationToken.None with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal("Water molecule", molecule.Name)
@@ -1150,7 +1148,7 @@ module MolecularInputTests =
                 // Act
 
                 // Assert
-                match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
+                match! Molecule.fromXyzFileAsync tempFile CancellationToken.None with
                 | Error err -> Assert.True(false, $"Should handle whitespace: {err.Message}")
                 | Ok molecule -> Assert.Equal(2, molecule.Atoms.Length)
             finally
@@ -1174,7 +1172,7 @@ module MolecularInputTests =
                 // Act
 
                 // Assert
-                match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
+                match! Molecule.fromXyzFileAsync tempFile CancellationToken.None with
                 | Ok _ -> Assert.True(false, "Should reject file with wrong atom count")
                 | Error err -> Assert.Contains("Expected", err.Message) // Error message from MoleculeFormats
             finally
@@ -1183,7 +1181,7 @@ module MolecularInputTests =
 
     [<Fact>]
     let ``Parse FCIDump header - extract NORB and NELEC`` () =
-        async {
+        task {
             // Arrange - minimal FCIDump header
             let fcidumpContent =
                 """&FCI NORB=  2,NELEC=  2,MS2=  0,
@@ -1192,7 +1190,7 @@ module MolecularInputTests =
  &END"""
 
             let tempFile = Path.GetTempFileName()
-            do! File.WriteAllTextAsync(tempFile, fcidumpContent) |> Async.AwaitTask
+            do! File.WriteAllTextAsync(tempFile, fcidumpContent)
 
             try
                 // Act - Use MoleculeFormats directly since FCIDump has no geometry
@@ -1202,8 +1200,7 @@ module MolecularInputTests =
                 match!
                     FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync
                         tempFile
-                        System.Threading.CancellationToken.None
-                    |> Async.AwaitTask
+                        CancellationToken.None
                 with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok moleculeData ->
@@ -1219,18 +1216,18 @@ module MolecularInputTests =
             finally
                 File.Delete(tempFile)
         }
-        |> Async.StartAsTask
+        :> Task
 
     [<Fact>]
     let ``FCIDump parser should handle missing parameters`` () =
-        async {
+        task {
             // Arrange - FCIDump without NORB
             let fcidumpContent =
                 """&FCI NELEC=  2,MS2=  0,
  &END"""
 
             let tempFile = Path.GetTempFileName()
-            do! File.WriteAllTextAsync(tempFile, fcidumpContent) |> Async.AwaitTask
+            do! File.WriteAllTextAsync(tempFile, fcidumpContent)
 
             try
                 // Act - Use MoleculeFormats directly
@@ -1239,15 +1236,14 @@ module MolecularInputTests =
                 match!
                     FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync
                         tempFile
-                        System.Threading.CancellationToken.None
-                    |> Async.AwaitTask
+                        CancellationToken.None
                 with
                 | Ok _ -> Assert.True(false, "Should require NORB parameter")
                 | Error err -> Assert.Contains("NORB", err.Message)
             finally
                 File.Delete(tempFile)
         }
-        |> Async.StartAsTask
+        :> Task
 
     [<Fact>]
     let ``Convert molecule to XYZ format`` () =
@@ -1277,13 +1273,13 @@ module MolecularInputTests =
             try
                 // Act - save to file
 
-                match! Molecule.saveToXyzFileTask tempFile original CancellationToken.None with
+                match! Molecule.saveToXyzFileAsync tempFile original CancellationToken.None with
                 | Error err -> Assert.True(false, $"Save failed: {err.Message}")
                 | Ok() ->
 
                     // Act - reload from file
 
-                    match! Molecule.fromXyzFileTask tempFile CancellationToken.None with
+                    match! Molecule.fromXyzFileAsync tempFile CancellationToken.None with
                     | Error err -> Assert.True(false, $"Load failed: {err.Message}")
                     | Ok reloaded ->
                         // Assert - should match original
@@ -1510,7 +1506,7 @@ module QuantumChemistryBuilderTests =
             // Act
 
             // Assert
-            match! solve problem |> Async.StartImmediateAsTask with
+            match! solveAsync problem CancellationToken.None with
             | Ok chemResult ->
                 // H2 ground state should be negative
                 Assert.True(chemResult.GroundStateEnergy < 0.0, "Ground state energy should be negative")
@@ -1542,7 +1538,7 @@ module QuantumChemistryBuilderTests =
 
             // Assert
             // The builder passes no IntegralProvider, and H2O has no bundled integrals.
-            match! solve problem |> Async.StartImmediateAsTask with
+            match! solveAsync problem CancellationToken.None with
             | Ok chemResult ->
                 Assert.Fail(
                     $"H2O has no integrals here; got {chemResult.GroundStateEnergy} Ha from {chemResult.Source}"
@@ -1693,7 +1689,7 @@ module QuantumChemistryBuilderTests =
 
     [<Fact>]
     let ``solve with molecule_from_xyz should load and calculate`` () =
-        async {
+        task {
             // Arrange - create temporary XYZ file with H2 molecule
             let xyzContent =
                 """2
@@ -1702,7 +1698,7 @@ H  0.0  0.0  0.0
 H  0.0  0.0  0.74"""
 
             let tempFile = Path.GetTempFileName()
-            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
+            do! File.WriteAllTextAsync(tempFile, xyzContent)
 
             try
                 // Act - use builder with file loading
@@ -1716,7 +1712,7 @@ H  0.0  0.0  0.74"""
 
 
                 // Assert
-                match! solve problem with
+                match! solveAsync problem CancellationToken.None with
                 | Ok chemistry ->
                     // Energy should be negative (bound state)
                     Assert.True(
@@ -1729,11 +1725,11 @@ H  0.0  0.0  0.74"""
             finally
                 File.Delete(tempFile)
         }
-        |> Async.StartAsTask
+        :> Task
 
     [<Fact>]
     let ``solve with molecule_from_name should load from default provider`` () =
-        async {
+        task {
             // Act - use builder with named molecule
             let problem =
                 quantumChemistry {
@@ -1745,7 +1741,7 @@ H  0.0  0.0  0.74"""
 
 
             // Assert
-            match! solve problem with
+            match! solveAsync problem CancellationToken.None with
             | Ok chemistry ->
                 Assert.True(
                     chemistry.GroundStateEnergy < 0.0,
@@ -1753,7 +1749,7 @@ H  0.0  0.0  0.74"""
                 )
             | Error err -> Assert.Fail($"'h2' should load from the default provider: {err.Message}")
         }
-        |> Async.StartAsTask
+        :> Task
 
 // ============================================================================
 // Error Mitigation Integration Tests
@@ -1844,7 +1840,7 @@ module VQEErrorMitigationTests =
             // Act
 
             // Assert
-            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            match! GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None with
             | Ok vqeResult -> Assert.True(vqeResult.Energy < 0.0) // Energy should be negative
             | Error err -> Assert.Fail($"VQE should succeed: {err.Message}")
         }
@@ -1892,7 +1888,7 @@ module VQEErrorMitigationTests =
             // Act
 
             // Assert
-            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            match! GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None with
             | Ok vqeResult -> Assert.True(vqeResult.Energy < 0.0) // Energy should be negative
             | Error err -> Assert.Fail($"VQE with error mitigation should succeed: {err.Message}")
         }
@@ -2090,39 +2086,42 @@ module H2ReferenceIntegralTests =
         |> Result.defaultWith (fun e -> Assert.Fail($"Provider-backed build should succeed, got {e}"))
 
     [<Fact; Trait("Category", "Slow")>]
-    let ``ChemistryVQE UCCSD converges to FCI for H2 within chemical accuracy`` () =
-        // End-to-end VQE: the UCCSD ansatz must reach the H2 ground state. Guards
-        // against the two convergence bugs — the ansatz rotation using Coefficient.Real
-        // (the cluster operator's JW image is imaginary, so the ansatz was a no-op), and
-        // shot-sampled energy that made the finite-difference gradients pure noise.
-        match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
-        | Error e -> Assert.Fail($"buildFromIntegrals failed: {e}")
-        | Ok(qaoaHam, nucRep) ->
-            let backend = LocalBackend() :> IQuantumBackend
+    let ``ChemistryVQE UCCSD converges to FCI for H2 within chemical accuracy`` () : Task =
+        task {
+            // End-to-end VQE: the UCCSD ansatz must reach the H2 ground state. Guards
+            // against the two convergence bugs — the ansatz rotation using Coefficient.Real
+            // (the cluster operator's JW image is imaginary, so the ansatz was a no-op), and
+            // shot-sampled energy that made the finite-difference gradients pure noise.
+            match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
+            | Error e -> Assert.Fail($"buildFromIntegrals failed: {e}")
+            | Ok(qaoaHam, nucRep) ->
+                let backend = LocalBackend() :> IQuantumBackend
 
-            let config: ChemistryVQE.ChemistryVQEConfig =
-                {
-                    Hamiltonian = fromQaoaHamiltonian qaoaHam
-                    Ansatz = ChemistryVQE.UCCSD(2, 4)
-                    MaxIterations = 100
-                    Tolerance = 1e-4
-                    UseHFInitialState = true
-                    Backend = backend
-                    ProgressReporter = None
-                }
+                let config: ChemistryVQE.ChemistryVQEConfig =
+                    {
+                        Hamiltonian = fromQaoaHamiltonian qaoaHam
+                        Ansatz = ChemistryVQE.UCCSD(2, 4)
+                        MaxIterations = 100
+                        Tolerance = 1e-4
+                        UseHFInitialState = true
+                        Backend = backend
+                        ProgressReporter = None
+                    }
 
-            match ChemistryVQE.run config |> Async.RunSynchronously with
-            | Ok result ->
-                let total = result.Energy + nucRep
+                match! ChemistryVQE.runAsync config CancellationToken.None with
+                | Ok result ->
+                    let total = result.Energy + nucRep
 
-                Assert.True(
-                    abs (total - (-1.137270)) < 0.0016,
-                    $"VQE total energy {total} Ha must be within chemical accuracy of FCI -1.13727 Ha "
-                    + $"(electronic {result.Energy}, nuclear {nucRep})"
-                )
-            | Error e -> Assert.Fail($"ChemistryVQE.run failed: {e}")
+                    Assert.True(
+                        abs (total - (-1.137270)) < 0.0016,
+                        $"VQE total energy {total} Ha must be within chemical accuracy of FCI -1.13727 Ha "
+                        + $"(electronic {result.Energy}, nuclear {nucRep})"
+                    )
+                | Error e -> Assert.Fail($"ChemistryVQE.runAsync failed: {e}")
+        }
+        :> Task
 
-/// VQE.run runs UCCSD circuits on molecular integrals (IntegralProvider or the bundled
+/// VQE.runAsync runs UCCSD circuits on molecular integrals (IntegralProvider or the bundled
 /// H2/STO-3G set) and returns Error rather than a tabulated energy when it cannot run.
 module VqeIntegralPathTests =
     open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -2192,142 +2191,159 @@ module VqeIntegralPathTests =
         }
 
     let private energyOf molecule config =
-        GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
+        GroundStateEnergy.estimateEnergyAsync molecule config CancellationToken.None
 
     let private h2Integrals = MolecularHamiltonian.h2Sto3gIntegrals
 
     [<Fact>]
-    let ``VQE on H2 runs UCCSD circuits on the configured backend and reaches FCI`` () =
-        let backend = CountingBackend(LocalBackend())
+    let ``VQE on H2 runs UCCSD circuits on the configured backend and reaches FCI`` () : Task =
+        task {
+            let backend = CountingBackend(LocalBackend())
 
-        match energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) None) with
-        | Ok r ->
-            Assert.True(backend.Applied > 0, "VQE must apply operations through the configured backend")
-            Assert.True(r.Iterations > 0, $"VQE must iterate, got {r.Iterations}")
-            Assert.NotEmpty(r.OptimalParameters)
-            Assert.NotEmpty(r.EnergyHistory)
-            Assert.Equal(ComputedSto3gIntegrals, r.Source)
+            match! energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) None) with
+            | Ok r ->
+                Assert.True(backend.Applied > 0, "VQE must apply operations through the configured backend")
+                Assert.True(r.Iterations > 0, $"VQE must iterate, got {r.Iterations}")
+                Assert.NotEmpty(r.OptimalParameters)
+                Assert.NotEmpty(r.EnergyHistory)
+                Assert.Equal(ComputedSto3gIntegrals, r.Source)
 
-            Assert.True(
-                abs (r.Energy - fciH2) < chemicalAccuracy,
-                $"UCCSD-VQE energy {r.Energy} Ha must be within chemical accuracy of FCI {fciH2} Ha"
-            )
-        | Error e -> Assert.Fail($"VQE on H2 should succeed: {e.Message}")
-
-    [<Fact>]
-    let ``IntegralProvider integrals determine the VQE energy`` () =
-        let h2 = Molecule.createH2 0.7414
-
-        // Same electronic Hamiltonian, nuclear repulsion shifted by exactly 1 Ha.
-        let shifted: IntegralProvider =
-            fun _ ->
-                Ok
-                    { h2Integrals with
-                        NuclearRepulsion = h2Integrals.NuclearRepulsion + 1.0
-                    }
-
-        // Different electronic Hamiltonian: one-electron integrals scaled by 1.1.
-        let scaled: IntegralProvider =
-            fun _ ->
-                Ok
-                    { h2Integrals with
-                        OneElectron.Integrals = Array2D.map (fun h -> 1.1 * h) h2Integrals.OneElectron.Integrals
-                    }
-
-        match
-            energyOf h2 (configWith None (Some(fun _ -> Ok h2Integrals))),
-            energyOf h2 (configWith None (Some shifted)),
-            energyOf h2 (configWith None (Some scaled))
-        with
-        | Ok bundled, Ok fromShifted, Ok fromScaled ->
-            Assert.Equal(ProviderIntegrals, fromShifted.Source)
-            Assert.Equal(ProviderIntegrals, fromScaled.Source)
-
-            Assert.True(
-                abs (fromShifted.Energy - bundled.Energy - 1.0) < 1e-9,
-                $"shifted nuclear repulsion must shift the energy by 1 Ha: {bundled.Energy} -> {fromShifted.Energy}"
-            )
-
-            Assert.True(
-                abs (fromScaled.Energy - bundled.Energy) > 0.1,
-                $"scaled one-electron integrals must change the energy: {bundled.Energy} vs {fromScaled.Energy}"
-            )
-        | a, b, c -> Assert.Fail($"all three runs should succeed: %A{a} / %A{b} / %A{c}")
+                Assert.True(
+                    abs (r.Energy - fciH2) < chemicalAccuracy,
+                    $"UCCSD-VQE energy {r.Energy} Ha must be within chemical accuracy of FCI {fciH2} Ha"
+                )
+            | Error e -> Assert.Fail($"VQE on H2 should succeed: {e.Message}")
+        }
+        :> Task
 
     [<Fact>]
-    let ``IntegralProvider Error is returned as Error`` () =
-        let failing: IntegralProvider = fun _ -> Error "PySCF is not installed"
+    let ``IntegralProvider integrals determine the VQE energy`` () : Task =
+        task {
+            let h2 = Molecule.createH2 0.7414
 
-        match energyOf (Molecule.createH2 0.7414) (configWith None (Some failing)) with
-        | Ok r -> Assert.Fail($"a failing provider must not yield an energy, got {r.Energy} from {r.Source}")
-        | Error e -> Assert.Contains("PySCF is not installed", e.Message)
-
-    [<Fact>]
-    let ``Stretched H2 runs on computed STO-3G integrals and a provider takes precedence`` () =
-        let stretched = Molecule.createH2 1.0
-
-        match energyOf stretched (configWith None None) with
-        | Ok r ->
-            Assert.Equal(ComputedSto3gIntegrals, r.Source)
-
-            // FCI for H2/STO-3G at R = 1.0 Å
-            Assert.True(
-                abs (r.Energy - -1.1011503) < chemicalAccuracy,
-                $"UCCSD-VQE energy {r.Energy} Ha must be within chemical accuracy of FCI -1.1011503 Ha"
-            )
-        | Error e -> Assert.Fail($"H2 at 1.0 A should run on STO-3G integrals: {e.Message}")
-
-        match energyOf stretched (configWith None (Some(fun _ -> Ok h2Integrals))) with
-        | Ok r -> Assert.Equal(ProviderIntegrals, r.Source)
-        | Error e -> Assert.Fail($"provider-backed VQE should succeed: {e.Message}")
-
-    [<Fact>]
-    let ``Doublets run on STO-3G integrals and other open shells are Errors`` () =
-        let hydrogenAtom =
-            {
-                Name = "H"
-                Atoms =
-                    [
-                        {
-                            Element = "H"
-                            Position = (0.0, 0.0, 0.0)
+            // Same electronic Hamiltonian, nuclear repulsion shifted by exactly 1 Ha.
+            let shifted: IntegralProvider =
+                fun _ ->
+                    Ok
+                        { h2Integrals with
+                            NuclearRepulsion = h2Integrals.NuclearRepulsion + 1.0
                         }
-                    ]
-                Bonds = []
-                Charge = 0
-                Multiplicity = 2
-            }
 
-        // STO-3G hydrogen atom: E = -0.466582 Ha
-        match energyOf hydrogenAtom (configWith None None) with
-        | Ok r ->
-            Assert.Equal(ComputedSto3gIntegrals, r.Source)
-            Assert.True(abs (r.Energy - -0.466582) < 1e-5, $"H atom energy {r.Energy} Ha")
-        | Error e -> Assert.Fail($"the H atom doublet should run: {e.Message}")
+            // Different electronic Hamiltonian: one-electron integrals scaled by 1.1.
+            let scaled: IntegralProvider =
+                fun _ ->
+                    Ok
+                        { h2Integrals with
+                            OneElectron.Integrals = Array2D.map (fun h -> 1.1 * h) h2Integrals.OneElectron.Integrals
+                        }
 
-        // H2+ (one electron): exact energy is the lowest core-Hamiltonian orbital energy + E_nuc
-        let cation =
-            { Molecule.createH2 1.0 with
-                Name = "H2+"
-                Charge = 1
-                Multiplicity = 2
-            }
+            let! fromBundled = energyOf h2 (configWith None (Some(fun _ -> Ok h2Integrals)))
+            let! fromShiftedRun = energyOf h2 (configWith None (Some shifted))
+            let! fromScaledRun = energyOf h2 (configWith None (Some scaled))
 
-        match Sto3gIntegrals.compute cation, energyOf cation (configWith None None) with
-        | Ok integrals, Ok r ->
-            let h = integrals.OneElectron.Integrals
-            let exact = min h.[0, 0] h.[1, 1] + integrals.NuclearRepulsion
-            Assert.True(abs (r.Energy - exact) < chemicalAccuracy, $"H2+ VQE {r.Energy} Ha vs exact {exact} Ha")
-        | a, b -> Assert.Fail($"H2+ should run: %A{a} / %A{b}")
+            match fromBundled, fromShiftedRun, fromScaledRun with
+            | Ok bundled, Ok fromShifted, Ok fromScaled ->
+                Assert.Equal(ProviderIntegrals, fromShifted.Source)
+                Assert.Equal(ProviderIntegrals, fromScaled.Source)
 
-        let tripletH2 =
-            { Molecule.createH2 1.0 with
-                Multiplicity = 3
-            }
+                Assert.True(
+                    abs (fromShifted.Energy - bundled.Energy - 1.0) < 1e-9,
+                    $"shifted nuclear repulsion must shift the energy by 1 Ha: {bundled.Energy} -> {fromShifted.Energy}"
+                )
 
-        match energyOf tripletH2 (configWith None None) with
-        | Ok r -> Assert.Fail($"a triplet must not yield an energy, got {r.Energy} from {r.Source}")
-        | Error e -> Assert.Contains("multiplicity 3", e.Message)
+                Assert.True(
+                    abs (fromScaled.Energy - bundled.Energy) > 0.1,
+                    $"scaled one-electron integrals must change the energy: {bundled.Energy} vs {fromScaled.Energy}"
+                )
+            | a, b, c -> Assert.Fail($"all three runs should succeed: %A{a} / %A{b} / %A{c}")
+        }
+        :> Task
+
+    [<Fact>]
+    let ``IntegralProvider Error is returned as Error`` () : Task =
+        task {
+            let failing: IntegralProvider = fun _ -> Error "PySCF is not installed"
+
+            match! energyOf (Molecule.createH2 0.7414) (configWith None (Some failing)) with
+            | Ok r -> Assert.Fail($"a failing provider must not yield an energy, got {r.Energy} from {r.Source}")
+            | Error e -> Assert.Contains("PySCF is not installed", e.Message)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Stretched H2 runs on computed STO-3G integrals and a provider takes precedence`` () : Task =
+        task {
+            let stretched = Molecule.createH2 1.0
+
+            match! energyOf stretched (configWith None None) with
+            | Ok r ->
+                Assert.Equal(ComputedSto3gIntegrals, r.Source)
+
+                // FCI for H2/STO-3G at R = 1.0 Å
+                Assert.True(
+                    abs (r.Energy - -1.1011503) < chemicalAccuracy,
+                    $"UCCSD-VQE energy {r.Energy} Ha must be within chemical accuracy of FCI -1.1011503 Ha"
+                )
+            | Error e -> Assert.Fail($"H2 at 1.0 A should run on STO-3G integrals: {e.Message}")
+
+            match! energyOf stretched (configWith None (Some(fun _ -> Ok h2Integrals))) with
+            | Ok r -> Assert.Equal(ProviderIntegrals, r.Source)
+            | Error e -> Assert.Fail($"provider-backed VQE should succeed: {e.Message}")
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Doublets run on STO-3G integrals and other open shells are Errors`` () : Task =
+        task {
+            let hydrogenAtom =
+                {
+                    Name = "H"
+                    Atoms =
+                        [
+                            {
+                                Element = "H"
+                                Position = (0.0, 0.0, 0.0)
+                            }
+                        ]
+                    Bonds = []
+                    Charge = 0
+                    Multiplicity = 2
+                }
+
+            // STO-3G hydrogen atom: E = -0.466582 Ha
+            match! energyOf hydrogenAtom (configWith None None) with
+            | Ok r ->
+                Assert.Equal(ComputedSto3gIntegrals, r.Source)
+                Assert.True(abs (r.Energy - -0.466582) < 1e-5, $"H atom energy {r.Energy} Ha")
+            | Error e -> Assert.Fail($"the H atom doublet should run: {e.Message}")
+
+            // H2+ (one electron): exact energy is the lowest core-Hamiltonian orbital energy + E_nuc
+            let cation =
+                { Molecule.createH2 1.0 with
+                    Name = "H2+"
+                    Charge = 1
+                    Multiplicity = 2
+                }
+
+            let! cationEnergy = energyOf cation (configWith None None)
+
+            match Sto3gIntegrals.compute cation, cationEnergy with
+            | Ok integrals, Ok r ->
+                let h = integrals.OneElectron.Integrals
+                let exact = min h.[0, 0] h.[1, 1] + integrals.NuclearRepulsion
+                Assert.True(abs (r.Energy - exact) < chemicalAccuracy, $"H2+ VQE {r.Energy} Ha vs exact {exact} Ha")
+            | a, b -> Assert.Fail($"H2+ should run: %A{a} / %A{b}")
+
+            let tripletH2 =
+                { Molecule.createH2 1.0 with
+                    Multiplicity = 3
+                }
+
+            match! energyOf tripletH2 (configWith None None) with
+            | Ok r -> Assert.Fail($"a triplet must not yield an energy, got {r.Energy} from {r.Source}")
+            | Error e -> Assert.Contains("multiplicity 3", e.Message)
+        }
+        :> Task
 
     /// LocalBackend whose states are SparseState, so energies are sampled rather than exact.
     type private SparseLocalBackend() =
@@ -2359,64 +2375,67 @@ module VqeIntegralPathTests =
                 Task.FromResult((this :> IQuantumBackend).ApplyOperation operation state)
 
     [<Fact>]
-    let ``Error mitigation on a sampled backend is applied or refused, never skipped`` () =
-        let noisy = SparseLocalBackend() :> IQuantumBackend
+    let ``Error mitigation on a sampled backend is applied or refused, never skipped`` () : Task =
+        task {
+            let noisy = SparseLocalBackend() :> IQuantumBackend
 
-        let strategy technique : ErrorMitigationStrategy.RecommendedStrategy =
-            {
-                Primary = technique
-                Fallback = None
-                Reasoning = "test"
-                EstimatedCostMultiplier = 1.0
-                EstimatedAccuracy = 1.0
-            }
-
-        let run mitigation =
-            energyOf
-                (Molecule.createH2 0.7414)
-                { configWith (Some noisy) None with
-                    MaxIterations = 1
-                    ErrorMitigation = mitigation
+            let strategy technique : ErrorMitigationStrategy.RecommendedStrategy =
+                {
+                    Primary = technique
+                    Fallback = None
+                    Reasoning = "test"
+                    EstimatedCostMultiplier = 1.0
+                    EstimatedAccuracy = 1.0
                 }
 
-        // Readout mitigation without a calibration matrix corrects nothing: refused.
-        match run (Some(strategy (ErrorMitigationStrategy.ReadoutErrorMitigation None))) with
-        | Ok r -> Assert.Fail($"uncalibrated readout mitigation must be refused, got {r.Energy}")
-        | Error e -> Assert.Contains("no correction", e.Message)
+            let run mitigation =
+                energyOf
+                    (Molecule.createH2 0.7414)
+                    { configWith (Some noisy) None with
+                        MaxIterations = 1
+                        ErrorMitigation = mitigation
+                    }
 
-        // A strategy with a circuit-level component cannot be applied to a histogram: refused,
-        // even when combined with readout correction.
-        let zne =
-            ErrorMitigationStrategy.ZeroNoiseExtrapolation ZeroNoiseExtrapolation.defaultIonQConfig
+            // Readout mitigation without a calibration matrix corrects nothing: refused.
+            match! run (Some(strategy (ErrorMitigationStrategy.ReadoutErrorMitigation None))) with
+            | Ok r -> Assert.Fail($"uncalibrated readout mitigation must be refused, got {r.Energy}")
+            | Error e -> Assert.Contains("no correction", e.Message)
 
-        let identity: ReadoutErrorMitigation.CalibrationMatrix =
-            {
-                Matrix = Array2D.init 16 16 (fun i j -> if i = j then 1.0 else 0.0)
-                Qubits = 4
-                Timestamp = System.DateTime.UtcNow
-                Backend = "test"
-                CalibrationShots = 1000
-            }
+            // A strategy with a circuit-level component cannot be applied to a histogram: refused,
+            // even when combined with readout correction.
+            let zne =
+                ErrorMitigationStrategy.ZeroNoiseExtrapolation ZeroNoiseExtrapolation.defaultIonQConfig
 
-        match
-            run (
-                Some(
-                    strategy (
-                        ErrorMitigationStrategy.Combined
-                            [ zne; ErrorMitigationStrategy.ReadoutErrorMitigation(Some identity) ]
+            let identity: ReadoutErrorMitigation.CalibrationMatrix =
+                {
+                    Matrix = Array2D.init 16 16 (fun i j -> if i = j then 1.0 else 0.0)
+                    Qubits = 4
+                    Timestamp = System.DateTime.UtcNow
+                    Backend = "test"
+                    CalibrationShots = 1000
+                }
+
+            match!
+                run (
+                    Some(
+                        strategy (
+                            ErrorMitigationStrategy.Combined
+                                [ zne; ErrorMitigationStrategy.ReadoutErrorMitigation(Some identity) ]
+                        )
                     )
                 )
-            )
-        with
-        | Ok r -> Assert.Fail($"ZNE cannot be applied to a histogram, got {r.Energy}")
-        | Error e -> Assert.Contains("ZNE", e.Message)
+            with
+            | Ok r -> Assert.Fail($"ZNE cannot be applied to a histogram, got {r.Energy}")
+            | Error e -> Assert.Contains("ZNE", e.Message)
 
-        // Without mitigation the sampled path runs and reports no mitigation.
-        match run None with
-        | Ok r ->
-            Assert.True(r.Iterations > 0)
-            Assert.False(r.ErrorMitigationApplied)
-        | Error e -> Assert.Fail($"sampled UCCSD-VQE without mitigation should run: {e.Message}")
+            // Without mitigation the sampled path runs and reports no mitigation.
+            match! run None with
+            | Ok r ->
+                Assert.True(r.Iterations > 0)
+                Assert.False(r.ErrorMitigationApplied)
+            | Error e -> Assert.Fail($"sampled UCCSD-VQE without mitigation should run: {e.Message}")
+        }
+        :> Task
 
     /// LocalBackend whose measurements misread qubit `noisyQubit`: a 1 reads as 0 with
     /// probability p10 and a 0 as 1 with probability p01. States reach `measure` as diagonal
@@ -2501,79 +2520,94 @@ module VqeIntegralPathTests =
         }
 
     [<Fact>]
-    let ``Readout mitigation with the right single-qubit calibration recovers the noiseless energy`` () =
-        // Qubit 0 is occupied in the H2 Hartree-Fock state |1100>, so misreading it biases <Z0>.
-        let p01, p10 = 0.05, 0.35
-        let hartreeFock = [| 0.0; 0.0; 0.0; 0.0; 0.0 |]
+    let ``Readout mitigation with the right single-qubit calibration recovers the noiseless energy`` () : Task =
+        task {
+            // Qubit 0 is occupied in the H2 Hartree-Fock state |1100>, so misreading it biases <Z0>.
+            let p01, p10 = 0.05, 0.35
+            let hartreeFock = [| 0.0; 0.0; 0.0; 0.0; 0.0 |]
 
-        let energyAt (backend: IQuantumBackend) mitigation =
-            // MaxIterations = 0: the energy of the starting (Hartree-Fock) amplitudes.
-            energyOf
-                (Molecule.createH2 0.7414)
-                { configWith (Some backend) None with
-                    MaxIterations = 0
-                    InitialParameters = Some hartreeFock
-                    ErrorMitigation = mitigation
+            let energyAt (backend: IQuantumBackend) mitigation =
+                // MaxIterations = 0: the energy of the starting (Hartree-Fock) amplitudes.
+                energyOf
+                    (Molecule.createH2 0.7414)
+                    { configWith (Some backend) None with
+                        MaxIterations = 0
+                        InitialParameters = Some hartreeFock
+                        ErrorMitigation = mitigation
+                    }
+
+            let readout calibration : ErrorMitigationStrategy.RecommendedStrategy =
+                {
+                    Primary = ErrorMitigationStrategy.ReadoutErrorMitigation(Some calibration)
+                    Fallback = None
+                    Reasoning = "test"
+                    EstimatedCostMultiplier = 1.0
+                    EstimatedAccuracy = 1.0
                 }
 
-        let readout calibration : ErrorMitigationStrategy.RecommendedStrategy =
-            {
-                Primary = ErrorMitigationStrategy.ReadoutErrorMitigation(Some calibration)
-                Fallback = None
-                Reasoning = "test"
-                EstimatedCostMultiplier = 1.0
-                EstimatedAccuracy = 1.0
-            }
+            let! exactRun = energyAt (LocalBackend()) None
 
-        let exact =
-            match energyAt (LocalBackend()) None with
-            | Ok r -> r.Energy
-            | Error e -> failwith e.Message
+            let exact =
+                match exactRun with
+                | Ok r -> r.Energy
+                | Error e -> failwith e.Message
 
-        let noisy = ReadoutNoiseBackend(0, p01, p10) :> IQuantumBackend
+            let noisy = ReadoutNoiseBackend(0, p01, p10) :> IQuantumBackend
 
-        // Mean of several runs keeps the sampling error (1000 shots per Pauli term) small.
-        let mean mitigation =
-            [ 1..6 ]
-            |> List.map (fun _ -> (energyAt noisy mitigation) |> Result.defaultWith (fun e -> failwith e.Message))
-            |> fun runs ->
-                runs |> List.averageBy (fun r -> r.Energy), runs |> List.forall (fun r -> r.ErrorMitigationApplied)
+            // Mean of several runs keeps the sampling error (1000 shots per Pauli term) small.
+            let mean mitigation =
+                task {
+                    let runs = ResizeArray()
 
-        let unmitigated, unmitigatedFlag = mean None
+                    for _ in 1..6 do
+                        let! run = energyAt noisy mitigation
+                        runs.Add(run |> Result.defaultWith (fun e -> failwith e.Message))
 
-        let mitigated, mitigatedFlag =
-            mean (Some(readout (singleQubitCalibration 0 p01 p10)))
+                    let runs = List.ofSeq runs
 
-        let wrongQubit, _ = mean (Some(readout (singleQubitCalibration 3 p01 p10)))
+                    return
+                        runs |> List.averageBy (fun r -> r.Energy), runs |> List.forall (fun r -> r.ErrorMitigationApplied)
+                }
 
-        Assert.False(unmitigatedFlag)
-        Assert.True(mitigatedFlag, "mitigation on sampled measurements must be reported as applied")
-        Assert.True(abs (unmitigated - exact) > 0.05, $"readout noise must bias the energy: {unmitigated} vs {exact}")
-        Assert.True(abs (mitigated - exact) < 0.03, $"mitigated {mitigated} Ha must recover the noiseless {exact} Ha")
-        Assert.True(abs (wrongQubit - exact) > 0.05, $"a calibration of the wrong qubit must not fix it: {wrongQubit}")
+            let! unmitigated, unmitigatedFlag = mean None
+
+            let! mitigated, mitigatedFlag = mean (Some(readout (singleQubitCalibration 0 p01 p10)))
+
+            let! wrongQubit, _ = mean (Some(readout (singleQubitCalibration 3 p01 p10)))
+
+            Assert.False(unmitigatedFlag)
+            Assert.True(mitigatedFlag, "mitigation on sampled measurements must be reported as applied")
+            Assert.True(abs (unmitigated - exact) > 0.05, $"readout noise must bias the energy: {unmitigated} vs {exact}")
+            Assert.True(abs (mitigated - exact) < 0.03, $"mitigated {mitigated} Ha must recover the noiseless {exact} Ha")
+            Assert.True(abs (wrongQubit - exact) > 0.05, $"a calibration of the wrong qubit must not fix it: {wrongQubit}")
+        }
+        :> Task
 
     [<Fact>]
-    let ``Mitigation requested on a statevector backend reports that nothing was corrected`` () =
-        let strategy: ErrorMitigationStrategy.RecommendedStrategy =
-            {
-                Primary = ErrorMitigationStrategy.ReadoutErrorMitigation None
-                Fallback = None
-                Reasoning = "test"
-                EstimatedCostMultiplier = 1.0
-                EstimatedAccuracy = 1.0
-            }
-
-        match
-            energyOf
-                (Molecule.createH2 0.7414)
-                { configWith (Some(LocalBackend() :> IQuantumBackend)) None with
-                    ErrorMitigation = Some strategy
+    let ``Mitigation requested on a statevector backend reports that nothing was corrected`` () : Task =
+        task {
+            let strategy: ErrorMitigationStrategy.RecommendedStrategy =
+                {
+                    Primary = ErrorMitigationStrategy.ReadoutErrorMitigation None
+                    Fallback = None
+                    Reasoning = "test"
+                    EstimatedCostMultiplier = 1.0
+                    EstimatedAccuracy = 1.0
                 }
-        with
-        | Ok r ->
-            Assert.False(r.ErrorMitigationApplied, "statevector expectations are exact: nothing to mitigate")
-            Assert.True(abs (r.Energy - fciH2) < chemicalAccuracy)
-        | Error e -> Assert.Fail e.Message
+
+            match!
+                energyOf
+                    (Molecule.createH2 0.7414)
+                    { configWith (Some(LocalBackend() :> IQuantumBackend)) None with
+                        ErrorMitigation = Some strategy
+                    }
+            with
+            | Ok r ->
+                Assert.False(r.ErrorMitigationApplied, "statevector expectations are exact: nothing to mitigate")
+                Assert.True(abs (r.Energy - fciH2) < chemicalAccuracy)
+            | Error e -> Assert.Fail e.Message
+        }
+        :> Task
 
     /// Fails exactly one ApplyOperation call, the `failAt`-th (1-based).
     type private FailOnceBackend(inner: IQuantumBackend, failAt: int) =
@@ -2600,90 +2634,105 @@ module VqeIntegralPathTests =
                 inner.ApplyOperationAsync operation state ct
 
     [<Fact>]
-    let ``A failed gradient evaluation is returned as Error`` () =
-        let oneIteration backend =
-            { configWith (Some backend) None with
-                MaxIterations = 1
-            }
+    let ``A failed gradient evaluation is returned as Error`` () : Task =
+        task {
+            let oneIteration backend =
+                { configWith (Some backend) None with
+                    MaxIterations = 1
+                }
 
-        // One iteration = energy evaluation + one finite-difference evaluation per parameter;
-        // the last operation belongs to the last gradient evaluation.
-        let counting = CountingBackend(LocalBackend())
+            // One iteration = energy evaluation + one finite-difference evaluation per parameter;
+            // the last operation belongs to the last gradient evaluation.
+            let counting = CountingBackend(LocalBackend())
 
-        match energyOf (Molecule.createH2 0.7414) (oneIteration (counting :> IQuantumBackend)) with
-        | Error e -> Assert.Fail($"reference run failed: {e.Message}")
-        | Ok _ ->
-            let failing = FailOnceBackend(LocalBackend(), counting.Applied)
+            match! energyOf (Molecule.createH2 0.7414) (oneIteration (counting :> IQuantumBackend)) with
+            | Error e -> Assert.Fail($"reference run failed: {e.Message}")
+            | Ok _ ->
+                let failing = FailOnceBackend(LocalBackend(), counting.Applied)
 
-            match energyOf (Molecule.createH2 0.7414) (oneIteration (failing :> IQuantumBackend)) with
-            | Ok r ->
-                Assert.Fail($"a failed gradient evaluation must not be treated as a zero gradient, got {r.Energy}")
-            | Error e -> Assert.Contains("injected failure", e.Message)
-
-    [<Fact>]
-    let ``Molecule wider than the NISQ qubit budget returns Error naming the limit`` () =
-        // 11 spatial orbitals -> 22 spin orbitals, above Types.NisqPracticalQubits; nothing is simulated.
-        let n = 11
-
-        let tooLarge: IntegralProvider =
-            fun _ ->
-                Ok
-                    {
-                        NumOrbitals = n
-                        NumElectrons = 2
-                        NuclearRepulsion = 0.0
-                        OneElectron =
-                            {
-                                NumOrbitals = n
-                                Integrals = Array2D.zeroCreate n n
-                            }
-                        TwoElectron =
-                            {
-                                NumOrbitals = n
-                                Integrals = Array4D.zeroCreate n n n n
-                            }
-                        ReferenceEnergy = None
-                    }
-
-        let backend = CountingBackend(LocalBackend())
-
-        match energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) (Some tooLarge)) with
-        | Ok r -> Assert.Fail($"22 qubits exceeds the budget, got {r.Energy} from {r.Source}")
-        | Error e ->
-            Assert.Contains($"max {Types.NisqPracticalQubits}", e.Message)
-            Assert.Equal(0, backend.Applied)
+                match! energyOf (Molecule.createH2 0.7414) (oneIteration (failing :> IQuantumBackend)) with
+                | Ok r ->
+                    Assert.Fail($"a failed gradient evaluation must not be treated as a zero gradient, got {r.Energy}")
+                | Error e -> Assert.Contains("injected failure", e.Message)
+        }
+        :> Task
 
     [<Fact>]
-    let ``Backend qubit limit returns Error naming the backend limit`` () =
-        let backend = QubitLimitedBackend(LocalBackend(), 2)
+    let ``Molecule wider than the NISQ qubit budget returns Error naming the limit`` () : Task =
+        task {
+            // 11 spatial orbitals -> 22 spin orbitals, above Types.NisqPracticalQubits; nothing is simulated.
+            let n = 11
 
-        match energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) None) with
-        | Ok r -> Assert.Fail($"H2/STO-3G needs 4 qubits, backend runs 2; got {r.Energy} from {r.Source}")
-        | Error e ->
-            Assert.Contains("runs at most 2", e.Message)
-            Assert.Equal(0, backend.Applied)
+            let tooLarge: IntegralProvider =
+                fun _ ->
+                    Ok
+                        {
+                            NumOrbitals = n
+                            NumElectrons = 2
+                            NuclearRepulsion = 0.0
+                            OneElectron =
+                                {
+                                    NumOrbitals = n
+                                    Integrals = Array2D.zeroCreate n n
+                                }
+                            TwoElectron =
+                                {
+                                    NumOrbitals = n
+                                    Integrals = Array4D.zeroCreate n n n n
+                                }
+                            ReferenceEnergy = None
+                        }
+
+            let backend = CountingBackend(LocalBackend())
+
+            match! energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) (Some tooLarge)) with
+            | Ok r -> Assert.Fail($"22 qubits exceeds the budget, got {r.Energy} from {r.Source}")
+            | Error e ->
+                Assert.Contains($"max {Types.NisqPracticalQubits}", e.Message)
+                Assert.Equal(0, backend.Applied)
+        }
+        :> Task
 
     [<Fact>]
-    let ``Automatic method on H2O returns Error instead of the tabulated reference`` () =
-        let config =
-            { configWith None None with
-                Method = GroundStateMethod.Automatic
-            }
+    let ``Backend qubit limit returns Error naming the backend limit`` () : Task =
+        task {
+            let backend = QubitLimitedBackend(LocalBackend(), 2)
 
-        match energyOf (Molecule.createH2O ()) config with
-        | Ok r -> Assert.Fail($"Automatic must not substitute a tabulated energy, got {r.Energy} from {r.Source}")
-        | Error e -> Assert.Contains("IntegralProvider", e.Message)
+            match! energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) None) with
+            | Ok r -> Assert.Fail($"H2/STO-3G needs 4 qubits, backend runs 2; got {r.Energy} from {r.Source}")
+            | Error e ->
+                Assert.Contains("runs at most 2", e.Message)
+                Assert.Equal(0, backend.Applied)
+        }
+        :> Task
 
     [<Fact>]
-    let ``Initial parameters of the wrong length return Error`` () =
-        let config =
-            { configWith None None with
-                InitialParameters = Some [| 0.1; 0.2; 0.3 |]
-            }
+    let ``Automatic method on H2O returns Error instead of the tabulated reference`` () : Task =
+        task {
+            let config =
+                { configWith None None with
+                    Method = GroundStateMethod.Automatic
+                }
 
-        match energyOf (Molecule.createH2 0.7414) config with
-        | Ok r -> Assert.Fail($"UCCSD for H2 takes 5 parameters; 3 must be rejected, got {r.Energy}")
-        | Error e -> Assert.Contains("takes 5 parameters", e.Message)
+            match! energyOf (Molecule.createH2O ()) config with
+            | Ok r -> Assert.Fail($"Automatic must not substitute a tabulated energy, got {r.Energy} from {r.Source}")
+            | Error e -> Assert.Contains("IntegralProvider", e.Message)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Initial parameters of the wrong length return Error`` () : Task =
+        task {
+            let config =
+                { configWith None None with
+                    InitialParameters = Some [| 0.1; 0.2; 0.3 |]
+                }
+
+            match! energyOf (Molecule.createH2 0.7414) config with
+            | Ok r -> Assert.Fail($"UCCSD for H2 takes 5 parameters; 3 must be rejected, got {r.Energy}")
+            | Error e -> Assert.Contains("takes 5 parameters", e.Message)
+        }
+        :> Task
 
 /// FCIDUMP integrals (FciDumpIntegrals / MoleculeFormats.FciDump.parseIntegrals) feed VQE.
 module FciDumpIntegralTests =
@@ -2772,36 +2821,41 @@ module FciDumpIntegralTests =
             | Error e -> Assert.Fail($"parse failed: {e.Message}\n{content}")
 
     [<Fact>]
-    let ``VQE on an FCIDUMP IntegralProvider matches the bundled-integral VQE`` () =
-        let path =
-            Path.Combine(Path.GetTempPath(), $"h2-sto3g-{System.Guid.NewGuid():N}.fcidump")
+    let ``VQE on an FCIDUMP IntegralProvider matches the bundled-integral VQE`` () : Task =
+        task {
+            let path =
+                Path.Combine(Path.GetTempPath(), $"h2-sto3g-{System.Guid.NewGuid():N}.fcidump")
 
-        File.WriteAllText(path, h2Fcidump)
+            do! File.WriteAllTextAsync(path, h2Fcidump)
 
-        try
-            let h2 = Molecule.createH2 0.7414
+            try
+                let h2 = Molecule.createH2 0.7414
 
-            let run provider =
-                GroundStateEnergy.estimateEnergy h2 (vqeConfig provider)
-                |> Async.RunSynchronously
+                let run provider =
+                    GroundStateEnergy.estimateEnergyAsync h2 (vqeConfig provider) CancellationToken.None
 
-            match run (Some(fun _ -> Ok bundled)), run (Some(FciDumpIntegrals.fromFile path)) with
-            | Ok fromBundled, Ok fromFcidump ->
-                Assert.Equal(ProviderIntegrals, fromFcidump.Source)
-                Assert.True(fromFcidump.Iterations > 0, "VQE must iterate")
+                let! bundledRun = run (Some(fun _ -> Ok bundled))
+                let! fcidumpRun = run (Some(FciDumpIntegrals.fromFile path))
 
-                Assert.True(
-                    abs (fromFcidump.Energy - fromBundled.Energy) < 1e-9,
-                    $"FCIDUMP energy {fromFcidump.Energy} must equal bundled-integral energy {fromBundled.Energy}"
-                )
+                match bundledRun, fcidumpRun with
+                | Ok fromBundled, Ok fromFcidump ->
+                    Assert.Equal(ProviderIntegrals, fromFcidump.Source)
+                    Assert.True(fromFcidump.Iterations > 0, "VQE must iterate")
 
-                Assert.True(
-                    abs (fromFcidump.Energy - -1.13727) < 0.0016,
-                    $"FCIDUMP VQE energy {fromFcidump.Energy} Ha must be within chemical accuracy of FCI -1.13727 Ha"
-                )
-            | a, b -> Assert.Fail($"both runs should succeed: %A{a} / %A{b}")
-        finally
-            File.Delete path
+                    Assert.True(
+                        abs (fromFcidump.Energy - fromBundled.Energy) < 1e-9,
+                        $"FCIDUMP energy {fromFcidump.Energy} must equal bundled-integral energy {fromBundled.Energy}"
+                    )
+
+                    Assert.True(
+                        abs (fromFcidump.Energy - -1.13727) < 0.0016,
+                        $"FCIDUMP VQE energy {fromFcidump.Energy} Ha must be within chemical accuracy of FCI -1.13727 Ha"
+                    )
+                | a, b -> Assert.Fail($"both runs should succeed: %A{a} / %A{b}")
+            finally
+                File.Delete path
+        }
+        :> Task
 
     [<Fact>]
     let ``Malformed FCIDUMP content returns Error`` () =
@@ -2831,10 +2885,10 @@ module FciDumpIntegralTests =
                 Path.Combine(Path.GetTempPath(), $"missing-{System.Guid.NewGuid():N}.fcidump")
 
             match!
-                GroundStateEnergy.estimateEnergy
+                GroundStateEnergy.estimateEnergyAsync
                     (Molecule.createH2 0.7414)
                     (vqeConfig (Some(FciDumpIntegrals.fromFile path)))
-                |> Async.StartImmediateAsTask
+                    CancellationToken.None
             with
             | Ok r -> Assert.Fail($"a missing FCIDUMP must not yield an energy, got {r.Energy} from {r.Source}")
             | Error e -> Assert.Contains("File not found", e.Message)
@@ -2842,29 +2896,32 @@ module FciDumpIntegralTests =
         :> Task
 
     [<Fact>]
-    let ``Builder molecule_from_fcidump runs VQE on the file's integrals`` () =
-        let path = Path.Combine(Path.GetTempPath(), $"h2-{System.Guid.NewGuid():N}.fcidump")
-        File.WriteAllText(path, h2Fcidump)
+    let ``Builder molecule_from_fcidump runs VQE on the file's integrals`` () : Task =
+        task {
+            let path = Path.Combine(Path.GetTempPath(), $"h2-{System.Guid.NewGuid():N}.fcidump")
+            do! File.WriteAllTextAsync(path, h2Fcidump)
 
-        try
-            let problem =
-                QuantumChemistryBuilder.quantumChemistry {
-                    molecule_from_fcidump path
-                    basis "sto-3g"
-                    ansatz QuantumChemistryBuilder.UCCSD
-                }
+            try
+                let problem =
+                    QuantumChemistryBuilder.quantumChemistry {
+                        molecule_from_fcidump path
+                        basis "sto-3g"
+                        ansatz QuantumChemistryBuilder.UCCSD
+                    }
 
-            match QuantumChemistryBuilder.solve problem |> Async.RunSynchronously with
-            | Ok r ->
-                Assert.Equal(ProviderIntegrals, r.Source)
+                match! QuantumChemistryBuilder.solveAsync problem CancellationToken.None with
+                | Ok r ->
+                    Assert.Equal(ProviderIntegrals, r.Source)
 
-                Assert.True(
-                    abs (r.GroundStateEnergy - -1.13727) < 0.0016,
-                    $"FCIDUMP VQE energy {r.GroundStateEnergy} Ha must be within chemical accuracy of FCI"
-                )
-            | Error e -> Assert.Fail($"solve on an FCIDUMP should succeed: {e.Message}")
-        finally
-            File.Delete path
+                    Assert.True(
+                        abs (r.GroundStateEnergy - -1.13727) < 0.0016,
+                        $"FCIDUMP VQE energy {r.GroundStateEnergy} Ha must be within chemical accuracy of FCI"
+                    )
+                | Error e -> Assert.Fail($"solve on an FCIDUMP should succeed: {e.Message}")
+            finally
+                File.Delete path
+        }
+        :> Task
 
     [<Fact>]
     let ``Builder integralProvider supplies the integrals`` () =
@@ -2884,7 +2941,7 @@ module FciDumpIntegralTests =
                     integralProvider shifted
                 }
 
-            match! QuantumChemistryBuilder.solve problem |> Async.StartImmediateAsTask with
+            match! QuantumChemistryBuilder.solveAsync problem CancellationToken.None with
             | Ok r ->
                 Assert.Equal(ProviderIntegrals, r.Source)
 
@@ -2966,7 +3023,7 @@ module Sto3gIntegralTests =
                     IntegralProvider = None
                 }
 
-            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            match! GroundStateEnergy.estimateEnergyAsync h2 config CancellationToken.None with
             | Ok r ->
                 Assert.True(r.Converged, $"R = {bondLength} A: not converged after {r.Iterations} iterations")
 
@@ -3119,28 +3176,28 @@ module BundledFciDumpTests =
             | Error e -> Assert.Fail($"{file}: {e.Message}")
 
     [<Fact>]
-    let ``UCCSD-VQE on the bundled CAS(2,2) FCIDUMPs reproduces the PySCF CASSCF energies`` () =
-        for file, _, eCas in manifest () |> List.filter (fun (_, orbitals, _) -> orbitals = 2) do
-            let config =
-                {
-                    Method = GroundStateMethod.VQE
-                    MaxIterations = 100
-                    Tolerance = 1e-8
-                    InitialParameters = None
-                    Backend = None
-                    ProgressReporter = None
-                    ErrorMitigation = None
-                    IntegralProvider = Some(FciDumpIntegrals.fromFile (Path.Combine(directory, file)))
-                }
+    let ``UCCSD-VQE on the bundled CAS(2,2) FCIDUMPs reproduces the PySCF CASSCF energies`` () : Task =
+        task {
+            for file, _, eCas in manifest () |> List.filter (fun (_, orbitals, _) -> orbitals = 2) do
+                let config =
+                    {
+                        Method = GroundStateMethod.VQE
+                        MaxIterations = 100
+                        Tolerance = 1e-8
+                        InitialParameters = None
+                        Backend = None
+                        ProgressReporter = None
+                        ErrorMitigation = None
+                        IntegralProvider = Some(FciDumpIntegrals.fromFile (Path.Combine(directory, file)))
+                    }
 
-            match
-                GroundStateEnergy.estimateEnergy (Molecule.createH2 0.74) config
-                |> Async.RunSynchronously
-            with
-            | Ok r ->
-                Assert.Equal(ProviderIntegrals, r.Source)
-                Assert.True(abs (r.Energy - eCas) < 1e-5, $"{file}: VQE {r.Energy} Ha vs PySCF CASSCF {eCas} Ha")
-            | Error e -> Assert.Fail($"{file}: {e.Message}")
+                match! GroundStateEnergy.estimateEnergyAsync (Molecule.createH2 0.74) config CancellationToken.None with
+                | Ok r ->
+                    Assert.Equal(ProviderIntegrals, r.Source)
+                    Assert.True(abs (r.Energy - eCas) < 1e-5, $"{file}: VQE {r.Energy} Ha vs PySCF CASSCF {eCas} Ha")
+                | Error e -> Assert.Fail($"{file}: {e.Message}")
+        }
+        :> Task
 
 /// Admission rules and basis support of the computed-integral and provider paths.
 module ChemistryAdmissionTests =
@@ -3176,7 +3233,7 @@ module ChemistryAdmissionTests =
         }
 
     let private run m provider =
-        GroundStateEnergy.estimateEnergy m (config provider) |> Async.RunSynchronously
+        GroundStateEnergy.estimateEnergyAsync m (config provider) CancellationToken.None
 
     /// Lowest eigenvalue of the Jordan-Wigner Hamiltonian of `integrals` among states with
     /// `electrons` electrons, plus nuclear repulsion: an FCI independent of the VQE code.
@@ -3257,26 +3314,28 @@ module ChemistryAdmissionTests =
             Assert.Contains("carry their own basis", e.Message)
 
     [<Fact; Trait("Category", "Slow")>]
-    let ``Builder basis selects the computed integrals`` () =
-        let solve basisName =
-            QuantumChemistryBuilder.quantumChemistry {
-                molecule (QuantumChemistryBuilder.h2 0.7414)
-                basis basisName
-                ansatz QuantumChemistryBuilder.UCCSD
-            }
-            |> QuantumChemistryBuilder.solve
-            |> Async.RunSynchronously
+    let ``Builder basis selects the computed integrals`` () : Task =
+        task {
+            let solve basisName =
+                QuantumChemistryBuilder.quantumChemistry {
+                    molecule (QuantumChemistryBuilder.h2 0.7414)
+                    basis basisName
+                    ansatz QuantumChemistryBuilder.UCCSD
+                }
+                |> fun problem -> QuantumChemistryBuilder.solveAsync problem CancellationToken.None
 
-        match solve "6-31g" with
-        | Ok r ->
-            Assert.Equal(Computed631gIntegrals, r.Source)
-            Assert.True(abs (r.GroundStateEnergy - -1.1516827321) < 1e-3, $"6-31G VQE {r.GroundStateEnergy} Ha")
-        | Error e -> Assert.Fail($"6-31G should run: {e.Message}")
+            match! solve "6-31g" with
+            | Ok r ->
+                Assert.Equal(Computed631gIntegrals, r.Source)
+                Assert.True(abs (r.GroundStateEnergy - -1.1516827321) < 1e-3, $"6-31G VQE {r.GroundStateEnergy} Ha")
+            | Error e -> Assert.Fail($"6-31G should run: {e.Message}")
 
-        match solve "cc-pvdz" with
-        | Ok r ->
-            Assert.Fail($"cc-pVDZ must not silently run in another basis, got {r.GroundStateEnergy} from {r.Source}")
-        | Error e -> Assert.Contains("6-31G", e.Message)
+            match! solve "cc-pvdz" with
+            | Ok r ->
+                Assert.Fail($"cc-pVDZ must not silently run in another basis, got {r.GroundStateEnergy} from {r.Source}")
+            | Error e -> Assert.Contains("6-31G", e.Message)
+        }
+        :> Task
 
     [<Fact>]
     let ``RHF converges for stretched hydrogen chains and rings`` () =
@@ -3310,111 +3369,124 @@ module ChemistryAdmissionTests =
             | Error e -> Assert.Fail($"{m.Name}: {e.Message}")
 
     [<Fact>]
-    let ``UCCSD above the parameter limit is an Error before any VQE runs`` () =
-        // H6 chain: 6 electrons in 12 spin orbitals -> 261 UCCSD parameters
-        let h6 = molecule "H6" [ for i in 0..5 -> atom "H" (0.0, 0.0, float i * 0.9) ] 0 1
+    let ``UCCSD above the parameter limit is an Error before any VQE runs`` () : Task =
+        task {
+            // H6 chain: 6 electrons in 12 spin orbitals -> 261 UCCSD parameters
+            let h6 = molecule "H6" [ for i in 0..5 -> atom "H" (0.0, 0.0, float i * 0.9) ] 0 1
 
-        let watch = System.Diagnostics.Stopwatch.StartNew()
+            let watch = System.Diagnostics.Stopwatch.StartNew()
 
-        match run h6 None with
-        | Ok r -> Assert.Fail($"H6 UCCSD must be refused, got {r.Energy}")
-        | Error e ->
-            Assert.Contains("261 parameters", e.Message)
-            Assert.Contains("active space", e.Message)
+            match! run h6 None with
+            | Ok r -> Assert.Fail($"H6 UCCSD must be refused, got {r.Energy}")
+            | Error e ->
+                Assert.Contains("261 parameters", e.Message)
+                Assert.Contains("active space", e.Message)
 
-        Assert.True(watch.Elapsed.TotalSeconds < 10.0, $"refusal took {watch.Elapsed.TotalSeconds} s")
+            Assert.True(watch.Elapsed.TotalSeconds < 10.0, $"refusal took {watch.Elapsed.TotalSeconds} s")
+        }
+        :> Task
 
     [<Fact>]
-    let ``Spin states UCCSD cannot honour are Errors on both paths`` () =
-        // Triplet FCIDUMP (MS2=2) for two electrons
-        let tripletFcidump =
-            String.concat
-                "\n"
+    let ``Spin states UCCSD cannot honour are Errors on both paths`` () : Task =
+        task {
+            // Triplet FCIDUMP (MS2=2) for two electrons
+            let tripletFcidump =
+                String.concat
+                    "\n"
+                    [
+                        " &FCI NORB=2,NELEC=2,MS2=2,"
+                        " &END"
+                        "  0.674493 1 1 1 1"
+                        " -1.252477 1 1 0 0"
+                        "  0.713754 0 0 0 0"
+                        ""
+                    ]
+
+            match FciDumpIntegrals.parse tripletFcidump with
+            | Ok _ -> Assert.Fail("an MS2=2 FCIDUMP must not be read as a singlet")
+            | Error e -> Assert.Contains("MS2=2", e.Message)
+
+            // Provider integrals for a closed shell, molecule asking for a triplet
+            let triplet =
+                { Molecule.createH2 0.7414 with
+                    Multiplicity = 3
+                }
+
+            match! run triplet (Some(fun _ -> Ok MolecularHamiltonian.h2Sto3gIntegrals)) with
+            | Ok r -> Assert.Fail($"a triplet request must not return the singlet energy {r.Energy}")
+            | Error e -> Assert.Contains("multiplicity 3", e.Message)
+
+            // Three-electron doublet: not honoured by either path
+            let h3 =
+                molecule "H3" [ atom "H" (0.0, 0.0, 0.0); atom "H" (0.0, 0.0, 0.8); atom "H" (0.3, 0.0, 2.1) ] 0 2
+
+            match! run h3 None with
+            | Ok r -> Assert.Fail($"H3 doublet must be refused, got {r.Energy}")
+            | Error e -> Assert.Contains("one-electron doublets", e.Message)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``ClassicalDFT is deterministic and matches by composition`` () : Task =
+        task {
+            let classical m =
+                GroundStateEnergy.estimateEnergyWithAsync GroundStateMethod.ClassicalDFT m (config None) CancellationToken.None
+
+            let renamed =
+                { Molecule.createH2 0.74 with
+                    Name = "hydrogen from file"
+                }
+
+            let! first = classical renamed
+            let! second = classical renamed
+
+            match first, second with
+            | Ok a, Ok b ->
+                Assert.Equal(-1.174, a.Energy)
+                Assert.Equal(a.Energy, b.Energy)
+                Assert.Equal(TabulatedReference, a.Source)
+            | a, b -> Assert.Fail($"%A{a} / %A{b}")
+
+            // Name alone does not match: an "H2"-named water is water
+            match!
+                classical
+                    { Molecule.createH2O () with
+                        Name = "H2"
+                    }
+            with
+            | Ok r -> Assert.Equal(-76.0, r.Energy)
+            | Error e -> Assert.Fail e.Message
+        }
+        :> Task
+
+    [<Fact>]
+    let ``ClassicalDFT refuses states its table does not describe`` () : Task =
+        task {
+            let classical m =
+                GroundStateEnergy.estimateEnergyWithAsync GroundStateMethod.ClassicalDFT m (config None) CancellationToken.None
+
+            let h2 = Molecule.createH2 0.7414
+
+            for m in
                 [
-                    " &FCI NORB=2,NELEC=2,MS2=2,"
-                    " &END"
-                    "  0.674493 1 1 1 1"
-                    " -1.252477 1 1 0 0"
-                    "  0.713754 0 0 0 0"
-                    ""
-                ]
+                    { h2 with Multiplicity = 3 }
+                    { h2 with Charge = 1; Multiplicity = 2 }
+                    { h2 with
+                        Charge = -1
+                        Multiplicity = 2
+                    }
+                    Molecule.createH2 3.0
+                    Molecule.createLiH 2.5
+                ] do
+                match! classical m with
+                | Ok r -> Assert.Fail($"charge {m.Charge}, multiplicity {m.Multiplicity}: got the table value {r.Energy}")
+                | Error e -> Assert.Contains("not the state the table describes", e.Message)
 
-        match FciDumpIntegrals.parse tripletFcidump with
-        | Ok _ -> Assert.Fail("an MS2=2 FCIDUMP must not be read as a singlet")
-        | Error e -> Assert.Contains("MS2=2", e.Message)
-
-        // Provider integrals for a closed shell, molecule asking for a triplet
-        let triplet =
-            { Molecule.createH2 0.7414 with
-                Multiplicity = 3
-            }
-
-        match run triplet (Some(fun _ -> Ok MolecularHamiltonian.h2Sto3gIntegrals)) with
-        | Ok r -> Assert.Fail($"a triplet request must not return the singlet energy {r.Energy}")
-        | Error e -> Assert.Contains("multiplicity 3", e.Message)
-
-        // Three-electron doublet: not honoured by either path
-        let h3 =
-            molecule "H3" [ atom "H" (0.0, 0.0, 0.0); atom "H" (0.0, 0.0, 0.8); atom "H" (0.3, 0.0, 2.1) ] 0 2
-
-        match run h3 None with
-        | Ok r -> Assert.Fail($"H3 doublet must be refused, got {r.Energy}")
-        | Error e -> Assert.Contains("one-electron doublets", e.Message)
-
-    [<Fact>]
-    let ``ClassicalDFT is deterministic and matches by composition`` () =
-        let classical m =
-            GroundStateEnergy.estimateEnergyWith GroundStateMethod.ClassicalDFT m (config None)
-            |> Async.RunSynchronously
-
-        let renamed =
-            { Molecule.createH2 0.74 with
-                Name = "hydrogen from file"
-            }
-
-        match classical renamed, classical renamed with
-        | Ok a, Ok b ->
-            Assert.Equal(-1.174, a.Energy)
-            Assert.Equal(a.Energy, b.Energy)
-            Assert.Equal(TabulatedReference, a.Source)
-        | a, b -> Assert.Fail($"%A{a} / %A{b}")
-
-        // Name alone does not match: an "H2"-named water is water
-        match
-            classical
-                { Molecule.createH2O () with
-                    Name = "H2"
-                }
-        with
-        | Ok r -> Assert.Equal(-76.0, r.Energy)
-        | Error e -> Assert.Fail e.Message
-
-    [<Fact>]
-    let ``ClassicalDFT refuses states its table does not describe`` () =
-        let classical m =
-            GroundStateEnergy.estimateEnergyWith GroundStateMethod.ClassicalDFT m (config None)
-            |> Async.RunSynchronously
-
-        let h2 = Molecule.createH2 0.7414
-
-        for m in
-            [
-                { h2 with Multiplicity = 3 }
-                { h2 with Charge = 1; Multiplicity = 2 }
-                { h2 with
-                    Charge = -1
-                    Multiplicity = 2
-                }
-                Molecule.createH2 3.0
-                Molecule.createLiH 2.5
-            ] do
-            match classical m with
-            | Ok r -> Assert.Fail($"charge {m.Charge}, multiplicity {m.Multiplicity}: got the table value {r.Energy}")
-            | Error e -> Assert.Contains("not the state the table describes", e.Message)
-
-        match classical (Molecule.createLiH 1.595) with
-        | Ok r -> Assert.Equal(-8.0, r.Energy)
-        | Error e -> Assert.Fail e.Message
+            match! classical (Molecule.createLiH 1.595) with
+            | Ok r -> Assert.Equal(-8.0, r.Energy)
+            | Error e -> Assert.Fail e.Message
+        }
+        :> Task
 
     [<Fact>]
     let ``RHF finds the lowest solution where DIIS from the core guess stops higher`` () =
@@ -3460,37 +3532,40 @@ module ChemistryAdmissionTests =
             )
 
     [<Fact>]
-    let ``UCCSD size limit is checked before the qubit Hamiltonian is built`` () =
-        // 10 electrons in 10 orbitals: 2125 parameters; building its 20-qubit Hamiltonian is slow.
-        let n = 10
+    let ``UCCSD size limit is checked before the qubit Hamiltonian is built`` () : Task =
+        task {
+            // 10 electrons in 10 orbitals: 2125 parameters; building its 20-qubit Hamiltonian is slow.
+            let n = 10
 
-        let wide: IntegralProvider =
-            fun _ ->
-                Ok
-                    {
-                        NumOrbitals = n
-                        NumElectrons = n
-                        NuclearRepulsion = 0.0
-                        OneElectron =
-                            {
-                                NumOrbitals = n
-                                Integrals = Array2D.init n n (fun i j -> if i = j then -1.0 + 0.1 * float i else 0.01)
-                            }
-                        TwoElectron =
-                            {
-                                NumOrbitals = n
-                                Integrals = Array4D.init n n n n (fun p q r s -> if p = q && r = s then 0.5 else 0.001)
-                            }
-                        ReferenceEnergy = None
-                    }
+            let wide: IntegralProvider =
+                fun _ ->
+                    Ok
+                        {
+                            NumOrbitals = n
+                            NumElectrons = n
+                            NuclearRepulsion = 0.0
+                            OneElectron =
+                                {
+                                    NumOrbitals = n
+                                    Integrals = Array2D.init n n (fun i j -> if i = j then -1.0 + 0.1 * float i else 0.01)
+                                }
+                            TwoElectron =
+                                {
+                                    NumOrbitals = n
+                                    Integrals = Array4D.init n n n n (fun p q r s -> if p = q && r = s then 0.5 else 0.001)
+                                }
+                            ReferenceEnergy = None
+                        }
 
-        let watch = System.Diagnostics.Stopwatch.StartNew()
+            let watch = System.Diagnostics.Stopwatch.StartNew()
 
-        match run (molecule "X" [ atom "C" (0.0, 0.0, 0.0) ] 0 1) (Some wide) with
-        | Ok r -> Assert.Fail($"2125 UCCSD parameters must be refused, got {r.Energy}")
-        | Error e -> Assert.Contains("MaxUccsdParameters", e.Message)
+            match! run (molecule "X" [ atom "C" (0.0, 0.0, 0.0) ] 0 1) (Some wide) with
+            | Ok r -> Assert.Fail($"2125 UCCSD parameters must be refused, got {r.Energy}")
+            | Error e -> Assert.Contains("MaxUccsdParameters", e.Message)
 
-        Assert.True(watch.Elapsed.TotalSeconds < 3.0, $"refusal took {watch.Elapsed.TotalSeconds} s")
+            Assert.True(watch.Elapsed.TotalSeconds < 3.0, $"refusal took {watch.Elapsed.TotalSeconds} s")
+        }
+        :> Task
 
 /// UCCSD-VQE on backends that run only whole circuits (cloud hardware).
 module WholeCircuitUccsdTests =
@@ -3579,16 +3654,18 @@ module WholeCircuitUccsdTests =
         }
 
     let private exactVqe () =
-        match
-            VQE.run
-                h2
-                { config (Backends.LocalBackend.LocalBackend() :> IQuantumBackend) 100 with
-                    Backend = None
-                }
-            |> Async.RunSynchronously
-        with
-        | Ok r -> r
-        | Error e -> failwith e.Message
+        task {
+            match!
+                VQE.runAsync
+                    h2
+                    { config (Backends.LocalBackend.LocalBackend() :> IQuantumBackend) 100 with
+                        Backend = None
+                    }
+                    CancellationToken.None
+            with
+            | Ok r -> return r
+            | Error e -> return failwith e.Message
+        }
 
     [<Fact>]
     let ``Measurement groups cover every term once and qubit-wise commute`` () =
@@ -3658,38 +3735,43 @@ module WholeCircuitUccsdTests =
             | Error e -> Assert.Fail e.Message
 
     [<Fact>]
-    let ``Whole-circuit UCCSD energy equals the gate-by-gate energy at the same amplitudes`` () =
-        let hamiltonian = qubitHamiltonian h2Integrals
-        let parameters = [| 0.03; -0.02; 0.01; 0.04; -0.1 |]
+    let ``Whole-circuit UCCSD energy equals the gate-by-gate energy at the same amplitudes`` () : Task =
+        task {
+            let hamiltonian = qubitHamiltonian h2Integrals
+            let parameters = [| 0.03; -0.02; 0.01; 0.04; -0.1 |]
 
-        let gateByGate =
-            {
-                Hamiltonian = hamiltonian
-                Ansatz = ChemistryVQE.UCCSD(2, 4)
-                MaxIterations = 0
-                Tolerance = 1e-8
-                UseHFInitialState = true
-                Backend = Backends.LocalBackend.LocalBackend() :> IQuantumBackend
-                ProgressReporter = None
-            }
-            : ChemistryVQE.ChemistryVQEConfig
+            let gateByGate =
+                {
+                    Hamiltonian = hamiltonian
+                    Ansatz = ChemistryVQE.UCCSD(2, 4)
+                    MaxIterations = 0
+                    Tolerance = 1e-8
+                    UseHFInitialState = true
+                    Backend = Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+                    ProgressReporter = None
+                }
+                : ChemistryVQE.ChemistryVQEConfig
 
-        let exactEnergy =
-            match ChemistryVQE.runWith (Some parameters) None gateByGate |> Async.RunSynchronously with
-            | Ok r ->
-                Assert.Equal(ExactExpectation, r.Estimation)
-                r.Energy
-            | Error e -> failwith e.Message
+            let! gateByGateRun = ChemistryVQE.runWithAsync (Some parameters) None gateByGate CancellationToken.None
 
-        match
-            ChemistryVQE.uccsdCircuit 2 4 parameters
-            |> Result.bind (fun circuit ->
-                ChemistryVQE.sampledExpectation (WholeCircuitBackend(0, 1) :> IQuantumBackend) None circuit hamiltonian)
-        with
-        | Ok e ->
-            Assert.Equal(exactEnergy, e.Energy, 10)
-            Assert.Equal(None, e.StandardError)
-        | Error e -> Assert.Fail e.Message
+            let exactEnergy =
+                match gateByGateRun with
+                | Ok r ->
+                    Assert.Equal(ExactExpectation, r.Estimation)
+                    r.Energy
+                | Error e -> failwith e.Message
+
+            match
+                ChemistryVQE.uccsdCircuit 2 4 parameters
+                |> Result.bind (fun circuit ->
+                    ChemistryVQE.sampledExpectation (WholeCircuitBackend(0, 1) :> IQuantumBackend) None circuit hamiltonian)
+            with
+            | Ok e ->
+                Assert.Equal(exactEnergy, e.Energy, 10)
+                Assert.Equal(None, e.StandardError)
+            | Error e -> Assert.Fail e.Message
+        }
+        :> Task
 
     [<Fact>]
     let ``Exported UCCSD measurement circuits round-trip through OpenQASM`` () =
@@ -3730,13 +3812,13 @@ module WholeCircuitUccsdTests =
         task {
             let shots = 20000
             let fci = -1.1372701 // UCCSD = FCI for H2/STO-3G; the exact-path VQE below agrees
-            Assert.Equal(fci, (exactVqe ()).Energy, 6)
+            let! exact = exactVqe ()
+            Assert.Equal(fci, exact.Energy, 6)
 
             let backend = WholeCircuitBackend(shots, 7)
 
             match!
-                VQE.run h2 (config (backend :> IQuantumBackend) 200)
-                |> Async.StartImmediateAsTask
+                VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None
             with
             | Ok r ->
                 match r.Estimation with
@@ -3779,8 +3861,7 @@ module WholeCircuitUccsdTests =
                 Backends.DensityMatrixSimulator.NoisyLocalBackend(Backends.DensityMatrixSimulator.noiseless)
 
             match!
-                VQE.run h2 (config (backend :> IQuantumBackend) 200)
-                |> Async.StartImmediateAsTask
+                VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None
             with
             | Ok r ->
                 match r.Estimation with
@@ -3788,7 +3869,8 @@ module WholeCircuitUccsdTests =
                 | other -> Assert.Fail $"expected whole circuits with exact probabilities, got %A{other}"
 
                 Assert.True(r.Converged)
-                Assert.True(abs (r.Energy - (exactVqe ()).Energy) < 1.6e-3, $"{r.Energy} Ha")
+                let! exact = exactVqe ()
+                Assert.True(abs (r.Energy - exact.Energy) < 1.6e-3, $"{r.Energy} Ha")
             | Error e -> Assert.Fail e.Message
         }
         :> Task
@@ -3840,66 +3922,69 @@ module WholeCircuitUccsdTests =
         | Error e -> failwith e.Message
 
     [<Fact>]
-    let ``Sampled UCCSD-VQE never reports Converged above the noise`` () =
-        // Water CAS(2,2) at 1000 shots: SPSA's Converged means no improvement above the shot
-        // noise for 30 iterations, so a converged run's parameters must lie within
-        // Tolerance + 3 standard errors of one energy estimate of the minimum.
-        let file = bundled "water-cas-2-2"
+    let ``Sampled UCCSD-VQE never reports Converged above the noise`` () : Task =
+        task {
+            // Water CAS(2,2) at 1000 shots: SPSA's Converged means no improvement above the shot
+            // noise for 30 iterations, so a converged run's parameters must lie within
+            // Tolerance + 3 standard errors of one energy estimate of the minimum.
+            let file = bundled "water-cas-2-2"
 
-        let integrals =
-            (FciDumpIntegrals.readFile file)
-            |> Result.defaultWith (fun e -> failwith e.Message)
+            let integrals =
+                (FciDumpIntegrals.readFile file)
+                |> Result.defaultWith (fun e -> failwith e.Message)
 
-        let minimum =
-            match
-                VQE.run placeholder (providerConfig file (Backends.LocalBackend.LocalBackend() :> IQuantumBackend) 100)
-                |> Async.RunSynchronously
-            with
-            | Ok r -> r.Energy
-            | Error e -> failwith e.Message
+            let! minimumRun =
+                VQE.runAsync placeholder (providerConfig file (Backends.LocalBackend.LocalBackend() :> IQuantumBackend) 100) CancellationToken.None
 
-        for seed in 1..6 do
-            let backend = WholeCircuitBackend(1000, seed) :> IQuantumBackend
+            let minimum =
+                match minimumRun with
+                | Ok r -> r.Energy
+                | Error e -> failwith e.Message
 
-            match VQE.run placeholder (providerConfig file backend 200) |> Async.RunSynchronously with
-            | Error e -> Assert.Fail e.Message
-            | Ok r ->
-                let standardError =
-                    match
-                        ChemistryVQE.uccsdCircuit 2 4 r.OptimalParameters
-                        |> Result.bind (fun circuit ->
-                            ChemistryVQE.sampledExpectation backend None circuit (qubitHamiltonian integrals))
-                    with
-                    | Ok e -> e.StandardError.Value
-                    | Error e -> failwith e.Message
+            for seed in 1..6 do
+                let backend = WholeCircuitBackend(1000, seed) :> IQuantumBackend
 
-                let above = trueEnergy integrals r.OptimalParameters - minimum
+                match! VQE.runAsync placeholder (providerConfig file backend 200) CancellationToken.None with
+                | Error e -> Assert.Fail e.Message
+                | Ok r ->
+                    let standardError =
+                        match
+                            ChemistryVQE.uccsdCircuit 2 4 r.OptimalParameters
+                            |> Result.bind (fun circuit ->
+                                ChemistryVQE.sampledExpectation backend None circuit (qubitHamiltonian integrals))
+                        with
+                        | Ok e -> e.StandardError.Value
+                        | Error e -> failwith e.Message
 
-                if r.Converged then
-                    Assert.True(
-                        above <= 1e-6 + 3.0 * standardError,
-                        $"seed {seed}: Converged {above * 1000.0:F2} mHa above the minimum (standard error {standardError * 1000.0:F2} mHa)"
-                    )
-                else
-                    Assert.NotEmpty(r.Notes)
+                    let above = trueEnergy integrals r.OptimalParameters - minimum
+
+                    if r.Converged then
+                        Assert.True(
+                            above <= 1e-6 + 3.0 * standardError,
+                            $"seed {seed}: Converged {above * 1000.0:F2} mHa above the minimum (standard error {standardError * 1000.0:F2} mHa)"
+                        )
+                    else
+                        Assert.NotEmpty(r.Notes)
+        }
+        :> Task
 
     [<Fact>]
-    let ``Whole-circuit UCCSD-VQE refuses a plan over the circuit budget before running`` () =
-        // Ethane CAS(4,4): 52 amplitudes, 100 measurement circuits per energy; 200 SPSA
-        // iterations need over 40000 circuits.
-        let backend = WholeCircuitBackend(0, 1)
-        let watch = System.Diagnostics.Stopwatch.StartNew()
+    let ``Whole-circuit UCCSD-VQE refuses a plan over the circuit budget before running`` () : Task =
+        task {
+            // Ethane CAS(4,4): 52 amplitudes, 100 measurement circuits per energy; 200 SPSA
+            // iterations need over 40000 circuits.
+            let backend = WholeCircuitBackend(0, 1)
+            let watch = System.Diagnostics.Stopwatch.StartNew()
 
-        match
-            VQE.run placeholder (providerConfig (bundled "ethane-cas-4-4") (backend :> IQuantumBackend) 200)
-            |> Async.RunSynchronously
-        with
-        | Ok r -> Assert.Fail $"expected the budget refusal, got {r.Energy}"
-        | Error e ->
-            Assert.Contains("MaxWholeCircuitJobs", e.Message)
-            Assert.Equal(0, backend.Executed)
+            match! VQE.runAsync placeholder (providerConfig (bundled "ethane-cas-4-4") (backend :> IQuantumBackend) 200) CancellationToken.None with
+            | Ok r -> Assert.Fail $"expected the budget refusal, got {r.Energy}"
+            | Error e ->
+                Assert.Contains("MaxWholeCircuitJobs", e.Message)
+                Assert.Equal(0, backend.Executed)
 
-        Assert.True(watch.Elapsed.TotalSeconds < 10.0)
+            Assert.True(watch.Elapsed.TotalSeconds < 10.0)
+        }
+        :> Task
 
     [<Fact; Trait("Category", "Slow")>]
     let ``Whole-circuit UCCSD-VQE on 52 amplitudes never ends above its start`` () =
@@ -3917,8 +4002,7 @@ module WholeCircuitUccsdTests =
                 trueEnergy integrals (let rng = Random 42 in Array.init 52 (fun _ -> (rng.NextDouble() - 0.5) * 0.01))
 
             match!
-                VQE.run placeholder (providerConfig file (WholeCircuitBackend(0, 1) :> IQuantumBackend) 10)
-                |> Async.StartImmediateAsTask
+                VQE.runAsync placeholder (providerConfig file (WholeCircuitBackend(0, 1) :> IQuantumBackend) 10) CancellationToken.None
             with
             | Error e -> Assert.Fail e.Message
             | Ok r ->
@@ -3962,8 +4046,7 @@ module WholeCircuitUccsdTests =
             let backend = SlowWholeCircuitBackend(2.0)
 
             match!
-                VQE.run h2 (config (backend :> IQuantumBackend) 200)
-                |> Async.StartImmediateAsTask
+                VQE.runAsync h2 (config (backend :> IQuantumBackend) 200) CancellationToken.None
             with
             | Ok r -> Assert.Fail $"expected the time refusal, got {r.Energy}"
             | Error e ->
@@ -3982,12 +4065,12 @@ module WholeCircuitUccsdTests =
                 }
 
             match!
-                VQE.run
+                VQE.runAsync
                     h2
                     { config (WholeCircuitBackend(0, 1) :> IQuantumBackend) 200 with
                         ProgressReporter = Some cancelled
                     }
-                |> Async.StartImmediateAsTask
+                    CancellationToken.None
             with
             | Ok r -> Assert.Fail $"expected cancellation, got {r.Energy}"
             | Error e -> Assert.Contains("cancelled", e.Message)
@@ -4061,7 +4144,7 @@ module WholeCircuitUccsdTests =
                 Assert.True((a - expected.[i]).Magnitude < 1e-9, $"amplitude {i}: {a} vs {expected.[i]}")
         | other -> Assert.Fail $"%A{other}"
 
-/// Quantum phase estimation of molecular Hamiltonians (QPE.run).
+/// Quantum phase estimation of molecular Hamiltonians (QPE.runAsync).
 module ChemistryQpeTests =
     open System
     open System.Numerics
@@ -4143,8 +4226,7 @@ module ChemistryQpeTests =
         // default 4 steps is 0.7 mHa, and the peak refinement recovers the phase between bins.
         task {
             match!
-                GroundStateEnergy.estimateEnergy (Molecule.createH2 0.7414) (config None)
-                |> Async.StartImmediateAsTask
+                GroundStateEnergy.estimateEnergyAsync (Molecule.createH2 0.7414) (config None) CancellationToken.None
             with
             | Error e -> Assert.Fail e.Message
             | Ok r ->
@@ -4271,13 +4353,13 @@ module ChemistryQpeTests =
         // and the doubly excited singlet with 0.29: QPE returns either eigenvalue.
         task {
             match!
-                QPE.runWith
+                QPE.runWithAsync
                     { QPE.defaultSettings with
                         CountingQubits = Some 6
                     }
                     (Molecule.createH2 2.0)
                     (config None)
-                |> Async.StartImmediateAsTask
+                    CancellationToken.None
             with
             | Error e -> Assert.Fail e.Message
             | Ok r ->
@@ -4362,13 +4444,13 @@ module ChemistryQpeTests =
             let backend = SampledWholeCircuitBackend(20000, 3)
 
             match!
-                QPE.runWith
+                QPE.runWithAsync
                     { QPE.defaultSettings with
                         CountingQubits = Some 6
                     }
                     (Molecule.createH2 0.7414)
                     (config (Some(backend :> IQuantumBackend)))
-                |> Async.StartImmediateAsTask
+                    CancellationToken.None
             with
             | Error e -> Assert.Fail e.Message
             | Ok r ->
@@ -4384,18 +4466,18 @@ module ChemistryQpeTests =
         task {
             let water = Molecule.createH2O ()
 
-            match QPE.run water (config None) |> Async.RunSynchronously with
+            match! QPE.runAsync water (config None) CancellationToken.None with
             | Ok r -> Assert.Fail $"H2O without integrals must be refused, got {r.Energy} from {r.Source}"
             | Error e -> Assert.Contains("IntegralProvider", e.Message)
 
             match!
-                QPE.runWith
+                QPE.runWithAsync
                     { QPE.defaultSettings with
                         CountingQubits = Some 13
                     }
                     (Molecule.createH2 0.7414)
                     (config None)
-                |> Async.StartImmediateAsTask
+                    CancellationToken.None
             with
             | Ok _ -> Assert.Fail "4 + 13 qubits exceed 16"
             | Error e -> Assert.Contains("exceed 16", e.Message)
@@ -4412,7 +4494,7 @@ module ChemistryQpeTests =
                     groundStateMethod GroundStateMethod.QPE
                 }
 
-            match! QuantumChemistryBuilder.solve problem |> Async.StartImmediateAsTask with
+            match! QuantumChemistryBuilder.solveAsync problem CancellationToken.None with
             | Error e -> Assert.Fail e.Message
             | Ok r ->
                 Assert.Equal(QpeTrotterEvolution, r.Source)
@@ -4541,7 +4623,7 @@ module WholeCircuitEmpiricalAndTrotterTests =
         task {
             let backend = Backends.LocalBackend.LocalBackend() :> IQuantumBackend
 
-            match! VQE.run carbonMonoxide (empiricalConfig backend) |> Async.StartImmediateAsTask with
+            match! VQE.runAsync carbonMonoxide (empiricalConfig backend) CancellationToken.None with
             | Ok r ->
                 Assert.Equal(EmpiricalHamiltonian, r.Source)
                 Assert.Equal(SampledGateByGate 1000, r.Estimation)
@@ -4554,7 +4636,7 @@ module WholeCircuitEmpiricalAndTrotterTests =
         task {
             let backend = SampledWholeCircuit.Backend(2000, 9)
 
-            match! VQE.run carbonMonoxide (empiricalConfig backend) |> Async.StartImmediateAsTask with
+            match! VQE.runAsync carbonMonoxide (empiricalConfig backend) CancellationToken.None with
             | Ok r ->
                 Assert.Equal(EmpiricalHamiltonian, r.Source)
                 Assert.True(System.Double.IsFinite r.Energy)

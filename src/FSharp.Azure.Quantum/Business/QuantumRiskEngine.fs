@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Business
 
 open System
 open System.Numerics
+open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -30,7 +31,7 @@ type RiskConfiguration =
         GroverIterations: int
         Shots: int
         Backend: IQuantumBackend option
-        CancellationToken: System.Threading.CancellationToken option
+        CancellationToken: CancellationToken option
     }
 
 /// Result of the risk engine execution
@@ -133,7 +134,7 @@ module RiskEngine =
 
     /// Execute the quantum risk metrics, each from amplitude estimation of an expectation over
     /// the loaded distribution |ψ⟩ = Σ_i √p_i |i⟩ of the 2^n return bins
-    /// (QuantumMonteCarlo.estimateBoundedExpectation):
+    /// (QuantumMonteCarlo.estimateBoundedExpectationAsync):
     /// - VaR: bisection over the bin index t for the smallest t whose estimated CDF
     ///   F(t) = P(bin < t) reaches 1 - ConfidenceLevel; VaR is minus the upper edge of bin t - 1.
     /// - CVaR / ES: the mean loss over the tail bins, E[loss · 1(bin < t)] / F(t), with both
@@ -146,8 +147,9 @@ module RiskEngine =
         (config: RiskConfiguration)
         (qBackend: IQuantumBackend)
         (returns: float[])
-        : Async<Result<QuantumRiskEstimates, QuantumError>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<Result<QuantumRiskEstimates, QuantumError>> =
+        task {
             let numQubits = config.NumQubits
             let numBins = 1 <<< numQubits
             let wants metric = List.contains metric config.Metrics
@@ -163,26 +165,16 @@ module RiskEngine =
             let route = ref ""
 
             /// Amplitude estimate of Σ_i p_i values_i, values in [0, 1].
-            let estimate (values: float[]) : Async<Result<float, QuantumError>> =
-                let run =
-                    QuantumMonteCarlo.estimateBoundedExpectation
-                        statePrep
-                        values
-                        config.GroverIterations
-                        config.Shots
-                        qBackend
-
-                async {
+            let estimate (values: float[]) : Task<Result<float, QuantumError>> =
+                task {
                     let! result =
-                        match config.CancellationToken with
-                        | Some token ->
-                            Async.StartAsTask(
-                                run,
-                                cancellationToken = token,
-                                taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None
-                            )
-                            |> Async.AwaitTask
-                        | None -> run
+                        QuantumMonteCarlo.estimateBoundedExpectationAsync
+                            statePrep
+                            values
+                            config.GroverIterations
+                            config.Shots
+                            qBackend
+                            cancellationToken
 
                     return
                         result
@@ -198,14 +190,14 @@ module RiskEngine =
 
             /// Amplitude estimate of Σ_i p_i values_i for real values: scaled into [0, 1] over
             /// their range for the estimate, and back.
-            let estimateReal (values: float[]) : Async<Result<float, QuantumError>> =
+            let estimateReal (values: float[]) : Task<Result<float, QuantumError>> =
                 let lo = Array.min values
                 let span = Array.max values - lo
 
                 if span <= 0.0 then
-                    async { return Ok lo }
+                    Task.FromResult(Ok lo)
                 else
-                    async {
+                    task {
                         let! scaled = estimate (values |> Array.map (fun v -> (v - lo) / span))
                         return scaled |> Result.map (fun e -> lo + span * e)
                     }
@@ -213,21 +205,35 @@ module RiskEngine =
             let target = 1.0 - config.ConfidenceLevel
 
             /// Smallest t in [lo, hi] with estimated F(t) >= target, and F(t). F(numBins) = 1.
-            let rec bisect (lo: int) (hi: int) (known: Map<int, float>) =
-                async {
-                    if lo >= hi then
-                        return Ok(lo, known.[lo])
-                    else
+            /// A loop rather than recursion: a `let rec` inside resumable code is not
+            /// statically compilable (FS3511).
+            let bisect (lo: int) (hi: int) (known: Map<int, float>) : Task<Result<int * float, QuantumError>> =
+                task {
+                    let mutable lo = lo
+                    let mutable hi = hi
+                    let mutable known = known
+                    let mutable failure = None
+
+                    while failure.IsNone && lo < hi do
                         let mid = (lo + hi) / 2
 
                         match! estimate (Array.init numBins (fun i -> if i < mid then 1.0 else 0.0)) with
-                        | Error err -> return Error err
-                        | Ok f when f >= target -> return! bisect lo mid (known.Add(mid, f))
-                        | Ok f -> return! bisect (mid + 1) hi (known.Add(mid, f))
+                        | Error err -> failure <- Some err
+                        | Ok f when f >= target ->
+                            known <- known.Add(mid, f)
+                            hi <- mid
+                        | Ok f ->
+                            known <- known.Add(mid, f)
+                            lo <- mid + 1
+
+                    return
+                        match failure with
+                        | Some err -> Error err
+                        | None -> Ok(lo, known.[lo])
                 }
 
             let! tail =
-                async {
+                task {
                     if needVaR then
                         let! found = bisect 1 numBins (Map.ofList [ numBins, 1.0 ])
                         return found |> Result.map Some
@@ -243,9 +249,9 @@ module RiskEngine =
                     let span = Array.max losses - lo
 
                     if span <= 0.0 then
-                        async { return Ok(ValueSome lo) }
+                        Task.FromResult(Ok(ValueSome lo))
                     else
-                        async {
+                        task {
                             let! scaled =
                                 estimate (Array.init numBins (fun i -> if i < t then (losses.[i] - lo) / span else 0.0))
 
@@ -255,14 +261,14 @@ module RiskEngine =
                                 scaled
                                 |> Result.map (fun g -> ValueSome(lo + span * min 1.0 (max 0.0 (g / tailProbability))))
                         }
-                | Ok _ -> async { return Ok ValueNone }
-                | Error err -> async { return Error err }
+                | Ok _ -> Task.FromResult(Ok ValueNone)
+                | Error err -> Task.FromResult(Error err)
 
             let! volatility =
                 if wants Volatility && Result.isOk tail && Result.isOk cvar then
                     let centre = (binEdges.[0] + binEdges.[numBins]) / 2.0
 
-                    async {
+                    task {
                         let! mean = estimateReal (midpoints |> Array.map (fun r -> r - centre))
 
                         let! second =
@@ -282,7 +288,7 @@ module RiskEngine =
                             | Ok m1, Ok m2 -> Ok(ValueSome(sqrt (m2 - m1 * m1)))
                     }
                 else
-                    async { return Ok ValueNone }
+                    Task.FromResult(Ok ValueNone)
 
             return
                 match tail, cvar, volatility with
@@ -318,9 +324,23 @@ module RiskEngine =
     /// Returns a `Result`: the quantum amplitude-estimation path can fail as a business
     /// outcome (e.g. backend rejects the circuit), surfaced as `Error`; the classical
     /// Monte Carlo path always yields `Ok`.
-    let executeAsync (config: RiskConfiguration) : Async<QuantumResult<RiskReport>> =
-        async {
-            let startTime = DateTime.Now
+    let executeAsync (config: RiskConfiguration) (cancellationToken: CancellationToken) : Task<QuantumResult<RiskReport>> =
+        task {
+            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+
+            // A token given to the configuration (`cancellation_token`) cancels the analysis
+            // together with the caller's.
+            use linked =
+                match config.CancellationToken with
+                | Some token when token.CanBeCanceled && token <> cancellationToken ->
+                    CancellationTokenSource.CreateLinkedTokenSource(token, cancellationToken)
+                | _ -> null
+
+            let cancellationToken = if isNull linked then cancellationToken else linked.Token
+
+            // An already-cancelled token cancels the analysis before any work (the classical
+            // path has no other cancellation point).
+            cancellationToken.ThrowIfCancellationRequested()
 
             // 0. Validate configuration
             if config.ConfidenceLevel <= 0.0 || config.ConfidenceLevel >= 1.0 then
@@ -349,10 +369,8 @@ module RiskEngine =
                 let! returnsResult =
                     match config.MarketDataPath with
                     | Some path ->
-                        async {
-                            let! exists =
-                                System.Threading.Tasks.Task.Run(fun () -> System.IO.File.Exists(path))
-                                |> Async.AwaitTask
+                        task {
+                            let! exists = Task.Run(fun () -> System.IO.File.Exists(path))
 
                             if not exists then
                                 // A configured-but-missing file is an explicit error,
@@ -365,7 +383,7 @@ module RiskEngine =
                                         )
                                     )
                             else
-                                let! lines = System.IO.File.ReadAllLinesAsync(path) |> Async.AwaitTask
+                                let! lines = System.IO.File.ReadAllLinesAsync(path, cancellationToken)
 
                                 if lines.Length <= 1 then
                                     return
@@ -418,7 +436,7 @@ module RiskEngine =
                                     else
                                         return Ok parsed
                         }
-                    | None -> async { return Ok(generateMockReturns config.SimulationPaths) }
+                    | None -> Task.FromResult(Ok(generateMockReturns config.SimulationPaths))
 
                 match returnsResult with
                 | Error err -> return Error err
@@ -428,12 +446,12 @@ module RiskEngine =
                         // Quantum path: every reported metric from amplitude estimation
                         let qBackend = config.Backend.Value
 
-                        match! executeQuantumRisk config qBackend returns with
+                        match! executeQuantumRisk config qBackend returns cancellationToken with
                         | Error err ->
                             // Business outcome: propagate the quantum failure as Error (no classical fallback).
                             return Error err
                         | Ok estimates ->
-                            let executionTime = (DateTime.Now - startTime).TotalMilliseconds
+                            let executionTime = stopwatch.Elapsed.TotalMilliseconds
 
                             return
                                 Ok
@@ -490,7 +508,7 @@ module RiskEngine =
                             else
                                 ValueNone
 
-                        let executionTime = (DateTime.Now - startTime).TotalMilliseconds
+                        let executionTime = stopwatch.Elapsed.TotalMilliseconds
 
                         return
                             Ok
@@ -505,26 +523,6 @@ module RiskEngine =
                                     Configuration = config
                                 }
         }
-
-    /// Execute the configured risk analysis (sync wrapper).
-    ///
-    /// Convenience adapter over `executeAsync`. Prefer `executeAsync`, which returns the
-    /// quantum failure as a `Result`; this wrapper unwraps it and raises on `Error`.
-    [<System.Obsolete("Use executeAsync instead. This synchronous wrapper blocks the calling thread and raises on quantum failure; prefer the Result-returning executeAsync.")>]
-    let execute (config: RiskConfiguration) : RiskReport =
-        let result =
-            match config.CancellationToken with
-            | Some token -> Async.RunSynchronously(executeAsync config, cancellationToken = token)
-            | None -> executeAsync config |> Async.RunSynchronously
-
-        match result with
-        | Ok report -> report
-        | Error err ->
-            raise (
-                InvalidOperationException(
-                    $"Risk analysis failed: {err.Message}. Use executeAsync to handle this as a Result."
-                )
-            )
 
 /// Builder for the Quantum Risk Engine DSL
 type QuantumRiskEngineBuilder() =
@@ -567,9 +565,10 @@ type QuantumRiskEngineBuilder() =
     /// propagated as Error rather than raised (executeAsync is Result-typed); the
     /// `cancellation_token` operation, when given, cancels the analysis.
     member _.Run(state: RiskConfiguration) : Task<QuantumResult<RiskReport>> =
-        match state.CancellationToken with
-        | Some token -> Async.StartImmediateAsTask(RiskEngine.executeAsync state, cancellationToken = token)
-        | None -> Async.StartImmediateAsTask(RiskEngine.executeAsync state)
+        let ct =
+            defaultArg state.CancellationToken CancellationToken.None
+
+        RiskEngine.executeAsync state ct
 
     member this.Run(f: unit -> RiskConfiguration) : Task<QuantumResult<RiskReport>> = this.Run(f ())
 
@@ -611,7 +610,7 @@ type QuantumRiskEngineBuilder() =
 
     /// Provide a cancellation token for long-running operations
     [<CustomOperation("cancellation_token")>]
-    member _.CancellationToken(state: RiskConfiguration, token: System.Threading.CancellationToken) =
+    member _.CancellationToken(state: RiskConfiguration, token: CancellationToken) =
         { state with
             CancellationToken = Some token
         }

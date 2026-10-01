@@ -17,7 +17,7 @@ open FSharp.Azure.Quantum.Core
 /// COMPARISON:
 ///   // Business Domain (Recommended for most users):
 ///   open FSharp.Azure.Quantum
-///   let allocation = Portfolio.solve problem None  // Automatic LocalBackend
+///   let! allocation = Portfolio.solveAsync problem None CancellationToken.None  // Automatic LocalBackend
 ///
 ///   // Algorithm Level (This module - for experts):
 ///   open FSharp.Azure.Quantum.Quantum
@@ -41,20 +41,14 @@ open FSharp.Azure.Quantum.Core
 /// 4. Decode Measurements → Asset Allocations
 /// 5. Return Best Solution
 ///
-/// Examples:
-///   // Synchronous (blocks until complete):
+/// Example:
 ///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; RiskAversion = 0.5; InitialParameters = (0.5, 0.5) }
-///   match QuantumPortfolioSolver.solve backend assets constraints config with
-///   | Ok result -> printfn "Expected return: %f" result.ExpectedReturn
-///   | Error msg -> printfn "Error: %s" msg
-///
-///   // Asynchronous (non-blocking, preferred for cloud backends):
-///   async {
-///     match! QuantumPortfolioSolver.solveAsync backend assets constraints config with
+///   task {
+///     match! QuantumPortfolioSolver.solveAsync backend assets constraints config CancellationToken.None with
 ///     | Ok result -> printfn "Expected return: %f" result.ExpectedReturn
 ///     | Error msg -> printfn "Error: %s" msg
-///   } |> Async.RunSynchronously
+///   }
 module QuantumPortfolioSolver =
 
     // ================================================================================
@@ -883,10 +877,10 @@ module QuantumPortfolioSolver =
     ///   config - Configuration for execution
     ///
     /// Returns:
-    ///   Async computation that returns Result with QuantumPortfolioSolution or QuantumError
+    ///   Task that returns Result with QuantumPortfolioSolution or QuantumError
     ///
     /// Note: This is the preferred method for cloud backends (IonQ, Rigetti) as it allows
-    /// non-blocking execution. For synchronous API, use `solve` which wraps this function.
+    /// non-blocking execution.
     let solveAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (assets: PortfolioTypes.Asset list)
@@ -922,30 +916,6 @@ module QuantumPortfolioSolver =
         : Task<Result<QuantumPortfolioSolution, QuantumError>> =
         solveCoreAsync backend assets (Some covariance) constraints config cancellationToken
 
-    /// Solve portfolio optimization using quantum backend via QAOA (synchronous)
-    ///
-    /// This is a synchronous wrapper around `solveAsync` for backward compatibility.
-    /// For better performance with cloud backends, prefer using `solveAsync` directly.
-    ///
-    /// Parameters:
-    ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
-    ///   assets - List of assets to optimize
-    ///   constraints - Portfolio constraints (budget, min/max holding)
-    ///   config - Configuration for execution
-    ///
-    /// Returns:
-    ///   Result with QuantumPortfolioSolution or QuantumError
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (assets: PortfolioTypes.Asset list)
-        (constraints: PortfolioSolver.Constraints)
-        (config: QuantumPortfolioConfig)
-        : Result<QuantumPortfolioSolution, QuantumError> =
-        solveAsync backend assets constraints config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Solve portfolio with default configuration (asynchronous)
     let solveWithDefaultsAsync
         (backend: BackendAbstraction.IQuantumBackend)
@@ -954,19 +924,6 @@ module QuantumPortfolioSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<QuantumPortfolioSolution, QuantumError>> =
         solveAsync backend assets constraints defaultConfig cancellationToken
-
-    /// Solve portfolio with default configuration
-    ///
-    /// This is a synchronous wrapper around `solveWithDefaultsAsync` for backward compatibility.
-    [<Obsolete("Use solveWithDefaultsAsync for non-blocking execution against cloud backends")>]
-    let solveWithDefaults
-        (backend: BackendAbstraction.IQuantumBackend)
-        (assets: PortfolioTypes.Asset list)
-        (constraints: PortfolioSolver.Constraints)
-        : Result<QuantumPortfolioSolution, QuantumError> =
-        solveWithDefaultsAsync backend assets constraints CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Solve portfolio with custom number of shots and risk aversion (asynchronous)
     let solveWithParamsAsync
@@ -984,18 +941,3 @@ module QuantumPortfolioSolver =
             }
 
         solveAsync backend assets constraints config cancellationToken
-
-    /// Solve portfolio with custom number of shots and risk aversion
-    ///
-    /// This is a synchronous wrapper around `solveWithParamsAsync` for backward compatibility.
-    [<Obsolete("Use solveWithParamsAsync for non-blocking execution against cloud backends")>]
-    let solveWithParams
-        (backend: BackendAbstraction.IQuantumBackend)
-        (assets: PortfolioTypes.Asset list)
-        (constraints: PortfolioSolver.Constraints)
-        (numShots: int)
-        (riskAversion: float)
-        : Result<QuantumPortfolioSolution, QuantumError> =
-        solveWithParamsAsync backend assets constraints numShots riskAversion CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously

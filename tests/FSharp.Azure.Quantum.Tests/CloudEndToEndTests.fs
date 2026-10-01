@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System.Net.Http
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -49,6 +50,18 @@ module CloudEndToEndTests =
         use service = LocalQuantumService.start options
         use http = service.CreateHttpClient()
         test service (cloud service http (CloudBackendHelpers.JobBudget()) provider shots)
+
+    /// `withCloud` for a test that awaits the backend.
+    let private withCloudTask
+        (provider: string)
+        (shots: int)
+        (test: LocalQuantumService -> IQuantumBackend -> Task)
+        : Task =
+        task {
+            use service = LocalQuantumService.start options
+            use http = service.CreateHttpClient()
+            do! test service (cloud service http (CloudBackendHelpers.JobBudget()) provider shots)
+        }
 
     let private expectOk (result: Result<'T, QuantumError>) : 'T =
         result |> Result.defaultWith (fun e -> failwith $"expected Ok, got {e.Message}")
@@ -179,13 +192,16 @@ module CloudEndToEndTests =
     // ========================================================================
 
     [<Fact>]
-    let ``QRNG takes its bits from one one-shot job per call`` () =
-        withCloud "ionq" 1 (fun service backend ->
-            let result =
-                QRNG.generateWithBackend 16 backend |> Async.RunSynchronously |> expectOk
+    let ``QRNG takes its bits from one one-shot job per call`` () : Task =
+        withCloudTask "ionq" 1 (fun service backend ->
+            task {
+                let! generated = QRNG.generateWithBackendAsync 16 backend System.Threading.CancellationToken.None
+                let result = generated |> expectOk
 
-            Assert.Equal(16, result.Bits.Length)
-            Assert.Equal(1, service.SubmittedJobCount))
+                Assert.Equal(16, result.Bits.Length)
+                Assert.Equal(1, service.SubmittedJobCount)
+            }
+            :> Task)
 
     [<Fact>]
     let ``A job's state yields exactly the shots the service measured`` () =

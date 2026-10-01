@@ -390,10 +390,12 @@ module MermaidRenderer =
                     let (NodeId ngId) = nextGateId
 
                     // Input lines from all qubits involved
+                    let states = List.toArray qubitStates
+
                     let inputLines =
                         (controls @ [ target ])
                         |> List.map (fun qubit ->
-                            let (NodeId prevId) = qubitStates.[qubit]
+                            let (NodeId prevId) = states.[qubit]
                             $"    n{prevId} --> n{gId}")
 
                     let ctrlCount = controls.Length

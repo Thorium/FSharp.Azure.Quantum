@@ -359,8 +359,10 @@ module JobLifecycle =
                             use jsonDoc = JsonDocument.Parse(resultJson)
                             let root = jsonDoc.RootElement
                             tryGetJsonString "jobId" root |> Option.defaultValue "unknown"
-                        with _ ->
-                            "unknown"
+                        with
+                        // The blob need not be JSON at all, and "jobId" need not be a string.
+                        | :? JsonException
+                        | :? InvalidOperationException -> "unknown"
 
                     // Create JobResult
                     let jobResult =

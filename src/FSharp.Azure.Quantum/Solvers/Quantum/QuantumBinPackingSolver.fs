@@ -33,7 +33,7 @@ open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
 ///     Ensures bin is marked used when any item is assigned.
 ///     Penalty: lambda_3 * x_{ij} * (1 - y_j)
 ///
-/// Qubits: n*B + B  where B = upper bound on bins needed.
+/// Qubits: n*B + B  where B = upper bound on bins needed (first-fit-decreasing bin count).
 ///
 /// Scaling concern: O(n*B) qubits. Practical for ~10 items with ~5 bins.
 ///
@@ -100,10 +100,21 @@ module QuantumBinPackingSolver =
     // ========================================================================
 
     /// Compute the upper bound on bins needed.
-    /// B = n (number of items) — the worst case is each item in its own bin.
-    /// Using ceil(totalSize / C) is only a *lower* bound and under-dimensions
-    /// the QUBO for pathological inputs (e.g., items of size just over C/2).
-    let private computeMaxBins (problem: Problem) : int = problem.Items.Length
+    /// B = the bin count of a first-fit-decreasing packing. FFD is a feasible
+    /// packing, so the optimum never needs more bins than it: no solution is lost,
+    /// and the QUBO shrinks from n*n + n qubits to n*B + B (6 items that fit in
+    /// 2 bins take 14 qubits instead of 42). Using ceil(totalSize / C) instead
+    /// is only a *lower* bound and under-dimensions the QUBO for pathological
+    /// inputs (e.g., items of size just over C/2).
+    let private computeMaxBins (problem: Problem) : int =
+        let loads = ResizeArray<float>()
+
+        for item in problem.Items |> List.sortByDescending (fun i -> i.Size) do
+            match loads |> Seq.tryFindIndex (fun load -> load + item.Size <= problem.BinCapacity + 1e-9) with
+            | Some j -> loads.[j] <- loads.[j] + item.Size
+            | None -> loads.Add item.Size
+
+        max 1 loads.Count
 
     /// Estimate the number of qubits required.
     /// n*B (item-bin assignment variables) + B (bin-used indicator variables).
@@ -128,7 +139,8 @@ module QuantumBinPackingSolver =
 
     /// Build the QUBO as a sparse map.
     let private buildQuboMap (problem: Problem) (numBins: int) : Map<int * int, float> =
-        let n = problem.Items.Length
+        let items = problem.Items |> List.toArray
+        let n = items.Length
         let b = numBins
 
         // Penalty weights: must dominate objective (which is at most B)
@@ -197,7 +209,7 @@ module QuantumBinPackingSolver =
                         |> List.fold
                             (fun a i ->
                                 let xij = itemBinIndex b i j
-                                let si = problem.Items.[i].Size
+                                let si = items.[i].Size
                                 // s_i^2 * x_{ij} (diagonal)
                                 a |> Qubo.combineTerms (xij, xij) (lambda2 * si * si))
                             acc
@@ -209,8 +221,8 @@ module QuantumBinPackingSolver =
                             (fun a (i1, i2) ->
                                 let xi1j = itemBinIndex b i1 j
                                 let xi2j = itemBinIndex b i2 j
-                                let s1 = problem.Items.[i1].Size
-                                let s2 = problem.Items.[i2].Size
+                                let s1 = items.[i1].Size
+                                let s2 = items.[i2].Size
                                 // 2 * s_{i1} * s_{i2} * x_{i1,j} * x_{i2,j}
                                 let value = lambda2 * 2.0 * s1 * s2
 
@@ -225,7 +237,7 @@ module QuantumBinPackingSolver =
                         |> List.fold
                             (fun a i ->
                                 let xij = itemBinIndex b i j
-                                let si = problem.Items.[i].Size
+                                let si = items.[i].Size
                                 let value = lambda2 * (-2.0) * c * si
 
                                 if xij = yj then
@@ -363,7 +375,8 @@ module QuantumBinPackingSolver =
     ///   Phase 2: Fix overloaded bins by evicting smallest items and re-assigning them.
     ///   Phase 3: Build the output bitstring with correct bin-used indicators.
     let private repairConstraints (problem: Problem) (numBins: int) (bits: int[]) : int[] =
-        let n = problem.Items.Length
+        let items = problem.Items |> List.toArray
+        let n = items.Length
         let b = numBins
         let cap = problem.BinCapacity
 
@@ -383,19 +396,19 @@ module QuantumBinPackingSolver =
         let binLoads = Array.zeroCreate<float> b
 
         currentAssignments
-        |> Map.iter (fun itemIdx binIdx -> binLoads.[binIdx] <- binLoads.[binIdx] + problem.Items.[itemIdx].Size)
+        |> Map.iter (fun itemIdx binIdx -> binLoads.[binIdx] <- binLoads.[binIdx] + items.[itemIdx].Size)
 
         // Phase 1b: Assign unassigned items using first-fit decreasing
         let unassigned =
             [ 0 .. n - 1 ]
             |> List.filter (fun i -> currentAssignments |> Map.containsKey i |> not)
-            |> List.sortByDescending (fun i -> problem.Items.[i].Size)
+            |> List.sortByDescending (fun i -> items.[i].Size)
 
         let phase1Assignments, _ =
             unassigned
             |> List.fold
                 (fun (assignments: Map<int, int>, loads: float[]) itemIdx ->
-                    let itemSize = problem.Items.[itemIdx].Size
+                    let itemSize = items.[itemIdx].Size
 
                     let targetBin =
                         [ 0 .. b - 1 ] |> List.tryFind (fun j -> loads.[j] + itemSize <= cap + 1e-9)
@@ -415,7 +428,7 @@ module QuantumBinPackingSolver =
         let loads2 = Array.zeroCreate<float> b
 
         phase1Assignments
-        |> Map.iter (fun itemIdx binIdx -> loads2.[binIdx] <- loads2.[binIdx] + problem.Items.[itemIdx].Size)
+        |> Map.iter (fun itemIdx binIdx -> loads2.[binIdx] <- loads2.[binIdx] + items.[itemIdx].Size)
 
         // Find overloaded bins and evict smallest items until within capacity
         let evictedItems, updatedAssignments =
@@ -430,7 +443,7 @@ module QuantumBinPackingSolver =
                             assignments
                             |> Map.toList
                             |> List.filter (fun (_, bj) -> bj = binJ)
-                            |> List.sortBy (fun (iIdx, _) -> problem.Items.[iIdx].Size)
+                            |> List.sortBy (fun (iIdx, _) -> items.[iIdx].Size)
 
                         // Evict items until bin is within capacity
                         let rec evictUntilFit remaining load evictAcc assignAcc =
@@ -438,7 +451,7 @@ module QuantumBinPackingSolver =
                             | [] -> (evictAcc, assignAcc)
                             | _ when load <= cap + 1e-9 -> (evictAcc, assignAcc)
                             | (iIdx, _) :: rest ->
-                                let newLoad = load - problem.Items.[iIdx].Size
+                                let newLoad = load - items.[iIdx].Size
                                 loads2.[binJ] <- newLoad
                                 evictUntilFit rest newLoad (iIdx :: evictAcc) (Map.remove iIdx assignAcc)
 
@@ -447,13 +460,13 @@ module QuantumBinPackingSolver =
 
         // Re-assign evicted items using first-fit (sorted by size descending)
         let sortedEvicted =
-            evictedItems |> List.sortByDescending (fun i -> problem.Items.[i].Size)
+            evictedItems |> List.sortByDescending (fun i -> items.[i].Size)
 
         let finalAssignments, _ =
             sortedEvicted
             |> List.fold
                 (fun (assignments: Map<int, int>, loads: float[]) itemIdx ->
-                    let itemSize = problem.Items.[itemIdx].Size
+                    let itemSize = items.[itemIdx].Size
 
                     let targetBin =
                         [ 0 .. b - 1 ] |> List.tryFind (fun j -> loads.[j] + itemSize <= cap + 1e-9)
@@ -523,72 +536,77 @@ module QuantumBinPackingSolver =
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
     // ========================================================================
 
-    /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+    /// Shared implementation of solveWithConfigAsync.
     let private solveWithConfigCore
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Result<Solution, QuantumError> =
+        : Task<Result<Solution, QuantumError>> =
 
         match validateProblem problem with
-        | Error err -> Error err
+        | Error err -> Task.FromResult(Error err)
         | Ok() ->
-            let solveSingle (subProblem: Problem) =
-                let b = computeMaxBins subProblem
+            let solveSingle (subProblem: Problem) : Task<Result<Solution, QuantumError>> =
+                task {
+                    let b = computeMaxBins subProblem
 
-                match toQubo subProblem with
-                | Error err -> Error err
-                | Ok qubo ->
-                    let result =
-                        if config.EnableOptimization then
-                            executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                        else
-                            // Sequential (maxConcurrency = 1) grid search, as before
-                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
-                                .GetAwaiter()
-                                .GetResult()
-                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+                    match toQubo subProblem with
+                    | Error err -> return Error err
+                    | Ok qubo ->
+                        let! result =
+                            if config.EnableOptimization then
+                                task {
+                                    let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
 
-                    match result with
-                    | Error err -> Error err
-                    | Ok(bits, optParams, converged) ->
-                        let decoded = decodeSolution subProblem b bits
-                        let needsRepair = not decoded.IsValid
-
-                        let finalBits, wasRepaired =
-                            if config.EnableConstraintRepair && needsRepair then
-                                (repairConstraints subProblem b bits, true)
+                                    return
+                                        optimized
+                                        |> Result.map (fun (bits, optParams, converged) ->
+                                            (bits, Some optParams, Some converged))
+                                }
                             else
-                                (bits, false)
+                                task {
+                                    // Sequential (maxConcurrency = 1) grid search, as before
+                                    let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
 
-                        let solution = decodeSolution subProblem b finalBits
+                                    return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+                                }
 
-                        Ok
-                            { solution with
-                                BackendName = backend.Name
-                                NumShots = config.FinalShots
-                                WasRepaired = wasRepaired
-                                OptimizedParameters = optParams
-                                OptimizationConverged = converged
-                            }
+                        match result with
+                        | Error err -> return Error err
+                        | Ok(bits, optParams, converged) ->
+                            let decoded = decodeSolution subProblem b bits
+                            let needsRepair = not decoded.IsValid
 
-            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
+                            let finalBits, wasRepaired =
+                                if config.EnableConstraintRepair && needsRepair then
+                                    (repairConstraints subProblem b bits, true)
+                                else
+                                    (bits, false)
 
-    /// Solve bin packing using QAOA with full configuration control.
-    /// Supports automatic decomposition when problem exceeds backend capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (config: Config)
-        : Result<Solution, QuantumError> =
-        solveWithConfigCore backend problem config CancellationToken.None
+                            let solution = decodeSolution subProblem b finalBits
+
+                            return
+                                Ok
+                                    { solution with
+                                        BackendName = backend.Name
+                                        NumShots = config.FinalShots
+                                        WasRepaired = wasRepaired
+                                        OptimizedParameters = optParams
+                                        OptimizationConverged = converged
+                                    }
+                }
+
+            ProblemDecomposition.solveWithDecompositionAsync
+                backend
+                problem
+                estimateQubits
+                decompose
+                recombine
+                solveSingle
 
     /// Solve bin packing using QAOA with full configuration control (async).
-    /// Wraps the synchronous solveWithConfig in a task; will become truly async
-    /// once ProblemDecomposition supports async solve functions.
+    /// Supports automatic decomposition when problem exceeds backend capacity.
     let solveWithConfigAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -597,25 +615,8 @@ module QuantumBinPackingSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfigCore backend problem config cancellationToken
+            return! solveWithConfigCore backend problem config cancellationToken
         }
-
-    /// Solve bin packing using QAOA with default configuration.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (shots: int)
-        : Result<Solution, QuantumError> =
-
-        let config =
-            { defaultConfig with
-                FinalShots = shots
-            }
-
-        solveWithConfigAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // CLASSICAL SOLVER (Rule 1: private — not exposed without backend)

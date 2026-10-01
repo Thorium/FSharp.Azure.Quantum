@@ -43,6 +43,7 @@
 
 open System
 open System.IO
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -314,7 +315,11 @@ let featureMap = FeatureMapType.ZZFeatureMap 2
 let computeQuantumSimilarity (x1: float array) (x2: float array) : float =
     let data = [| x1; x2 |]
 
-    match QuantumKernels.computeKernelMatrix backend featureMap data quantumShots with
+    match
+        QuantumKernels.computeKernelMatrixAsync backend featureMap data quantumShots CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    with
     | Ok matrix -> matrix.[0, 1]
     | Error _ -> 0.0
 

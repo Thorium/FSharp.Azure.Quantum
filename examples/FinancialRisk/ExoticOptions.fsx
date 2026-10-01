@@ -33,6 +33,8 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -542,8 +544,8 @@ let private priceWithQuantumMC
     (numQubits: int)
     (groverIterations: int)
     (backend: IQuantumBackend)
-    : Async<Result<ExoticPriceResult, QuantumError>> =
-    async {
+    : Task<Result<ExoticPriceResult, QuantumError>> =
+    task {
         let statePrep = buildPathStatePreparation numQubits payoffs
         let oracle = buildPayoffOracle numQubits
 
@@ -556,7 +558,7 @@ let private priceWithQuantumMC
                 Shots = shots
             }
 
-        let! result = QuantumMonteCarlo.estimateExpectation config backend
+        let! result = QuantumMonteCarlo.estimateExpectationAsync config backend CancellationToken.None
 
         return
             result
@@ -584,8 +586,8 @@ let private priceBarrierOption
     (market: MarketParams)
     (option: BarrierOption)
     (backend: IQuantumBackend)
-    : Async<Result<ExoticPriceResult, QuantumError>> =
-    async {
+    : Task<Result<ExoticPriceResult, QuantumError>> =
+    task {
         if market.Spot <= 0.0 then
             return Error(QuantumError.ValidationError("Spot", "Must be positive"))
         elif market.Strike <= 0.0 then
@@ -607,8 +609,8 @@ let private priceLookbackOption
     (market: MarketParams)
     (option: LookbackOption)
     (backend: IQuantumBackend)
-    : Async<Result<ExoticPriceResult, QuantumError>> =
-    async {
+    : Task<Result<ExoticPriceResult, QuantumError>> =
+    task {
         if market.Spot <= 0.0 then
             return Error(QuantumError.ValidationError("Spot", "Must be positive"))
         elif market.Strike <= 0.0 then
@@ -638,8 +640,8 @@ let private calculateDelta
     (market: MarketParams)
     (spec: ExoticOptionSpec)
     (backend: IQuantumBackend)
-    : Async<Result<float, QuantumError>> =
-    async {
+    : Task<Result<float, QuantumError>> =
+    task {
         let bump = 0.01 * market.Spot
 
         let! priceUp =
@@ -668,8 +670,8 @@ let private calculateVega
     (market: MarketParams)
     (spec: ExoticOptionSpec)
     (backend: IQuantumBackend)
-    : Async<Result<float, QuantumError>> =
-    async {
+    : Task<Result<float, QuantumError>> =
+    task {
         let bump = 0.01
 
         let! priceUp =
@@ -698,8 +700,8 @@ let private calculateTheta
     (market: MarketParams)
     (spec: ExoticOptionSpec)
     (backend: IQuantumBackend)
-    : Async<Result<float, QuantumError>> =
-    async {
+    : Task<Result<float, QuantumError>> =
+    task {
         let dayBump = 1.0 / 365.0
 
         if market.TimeToExpiry <= dayBump then
@@ -746,14 +748,20 @@ let optionResults =
             | LookbackSpec _ -> "Lookback"
 
         // Price
-        let priceResult = priceOption spec market backend |> Async.RunSynchronously
+        let priceResult =
+            priceOption spec market backend |> Async.AwaitTask |> Async.RunSynchronously
 
         match priceResult with
         | Ok pr ->
             // Greeks
-            let deltaR = calculateDelta market spec backend |> Async.RunSynchronously
-            let vegaR = calculateVega market spec backend |> Async.RunSynchronously
-            let thetaR = calculateTheta market spec backend |> Async.RunSynchronously
+            let deltaR =
+                calculateDelta market spec backend |> Async.AwaitTask |> Async.RunSynchronously
+
+            let vegaR =
+                calculateVega market spec backend |> Async.AwaitTask |> Async.RunSynchronously
+
+            let thetaR =
+                calculateTheta market spec backend |> Async.AwaitTask |> Async.RunSynchronously
             let delta = deltaR |> Result.defaultValue nan
             let vega = vegaR |> Result.defaultValue nan
             let theta = thetaR |> Result.defaultValue nan

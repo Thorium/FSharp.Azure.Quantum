@@ -102,10 +102,8 @@ module IntegrationTests =
             let problem = Portfolio.createProblem assets budget
 
             // Act: Solve using classical solver
-            let! result = Portfolio.solveAsync problem None CancellationToken.None
-
             // Assert: Basic validation
-            match result with
+            match! Portfolio.solveAsync problem None CancellationToken.None with
             | Ok allocation ->
                 Assert.True(allocation.Allocations.Length <= 10)
                 Assert.True(allocation.TotalValue <= budget * 1.01)
@@ -113,81 +111,6 @@ module IntegrationTests =
             | Error msg -> Assert.Fail($"Expected successful solution, got error: {msg}")
         }
         :> Task
-
-    // ===========================================
-    // Test Scenario 4.5: Quantum Portfolio Solver Async vs Sync
-    // ===========================================
-
-    // Covers the deprecated synchronous wrapper on purpose: this test compares it with the async API.
-    #nowarn "44"
-    [<Fact>]
-    let ``QuantumPortfolioSolver - solveAsync produces same results as solve`` () =
-        // Arrange: Small 3-asset portfolio suitable for quantum simulation
-        task {
-            let assets: PortfolioSolver.Asset list =
-                [
-                    {
-                        Symbol = "A"
-                        ExpectedReturn = 0.10
-                        Risk = 0.15
-                        Price = 100.0
-                    }
-                    {
-                        Symbol = "B"
-                        ExpectedReturn = 0.12
-                        Risk = 0.18
-                        Price = 150.0
-                    }
-                    {
-                        Symbol = "C"
-                        ExpectedReturn = 0.08
-                        Risk = 0.12
-                        Price = 80.0
-                    }
-                ]
-
-            let constraints: PortfolioSolver.Constraints =
-                {
-                    Budget = 500.0
-                    MinHolding = 0.0
-                    MaxHolding = 500.0
-                }
-
-            let config: QuantumPortfolioSolver.QuantumPortfolioConfig =
-                {
-                    NumShots = 100 // Small for fast test
-                    RiskAversion = 0.5
-                    InitialParameters = (0.5, 0.5)
-                }
-
-            let backend = createLocalBackend ()
-
-            // Act: Call both sync and async versions
-            let syncResult = QuantumPortfolioSolver.solve backend assets constraints config
-
-            let! asyncResult =
-                QuantumPortfolioSolver.solveAsync backend assets constraints config CancellationToken.None
-
-            // Assert: Both should succeed and return similar results
-            match syncResult, asyncResult with
-            | Ok syncSolution, Ok asyncSolution ->
-                // Both should succeed
-                Assert.Equal(syncSolution.NumShots, asyncSolution.NumShots)
-                Assert.Equal("Local Simulator", syncSolution.BackendName)
-                Assert.Equal("Local Simulator", asyncSolution.BackendName)
-
-                // Should have same number of allocations
-                Assert.Equal(syncSolution.Allocations.Length, asyncSolution.Allocations.Length)
-
-                // Both should be valid portfolios
-                Assert.True(syncSolution.TotalValue <= constraints.Budget * 1.01)
-                Assert.True(asyncSolution.TotalValue <= constraints.Budget * 1.01)
-
-            | Error msg, _ -> Assert.Fail($"Sync version failed: {msg}")
-            | _, Error msg -> Assert.Fail($"Async version failed: {msg}")
-        }
-        :> Task
-    #warnon "44"
 
     [<Fact>]
     let ``QuantumPortfolioSolver - solveAsync allows concurrent execution`` () =
@@ -258,10 +181,8 @@ module IntegrationTests =
                 Array2D.init 5 5 (fun i j -> if i = j then 0.0 else float (abs (i - j)))
 
             // Act: Let HybridSolver decide
-            let! result = HybridSolver.solveTspAsync distances None None None CancellationToken.None
-
             // Assert: Should choose classical method
-            match result with
+            match! HybridSolver.solveTspAsync distances None None None CancellationToken.None with
             | Ok solution ->
                 Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
                 Assert.Contains("classical", solution.Reasoning.ToLower())
@@ -313,10 +234,8 @@ module IntegrationTests =
                 }
 
             // Act: Let HybridSolver decide
-            let! result = HybridSolver.solvePortfolioAsync assets constraints None None None CancellationToken.None
-
             // Assert: Should choose classical method
-            match result with
+            match! HybridSolver.solvePortfolioAsync assets constraints None None None CancellationToken.None with
             | Ok solution ->
                 Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
                 Assert.Contains("classical", solution.Reasoning.ToLower())
@@ -336,10 +255,8 @@ module IntegrationTests =
                 Array2D.init 30 30 (fun i j -> if i = j then 0.0 else 1.0 + float (abs (i - j)) * 0.5)
 
             // Act: Get recommendation (will still solve with classical for now)
-            let! result = HybridSolver.solveTspAsync distances None None None CancellationToken.None
-
             // Assert: Should have recommendation considering quantum
-            match result with
+            match! HybridSolver.solveTspAsync distances None None None CancellationToken.None with
             | Ok solution ->
                 // Should provide recommendation
                 Assert.True(solution.Recommendation.IsSome)
@@ -380,10 +297,8 @@ module IntegrationTests =
             let problem = TSP.createProblem cities
 
             // Act & Assert: Should not throw, should handle gracefully
-            let! result = TSP.solveAsync problem None CancellationToken.None
-
             // Should return valid result structure (even if empty/trivial)
-            match result with
+            match! TSP.solveAsync problem None CancellationToken.None with
             | Ok tour ->
                 // Empty tour is valid
                 Assert.True(tour.Cities.Length = 0 || tour.TotalDistance >= 0.0)
@@ -419,10 +334,8 @@ module IntegrationTests =
             let emptyMatrix = Array2D.create 0 0 0.0
 
             // Act
-            let! result = HybridSolver.solveTspAsync emptyMatrix None None None CancellationToken.None
-
             // Assert: Should handle gracefully
-            match result with
+            match! HybridSolver.solveTspAsync emptyMatrix None None None CancellationToken.None with
             | Ok solution ->
                 // If it succeeds, tour should be empty or minimal
                 Assert.True(solution.Result.Tour.Length <= 1)
@@ -448,10 +361,8 @@ module IntegrationTests =
             let problem = Portfolio.createProblem assets budget
 
             // Act
-            let! result = Portfolio.solveAsync problem None CancellationToken.None
-
             // Assert: Should allocate maximum possible
-            match result with
+            match! Portfolio.solveAsync problem None CancellationToken.None with
             | Ok allocation ->
                 Assert.Equal(1, allocation.Allocations.Length)
 
@@ -490,10 +401,8 @@ module IntegrationTests =
             let portfolioProblem = Portfolio.createProblem portfolioAssets 20000.0
 
             // Act: Solve portfolio problem
-            let! portfolioResult = Portfolio.solveAsync portfolioProblem None CancellationToken.None
-
             // Assert: Should succeed
-            match portfolioResult with
+            match! Portfolio.solveAsync portfolioProblem None CancellationToken.None with
             | Ok allocation ->
                 Assert.True(allocation.Allocations.Length > 0)
                 Assert.True(allocation.TotalValue <= 20000.0 * 1.01)

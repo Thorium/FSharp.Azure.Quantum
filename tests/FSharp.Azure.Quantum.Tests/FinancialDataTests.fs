@@ -2,6 +2,8 @@ namespace FSharp.Azure.Quantum.Tests
 
 open System
 open System.Net.Http
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Data.FinancialData
@@ -694,7 +696,7 @@ module FinancialDataTests =
             let response =
                 new HttpResponseMessage(System.Net.HttpStatusCode.OK, Content = new StringContent(json))
 
-            System.Threading.Tasks.Task.FromResult response
+            Task.FromResult response
 
     [<Fact>]
     let ``yahooChartUrl counts back from today without dates`` () =
@@ -770,42 +772,44 @@ module FinancialDataTests =
         | other -> Assert.Fail($"Expected a StartDate validation error, got %A{other}")
 
     [<Fact>]
-    let ``fetchYahooHistoryAsync sets the User-Agent per request and leaves the client headers alone`` () =
-        let handler = new FakeYahooHandler()
-        use client = new HttpClient(handler)
+    let ``fetchYahooHistoryAsync sets the User-Agent per request and leaves the client headers alone`` () : Task =
+        task {
+            let handler = new FakeYahooHandler()
+            use client = new HttpClient(handler)
 
-        let requests =
-            [
-                { yahooRequest "AAPL" with
-                    StartDate = Some(DateTime(2019, 1, 1))
-                    EndDate = Some(DateTime(2023, 12, 31))
-                }
-                yahooRequest "MSFT"
-                yahooRequest "GOOGL"
-            ]
+            let requests =
+                [
+                    { yahooRequest "AAPL" with
+                        StartDate = Some(DateTime(2019, 1, 1))
+                        EndDate = Some(DateTime(2023, 12, 31))
+                    }
+                    yahooRequest "MSFT"
+                    yahooRequest "GOOGL"
+                ]
 
-        let results =
-            requests
-            |> List.map (fun r -> fetchYahooHistoryAsync client r System.Threading.CancellationToken.None)
-            |> System.Threading.Tasks.Task.WhenAll
-            |> fun t -> t.GetAwaiter().GetResult()
+            let! results =
+                requests
+                |> List.map (fun r -> fetchYahooHistoryAsync client r CancellationToken.None)
+                |> Task.WhenAll
 
-        for result in results do
-            match result with
-            | Ok series ->
-                Assert.Equal(2, series.Prices.Length)
-                Assert.Equal(Some 1.9, series.Prices.[1].AdjustedClose)
-            | Error err -> Assert.Fail(err.Message)
+            for result in results do
+                match result with
+                | Ok series ->
+                    Assert.Equal(2, series.Prices.Length)
+                    Assert.Equal(Some 1.9, series.Prices.[1].AdjustedClose)
+                | Error err -> Assert.Fail(err.Message)
 
-        Assert.Empty(client.DefaultRequestHeaders.UserAgent)
+            Assert.Empty(client.DefaultRequestHeaders.UserAgent)
 
-        let sent = handler.Requests
-        Assert.Equal(3, sent.Length)
+            let sent = handler.Requests
+            Assert.Equal(3, sent.Length)
 
-        for (_, userAgents) in sent do
-            Assert.Equal<string list>([ YahooUserAgent ], userAgents)
+            for (_, userAgents) in sent do
+                Assert.Equal<string list>([ YahooUserAgent ], userAgents)
 
-        Assert.Equal<Set<string>>(requests |> List.map urlOf |> Set.ofList, sent |> List.map fst |> Set.ofList)
+            Assert.Equal<Set<string>>(requests |> List.map urlOf |> Set.ofList, sent |> List.map fst |> Set.ofList)
+        }
+        :> Task
 
     [<Fact>]
     let ``fetchYahooHistoryAsync reports an invalid date range without a request`` () =
@@ -820,12 +824,12 @@ module FinancialDataTests =
                 }
 
             let! result =
-                (fetchYahooHistoryAsync client request System.Threading.CancellationToken.None)
+                (fetchYahooHistoryAsync client request CancellationToken.None)
 
             Assert.True(Result.isError result)
             Assert.Empty(handler.Requests)
         }
-        :> System.Threading.Tasks.Task
+        :> Task
 
     [<Fact>]
     let ``yahooChartUrl clamps dates outside the Unix range and the future`` () =

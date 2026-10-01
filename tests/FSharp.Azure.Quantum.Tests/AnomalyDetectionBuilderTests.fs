@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -34,7 +36,7 @@ module AnomalyDetectionBuilderTests =
     // ========================================================================
 
     [<Fact>]
-    let ``train with empty data should return ValidationError`` () =
+    let ``train with empty data should return ValidationError`` () : Task =
         let problem =
             {
                 NormalData = [||]
@@ -50,12 +52,14 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
-        | _ -> failwith "Should return ValidationError for empty data"
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
+            | _ -> failwith "Should return ValidationError for empty data"
+        }
 
     [<Fact>]
-    let ``train with fewer than 10 samples should return error`` () =
+    let ``train with fewer than 10 samples should return error`` () : Task =
         let problem =
             {
                 NormalData = generateNormalData 5 42
@@ -71,12 +75,14 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Error _ -> () // Expected: either ValidationError or Other
-        | Ok _ -> failwith "Should return error for fewer than 10 samples"
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Error _ -> () // Expected: either ValidationError or Other
+            | Ok _ -> failwith "Should return error for fewer than 10 samples"
+        }
 
     [<Fact>]
-    let ``train with contamination rate out of range should return ValidationError`` () =
+    let ``train with contamination rate out of range should return ValidationError`` () : Task =
         let problem =
             {
                 NormalData = defaultNormalData
@@ -92,12 +98,14 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
-        | _ -> failwith "Should return ValidationError for contamination rate > 0.5"
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
+            | _ -> failwith "Should return ValidationError for contamination rate > 0.5"
+        }
 
     [<Fact>]
-    let ``train with negative contamination rate should return ValidationError`` () =
+    let ``train with negative contamination rate should return ValidationError`` () : Task =
         let problem =
             {
                 NormalData = defaultNormalData
@@ -113,12 +121,14 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
-        | _ -> failwith "Should return ValidationError for negative contamination rate"
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
+            | _ -> failwith "Should return ValidationError for negative contamination rate"
+        }
 
     [<Fact>]
-    let ``train with mismatched feature lengths should return ValidationError`` () =
+    let ``train with mismatched feature lengths should return ValidationError`` () : Task =
         let badData =
             [|
                 [| 1.0; 2.0 |]
@@ -148,14 +158,16 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Error(QuantumError.ValidationError(param, msg)) ->
-            Assert.Equal("Input", param)
-            Assert.Contains("same length", msg)
-        | _ -> failwith "Should return ValidationError for mismatched feature lengths"
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Error(QuantumError.ValidationError(param, msg)) ->
+                Assert.Equal("Input", param)
+                Assert.Contains("same length", msg)
+            | _ -> failwith "Should return ValidationError for mismatched feature lengths"
+        }
 
     [<Fact>]
-    let ``train with zero shots should return ValidationError`` () =
+    let ``train with zero shots should return ValidationError`` () : Task =
         let problem =
             {
                 NormalData = defaultNormalData
@@ -171,16 +183,18 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
-        | _ -> failwith "Should return ValidationError for zero shots"
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
+            | _ -> failwith "Should return ValidationError for zero shots"
+        }
 
     // ========================================================================
     // SUCCESSFUL TRAINING TESTS
     // ========================================================================
 
     [<Fact>]
-    let ``train with valid normal data should succeed`` () =
+    let ``train with valid normal data should succeed`` () : Task =
         let problem =
             {
                 NormalData = defaultNormalData
@@ -196,15 +210,17 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Ok detector ->
-            Assert.Equal(Medium, detector.Metadata.Sensitivity)
-            Assert.Equal(2, detector.Metadata.NumFeatures)
-            Assert.Equal(15, detector.Metadata.NumNormalSamples)
-        | Error e -> failwith $"Should succeed, got error: {e}"
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Ok detector ->
+                Assert.Equal(Medium, detector.Metadata.Sensitivity)
+                Assert.Equal(2, detector.Metadata.NumFeatures)
+                Assert.Equal(15, detector.Metadata.NumNormalSamples)
+            | Error e -> failwith $"Should succeed, got error: {e}"
+        }
 
     [<Fact>]
-    let ``train with explicit backend should succeed`` () =
+    let ``train with explicit backend should succeed`` () : Task =
         let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
 
         let problem =
@@ -222,14 +238,16 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Ok detector ->
-            Assert.Equal(High, detector.Metadata.Sensitivity)
-            Assert.Equal(Some "test detector", detector.Metadata.Note)
-        | Error e -> failwith $"Should succeed, got error: {e}"
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Ok detector ->
+                Assert.Equal(High, detector.Metadata.Sensitivity)
+                Assert.Equal(Some "test detector", detector.Metadata.Note)
+            | Error e -> failwith $"Should succeed, got error: {e}"
+        }
 
     [<Fact>]
-    let ``train with different sensitivity levels should succeed`` () =
+    let ``train with different sensitivity levels should succeed`` () : Task =
         let makeProblem sensitivity =
             {
                 NormalData = defaultNormalData
@@ -245,17 +263,21 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        for s in [ Low; Medium; High; VeryHigh ] do
-            (train (makeProblem s))
-            |> Result.map (fun detector -> Assert.Equal(s, detector.Metadata.Sensitivity))
-            |> Result.defaultWith (fun e -> failwith $"Should succeed for sensitivity {s}, got error: {e}")
+        task {
+            for s in [ Low; Medium; High; VeryHigh ] do
+                let! trained = trainAsync (makeProblem s) CancellationToken.None
+
+                trained
+                |> Result.map (fun detector -> Assert.Equal(s, detector.Metadata.Sensitivity))
+                |> Result.defaultWith (fun e -> failwith $"Should succeed for sensitivity {s}, got error: {e}")
+        }
 
     // ========================================================================
     // DETECTION TESTS
     // ========================================================================
 
     [<Fact>]
-    let ``check on normal-like sample should return result`` () =
+    let ``check on normal-like sample should return result`` () : Task =
         let problem =
             {
                 NormalData = defaultNormalData
@@ -271,24 +293,26 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Ok detector ->
-            let sample = [| 1.1; 1.1 |] // Close to cluster center
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Ok detector ->
+                let sample = [| 1.1; 1.1 |] // Close to cluster center
 
-            match check sample detector with
-            | Ok result ->
-                Assert.True(
-                    result.AnomalyScore >= 0.0 && result.AnomalyScore <= 1.0,
-                    $"AnomalyScore should be in [0,1], got {result.AnomalyScore}"
-                )
+                match! checkAsync sample detector CancellationToken.None with
+                | Ok result ->
+                    Assert.True(
+                        result.AnomalyScore >= 0.0 && result.AnomalyScore <= 1.0,
+                        $"AnomalyScore should be in [0,1], got {result.AnomalyScore}"
+                    )
 
-                Assert.True(result.Confidence >= 0.0, $"Confidence should be non-negative, got {result.Confidence}")
-                Assert.Equal(not result.IsAnomaly, result.IsNormal)
-            | Error e -> failwith $"check should succeed, got error: {e}"
-        | Error e -> failwith $"train should succeed, got error: {e}"
+                    Assert.True(result.Confidence >= 0.0, $"Confidence should be non-negative, got {result.Confidence}")
+                    Assert.Equal(not result.IsAnomaly, result.IsNormal)
+                | Error e -> failwith $"check should succeed, got error: {e}"
+            | Error e -> failwith $"train should succeed, got error: {e}"
+        }
 
     [<Fact>]
-    let ``checkBatch should return results for all samples`` () =
+    let ``checkBatch should return results for all samples`` () : Task =
         let problem =
             {
                 NormalData = defaultNormalData
@@ -304,25 +328,27 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Ok detector ->
-            let samples = [| [| 1.0; 1.0 |]; [| 2.0; 2.0 |]; [| 10.0; 10.0 |] |]
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Ok detector ->
+                let samples = [| [| 1.0; 1.0 |]; [| 2.0; 2.0 |]; [| 10.0; 10.0 |] |]
 
-            match checkBatch samples detector with
-            | Ok batch ->
-                Assert.Equal(3, batch.TotalItems)
-                Assert.Equal(3, batch.Results.Length)
-                Assert.True(batch.AnomalyRate >= 0.0 && batch.AnomalyRate <= 1.0)
-                Assert.True(batch.TopAnomalies.Length > 0)
-            | Error e -> failwith $"checkBatch should succeed, got error: {e}"
-        | Error e -> failwith $"train should succeed, got error: {e}"
+                match! checkBatchAsync samples detector CancellationToken.None with
+                | Ok batch ->
+                    Assert.Equal(3, batch.TotalItems)
+                    Assert.Equal(3, batch.Results.Length)
+                    Assert.True(batch.AnomalyRate >= 0.0 && batch.AnomalyRate <= 1.0)
+                    Assert.True(batch.TopAnomalies.Length > 0)
+                | Error e -> failwith $"checkBatch should succeed, got error: {e}"
+            | Error e -> failwith $"train should succeed, got error: {e}"
+        }
 
     // ========================================================================
     // EXPLANATION TESTS
     // ========================================================================
 
     [<Fact>]
-    let ``explain should return feature contributions`` () =
+    let ``explain should return feature contributions`` () : Task =
         let problem =
             {
                 NormalData = defaultNormalData
@@ -338,80 +364,90 @@ module AnomalyDetectionBuilderTests =
                 CancellationToken = None
             }
 
-        match train problem with
-        | Ok detector ->
-            let sample = [| 10.0; 10.0 |] // Far from normal
+        task {
+            match! trainAsync problem CancellationToken.None with
+            | Ok detector ->
+                let sample = [| 10.0; 10.0 |] // Far from normal
 
-            match explain sample detector defaultNormalData with
-            | Ok contributions ->
-                Assert.Equal(2, contributions.Length)
-                // Features should be named Feature_1, Feature_2
-                Assert.True(contributions |> Array.exists (fun (name, _) -> name.StartsWith "Feature_"))
-                // All deviations should be non-negative
-                for (_, dev) in contributions do
-                    Assert.True(dev >= 0.0, $"Deviation should be non-negative, got {dev}")
-            | Error e -> failwith $"explain should succeed, got error: {e}"
-        | Error e -> failwith $"train should succeed, got error: {e}"
+                match explain sample detector defaultNormalData with
+                | Ok contributions ->
+                    Assert.Equal(2, contributions.Length)
+                    // Features should be named Feature_1, Feature_2
+                    Assert.True(contributions |> Array.exists (fun (name, _) -> name.StartsWith "Feature_"))
+                    // All deviations should be non-negative
+                    for (_, dev) in contributions do
+                        Assert.True(dev >= 0.0, $"Deviation should be non-negative, got {dev}")
+                | Error e -> failwith $"explain should succeed, got error: {e}"
+            | Error e -> failwith $"train should succeed, got error: {e}"
+        }
 
     // ========================================================================
     // CE BUILDER TESTS
     // ========================================================================
 
     [<Fact>]
-    let ``anomalyDetection CE should train detector`` () =
-        let result =
-            anomalyDetection {
-                trainOnNormalData defaultNormalData
-                sensitivity Medium
-                shots 100
-            }
+    let ``anomalyDetection CE should train detector`` () : Task =
+        task {
+            let! result =
+                anomalyDetection {
+                    trainOnNormalData defaultNormalData
+                    sensitivity Medium
+                    shots 100
+                }
 
-        match result with
-        | Ok detector ->
-            Assert.Equal(Medium, detector.Metadata.Sensitivity)
-            Assert.Equal(15, detector.Metadata.NumNormalSamples)
-        | Error e -> failwith $"CE should succeed, got error: {e}"
-
-    [<Fact>]
-    let ``anomalyDetection CE with backend should succeed`` () =
-        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
-
-        let result =
-            anomalyDetection {
-                trainOnNormalData defaultNormalData
-                sensitivity High
-                contaminationRate 0.1
-                backend quantumBackend
-                shots 100
-            }
-
-        result
-        |> Result.map (fun detector -> Assert.Equal(High, detector.Metadata.Sensitivity))
-        |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
+            match result with
+            | Ok detector ->
+                Assert.Equal(Medium, detector.Metadata.Sensitivity)
+                Assert.Equal(15, detector.Metadata.NumNormalSamples)
+            | Error e -> failwith $"CE should succeed, got error: {e}"
+        }
 
     [<Fact>]
-    let ``anomalyDetection CE with empty data should return error`` () =
-        let result =
-            anomalyDetection {
-                trainOnNormalData [||]
-                sensitivity Medium
-            }
+    let ``anomalyDetection CE with backend should succeed`` () : Task =
+        task {
+            let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-        match result with
-        | Error(QuantumError.ValidationError _) -> ()
-        | Ok _ -> failwith "Should return error for empty data"
-        | Error e -> failwith $"Expected ValidationError, got: {e}"
+            let! result =
+                anomalyDetection {
+                    trainOnNormalData defaultNormalData
+                    sensitivity High
+                    contaminationRate 0.1
+                    backend quantumBackend
+                    shots 100
+                }
+
+            result
+            |> Result.map (fun detector -> Assert.Equal(High, detector.Metadata.Sensitivity))
+            |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
+        }
 
     [<Fact>]
-    let ``anomalyDetection CE with note should preserve it`` () =
-        let result =
-            anomalyDetection {
-                trainOnNormalData defaultNormalData
-                sensitivity Low
-                note "fraud detection model"
-                shots 100
-            }
+    let ``anomalyDetection CE with empty data should return error`` () : Task =
+        task {
+            let! result =
+                anomalyDetection {
+                    trainOnNormalData [||]
+                    sensitivity Medium
+                }
 
-        result
-        |> Result.map (fun detector -> Assert.Equal(Some "fraud detection model", detector.Metadata.Note))
-        |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
+            match result with
+            | Error(QuantumError.ValidationError _) -> ()
+            | Ok _ -> failwith "Should return error for empty data"
+            | Error e -> failwith $"Expected ValidationError, got: {e}"
+        }
+
+    [<Fact>]
+    let ``anomalyDetection CE with note should preserve it`` () : Task =
+        task {
+            let! result =
+                anomalyDetection {
+                    trainOnNormalData defaultNormalData
+                    sensitivity Low
+                    note "fraud detection model"
+                    shots 100
+                }
+
+            result
+            |> Result.map (fun detector -> Assert.Equal(Some "fraud detection model", detector.Metadata.Note))
+            |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
+        }

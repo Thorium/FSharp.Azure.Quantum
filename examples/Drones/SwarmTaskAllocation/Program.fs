@@ -38,6 +38,8 @@ open System
 open System.Diagnostics
 open System.Globalization
 open System.IO
+open System.Threading
+open System.Threading.Tasks
 
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -361,8 +363,9 @@ module Scheduler =
     let solveWithQuantum
         (backend: IQuantumBackend)
         (problem: SchedulingProblem<DroneTaskType, string>)
-        : Async<QuantumResult<Solution>> =
-        solveQuantum backend problem
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Solution>> =
+        solveQuantumAsync backend problem cancellationToken
 
 // =============================================================================
 // VISUALIZATION
@@ -2658,7 +2661,8 @@ module Program =
                         let backend = LocalBackend() :> IQuantumBackend
 
                         ("Quantum (LocalBackend)",
-                         Scheduler.solveWithQuantum backend problem
+                         Scheduler.solveWithQuantum backend problem CancellationToken.None
+                         |> Async.AwaitTask
                          |> Async.RunSynchronously
                          |> Result.map (fun solution -> (solution, None)))
                     | _ ->

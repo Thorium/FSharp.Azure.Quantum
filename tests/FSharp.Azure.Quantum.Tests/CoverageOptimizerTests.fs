@@ -137,9 +137,7 @@ module CoverageOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = CoverageOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
             | Ok r ->
                 Assert.True(r.SelectedOptions.Length > 0)
                 Assert.True(r.TotalCost > 0.0)
@@ -169,9 +167,7 @@ module CoverageOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = CoverageOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("UniverseSize", _)) -> ()
             | other -> Assert.Fail($"Expected UniverseSize validation error, got: %A{other}")
         }
@@ -195,9 +191,7 @@ module CoverageOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = CoverageOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("UniverseSize", _)) -> ()
             | other -> Assert.Fail($"Expected UniverseSize validation error, got: %A{other}")
         }
@@ -214,9 +208,7 @@ module CoverageOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = CoverageOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Options", _)) -> ()
             | other -> Assert.Fail($"Expected Options validation error, got: %A{other}")
         }
@@ -240,9 +232,7 @@ module CoverageOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = CoverageOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("Cost", _)) -> ()
             | other -> Assert.Fail($"Expected Cost validation error, got: %A{other}")
         }
@@ -266,9 +256,7 @@ module CoverageOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = CoverageOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("CoveredElements", _)) -> ()
             | other -> Assert.Fail($"Expected CoveredElements validation error, got: %A{other}")
         }
@@ -292,9 +280,7 @@ module CoverageOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = CoverageOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError("CoveredElements", _)) -> ()
             | other -> Assert.Fail($"Expected CoveredElements validation error, got: %A{other}")
         }
@@ -368,9 +354,7 @@ module CoverageOptimizerTests =
                     Shots = 1000
                 }
 
-            let! result = CoverageOptimizer.solveAsync problem CancellationToken.None
-
-            match result with
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
             | Ok r ->
                 Assert.True(r.SelectedOptions.Length >= 1)
                 Assert.True(r.TotalCost >= 0.0)

@@ -481,47 +481,47 @@ module GridSearchIntegrationTests =
 module OptimizationIntegrationTests =
 
     [<Fact>]
-    let ``executeQaoaWithOptimization returns valid result for 2-qubit problem`` () =
-        let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
-        let backend = createLocalBackend ()
+    let ``executeQaoaWithOptimization returns valid result for 2-qubit problem`` () : Task =
+        task {
+            let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
+            let backend = createLocalBackend ()
 
-        let config =
-            { defaultConfig with
-                NumLayers = 1
-                OptimizationShots = 50
-                FinalShots = 200
-                MaxOptimizationIterations = 50
-            }
+            let config =
+                { defaultConfig with
+                    NumLayers = 1
+                    OptimizationShots = 50
+                    FinalShots = 200
+                    MaxOptimizationIterations = 50
+                }
 
-        let result = executeQaoaWithOptimization backend qubo config
+            match! executeQaoaWithOptimizationAsync backend qubo config CancellationToken.None with
+            | Ok(solution, parameters, _converged) ->
+                Assert.Equal(2, solution.Length)
+                Assert.Equal(1, parameters.Length) // 1 layer
 
-        match result with
-        | Ok(solution, parameters, _converged) ->
-            Assert.Equal(2, solution.Length)
-            Assert.Equal(1, parameters.Length) // 1 layer
-
-            for b in solution do
-                Assert.True(b = 0 || b = 1, $"Expected 0 or 1 but got {b}")
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+                for b in solution do
+                    Assert.True(b = 0 || b = 1, $"Expected 0 or 1 but got {b}")
+            | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        }
 
     [<Fact>]
-    let ``executeQaoaWithOptimization returns parameters matching numLayers`` () =
-        let qubo = array2D [| [| -1.0; 0.0 |]; [| 0.0; -1.0 |] |]
-        let backend = createLocalBackend ()
+    let ``executeQaoaWithOptimization returns parameters matching numLayers`` () : Task =
+        task {
+            let qubo = array2D [| [| -1.0; 0.0 |]; [| 0.0; -1.0 |] |]
+            let backend = createLocalBackend ()
 
-        let config =
-            { defaultConfig with
-                NumLayers = 2
-                OptimizationShots = 30
-                FinalShots = 100
-                MaxOptimizationIterations = 30
-            }
+            let config =
+                { defaultConfig with
+                    NumLayers = 2
+                    OptimizationShots = 30
+                    FinalShots = 100
+                    MaxOptimizationIterations = 30
+                }
 
-        let result = executeQaoaWithOptimization backend qubo config
-
-        match result with
-        | Ok(_, parameters, _) -> Assert.Equal(2, parameters.Length) // 2 layers = 2 (gamma, beta) pairs
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+            match! executeQaoaWithOptimizationAsync backend qubo config CancellationToken.None with
+            | Ok(_, parameters, _) -> Assert.Equal(2, parameters.Length) // 2 layers = 2 (gamma, beta) pairs
+            | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        }
 
 // ============================================================================
 // evaluateQuboSparse TESTS
@@ -731,41 +731,47 @@ module GridSearchSparseTests =
 module OptimizationSparseTests =
 
     [<Fact>]
-    let ``executeQaoaWithOptimizationSparse returns valid result for 2-qubit problem`` () =
-        let quboMap = Map.ofList [ ((0, 0), -1.0); ((0, 1), 2.0); ((1, 1), -1.0) ]
-        let backend = createLocalBackend ()
+    let ``executeQaoaWithOptimizationSparse returns valid result for 2-qubit problem`` () : Task =
+        task {
+            let quboMap = Map.ofList [ ((0, 0), -1.0); ((0, 1), 2.0); ((1, 1), -1.0) ]
+            let backend = createLocalBackend ()
 
-        let config =
-            { defaultConfig with
-                NumLayers = 1
-                OptimizationShots = 50
-                FinalShots = 200
-                MaxOptimizationIterations = 50
-            }
+            let config =
+                { defaultConfig with
+                    NumLayers = 1
+                    OptimizationShots = 50
+                    FinalShots = 200
+                    MaxOptimizationIterations = 50
+                }
 
-        let result = executeQaoaWithOptimizationSparse backend 2 quboMap config
+            let! result =
+                executeQaoaWithOptimizationSparseAsync backend 2 quboMap config CancellationToken.None
 
-        match result with
-        | Ok(solution, parameters, _converged) ->
-            Assert.Equal(2, solution.Length)
-            Assert.Equal(1, parameters.Length)
+            match result with
+            | Ok(solution, parameters, _converged) ->
+                Assert.Equal(2, solution.Length)
+                Assert.Equal(1, parameters.Length)
 
-            for b in solution do
-                Assert.True(b = 0 || b = 1)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+                for b in solution do
+                    Assert.True(b = 0 || b = 1)
+            | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        }
 
     [<Fact>]
-    let ``executeQaoaWithOptimizationSparse rejects invalid config`` () =
-        let quboMap = Map.ofList [ ((0, 0), -1.0) ]
-        let backend = createLocalBackend ()
-        let config = { defaultConfig with FinalShots = -1 } // invalid
+    let ``executeQaoaWithOptimizationSparse rejects invalid config`` () : Task =
+        task {
+            let quboMap = Map.ofList [ ((0, 0), -1.0) ]
+            let backend = createLocalBackend ()
+            let config = { defaultConfig with FinalShots = -1 } // invalid
 
-        let result = executeQaoaWithOptimizationSparse backend 1 quboMap config
+            let! result =
+                executeQaoaWithOptimizationSparseAsync backend 1 quboMap config CancellationToken.None
 
-        match result with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("FinalShots", field)
-        | Error _ -> Assert.Fail("Expected ValidationError")
-        | Ok _ -> Assert.Fail("Expected Error for invalid config")
+            match result with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("FinalShots", field)
+            | Error _ -> Assert.Fail("Expected ValidationError")
+            | Ok _ -> Assert.Fail("Expected Error for invalid config")
+        }
 
 // ============================================================================
 // BUDGET EXECUTION TESTS
@@ -1076,33 +1082,6 @@ module ExecuteQaoaCircuitAsyncTests =
                         Assert.True(b = 0 || b = 1)
             | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
         }
-
-    #nowarn "44" // This test compares against the deprecated synchronous executeQaoaCircuit wrapper on purpose.
-    [<Fact>]
-    let ``executeQaoaCircuitAsync produces same results as sync version`` () : Task =
-        task {
-            let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
-            let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
-            let mixerHam = QaoaCircuit.MixerHamiltonian.create 2
-            let parameters = [| (0.5, 0.3) |]
-            let backend = createLocalBackend ()
-
-            // Both versions should produce valid measurements (not necessarily identical due to randomness)
-            let syncResult = executeQaoaCircuit backend problemHam mixerHam parameters 50
-
-            let! asyncResult =
-                executeQaoaCircuitAsync backend problemHam mixerHam parameters 50 CancellationToken.None
-
-            match syncResult, asyncResult with
-            | Ok syncMeasurements, Ok asyncMeasurements ->
-                Assert.Equal(syncMeasurements.Length, asyncMeasurements.Length)
-                // Both should produce 2-qubit measurements
-                Assert.Equal(2, syncMeasurements.[0].Length)
-                Assert.Equal(2, asyncMeasurements.[0].Length)
-            | Error _, _
-            | _, Error _ -> Assert.Fail("Both sync and async should succeed")
-        }
-    #warnon "44"
 
     [<Fact>]
     let ``executeQaoaCircuitAsync supports cancellation`` () : Task =

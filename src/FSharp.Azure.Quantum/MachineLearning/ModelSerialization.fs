@@ -249,32 +249,6 @@ module ModelSerialization =
             }
             cancellationToken
 
-    [<System.Obsolete("Use saveVQCModelAsync for better performance and to avoid blocking threads")>]
-    let saveVQCModel
-        (filePath: string)
-        (parameters: float array)
-        (finalLoss: float)
-        (numQubits: int)
-        (featureMapType: string)
-        (featureMapDepth: int)
-        (variationalFormType: string)
-        (variationalFormDepth: int)
-        (note: string option)
-        : QuantumResult<unit> =
-        saveVQCModelAsync
-            filePath
-            parameters
-            finalLoss
-            numQubits
-            featureMapType
-            featureMapDepth
-            variationalFormType
-            variationalFormDepth
-            note
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Save VQC training result with metadata (classification, async, task-based)
     ///
     /// Convenience function that takes VQC.TrainingResult directly
@@ -306,40 +280,6 @@ module ModelSerialization =
             variationalFormDepth
             note
             cancellationToken
-
-    /// Save VQC training result with metadata (classification)
-    ///
-    /// Convenience function that takes VQC.TrainingResult directly
-    [<System.Obsolete("Use saveVQCTrainingResultAsync for better performance and to avoid blocking threads")>]
-    let saveVQCTrainingResult
-        (filePath: string)
-        (result: VQC.TrainingResult)
-        (numQubits: int)
-        (featureMapType: string)
-        (featureMapDepth: int)
-        (variationalFormType: string)
-        (variationalFormDepth: int)
-        (note: string option)
-        : QuantumResult<unit> =
-
-        let finalLoss =
-            match result.LossHistory with
-            | [] -> 0.0
-            | losses -> List.last losses
-
-        saveVQCModelAsync
-            filePath
-            result.Parameters
-            finalLoss
-            numQubits
-            featureMapType
-            featureMapDepth
-            variationalFormType
-            variationalFormDepth
-            note
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Save VQC regression training result with metadata (async, task-based)
     ///
@@ -383,84 +323,6 @@ module ModelSerialization =
                 Note = note
             }
             cancellationToken
-
-    /// Save VQC regression training result with metadata
-    ///
-    /// Convenience function that takes VQC.RegressionTrainingResult directly
-    [<System.Obsolete("Use saveVQCRegressionTrainingResultAsync for better performance and to avoid blocking threads")>]
-    let saveVQCRegressionTrainingResult
-        (filePath: string)
-        (result: VQC.RegressionTrainingResult)
-        (numQubits: int)
-        (featureMapType: string)
-        (featureMapDepth: int)
-        (variationalFormType: string)
-        (variationalFormDepth: int)
-        (note: string option)
-        : QuantumResult<unit> =
-
-        saveVQCRegressionTrainingResultAsync
-            filePath
-            result
-            numQubits
-            featureMapType
-            featureMapDepth
-            variationalFormType
-            variationalFormDepth
-            note
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-    /// Save VQC multi-class training result (one-vs-rest)
-    ///
-    /// Saves all binary classifiers with full architecture metadata
-    [<System.Obsolete("Use saveVQCMultiClassTrainingResultAsync for better performance and to avoid blocking threads")>]
-    let saveVQCMultiClassTrainingResult
-        (filePath: string)
-        (result: VQC.MultiClassTrainingResult)
-        (numQubits: int)
-        (featureMapType: string)
-        (featureMapDepth: int)
-        (variationalFormType: string)
-        (variationalFormDepth: int)
-        (note: string option)
-        : QuantumResult<unit> =
-
-        try
-            // Convert all binary classifiers to serializable format
-            let classifiers =
-                result.Classifiers
-                |> Array.map (fun classifier ->
-                    {
-                        Parameters = classifier.Parameters
-                        TrainAccuracy = classifier.TrainAccuracy
-                        NumIterations = classifier.LossHistory.Length
-                    })
-
-            let model =
-                {
-                    Classifiers = classifiers
-                    ClassLabels = result.ClassLabels
-                    TrainAccuracy = result.TrainAccuracy
-                    NumClasses = result.NumClasses
-                    NumQubits = numQubits
-                    FeatureMapType = featureMapType
-                    FeatureMapDepth = featureMapDepth
-                    VariationalFormType = variationalFormType
-                    VariationalFormDepth = variationalFormDepth
-                    SavedAt = DateTime.UtcNow.ToString("o")
-                    Note = note
-                }
-
-            let options = JsonSerializerOptions(WriteIndented = true)
-
-            let json = JsonSerializer.Serialize(model, options)
-            File.WriteAllText(filePath, json)
-
-            Ok()
-        with ex ->
-            Error(QuantumError.ValidationError("Input", $"Failed to save multi-class model: {ex.Message}"))
 
     /// Save VQC multi-class training result asynchronously
     let saveVQCMultiClassTrainingResultAsync
@@ -701,32 +563,6 @@ module ModelSerialization =
                 | None -> Ok(results |> Array.choose id)
         }
 
-    /// Save multiple models with automatic naming
-    ///
-    /// Files will be named: {baseFileName}_1.json, {baseFileName}_2.json, etc.
-    [<System.Obsolete("Use saveVQCModelBatchAsync for better performance and to avoid blocking threads")>]
-    let saveVQCModelBatch
-        (baseFileName: string)
-        (models: (float array * float * string option) array)
-        (numQubits: int)
-        (featureMapType: string)
-        (featureMapDepth: int)
-        (variationalFormType: string)
-        (variationalFormDepth: int)
-        : QuantumResult<string array> =
-
-        saveVQCModelBatchAsync
-            baseFileName
-            models
-            numQubits
-            featureMapType
-            featureMapDepth
-            variationalFormType
-            variationalFormDepth
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Load multiple models from directory
     ///
     /// Loads all .json files matching pattern in directory
@@ -885,14 +721,6 @@ module ModelSerialization =
         | "AmplitudeEncoding" -> Ok FeatureMapType.AmplitudeEncoding
         | _ -> Error(QuantumError.ValidationError("Input", $"Unknown feature map type: {fmType}"))
 
-    /// Parse FeatureMapType from saved string representation
-    ///
-    /// Helper for reconstructing feature map from serialized model.
-    /// WARNING: assumes the default Pauli list ["Z"; "ZZ"] for PauliFeatureMap.
-    [<System.Obsolete("Use parseFeatureMapTypeWithConfig (with the model's FeatureMapPaulis) to reconstruct PauliFeatureMap losslessly")>]
-    let parseFeatureMapType (fmType: string) (fmDepth: int) : QuantumResult<FeatureMapType> =
-        parseFeatureMapTypeWithConfig fmType fmDepth None
-
     /// Parse VariationalForm from saved string representation plus the lossless
     /// configuration stored in VariationalFormRotation/VariationalFormEntanglement.
     ///
@@ -913,14 +741,6 @@ module ModelSerialization =
             let entanglement = entanglement |> Option.defaultValue "CX"
             Ok(VariationalForm.TwoLocal(rotation, entanglement, vfDepth))
         | _ -> Error(QuantumError.ValidationError("Input", $"Unknown variational form type: {vfType}"))
-
-    /// Parse VariationalForm from saved string representation
-    ///
-    /// Helper for reconstructing variational form from serialized model.
-    /// WARNING: assumes the default ("RY", "CX") configuration for TwoLocal.
-    [<System.Obsolete("Use parseVariationalFormWithConfig (with the model's VariationalFormRotation/VariationalFormEntanglement) to reconstruct TwoLocal losslessly")>]
-    let parseVariationalForm (vfType: string) (vfDepth: int) : QuantumResult<VariationalForm> =
-        parseVariationalFormWithConfig vfType vfDepth None None
 
     /// Reconstruct the FeatureMapType from a loaded model, using the lossless
     /// configuration fields when present (legacy files fall back to defaults).
@@ -1173,49 +993,6 @@ module ModelSerialization =
             with ex ->
                 return Error(QuantumError.ValidationError("Input", $"Failed to save portfolio solution: {ex.Message}"))
         }
-
-    /// Save portfolio solution synchronously
-    [<System.Obsolete("Use savePortfolioSolutionAsync for better performance")>]
-    let savePortfolioSolution
-        (filePath: string)
-        (allocations: SerializableAllocation list)
-        (totalValue: float)
-        (expectedReturn: float)
-        (risk: float)
-        (sharpeRatio: float)
-        (backendName: string)
-        (numShots: int)
-        (elapsedMs: float)
-        (qaoaParams: float * float)
-        (bestEnergy: float)
-        (selectedAssets: Map<string, bool>)
-        (riskAversion: float)
-        (budget: float)
-        (quboMatrix: Map<(int * int), float> option)
-        (numVariables: int)
-        (note: string option)
-        : QuantumResult<unit> =
-        savePortfolioSolutionAsync
-            filePath
-            allocations
-            totalValue
-            expectedReturn
-            risk
-            sharpeRatio
-            backendName
-            numShots
-            elapsedMs
-            qaoaParams
-            bestEnergy
-            selectedAssets
-            riskAversion
-            budget
-            quboMatrix
-            numVariables
-            note
-            CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Load quantum portfolio solution from JSON file
     ///

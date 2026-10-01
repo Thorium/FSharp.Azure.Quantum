@@ -33,6 +33,7 @@
 open FSharp.Azure.Quantum.Examples.Common
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -129,7 +130,13 @@ if runAll || exampleName = "independent" then
         }
 
     let result =
-        DrugDiscoverySolvers.IndependentSet.solve quantumBackend problem cliShots
+        DrugDiscoverySolvers.IndependentSet.solveWithConfigAsync
+            quantumBackend
+            problem
+            { DrugDiscoverySolvers.defaultConfig with FinalShots = cliShots }
+            CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Ok sol ->
@@ -203,7 +210,13 @@ if runAll || exampleName = "influence" then
         }
 
     let result =
-        DrugDiscoverySolvers.InfluenceMaximization.solve quantumBackend problem cliShots
+        DrugDiscoverySolvers.InfluenceMaximization.solveWithConfigAsync
+            quantumBackend
+            problem
+            { DrugDiscoverySolvers.defaultConfig with FinalShots = cliShots }
+            CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Ok sol ->
@@ -297,7 +310,13 @@ if runAll || exampleName = "diverse" then
         }
 
     let result =
-        DrugDiscoverySolvers.DiverseSelection.solve quantumBackend problem cliShots
+        DrugDiscoverySolvers.DiverseSelection.solveWithConfigAsync
+            quantumBackend
+            problem
+            { DrugDiscoverySolvers.defaultConfig with FinalShots = cliShots }
+            CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match result with
     | Ok sol ->

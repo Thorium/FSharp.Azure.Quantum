@@ -171,18 +171,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         }
 
         /// <summary>
-        /// Build and train the classifier.
-        /// Returns a trained classifier ready for predictions.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
-        /// <returns>A trained <see cref="IBinaryClassifier"/> instance.</returns>
-        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
-        public IBinaryClassifier Build()
-        {
-            return BuildAsync().GetAwaiter().GetResult();
-        }
-
-        /// <summary>
         /// Build and train the classifier without blocking the calling thread.
         /// Returns a trained classifier ready for predictions.
         /// </summary>
@@ -271,29 +259,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     public interface IBinaryClassifier
     {
         /// <summary>
-        /// Classify a new sample.
-        /// </summary>
-        /// <param name="sample">Feature vector to classify.</param>
-        /// <returns>Prediction result with label and confidence.</returns>
-        [Obsolete("Use ClassifyAsync for non-blocking execution against cloud backends")]
-        ClassificationResult Classify(double[] sample);
-
-        /// <summary>
         /// Classify a new sample without blocking the calling thread.
         /// </summary>
         /// <param name="sample">Feature vector to classify.</param>
         /// <param name="cancellationToken">Cancels the prediction.</param>
         /// <returns>Prediction result with label and confidence.</returns>
         Task<ClassificationResult> ClassifyAsync(double[] sample, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Evaluate classifier on test set.
-        /// </summary>
-        /// <param name="testFeatures">Test samples.</param>
-        /// <param name="testLabels">True labels.</param>
-        /// <returns>Evaluation metrics.</returns>
-        [Obsolete("Use EvaluateAsync for non-blocking execution against cloud backends")]
-        EvaluationMetrics Evaluate(double[][] testFeatures, int[] testLabels);
 
         /// <summary>
         /// Evaluate classifier on test set without blocking the calling thread.
@@ -303,13 +274,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <param name="cancellationToken">Cancels the evaluation.</param>
         /// <returns>Evaluation metrics.</returns>
         Task<EvaluationMetrics> EvaluateAsync(double[][] testFeatures, int[] testLabels, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Save classifier to file.
-        /// </summary>
-        /// <param name="path">Path to save the classifier.</param>
-        [Obsolete("Use SaveToAsync for non-blocking file I/O")]
-        void SaveTo(string path);
 
         /// <summary>
         /// Save classifier to file without blocking the calling thread.
@@ -430,12 +394,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             _classifier = classifier;
         }
 
-        [Obsolete("Use ClassifyAsync for non-blocking execution against cloud backends")]
-        public ClassificationResult Classify(double[] sample)
-        {
-            return ClassifyAsync(sample).GetAwaiter().GetResult();
-        }
-
         public async Task<ClassificationResult> ClassifyAsync(double[] sample, CancellationToken cancellationToken = default)
         {
             var result = await BinaryClassifier.predictAsync(sample, _classifier, cancellationToken).ConfigureAwait(false);
@@ -454,12 +412,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 IsPositive = prediction.IsPositive,
                 IsNegative = prediction.IsNegative,
             };
-        }
-
-        [Obsolete("Use EvaluateAsync for non-blocking execution against cloud backends")]
-        public EvaluationMetrics Evaluate(double[][] testFeatures, int[] testLabels)
-        {
-            return EvaluateAsync(testFeatures, testLabels).GetAwaiter().GetResult();
         }
 
         public async Task<EvaluationMetrics> EvaluateAsync(double[][] testFeatures, int[] testLabels, CancellationToken cancellationToken = default)
@@ -484,12 +436,6 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 FalsePositives = metrics.FalsePositives,
                 FalseNegatives = metrics.FalseNegatives,
             };
-        }
-
-        [Obsolete("Use SaveToAsync for non-blocking file I/O")]
-        public void SaveTo(string path)
-        {
-            SaveToAsync(path).GetAwaiter().GetResult();
         }
 
         public async Task SaveToAsync(string path, CancellationToken cancellationToken = default)

@@ -363,85 +363,90 @@ module QuantumSetCoverSolver =
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
     // ========================================================================
 
-    /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+    /// Shared implementation of solveWithConfigAsync.
     let private solveWithConfigCore
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Result<Solution, QuantumError> =
+        : Task<Result<Solution, QuantumError>> =
 
         if problem.Subsets.IsEmpty then
-            Error(QuantumError.ValidationError("subsets", "Problem has no subsets"))
+            Task.FromResult(Error(QuantumError.ValidationError("subsets", "Problem has no subsets")))
         elif problem.UniverseSize <= 0 then
-            Error(QuantumError.ValidationError("universeSize", "Universe size must be positive"))
+            Task.FromResult(Error(QuantumError.ValidationError("universeSize", "Universe size must be positive")))
         elif
             problem.Subsets
             |> List.exists (fun s -> s.Elements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize))
         then
-            Error(QuantumError.ValidationError("elements", "Element index out of range"))
+            Task.FromResult(Error(QuantumError.ValidationError("elements", "Element index out of range")))
         else
-            let solveSingle (subProblem: Problem) =
-                match toQubo subProblem with
-                | Error err -> Error err
-                | Ok qubo ->
-                    let result =
-                        if config.EnableOptimization then
-                            executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
-                        else
-                            // Sequential (maxConcurrency = 1) grid search, as before
-                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
-                                .GetAwaiter()
-                                .GetResult()
-                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+            let solveSingle (subProblem: Problem) : Task<Result<Solution, QuantumError>> =
+                task {
+                    match toQubo subProblem with
+                    | Error err -> return Error err
+                    | Ok qubo ->
+                        let! result =
+                            if config.EnableOptimization then
+                                task {
+                                    let! optimized = executeQaoaWithOptimizationAsync backend qubo config cancellationToken
 
-                    match result with
-                    | Error err -> Error err
-                    | Ok(bits, optParams, converged) ->
-                        // Keep only the subset-selection bits: the trailing coverage
-                        // slack bits encode the >=1 inequality inside the QUBO and
-                        // carry no solution content.
-                        let numSubsets = subProblem.Subsets.Length
-
-                        let decisionBits =
-                            if bits.Length > numSubsets then
-                                bits.[0 .. numSubsets - 1]
+                                    return
+                                        optimized
+                                        |> Result.map (fun (bits, optParams, converged) ->
+                                            (bits, Some optParams, Some converged))
+                                }
                             else
-                                bits
+                                task {
+                                    // Sequential (maxConcurrency = 1) grid search, as before
+                                    let! searched = executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken
 
-                        let finalBits, wasRepaired =
-                            if config.EnableConstraintRepair && not (isValid subProblem decisionBits) then
-                                (repairConstraints subProblem decisionBits, true)
-                            else
-                                (decisionBits, false)
+                                    return searched |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
+                                }
 
-                        let solution = decodeSolution subProblem finalBits
+                        match result with
+                        | Error err -> return Error err
+                        | Ok(bits, optParams, converged) ->
+                            // Keep only the subset-selection bits: the trailing coverage
+                            // slack bits encode the >=1 inequality inside the QUBO and
+                            // carry no solution content.
+                            let numSubsets = subProblem.Subsets.Length
 
-                        Ok
-                            { solution with
-                                BackendName = backend.Name
-                                NumShots = config.FinalShots
-                                WasRepaired = wasRepaired
-                                OptimizedParameters = optParams
-                                OptimizationConverged = converged
-                            }
+                            let decisionBits =
+                                if bits.Length > numSubsets then
+                                    bits.[0 .. numSubsets - 1]
+                                else
+                                    bits
 
-            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
+                            let finalBits, wasRepaired =
+                                if config.EnableConstraintRepair && not (isValid subProblem decisionBits) then
+                                    (repairConstraints subProblem decisionBits, true)
+                                else
+                                    (decisionBits, false)
 
-    /// Solve set cover using QAOA with full configuration control.
-    /// Supports automatic decomposition when problem exceeds backend capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (config: Config)
-        : Result<Solution, QuantumError> =
-        solveWithConfigCore backend problem config CancellationToken.None
+                            let solution = decodeSolution subProblem finalBits
+
+                            return
+                                Ok
+                                    { solution with
+                                        BackendName = backend.Name
+                                        NumShots = config.FinalShots
+                                        WasRepaired = wasRepaired
+                                        OptimizedParameters = optParams
+                                        OptimizationConverged = converged
+                                    }
+                }
+
+            ProblemDecomposition.solveWithDecompositionAsync
+                backend
+                problem
+                estimateQubits
+                decompose
+                recombine
+                solveSingle
 
     /// Solve set cover using QAOA with full configuration control (async).
-    /// Wraps the synchronous solveWithConfig in a task; will become truly async
-    /// once ProblemDecomposition supports async solve functions.
+    /// Supports automatic decomposition when problem exceeds backend capacity.
     let solveWithConfigAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -450,25 +455,8 @@ module QuantumSetCoverSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfigCore backend problem config cancellationToken
+            return! solveWithConfigCore backend problem config cancellationToken
         }
-
-    /// Solve set cover using QAOA with default configuration.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: Problem)
-        (shots: int)
-        : Result<Solution, QuantumError> =
-
-        let config =
-            { defaultConfig with
-                FinalShots = shots
-            }
-
-        solveWithConfigAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ========================================================================
     // CLASSICAL SOLVER (Rule 1: private — not exposed without backend)

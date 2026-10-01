@@ -39,6 +39,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
@@ -275,9 +276,9 @@ let results =
         if not quiet then
             printfn "  Running %.1f%% confidence..." (level.Confidence * 100.0)
 
-        try
-            let report =
-                RiskEngine.execute
+        let outcome =
+            try
+                RiskEngine.executeAsync
                     {
                         MarketDataPath = None
                         ConfidenceLevel = level.Confidence
@@ -297,7 +298,15 @@ let results =
                         Backend = Some backend
                         CancellationToken = None
                     }
+                    CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+                |> Result.mapError (fun err -> err.Message)
+            with ex ->
+                Error ex.Message
 
+        match outcome with
+        | Ok report ->
             let toOption (v: float voption) =
                 match v with
                 | ValueSome x -> Some x
@@ -313,11 +322,11 @@ let results =
                 ExecutionTimeMs = report.ExecutionTimeMs
                 HasQuantumFailure = false
             }
-        with ex ->
+        | Error message ->
             anyFailure <- true
 
             if not quiet then
-                eprintfn "  FAILED at %.1f%%: %s" (level.Confidence * 100.0) ex.Message
+                eprintfn "  FAILED at %.1f%%: %s" (level.Confidence * 100.0) message
 
             {
                 Level = level

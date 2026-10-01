@@ -1,5 +1,9 @@
 namespace FSharp.Azure.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
+
 /// Zero-Noise Extrapolation (ZNE) error mitigation module.
 ///
 /// Implements Richardson extrapolation to reduce quantum circuit errors by 30-50%.
@@ -269,32 +273,36 @@ module ZeroNoiseExtrapolation =
     /// 4. Extrapolate to zero noise (extrapolateToZeroNoise)
     ///
     /// Returns ZNEResult with 30-50% error reduction.
-    let mitigate
+    let mitigateAsync
         (circuit: CircuitBuilder.Circuit)
         (config: ZNEConfig)
-        (executor: CircuitBuilder.Circuit -> Async<Result<float, string>>)
-        : Async<Result<ZNEResult, string>> =
-        async {
+        (executor: CircuitBuilder.Circuit -> Task<Result<float, string>>)
+        (cancellationToken: CancellationToken)
+        : Task<Result<ZNEResult, string>> =
+        task {
             try
-                // Step 1: Apply noise scaling and execute circuits in parallel
-                let! measurementResults =
-                    config.NoiseScalings
-                    |> List.map (fun noiseScaling ->
-                        async {
-                            // Apply noise scaling (immutable composition)
-                            let noisyCircuit = applyNoiseScaling noiseScaling circuit
+                // Step 1: Apply noise scaling and execute the circuits, one noise level after
+                // another (never fanned out unbounded against a backend)
+                let measurementResults = ResizeArray<Result<float * float, string>>()
 
-                            // Execute circuit
-                            let! executionResult = executor noisyCircuit
+                for noiseScaling in config.NoiseScalings do
+                    cancellationToken.ThrowIfCancellationRequested()
 
-                            // Extract expectation value
-                            return
-                                executionResult
-                                |> Result.map (fun expectation ->
-                                    let noiseLevel = getNoiseLevel noiseScaling
-                                    (noiseLevel, expectation))
-                        })
-                    |> Async.Parallel
+                    // Apply noise scaling (immutable composition)
+                    let noisyCircuit = applyNoiseScaling noiseScaling circuit
+
+                    // Execute circuit
+                    let! executionResult = executor noisyCircuit
+
+                    // Extract expectation value
+                    measurementResults.Add(
+                        executionResult
+                        |> Result.map (fun expectation ->
+                            let noiseLevel = getNoiseLevel noiseScaling
+                            (noiseLevel, expectation))
+                    )
+
+                let measurementResults = measurementResults.ToArray()
 
                 // Check if any executions failed
                 let failures =
@@ -332,6 +340,6 @@ module ZeroNoiseExtrapolation =
                                 PolynomialCoefficients = coefficients
                                 GoodnessOfFit = goodnessOfFit
                             }
-            with ex ->
+            with ex when not (ex :? OperationCanceledException) ->
                 return Error $"ZNE pipeline error: %s{ex.Message}"
         }

@@ -377,12 +377,15 @@ module QuantumState =
                 problemType.GetProperty("QuadraticCoeffs").GetValue problem :?> Map<(int * int), float>
 
             let allIndices =
-                seq {
+                [|
                     yield! Map.keys linearCoeffs
                     yield! Map.keys quadraticCoeffs |> Seq.collect (fun (i, j) -> [ i; j ])
-                }
+                |]
 
-            if Seq.isEmpty allIndices then 0 else Seq.max allIndices + 1
+            if Array.isEmpty allIndices then
+                0
+            else
+                System.Linq.Enumerable.Max(allIndices) + 1
 
         | QuantumState.MeasurementHistogram(_, n) -> n
 
@@ -519,7 +522,7 @@ module QuantumState =
 
             | QuantumState.IsingSamples(problem, solutions) ->
                 // Sample from D-Wave annealing solutions using reflection
-                let solutionsSeq = objToSeq solutions
+                let solutionsArr = objToSeq solutions |> Array.ofSeq
                 let n = numQubits state
                 let rng = Random()
 
@@ -531,13 +534,13 @@ module QuantumState =
                 let spinsToBitstring (spins: Map<int, int>) =
                     Array.init n (fun i -> spins |> Map.tryFind i |> Option.map spinToBit |> Option.defaultValue 0)
 
-                if Seq.isEmpty solutionsSeq then
+                if Array.isEmpty solutionsArr then
                     // Array.init (not replicate): independent arrays per shot, safe to mutate
                     Array.init shots (fun _ -> Array.zeroCreate n)
                 else
                     // Build weighted sample pool based on NumOccurrences
                     let samplePool =
-                        solutionsSeq
+                        solutionsArr
                         |> Seq.collect (fun sol ->
                             let solType = sol.GetType()
                             let spins = solType.GetProperty("Spins").GetValue sol :?> Map<int, int>
@@ -611,9 +614,9 @@ module QuantumState =
         | QuantumState.IsingSamples(problem, solutions) ->
             // For annealing samples, compute empirical probability from solution occurrences
             // This is NOT a quantum probability - these are classical samples
-            let solutionsSeq = objToSeq solutions
+            let solutionsArr = objToSeq solutions |> Array.ofSeq
 
-            if Seq.isEmpty solutionsSeq then
+            if Array.isEmpty solutionsArr then
                 0.0
             else
                 let spinToBit =
@@ -625,8 +628,8 @@ module QuantumState =
                     spins |> Map.tryFind i |> Option.map spinToBit |> Option.defaultValue 0
 
                 let totalOcc, matchingOcc =
-                    solutionsSeq
-                    |> Seq.fold
+                    solutionsArr
+                    |> Array.fold
                         (fun (total, matching) sol ->
                             let solType = sol.GetType()
                             let spins = solType.GetProperty("Spins").GetValue sol :?> Map<int, int>
@@ -755,12 +758,11 @@ module QuantumState =
 
         | QuantumState.IsingSamples(_, solutions) ->
             // Show D-Wave annealing results summary
-            let solutionsSeq = objToSeq solutions
+            let solutionsList = objToSeq solutions |> List.ofSeq
 
-            if Seq.isEmpty solutionsSeq then
+            if List.isEmpty solutionsList then
                 $"IsingSamples ({n} variables, no solutions)"
             else
-                let solutionsList = Seq.toList solutionsSeq
                 let numSolutions = List.length solutionsList
 
                 let totalSamples, bestEnergy =

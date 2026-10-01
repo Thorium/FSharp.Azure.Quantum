@@ -62,9 +62,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
             | _ -> failwith "Should return ValidationError for empty features"
         }
@@ -93,9 +91,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
             | _ -> failwith "Should return ValidationError for empty labels"
         }
@@ -124,9 +120,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError(param, msg)) ->
                 Assert.Equal("Input", param)
                 Assert.Contains("same length", msg)
@@ -157,9 +151,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError(param, msg)) ->
                 Assert.Equal("Input", param)
                 Assert.Contains("0 or 1", msg)
@@ -190,9 +182,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
             | _ -> failwith "Should return ValidationError for zero learning rate"
         }
@@ -221,9 +211,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Input", param)
             | _ -> failwith "Should return ValidationError for zero epochs"
         }
@@ -252,9 +240,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.NotImplemented _) -> ()
             | _ -> failwith "Should return NotImplemented for Classical architecture"
         }
@@ -287,9 +273,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok classifier ->
                 Assert.Equal(Quantum, classifier.Metadata.Architecture)
                 Assert.Equal(2, classifier.Metadata.NumFeatures)
@@ -326,9 +310,7 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok classifier ->
                 Assert.Equal(Hybrid, classifier.Metadata.Architecture)
                 Assert.Equal(10, classifier.Metadata.NumSamples)
@@ -363,15 +345,11 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok classifier ->
                 let sample = [| 0.1; 0.1 |]
 
-                let! prediction = predictAsync sample classifier CancellationToken.None
-
-                match prediction with
+                match! predictAsync sample classifier CancellationToken.None with
                 | Ok pred ->
                     Assert.True(pred.Label = 0 || pred.Label = 1, $"Label should be 0 or 1, got {pred.Label}")
 
@@ -414,13 +392,9 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok classifier ->
-                let! evaluation = evaluateAsync features labels classifier CancellationToken.None
-
-                match evaluation with
+                match! evaluateAsync features labels classifier CancellationToken.None with
                 | Ok metrics ->
                     Assert.True(metrics.Accuracy >= 0.0 && metrics.Accuracy <= 1.0)
                     Assert.True(metrics.Precision >= 0.0 && metrics.Precision <= 1.0)
@@ -462,11 +436,11 @@ module BinaryClassificationBuilderTests =
                     Logger = None
                 }
 
-            let! trained = trainAsync problem CancellationToken.None
-
-            match trained with
+            match! trainAsync problem CancellationToken.None with
             | Ok classifier ->
-                match evaluate features [| 0; 1 |] classifier with // wrong label count
+                let! evaluation = evaluateAsync features [| 0; 1 |] classifier CancellationToken.None // wrong label count
+
+                match evaluation with
                 | Error(QuantumError.ValidationError _) -> ()
                 | _ -> failwith "Should return ValidationError for mismatched test data"
             | Error e -> failwith $"train should succeed, got error: {e}"
@@ -557,9 +531,7 @@ module BinaryClassificationBuilderTests =
     [<Fact>]
     let ``binaryClassification CE with empty data should return ValidationError`` () =
         task {
-            let! result = binaryClassification { trainWith [||] [||] }
-
-            match result with
+            match! binaryClassification { trainWith [||] [||] } with
             | Error(QuantumError.ValidationError _) -> ()
             | Ok _ -> failwith "Should return error for empty data"
             | Error e -> failwith $"Expected ValidationError, got: {e}"

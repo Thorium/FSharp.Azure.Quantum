@@ -161,7 +161,7 @@ module GraphColoring =
             Error(
                 QuantumError.ValidationError("Colors", "Graph coloring problem must have at least one available color")
             )
-        elif problem.Nodes |> List.exists (fun n -> System.String.IsNullOrWhiteSpace(n.Id)) then
+        elif problem.Nodes |> List.exists (fun n -> String.IsNullOrWhiteSpace(n.Id)) then
             Error(QuantumError.ValidationError("NodeIds", "All nodes must have non-empty IDs"))
         else
             let nodeIds = problem.Nodes |> List.map (fun n -> n.Id) |> Set.ofList
@@ -212,7 +212,7 @@ module GraphColoring =
                             )
                         | _ when
                             not (problem.ConflictPenalty > 0.0)
-                            || System.Double.IsInfinity problem.ConflictPenalty
+                            || Double.IsInfinity problem.ConflictPenalty
                             ->
                             Error(
                                 QuantumError.ValidationError(
@@ -574,25 +574,6 @@ module GraphColoring =
             with ex ->
                 return! Error(QuantumError.OperationError("Graph coloring solve", $"Failed: {ex.Message}"))
         }
-
-    /// Solve graph coloring problem using quantum optimization (QAOA)
-    ///
-    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
-    /// it blocks the calling thread until the backend has answered.
-    ///
-    /// PARAMETERS:
-    ///   problem - Graph coloring problem with nodes and conflicts
-    ///   numColors - Number of colors to use for solving (capped by AvailableColors and MaxColors)
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (problem: GraphColoringProblem)
-        (numColors: int)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<ColoringSolution> =
-        solveAsync problem numColors backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     /// Solve graph coloring using classical greedy algorithm (for comparison): fixed colors,
     /// MaxColors, AvoidColors, Priority (visiting order) and BalanceColors (smallest class

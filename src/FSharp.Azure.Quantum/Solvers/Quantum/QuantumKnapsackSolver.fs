@@ -156,7 +156,8 @@ module QuantumKnapsackSolver =
     ///   Q_uv = λ * 2*c_u*c_v for u < v                  (quadratic terms)
     let toQubo (problem: KnapsackProblem) : Result<QuboMatrix, QuantumError> =
         try
-            let numItems = problem.Items.Length
+            let items = problem.Items |> List.toArray
+            let numItems = items.Length
 
             if numItems = 0 then
                 Error(QuantumError.ValidationError("numItems", "Knapsack problem has no items"))
@@ -177,14 +178,14 @@ module QuantumKnapsackSolver =
 
                 // Unified coefficient vector: item weights, then slack powers of two
                 let coeffs =
-                    [ for i in 0 .. numItems - 1 -> (i, problem.Items.[i].Weight) ]
+                    [ for i in 0 .. numItems - 1 -> (i, items.[i].Weight) ]
                     @ [ for t in 0 .. numSlackBits - 1 -> (numItems + t, pown 2.0 t) ]
 
                 // Linear terms (diagonal): objective on items, penalty on all vars
                 let linearTerms =
                     coeffs
                     |> List.map (fun (idx, c) ->
-                        let objective = if idx < numItems then -problem.Items.[idx].Value else 0.0
+                        let objective = if idx < numItems then -items.[idx].Value else 0.0
                         (idx, idx), objective + penalty * (c * c - 2.0 * W * c))
 
                 // Quadratic terms (upper triangle): λ * 2*c_u*c_v
@@ -284,7 +285,7 @@ module QuantumKnapsackSolver =
     ///   - problem: Knapsack problem (items with weights/values, capacity)
     ///   - config: QAOA configuration (shots, initial parameters)
     ///
-    /// Returns: Async<Result<KnapsackSolution, QuantumError>> - Async computation with result or error
+    /// Returns: Task<Result<KnapsackSolution, QuantumError>> - Task with result or error
     ///
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
@@ -302,7 +303,7 @@ module QuantumKnapsackSolver =
         (cancellationToken: CancellationToken)
         : Task<Result<KnapsackSolution, QuantumError>> =
 
-        let startTime = DateTime.Now
+        let stopwatch = System.Diagnostics.Stopwatch.StartNew()
 
         try
             // Step 1: Validate problem
@@ -351,7 +352,7 @@ module QuantumKnapsackSolver =
                                     BestEnergy = 0.0
                                 }
 
-                        let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                        let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
                         Ok
                             { bestSolution with
@@ -383,35 +384,6 @@ module QuantumKnapsackSolver =
                         )
                     )
             }
-
-    /// Solve Knapsack problem using quantum QAOA (synchronous wrapper)
-    ///
-    /// This is a synchronous wrapper around solveAsync for backward compatibility.
-    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
-    ///
-    /// Parameters:
-    ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
-    ///   - problem: Knapsack problem (items with weights/values, capacity)
-    ///   - config: QAOA configuration (shots, initial parameters)
-    ///
-    /// Returns: Ok with best feasible solution found, or Error with QuantumError
-    ///
-    /// Example:
-    ///   let backend = LocalBackend() :> IQuantumBackend
-    ///   let problem = { Items = [...]; Capacity = 50.0 }
-    ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-    ///   match solve backend problem config with
-    ///   | Ok solution -> printfn "Value: %f" solution.TotalValue
-    ///   | Error msg -> printfn "Error: %s" msg
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problem: KnapsackProblem)
-        (config: QaoaConfig)
-        : Result<KnapsackSolution, QuantumError> =
-        solveAsync backend problem config CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
 
     // ================================================================================
     // CLASSICAL GREEDY SOLVER (for comparison)
@@ -494,7 +466,8 @@ module QuantumKnapsackSolver =
         (exclusionPenalties: Map<(int * int), float>)
         : Result<QuboMatrix, QuantumError> =
         try
-            let n = items.Length
+            let itemArray = items |> List.toArray
+            let n = itemArray.Length
 
             if n = 0 then
                 Error(QuantumError.ValidationError("numItems", "Subset-sum problem has no items"))
@@ -509,7 +482,7 @@ module QuantumKnapsackSolver =
                 let linearTerms =
                     [
                         for i in 0 .. n - 1 do
-                            let w = items.[i].Weight
+                            let w = itemArray.[i].Weight
                             yield (i, i), penalty * (w * w - 2.0 * targetSum * w)
                     ]
 
@@ -518,8 +491,8 @@ module QuantumKnapsackSolver =
                     [
                         for i in 0 .. n - 1 do
                             for j in i + 1 .. n - 1 do
-                                let w_i = items.[i].Weight
-                                let w_j = items.[j].Weight
+                                let w_i = itemArray.[i].Weight
+                                let w_j = itemArray.[j].Weight
                                 yield (i, j), penalty * 2.0 * w_i * w_j
                     ]
 
@@ -656,122 +629,131 @@ module QuantumKnapsackSolver =
     ///   let backend = LocalBackendFactory.createUnified()
     ///   let items = [ {Id="2"; Weight=2.0; Value=2.0}; {Id="5"; Weight=5.0; Value=5.0}
     ///                 {Id="3"; Weight=3.0; Value=3.0}; {Id="4"; Weight=4.0; Value=4.0} ]
-    ///   match findAllExactCombinations backend items 7.0 defaultSubsetSumConfig with
-    ///   | Ok result -> printfn "Found %d combinations" result.Combinations.Length
-    ///   | Error err -> printfn "Error: %A" err
-    let findAllExactCombinations
+    ///   task {
+    ///       match! findAllExactCombinationsAsync backend items 7.0 defaultSubsetSumConfig CancellationToken.None with
+    ///       | Ok result -> printfn "Found %d combinations" result.Combinations.Length
+    ///       | Error err -> printfn "Error: %A" err
+    ///   }
+    let findAllExactCombinationsAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (items: KnapsackItem list)
         (targetSum: float)
         (config: SubsetSumConfig)
-        : Result<SubsetSumResult, QuantumError> =
+        (cancellationToken: CancellationToken)
+        : Task<Result<SubsetSumResult, QuantumError>> =
+        task {
+            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+            let n = items.Length
+            let epsilon = 0.0001
 
-        let startTime = DateTime.Now
-        let n = items.Length
-        let epsilon = 0.0001
+            if n = 0 then
+                return
+                    Ok
+                        {
+                            Combinations = []
+                            AllItems = []
+                            IterationsUsed = 0
+                            BackendName = backend.Name
+                            ElapsedMs = 0.0
+                        }
+            else
 
-        if n = 0 then
-            Ok
-                {
-                    Combinations = []
-                    AllItems = []
-                    IterationsUsed = 0
-                    BackendName = backend.Name
-                    ElapsedMs = 0.0
-                }
-        else
+                try
+                    let mutable knownSolutions: int[] list = []
+                    let mutable consecutiveFailures = 0
+                    let mutable iteration = 0
+                    let mutable lastError: QuantumError option = None
 
-            try
-                let mutable knownSolutions: int[] list = []
-                let mutable consecutiveFailures = 0
-                let mutable iteration = 0
-                let mutable lastError: QuantumError option = None
+                    while iteration < config.MaxIterations
+                          && consecutiveFailures < config.MaxConsecutiveFailures do
+                        iteration <- iteration + 1
 
-                while iteration < config.MaxIterations
-                      && consecutiveFailures < config.MaxConsecutiveFailures do
-                    iteration <- iteration + 1
+                        // Build exclusion penalties for all known solutions
+                        let exclusions =
+                            combineExclusionPenalties knownSolutions config.ExclusionPenaltyStrength
 
-                    // Build exclusion penalties for all known solutions
-                    let exclusions =
-                        combineExclusionPenalties knownSolutions config.ExclusionPenaltyStrength
-
-                    // Encode as QUBO with exclusion penalties
-                    match toSubsetSumQubo items targetSum exclusions with
-                    | Error err ->
-                        lastError <- Some err
-                        consecutiveFailures <- config.MaxConsecutiveFailures // Stop
-                    | Ok quboMatrix ->
-
-                        // Convert to dense array and execute QAOA pipeline
-                        let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                        let (gamma, beta) = config.InitialParameters
-                        let parameters = [| gamma, beta |]
-
-                        match
-                            (QaoaExecutionHelpers.executeFromQuboAsync
-                                backend
-                                quboArray
-                                parameters
-                                config.NumShots
-                                CancellationToken.None)
-                                .GetAwaiter()
-                                .GetResult()
-                        with
+                        // Encode as QUBO with exclusion penalties
+                        match toSubsetSumQubo items targetSum exclusions with
                         | Error err ->
                             lastError <- Some err
                             consecutiveFailures <- config.MaxConsecutiveFailures // Stop
-                        | Ok measurements ->
+                        | Ok quboMatrix ->
 
-                            // Find new feasible solutions in this batch
-                            let mutable foundNew = false
+                            // Convert to dense array and execute QAOA pipeline
+                            let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
+                            let (gamma, beta) = config.InitialParameters
+                            let parameters = [| gamma, beta |]
 
-                            for measurement in measurements do
-                                if measurement.Length = n then
-                                    // Check if this is an exact-sum solution
-                                    let totalWeight =
-                                        items
-                                        |> List.mapi (fun i item -> if measurement.[i] = 1 then item.Weight else 0.0)
-                                        |> List.sum
+                            let! executed =
+                                QaoaExecutionHelpers.executeFromQuboAsync
+                                    backend
+                                    quboArray
+                                    parameters
+                                    config.NumShots
+                                    cancellationToken
 
-                                    if abs (totalWeight - targetSum) < epsilon then
-                                        // Check if we've already found this solution
-                                        let isDuplicate =
-                                            knownSolutions
-                                            |> List.exists (fun known -> Array.forall2 (=) known measurement)
+                            match executed with
+                            | Error err ->
+                                lastError <- Some err
+                                consecutiveFailures <- config.MaxConsecutiveFailures // Stop
+                            | Ok measurements ->
 
-                                        if not isDuplicate then
-                                            knownSolutions <- measurement :: knownSolutions
-                                            foundNew <- true
+                                // Find new feasible solutions in this batch
+                                let mutable foundNew = false
 
-                            if foundNew then
-                                consecutiveFailures <- 0
-                            else
-                                consecutiveFailures <- consecutiveFailures + 1
+                                for measurement in measurements do
+                                    if measurement.Length = n then
+                                        // Check if this is an exact-sum solution
+                                        let totalWeight =
+                                            items
+                                            |> List.mapi (fun i item -> if measurement.[i] = 1 then item.Weight else 0.0)
+                                            |> List.sum
 
-                // Convert bitstring solutions to item lists
-                let combinations =
-                    knownSolutions
-                    |> List.rev // Preserve discovery order
-                    |> List.map (fun bitstring ->
-                        items
-                        |> List.mapi (fun i item -> if bitstring.[i] = 1 then Some item else None)
-                        |> List.choose id)
+                                        if abs (totalWeight - targetSum) < epsilon then
+                                            // Check if we've already found this solution
+                                            let isDuplicate =
+                                                knownSolutions
+                                                |> List.exists (fun known -> Array.forall2 (=) known measurement)
 
-                // Union of all items across all combinations
-                let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
+                                            if not isDuplicate then
+                                                knownSolutions <- measurement :: knownSolutions
+                                                foundNew <- true
 
-                let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                                if foundNew then
+                                    consecutiveFailures <- 0
+                                else
+                                    consecutiveFailures <- consecutiveFailures + 1
 
-                Ok
-                    {
-                        Combinations = combinations
-                        AllItems = allItems
-                        IterationsUsed = iteration
-                        BackendName = backend.Name
-                        ElapsedMs = elapsedMs
-                    }
+                    // Convert bitstring solutions to item lists
+                    let combinations =
+                        knownSolutions
+                        |> List.rev // Preserve discovery order
+                        |> List.map (fun bitstring ->
+                            items
+                            |> List.mapi (fun i item -> if bitstring.[i] = 1 then Some item else None)
+                            |> List.choose id)
 
-            with ex ->
-                Error(
-                    QuantumError.OperationError("QuantumSubsetSum", $"Quantum subset-sum solver failed: %s{ex.Message}")
-                )
+                    // Union of all items across all combinations
+                    let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
+
+                    let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
+
+                    return
+                        Ok
+                            {
+                                Combinations = combinations
+                                AllItems = allItems
+                                IterationsUsed = iteration
+                                BackendName = backend.Name
+                                ElapsedMs = elapsedMs
+                            }
+
+                with ex when not (ex :? OperationCanceledException) ->
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "QuantumSubsetSum",
+                                $"Quantum subset-sum solver failed: %s{ex.Message}"
+                            )
+                        )
+        }

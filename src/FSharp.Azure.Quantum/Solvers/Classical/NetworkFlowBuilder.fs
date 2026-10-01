@@ -270,26 +270,6 @@ module NetworkFlow =
                 return! Error(QuantumError.OperationError("Network Flow solve failed: ", $"Failed: {ex.Message}"))
         }
 
-    /// Solve network flow problem using quantum optimization (QAOA)
-    ///
-    /// This is a synchronous wrapper around `solveAsync` for backward compatibility:
-    /// it blocks the calling thread until the backend has answered.
-    ///
-    /// PARAMETERS:
-    ///   problem - Network flow problem with nodes and routes
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///
-    /// RETURNS:
-    ///   Result with FlowSolution (routes, cost, fill rate) or error message
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
-        (problem: NetworkFlowProblem)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<FlowSolution> =
-        solveAsync problem backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
     /// Convenience function: Create problem and solve in one step using quantum optimization, asynchronously
     ///
     /// PARAMETERS:
@@ -318,24 +298,3 @@ module NetworkFlow =
         : Task<QuantumResult<FlowSolution>> =
         let problem = createProblem nodes routes
         solveAsync problem backend cancellationToken
-
-    /// Convenience function: Create problem and solve in one step using quantum optimization
-    ///
-    /// This is a synchronous wrapper around `solveDirectlyAsync` for backward compatibility.
-    ///
-    /// PARAMETERS:
-    ///   nodes - List of source/sink/intermediate nodes
-    ///   routes - List of transport routes with costs
-    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    ///
-    /// RETURNS:
-    ///   Result with FlowSolution or error message
-    [<Obsolete("Use solveDirectlyAsync for non-blocking execution against cloud backends")>]
-    let solveDirectly
-        (nodes: Node list)
-        (routes: Route list)
-        (backend: BackendAbstraction.IQuantumBackend option)
-        : QuantumResult<FlowSolution> =
-        solveDirectlyAsync nodes routes backend CancellationToken.None
-        |> Async.AwaitTask
-        |> Async.RunSynchronously

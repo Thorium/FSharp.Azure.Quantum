@@ -96,6 +96,8 @@ References:
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.ReadoutErrorMitigation
 open FSharp.Azure.Quantum.CircuitBuilder
@@ -173,8 +175,8 @@ let noisyMeasurementExecutor
     (flipProb: float)
     (circuit: Circuit)
     (shots: int)
-    : Async<Result<Map<string, int>, string>> =
-    async {
+    : Task<Result<Map<string, int>, string>> =
+    task {
         // Per-qubit "true" prepared value: 1 if an X gate targets that qubit, else 0. This models
         // the calibration circuits (which prepare each basis state |j> with X gates) across ALL
         // qubits — necessary so genuine 2^n calibration produces a proper, invertible confusion
@@ -275,7 +277,7 @@ if not quiet then
     printfn "----------------------------------------"
     printfn ""
 
-match Async.RunSynchronously(measureCalibrationMatrix "ionq" 1 remConfig executor) with
+match measureCalibrationMatrixAsync "ionq" 1 remConfig executor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
 | Error err ->
     if not quiet then
         printfn "[ERROR] Calibration failed: %s" err
@@ -308,7 +310,7 @@ match Async.RunSynchronously(measureCalibrationMatrix "ionq" 1 remConfig executo
         printfn "------------------------------------------------"
         printfn ""
 
-    match Async.RunSynchronously(executor zeroStateCircuit circuitShots) with
+    match executor zeroStateCircuit circuitShots |> Async.AwaitTask |> Async.RunSynchronously with
     | Error err ->
         if not quiet then
             printfn "[ERROR] Execution failed: %s" err
@@ -428,7 +430,7 @@ if not quiet then
     printfn "Running two-qubit REM (calibrate + execute + correct)..."
     printfn ""
 
-match Async.RunSynchronously(mitigate bellStateCircuit "ionq" remConfig twoQubitExecutor) with
+match mitigateAsync bellStateCircuit "ionq" remConfig twoQubitExecutor CancellationToken.None |> Async.AwaitTask |> Async.RunSynchronously with
 | Error err ->
     if not quiet then
         printfn "[ERROR] REM failed: %s" err
@@ -552,9 +554,9 @@ let getOrMeasureCalibration
     (backend: string)
     (qubits: int)
     (config: REMConfig)
-    (exec: Circuit -> int -> Async<Result<Map<string, int>, string>>)
-    : Async<Result<CalibrationMatrix, string>> =
-    async {
+    (exec: Circuit -> int -> Task<Result<Map<string, int>, string>>)
+    : Task<Result<CalibrationMatrix, string>> =
+    task {
         let cacheKey = $"%s{backend}-%d{qubits}"
 
         match calibrationCache.TryGetValue cacheKey with
@@ -577,7 +579,7 @@ let getOrMeasureCalibration
                 printfn "  [NEW] Measuring calibration for %s (%d qubits)..." backend qubits
 
 
-            match! measureCalibrationMatrix backend qubits config exec with
+            match! measureCalibrationMatrixAsync backend qubits config exec CancellationToken.None with
             | Ok calibration ->
                 calibrationCache.[cacheKey] <- calibration
 
@@ -604,7 +606,7 @@ if not quiet then
     printfn ""
 
 for (name, circ) in testCircuits do
-    match Async.RunSynchronously(getOrMeasureCalibration "ionq" (qubitCount circ) remConfig twoQubitExecutor) with
+    match getOrMeasureCalibration "ionq" (qubitCount circ) remConfig twoQubitExecutor |> Async.AwaitTask |> Async.RunSynchronously with
     | Error err ->
         if not quiet then
             printfn "  [ERROR] %s failed: %s" name err
@@ -612,7 +614,7 @@ for (name, circ) in testCircuits do
         if not quiet then
             printfn "  Circuit: %s" name
 
-        match Async.RunSynchronously(twoQubitExecutor circ circuitShots) with
+        match twoQubitExecutor circ circuitShots |> Async.AwaitTask |> Async.RunSynchronously with
         | Error err ->
             if not quiet then
                 printfn "    [ERROR] Execution failed: %s" err
@@ -666,9 +668,9 @@ let runCircuitWithREM
     (circ: Circuit)
     (backend: string)
     (shots: int)
-    (exec: Circuit -> int -> Async<Result<Map<string, int>, string>>)
-    : Async<Result<Map<string, float>, string>> =
-    async {
+    (exec: Circuit -> int -> Task<Result<Map<string, int>, string>>)
+    : Task<Result<Map<string, float>, string>> =
+    task {
         try
             let qubits = qubitCount circ
             let config = defaultConfig |> withCalibrationShots shots
@@ -692,10 +694,10 @@ let runCircuitWithREM
 if not quiet then
     printfn "Production API:"
     printfn "  runCircuitWithREM circuit backend shots executor"
-    printfn "    -> Async<Result<Map<string, float>, string>>"
+    printfn "    -> Task<Result<Map<string, float>, string>>"
     printfn ""
 
-match Async.RunSynchronously(runCircuitWithREM bellStateCircuit "ionq" circuitShots twoQubitExecutor) with
+match runCircuitWithREM bellStateCircuit "ionq" circuitShots twoQubitExecutor |> Async.AwaitTask |> Async.RunSynchronously with
 | Ok histogram ->
     if not quiet then
         printfn "[OK] Production Results (with REM):"

@@ -6,6 +6,7 @@ open System.Net.Http.Headers
 open System.Text
 open System.Text.Json
 open System.Threading
+open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 open FSharp.Azure.Quantum.Core.Types
 open FSharp.Azure.Quantum.Core.Authentication
@@ -175,7 +176,7 @@ module Client =
 
         /// Submit a quantum job (internal implementation without retry)
         member private this.SubmitJobAsyncInternal(submission: JobSubmission, ct: CancellationToken) =
-            async {
+            task {
 
                 this.Log(
                     LogLevel.Information,
@@ -221,11 +222,11 @@ module Client =
                         request.Content <- new StringContent(jsonContent, Encoding.UTF8, "application/json")
 
                         // Send request
-                        use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                        use! response = config.HttpClient.SendAsync(request, ct)
 
                         // Handle response
                         if response.IsSuccessStatusCode then
-                            let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                            let! responseBody = response.Content.ReadAsStringAsync ct
                             use jsonDoc = JsonDocument.Parse(responseBody)
                             let root = jsonDoc.RootElement
 
@@ -252,7 +253,7 @@ module Client =
 
                             return Ok submitResponse
                         else
-                            let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                            let! errorBody = response.Content.ReadAsStringAsync ct
                             let error = Retry.categorizeHttpError response.StatusCode errorBody
 
                             this.Log(
@@ -264,7 +265,7 @@ module Client =
                             )
 
                             return Error error
-                    with ex ->
+                    with ex when not (ex :? OperationCanceledException) ->
                         this.Log(
                             LogLevel.Error,
                             "Exception submitting job {JobId}: {Exception}",
@@ -277,14 +278,14 @@ module Client =
 
         /// Submit a quantum job with retry logic
         member this.SubmitJobAsync(submission: JobSubmission, ?cancellationToken: CancellationToken) =
-            async {
+            task {
                 let ct = defaultArg cancellationToken CancellationToken.None
-                return! Retry.executeWithRetry retryConfig (fun ct -> this.SubmitJobAsyncInternal(submission, ct)) ct
+                return! Retry.executeWithRetryAsync retryConfig (fun ct -> this.SubmitJobAsyncInternal(submission, ct)) ct
             }
 
         /// Get job status (internal implementation without retry)
         member private this.GetJobStatusAsyncInternal(jobId: string, ct: CancellationToken) =
-            async {
+            task {
 
                 try
                     // Build endpoint URL
@@ -297,11 +298,11 @@ module Client =
                     use request = new HttpRequestMessage(HttpMethod.Get, url)
 
                     // Send request
-                    use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                    use! response = config.HttpClient.SendAsync(request, ct)
 
                     // Handle response
                     if response.IsSuccessStatusCode then
-                        let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                        let! responseBody = response.Content.ReadAsStringAsync ct
                         use jsonDoc = JsonDocument.Parse(responseBody)
                         let root = jsonDoc.RootElement
 
@@ -330,81 +331,82 @@ module Client =
 
                         return Ok quantumJob
                     else
-                        let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                        let! errorBody = response.Content.ReadAsStringAsync ct
                         return Error(Retry.categorizeHttpError response.StatusCode errorBody)
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
             }
 
         /// Get job status with retry logic
         member this.GetJobStatusAsync(jobId: string, ?cancellationToken: CancellationToken) =
-            async {
+            task {
                 let ct = defaultArg cancellationToken CancellationToken.None
-                return! Retry.executeWithRetry retryConfig (fun ct -> this.GetJobStatusAsyncInternal(jobId, ct)) ct
+                return! Retry.executeWithRetryAsync retryConfig (fun ct -> this.GetJobStatusAsyncInternal(jobId, ct)) ct
             }
 
         /// List jobs (internal implementation without retry)
         member private this.ListJobsAsyncInternal(ct: CancellationToken) =
-            async {
+            let parseJob (element: JsonElement) : QuantumJob =
+                {
+                    JobId = element.GetProperty("id").GetString()
+                    Status = JobStatus.Parse(element.GetProperty("status").GetString(), None, None)
+                    Target = element.GetProperty("target").GetString()
+                    CreationTime = element.GetProperty("creationTime").GetDateTimeOffset()
+                    BeginExecutionTime = tryGetJsonDateTimeOffset "beginExecutionTime" element
+                    EndExecutionTime = tryGetJsonDateTimeOffset "endExecutionTime" element
+                    CancellationTime = tryGetJsonDateTimeOffset "cancellationTime" element
+                    OutputDataUri = tryGetJsonString "outputDataUri" element
+                }
+
+            // Azure ARM list responses page through `value` + `nextLink`.
+            // Defined outside the task block below: a `let rec` inside resumable
+            // code falls back to a dynamically compiled state machine (FS3511).
+            let rec fetchPage (url: string) (acc: QuantumJob list) : Task<Result<QuantumJob list, QuantumError>> =
+                task {
+                    use request = new HttpRequestMessage(HttpMethod.Get, url)
+                    use! response = config.HttpClient.SendAsync(request, ct)
+
+                    if response.IsSuccessStatusCode then
+                        let! responseBody = response.Content.ReadAsStringAsync ct
+                        use jsonDoc = JsonDocument.Parse(responseBody)
+                        let root = jsonDoc.RootElement
+
+                        let pageJobs =
+                            match root.TryGetProperty "value" with
+                            | true, value when value.ValueKind = JsonValueKind.Array ->
+                                value.EnumerateArray() |> Seq.map parseJob |> List.ofSeq
+                            | _ -> []
+
+                        match tryGetJsonString "nextLink" root with
+                        | Some next when not (String.IsNullOrWhiteSpace next) -> return! fetchPage next (acc @ pageJobs)
+                        | _ -> return Ok(acc @ pageJobs)
+                    else
+                        let! errorBody = response.Content.ReadAsStringAsync ct
+                        return Error(Retry.categorizeHttpError response.StatusCode errorBody)
+                }
+
+            task {
                 try
                     let firstUrl =
                         Endpoints.jobsPath config.SubscriptionId config.ResourceGroup config.WorkspaceName
                         |> Endpoints.fullUrl config.Location
 
-                    let parseJob (element: JsonElement) : QuantumJob =
-                        {
-                            JobId = element.GetProperty("id").GetString()
-                            Status = JobStatus.Parse(element.GetProperty("status").GetString(), None, None)
-                            Target = element.GetProperty("target").GetString()
-                            CreationTime = element.GetProperty("creationTime").GetDateTimeOffset()
-                            BeginExecutionTime = tryGetJsonDateTimeOffset "beginExecutionTime" element
-                            EndExecutionTime = tryGetJsonDateTimeOffset "endExecutionTime" element
-                            CancellationTime = tryGetJsonDateTimeOffset "cancellationTime" element
-                            OutputDataUri = tryGetJsonString "outputDataUri" element
-                        }
-
-                    // Azure ARM list responses page through `value` + `nextLink`
-                    let rec fetchPage (url: string) (acc: QuantumJob list) =
-                        async {
-                            use request = new HttpRequestMessage(HttpMethod.Get, url)
-                            use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
-
-                            if response.IsSuccessStatusCode then
-                                let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                                use jsonDoc = JsonDocument.Parse(responseBody)
-                                let root = jsonDoc.RootElement
-
-                                let pageJobs =
-                                    match root.TryGetProperty "value" with
-                                    | true, value when value.ValueKind = JsonValueKind.Array ->
-                                        value.EnumerateArray() |> Seq.map parseJob |> List.ofSeq
-                                    | _ -> []
-
-                                match tryGetJsonString "nextLink" root with
-                                | Some next when not (String.IsNullOrWhiteSpace next) ->
-                                    return! fetchPage next (acc @ pageJobs)
-                                | _ -> return Ok(acc @ pageJobs)
-                            else
-                                let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                                return Error(Retry.categorizeHttpError response.StatusCode errorBody)
-                        }
-
                     return! fetchPage firstUrl []
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
             }
 
         /// List all jobs in the workspace, following nextLink pagination,
         /// with retry logic. Returns jobs newest-data-as-served by the API.
         member this.ListJobsAsync(?cancellationToken: CancellationToken) =
-            async {
+            task {
                 let ct = defaultArg cancellationToken CancellationToken.None
-                return! Retry.executeWithRetry retryConfig (fun ct -> this.ListJobsAsyncInternal ct) ct
+                return! Retry.executeWithRetryAsync retryConfig (fun ct -> this.ListJobsAsyncInternal ct) ct
             }
 
         /// Cancel a quantum job
         member this.CancelJobAsync(jobId: string, ?cancellationToken: CancellationToken) =
-            async {
+            task {
                 let ct = defaultArg cancellationToken CancellationToken.None
 
                 this.Log(LogLevel.Information, "Cancelling job {JobId}", jobId)
@@ -421,14 +423,14 @@ module Client =
                     request.Content <- new StringContent("{}", Encoding.UTF8, "application/json")
 
                     // Send request
-                    use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                    use! response = config.HttpClient.SendAsync(request, ct)
 
                     // Handle response
                     if response.IsSuccessStatusCode then
                         this.Log(LogLevel.Information, "Job {JobId} cancelled successfully", jobId)
                         return Ok()
                     else
-                        let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                        let! errorBody = response.Content.ReadAsStringAsync ct
 
                         this.Log(
                             LogLevel.Error,
@@ -443,14 +445,14 @@ module Client =
                                     AzureQuantumError.UnknownError(int response.StatusCode, errorBody)
                                 )
                             )
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     this.Log(LogLevel.Error, "Exception cancelling job {JobId}: {Exception}", jobId, ex.Message)
                     return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
             }
 
         /// Get job results after completion
         member this.GetResultsAsync(jobId: string, ?cancellationToken: CancellationToken) =
-            async {
+            task {
                 let ct = defaultArg cancellationToken CancellationToken.None
 
                 this.Log(LogLevel.Information, "Retrieving results for job {JobId}", jobId)
@@ -466,11 +468,11 @@ module Client =
                     use request = new HttpRequestMessage(HttpMethod.Get, url)
 
                     // Send request
-                    use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                    use! response = config.HttpClient.SendAsync(request, ct)
 
                     // Handle response
                     if response.IsSuccessStatusCode then
-                        let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                        let! responseBody = response.Content.ReadAsStringAsync ct
                         use jsonDoc = JsonDocument.Parse(responseBody)
                         let root = jsonDoc.RootElement
 
@@ -508,7 +510,7 @@ module Client =
                                         // Parse ISO 8601 duration format (PT1.5S)
                                         try
                                             Some(System.Xml.XmlConvert.ToTimeSpan(durationStr))
-                                        with _ ->
+                                        with :? FormatException ->
                                             None)
 
                                 // Download the result payload from blob storage. The SAS query
@@ -518,10 +520,10 @@ module Client =
                                 Authentication.markNoAuth resultRequest
 
                                 use! resultResponse =
-                                    config.HttpClient.SendAsync(resultRequest, ct) |> Async.AwaitTask
+                                    config.HttpClient.SendAsync(resultRequest, ct)
 
                                 if not resultResponse.IsSuccessStatusCode then
-                                    let! errorBody = resultResponse.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                                    let! errorBody = resultResponse.Content.ReadAsStringAsync ct
 
                                     return
                                         Error(
@@ -530,7 +532,7 @@ module Client =
                                             )
                                         )
                                 else
-                                    let! outputData = resultResponse.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                                    let! outputData = resultResponse.Content.ReadAsStringAsync ct
 
                                     let jobResult =
                                         {
@@ -550,7 +552,7 @@ module Client =
 
                                     return Ok jobResult
                     else
-                        let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                        let! errorBody = response.Content.ReadAsStringAsync ct
 
                         this.Log(
                             LogLevel.Error,
@@ -565,7 +567,7 @@ module Client =
                                     AzureQuantumError.UnknownError(int response.StatusCode, errorBody)
                                 )
                             )
-                with ex ->
+                with ex when not (ex :? OperationCanceledException) ->
                     this.Log(
                         LogLevel.Error,
                         "Exception retrieving results for job {JobId}: {Exception}",
@@ -593,8 +595,8 @@ module Client =
             (maxDelay: int)
             (timeoutMs: int)
             (ct: CancellationToken)
-            : Async<Result<QuantumJob, QuantumError>> =
-            async {
+            : Task<Result<QuantumJob, QuantumError>> =
+            task {
 
                 if ct.IsCancellationRequested then
                     return Error(QuantumError.OperationError("Job polling", "Operation cancelled"))
@@ -635,7 +637,7 @@ module Client =
                                 currentDelay
                             )
 
-                            do! Async.Sleep currentDelay
+                            do! Task.Delay(currentDelay, ct)
                             let nextDelay = min (currentDelay * 2) maxDelay
                             return! this.pollForCompletion jobId startTime nextDelay maxDelay timeoutMs ct
 

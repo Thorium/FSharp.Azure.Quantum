@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core.Batching
@@ -194,7 +195,7 @@ module BatchAccumulatorTests =
         Assert.True(result1.IsNone, "First item should not trigger immediately")
 
         // Wait for timeout
-        System.Threading.Thread.Sleep(150)
+        Thread.Sleep(150)
 
         // Try to trigger timeout by adding another item or checking
         let result2 = accumulator.TryFlush()
@@ -218,7 +219,7 @@ module BatchAccumulatorTests =
 
         // Act
         let result1 = accumulator.Add "item1"
-        System.Threading.Thread.Sleep(50) // Short delay, well before timeout
+        Thread.Sleep(50) // Short delay, well before timeout
         let result2 = accumulator.TryFlush()
 
         // Assert
@@ -242,7 +243,7 @@ module BatchAccumulatorTests =
 
         // Act - Second batch (should have fresh timeout)
         let result1 = accumulator.Add "item3"
-        System.Threading.Thread.Sleep(50) // Not enough time
+        Thread.Sleep(50) // Not enough time
         let result2 = accumulator.TryFlush()
 
         // Assert
@@ -355,7 +356,7 @@ module BatchAccumulatorTests =
                 [ 1..20 ]
                 |> List.map (fun item ->
                     Task.Run(fun () ->
-                        System.Threading.Thread.Sleep(5 * item) // Stagger additions
+                        Thread.Sleep(5 * item) // Stagger additions
 
                         match accumulator.Add item with
                         | Some batch -> batches.Add batch
@@ -366,7 +367,7 @@ module BatchAccumulatorTests =
                 |> List.map (fun _ ->
                     Task.Run(fun () ->
                         for _ in 1..5 do
-                            System.Threading.Thread.Sleep(20)
+                            Thread.Sleep(20)
 
                             match accumulator.TryFlush() with
                             | Some batch -> batches.Add batch
@@ -403,9 +404,11 @@ module BatchAccumulatorTests =
 
             // Act
             let! results =
-                batchCircuitsAsync config circuits (fun batch ->
-                    async { return batch |> List.map (fun c -> c + "_result") })
-                |> Async.StartImmediateAsTask
+                batchCircuitsAsync
+                    config
+                    circuits
+                    (fun batch -> task { return batch |> List.map (fun c -> c + "_result") })
+                    CancellationToken.None
 
             // Assert
             Assert.Empty(results)
@@ -421,9 +424,11 @@ module BatchAccumulatorTests =
 
             // Act
             let! results =
-                batchCircuitsAsync config circuits (fun batch ->
-                    async { return batch |> List.map (fun c -> c + "_result") })
-                |> Async.StartImmediateAsTask
+                batchCircuitsAsync
+                    config
+                    circuits
+                    (fun batch -> task { return batch |> List.map (fun c -> c + "_result") })
+                    CancellationToken.None
 
             // Assert
             Assert.Equal(1, results.Length)
@@ -445,14 +450,13 @@ module BatchAccumulatorTests =
 
             // Mock submission function that tracks batch sizes
             let mockSubmit batch =
-                async {
+                task {
                     batchCount <- batchCount + 1
                     return batch |> List.map (fun c -> c + "_result")
                 }
 
             // Act
-            let! results =
-                batchCircuitsAsync config circuits mockSubmit |> Async.StartImmediateAsTask
+            let! results = batchCircuitsAsync config circuits mockSubmit CancellationToken.None
 
             // Assert - Should create 2 batches (3 + 2 circuits)
             Assert.Equal(2, batchCount)
@@ -474,9 +478,11 @@ module BatchAccumulatorTests =
 
             // Act
             let! results =
-                batchCircuitsAsync config circuits (fun batch ->
-                    async { return batch |> List.map (fun c -> c + "_result") })
-                |> Async.StartImmediateAsTask
+                batchCircuitsAsync
+                    config
+                    circuits
+                    (fun batch -> task { return batch |> List.map (fun c -> c + "_result") })
+                    CancellationToken.None
 
             // Assert - Order should be preserved
             Assert.Equal<string seq>([ "A_result"; "B_result"; "C_result"; "D_result" ], results)
@@ -497,21 +503,22 @@ module BatchAccumulatorTests =
             let mutable batchNumber = 0
 
             let mockSubmit batch =
-                async {
+                task {
                     batchNumber <- batchNumber + 1
 
-                    if batchNumber = 1 then
-                        // First batch succeeds
-                        return batch |> List.map (fun c -> c + "_result")
-                    else
-                        // Second batch fails
-                        return failwith $"Batch submission failed, calling mockSubmit with batch: {batch}"
+                    return
+                        if batchNumber = 1 then
+                            // First batch succeeds
+                            batch |> List.map (fun c -> c + "_result")
+                        else
+                            // Second batch fails
+                            failwith $"Batch submission failed, calling mockSubmit with batch: {batch}"
                 }
 
             // Act & Assert
             let! ex =
                 Assert.ThrowsAsync<Exception>(fun () ->
-                    batchCircuitsAsync config circuits mockSubmit |> Async.StartImmediateAsTask :> Task)
+                    batchCircuitsAsync config circuits mockSubmit CancellationToken.None :> Task)
 
             Assert.Contains("Batch submission failed", ex.Message)
         }
@@ -530,9 +537,11 @@ module BatchAccumulatorTests =
 
             // Act
             let! results =
-                batchCircuitsAsync config circuits (fun batch ->
-                    async { return batch |> List.map (fun c -> c + "_result") })
-                |> Async.StartImmediateAsTask
+                batchCircuitsAsync
+                    config
+                    circuits
+                    (fun batch -> task { return batch |> List.map (fun c -> c + "_result") })
+                    CancellationToken.None
 
             // Assert
             Assert.Empty(results)

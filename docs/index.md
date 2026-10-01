@@ -40,6 +40,7 @@ Requires .NET 10. The local simulator needs no account; cloud backends need an A
 ### F# Computation Expressions
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 
@@ -53,18 +54,23 @@ let problem = graphColoring {
 }
 
 // Solve using quantum optimization (QAOA) on the local simulator
-match GraphColoring.solve problem 4 None with
-| Ok solution ->
-    printfn "Colors used: %d" solution.ColorsUsed
-    solution.Assignments
-    |> Map.iter (fun node color -> printfn "%s → %s" node color)
-| Error err ->
-    printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync problem 4 None CancellationToken.None with
+    | Ok solution ->
+        printfn "Colors used: %d" solution.ColorsUsed
+        solution.Assignments
+        |> Map.iter (fun node color -> printfn "%s → %s" node color)
+    | Error err ->
+        printfn "Error: %s" err.Message
+}
 ```
+
+Samples are `task` blocks: `await` them in an application, or end a script with `|> Async.AwaitTask |> Async.RunSynchronously`.
 
 ### C# Fluent API
 
 ```csharp
+using System.Threading;
 using FSharp.Azure.Quantum;
 using static FSharp.Azure.Quantum.CSharpBuilders;
 
@@ -78,7 +84,7 @@ var edges = new[] {
 };
 
 var problem = MaxCutProblem(vertices, edges);
-var result = MaxCut.solve(problem, null);
+var result = await MaxCut.solveAsync(problem, null, CancellationToken.None);
 
 if (result.IsOk) {
     var solution = result.ResultValue;
@@ -99,6 +105,7 @@ Seven QAOA-based builders cover common combinatorial problems. Each encodes the 
 **Use Case:** Register allocation, frequency assignment, exam and time-slot scheduling
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
 
@@ -111,11 +118,13 @@ let slots = graphColoring {
     colors ["Slot A"; "Slot B"; "Slot C"]
 }
 
-match GraphColoring.solve slots 3 None with
-| Ok solution ->
-    printfn "Valid coloring: %b" solution.IsValid
-    printfn "Colors used: %d/%d" solution.ColorsUsed 3
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! GraphColoring.solveAsync slots 3 None CancellationToken.None with
+    | Ok solution ->
+        printfn "Valid coloring: %b" solution.IsValid
+        printfn "Colors used: %d/%d" solution.ColorsUsed 3
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### MaxCut
@@ -135,12 +144,14 @@ let edges = [
 
 let cut = MaxCut.createProblem vertices edges
 
-match MaxCut.solve cut None with
-| Ok solution ->
-    printfn "Partition S: %A" solution.PartitionS
-    printfn "Partition T: %A" solution.PartitionT
-    printfn "Cut value: %.2f" solution.CutValue
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! MaxCut.solveAsync cut None CancellationToken.None with
+    | Ok solution ->
+        printfn "Partition S: %A" solution.PartitionS
+        printfn "Partition T: %A" solution.PartitionT
+        printfn "Cut value: %.2f" solution.CutValue
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Knapsack (0/1)
@@ -157,11 +168,13 @@ let items = [
 
 let knapsack = Knapsack.createProblem items 5.0  // capacity
 
-match Knapsack.solve knapsack None with
-| Ok solution ->
-    printfn "Total value: $%.2f" solution.TotalValue
-    printfn "Items: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! Knapsack.solveAsync knapsack None CancellationToken.None with
+    | Ok solution ->
+        printfn "Total value: $%.2f" solution.TotalValue
+        printfn "Items: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Traveling Salesperson Problem (TSP)
@@ -178,11 +191,13 @@ let cities = [
     ("Los Angeles", 3.0, 3.0)
 ]
 
-match TSP.solve (TSP.createProblem cities) None with
-| Ok tour ->
-    printfn "Route: %s" (String.concat " → " tour.Cities)
-    printfn "Total distance: %.2f" tour.TotalDistance
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! TSP.solveAsync (TSP.createProblem cities) None CancellationToken.None with
+    | Ok tour ->
+        printfn "Route: %s" (String.concat " → " tour.Cities)
+        printfn "Total distance: %.2f" tour.TotalDistance
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Portfolio Optimization
@@ -196,11 +211,13 @@ let assets = [
     ("MSFT", 0.11, 0.14, 350.0)
 ]
 
-match Portfolio.solve (Portfolio.createProblem assets 10000.0) None with
-| Ok allocation ->
-    printfn "Portfolio value: $%.2f" allocation.TotalValue
-    printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! Portfolio.solveAsync (Portfolio.createProblem assets 10000.0) None CancellationToken.None with
+    | Ok allocation ->
+        printfn "Portfolio value: $%.2f" allocation.TotalValue
+        printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 `Portfolio.createProblem` treats the assets as independent. `Portfolio.createProblemWithCovariance` (or `createProblemWithCorrelation`) adds the covariance: the QAOA objective then includes the correlations and the reported risk is sqrt(wᵀΣw).
@@ -225,9 +242,11 @@ let routes = [
     NetworkFlow.createRoute "Warehouse" "Store2" 4.0
 ]
 
-match NetworkFlow.solve (NetworkFlow.createProblem nodes routes) None with
-| Ok flow -> printfn "Total cost: $%.2f" flow.TotalCost
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! NetworkFlow.solveAsync (NetworkFlow.createProblem nodes routes) None CancellationToken.None with
+    | Ok flow -> printfn "Total cost: $%.2f" flow.TotalCost
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ### Task Scheduling
@@ -235,6 +254,7 @@ match NetworkFlow.solve (NetworkFlow.createProblem nodes routes) None with
 **Use Case:** Manufacturing workflows, project management, resource allocation with dependencies
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.TaskScheduling
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -266,9 +286,11 @@ let schedule = scheduling {
 
 let backend = LocalBackend() :> IQuantumBackend
 
-match solveQuantum backend schedule |> Async.RunSynchronously with
-| Ok solution -> printfn "Makespan: %.2f hours" solution.Makespan.TotalHours
-| Error err -> printfn "Error: %s" err.Message
+task {
+    match! solveQuantumAsync backend schedule CancellationToken.None with
+    | Ok solution -> printfn "Makespan: %.2f hours" solution.Makespan.TotalHours
+    | Error err -> printfn "Error: %s" err.Message
+}
 ```
 
 ## Beyond Optimization

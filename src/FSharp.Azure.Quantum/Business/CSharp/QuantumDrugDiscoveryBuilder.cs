@@ -157,18 +157,6 @@ public class QuantumDrugDiscoveryBuilder
     }
 
     /// <summary>
-    /// Builds the configuration and runs the drug discovery workflow.
-    /// </summary>
-    /// <returns>
-    /// A result containing the <see cref="ScreeningResult"/> on success, or a <see cref="QuantumError"/> on failure.
-    /// </returns>
-    [Obsolete("Use RunAsync for non-blocking execution against cloud backends")]
-    public FSharpResult<ScreeningResult, QuantumError> Run()
-    {
-        return RunAsync().GetAwaiter().GetResult();
-    }
-
-    /// <summary>
     /// Builds the configuration and runs the drug discovery workflow without blocking the calling thread.
     /// </summary>
     /// <param name="cancellationToken">Cancels the workflow.</param>

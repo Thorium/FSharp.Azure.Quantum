@@ -1092,49 +1092,79 @@ module KasinoGameTests =
     // ========================================================================
 
     [<Fact>]
-    let ``Knapsack.findAllExactCombinations with None backend finds correct combinations`` () =
+    let ``Knapsack.findAllExactCombinationsAsync with None backend finds correct combinations`` () : System.Threading.Tasks.Task =
         // Items: weights 2, 5, 3, 4. Capacity = 7.
         // Valid combos: [2,5], [3,4]
-        let problem =
-            FSharp.Azure.Quantum.Knapsack.createProblem
-                [ ("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0) ]
-                7.0
+        task {
+            let problem =
+                FSharp.Azure.Quantum.Knapsack.createProblem
+                    [ ("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0) ]
+                    7.0
 
-        let combos = FSharp.Azure.Quantum.Knapsack.findAllExactCombinations problem None
-        Assert.Equal(2, combos.Length)
+            let! combos =
+                FSharp.Azure.Quantum.Knapsack.findAllExactCombinationsAsync
+                    problem
+                    None
+                    System.Threading.CancellationToken.None
+
+            Assert.Equal(2, combos.Length)
+        }
+        :> System.Threading.Tasks.Task
 
     [<Fact>]
-    let ``Knapsack.findAllExactCombinations with None backend finds single item match`` () =
+    let ``Knapsack.findAllExactCombinationsAsync with None backend finds single item match`` () : System.Threading.Tasks.Task =
         // Item weight matches capacity exactly
-        let problem =
-            FSharp.Azure.Quantum.Knapsack.createProblem [ ("A", 5.0, 5.0); ("B", 3.0, 3.0) ] 5.0
+        task {
+            let problem =
+                FSharp.Azure.Quantum.Knapsack.createProblem [ ("A", 5.0, 5.0); ("B", 3.0, 3.0) ] 5.0
 
-        let combos = FSharp.Azure.Quantum.Knapsack.findAllExactCombinations problem None
-        // [A] is the only combo summing to 5
-        Assert.Equal(1, combos.Length)
-        Assert.Equal("A", combos.Head.Head.Id)
+            let! combos =
+                FSharp.Azure.Quantum.Knapsack.findAllExactCombinationsAsync
+                    problem
+                    None
+                    System.Threading.CancellationToken.None
 
-    [<Fact>]
-    let ``Knapsack.findAllCapturedItems returns union of all combinations`` () =
-        let problem =
-            FSharp.Azure.Quantum.Knapsack.createProblem
-                [ ("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0) ]
-                7.0
-
-        let items = FSharp.Azure.Quantum.Knapsack.findAllCapturedItems problem None
-        // Both combos [A,B] and [C,D] -> union = all 4 items
-        Assert.Equal(4, items.Length)
+            // [A] is the only combo summing to 5
+            Assert.Equal(1, combos.Length)
+            Assert.Equal("A", combos.Head.Head.Id)
+        }
+        :> System.Threading.Tasks.Task
 
     [<Fact>]
-    let ``Knapsack.findAllValidCombinations returns combinations, union, and count`` () =
-        let problem =
-            FSharp.Azure.Quantum.Knapsack.createProblem
-                [ ("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0) ]
-                7.0
+    let ``Knapsack.findAllCapturedItemsAsync returns union of all combinations`` () : System.Threading.Tasks.Task =
+        task {
+            let problem =
+                FSharp.Azure.Quantum.Knapsack.createProblem
+                    [ ("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0) ]
+                    7.0
 
-        let (combos, union, count) =
-            FSharp.Azure.Quantum.Knapsack.findAllValidCombinations problem None
+            let! items =
+                FSharp.Azure.Quantum.Knapsack.findAllCapturedItemsAsync
+                    problem
+                    None
+                    System.Threading.CancellationToken.None
 
-        Assert.Equal(2, count)
-        Assert.Equal(2, combos.Length)
-        Assert.Equal(4, union.Length)
+            // Both combos [A,B] and [C,D] -> union = all 4 items
+            Assert.Equal(4, items.Length)
+        }
+        :> System.Threading.Tasks.Task
+
+    [<Fact>]
+    let ``Knapsack.findAllValidCombinationsAsync returns combinations, union, and count`` () : System.Threading.Tasks.Task =
+        task {
+            let problem =
+                FSharp.Azure.Quantum.Knapsack.createProblem
+                    [ ("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0) ]
+                    7.0
+
+            let! (combos, union, count) =
+                FSharp.Azure.Quantum.Knapsack.findAllValidCombinationsAsync
+                    problem
+                    None
+                    System.Threading.CancellationToken.None
+
+            Assert.Equal(2, count)
+            Assert.Equal(2, combos.Length)
+            Assert.Equal(4, union.Length)
+        }
+        :> System.Threading.Tasks.Task

@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Core
 open System
 open System.Net
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.Types
 
 module Retry =
@@ -92,14 +93,14 @@ module Retry =
 
         | _ -> QuantumError.AzureError(AzureQuantumError.UnknownError(int statusCode, responseBody))
 
-    /// Execute async operation with retry logic (functional, recursive approach)
+    /// Execute task-based operation with retry logic (functional, recursive approach)
     let rec private retryLoop<'T>
         (config: RetryConfig)
-        (operation: CancellationToken -> Async<Result<'T, QuantumError>>)
+        (operation: CancellationToken -> Task<Result<'T, QuantumError>>)
         (ct: CancellationToken)
         (attempt: int)
-        : Async<Result<'T, QuantumError>> =
-        async {
+        : Task<Result<'T, QuantumError>> =
+        task {
 
             if ct.IsCancellationRequested then
                 return Error(QuantumError.OperationError("Retry", "Operation cancelled"))
@@ -112,7 +113,7 @@ module Retry =
                 | Error error when isTransientError error && attempt < config.MaxAttempts ->
                     // Transient error and retries remaining - wait and retry
                     let delay = calculateDelay config attempt
-                    do! Async.Sleep delay
+                    do! Task.Delay(delay, ct)
                     return! retryLoop config operation ct (attempt + 1)
 
                 | Error error ->
@@ -120,10 +121,10 @@ module Retry =
                     return Error error
         }
 
-    /// Execute async operation with retry logic
-    let executeWithRetry<'T>
+    /// Execute task-based operation with retry logic
+    let executeWithRetryAsync<'T>
         (config: RetryConfig)
-        (operation: CancellationToken -> Async<Result<'T, QuantumError>>)
+        (operation: CancellationToken -> Task<Result<'T, QuantumError>>)
         (ct: CancellationToken)
-        : Async<Result<'T, QuantumError>> =
+        : Task<Result<'T, QuantumError>> =
         retryLoop config operation ct 1

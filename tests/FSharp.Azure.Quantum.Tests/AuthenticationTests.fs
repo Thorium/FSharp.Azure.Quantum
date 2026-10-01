@@ -22,7 +22,7 @@ type MockTokenCredential(tokenValue: string, expiresOn: DateTimeOffset) =
 
 [<Fact>]
 let ``TokenManager should acquire token on first request`` () =
-    async {
+    task {
         let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
         let mockCredential = MockTokenCredential("test-token-123", expiresOn)
         use tokenManager = new TokenManager(mockCredential)
@@ -31,7 +31,7 @@ let ``TokenManager should acquire token on first request`` () =
 
         Assert.Equal("test-token-123", token)
     }
-    |> Async.StartAsTask
+    :> Task
 
 [<Fact; Trait("Category", "Slow")>]
 let ``TokenManager should cache token on subsequent requests`` () =
@@ -53,11 +53,11 @@ let ``TokenManager should cache token on subsequent requests`` () =
         use tokenManager = new TokenManager(trackingCredential)
 
         // First call
-        let! token1 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        let! token1 = tokenManager.GetAccessTokenAsync()
         Assert.Equal(1, callCount)
 
         // Second call should use cache
-        let! token2 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        let! token2 = tokenManager.GetAccessTokenAsync()
         Assert.Equal(1, callCount) // Should not increment
         Assert.Equal(token1, token2)
     }
@@ -83,7 +83,7 @@ let ``TokenManager should refresh expired token`` () =
         use tokenManager = new TokenManager(trackingCredential)
 
         // First call
-        let! token1 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        let! token1 = tokenManager.GetAccessTokenAsync()
         Assert.Equal(1, callCount)
         Assert.Equal("token-1", token1)
 
@@ -94,7 +94,7 @@ let ``TokenManager should refresh expired token`` () =
         tokenManager.ClearCache()
 
         // Second call should get new token
-        let! token2 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        let! token2 = tokenManager.GetAccessTokenAsync()
         Assert.Equal(2, callCount)
         Assert.Equal("token-2", token2)
     }
@@ -119,12 +119,12 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
         use tokenManager = new TokenManager(trackingCredential)
 
-        let! _ = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        let! _ = tokenManager.GetAccessTokenAsync()
         Assert.Equal(1, callCount)
 
         tokenManager.ClearCache()
 
-        let! _ = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        let! _ = tokenManager.GetAccessTokenAsync()
         Assert.Equal(2, callCount)
     }
     :> Task
@@ -244,7 +244,7 @@ let ``TokenManager should propagate credential errors`` () =
 
         let! ex =
             Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-                tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task)
+                tokenManager.GetAccessTokenAsync() :> Task)
 
         Assert.Contains("Invalid credentials", ex.Message)
     }
@@ -266,7 +266,7 @@ let ``TokenManager should handle network timeout gracefully`` () =
 
         let! _ =
             Assert.ThrowsAsync<TimeoutException>(fun () ->
-                tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task)
+                tokenManager.GetAccessTokenAsync() :> Task)
 
         ()
     }
@@ -323,14 +323,14 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
         // First attempt should fail
         let! _ =
             Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-                tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task)
+                tokenManager.GetAccessTokenAsync() :> Task)
 
         // Recover and clear cache
         shouldFail <- false
         tokenManager.ClearCache()
 
         // Second attempt should succeed
-        let! token = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        let! token = tokenManager.GetAccessTokenAsync()
         Assert.Equal("recovered-token", token)
     }
     :> Task

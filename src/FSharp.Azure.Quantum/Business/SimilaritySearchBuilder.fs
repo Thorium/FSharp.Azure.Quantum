@@ -6,6 +6,7 @@ open System
 open System.IO
 open System.Text.Json
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
@@ -236,26 +237,15 @@ module SimilaritySearch =
         // Normalize to [0, 1] using sigmoid-like function
         1.0 / (1.0 + distance)
 
-    /// Compute quantum kernel similarity
-    let private quantumKernelSimilarity
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (numQubits: int)
-        (shots: int)
-        (a: float array)
-        (b: float array)
-        : QuantumResult<float> =
-
-        (QuantumKernels.computeKernelAsync backend featureMap a b shots CancellationToken.None).GetAwaiter().GetResult()
-
     // ========================================================================
     // INDEX BUILDING
     // ========================================================================
 
-    /// Build similarity search index
-    let build (problem: SearchProblem<'T>) : QuantumResult<SearchIndex<'T>> =
-        validate problem
-        |> Result.bind (fun () ->
+    /// Build similarity search index, asynchronously
+    let buildAsync (problem: SearchProblem<'T>) (cancellationToken: CancellationToken) : Task<QuantumResult<SearchIndex<'T>>> =
+        match validate problem with
+        | Error e -> Task.FromResult(Error e)
+        | Ok() ->
 
             let startTime = DateTime.UtcNow
             let numFeatures = snd problem.Items.[0] |> Array.length
@@ -266,66 +256,73 @@ module SimilaritySearch =
                 logInfo problem.Logger ($"  Features: %d{numFeatures}")
                 logInfo problem.Logger ($"  Metric: %A{problem.Metric}")
 
-            // Precompute kernel matrix if using quantum kernel. A QuantumKernel index
-            // must genuinely use the quantum kernel: if the kernel computation fails we
-            // propagate the technical error rather than silently substituting cosine
-            // similarity (which would mislabel a classical result as a quantum search).
-            let kernelResult: QuantumResult<float[,] option * QuantumKernelConfig option> =
-                match problem.Metric with
-                | QuantumKernel ->
-                    let backend =
-                        match problem.Backend with
-                        | Some b -> b
-                        | None -> LocalBackend.LocalBackend() :> IQuantumBackend
+            task {
+                // Precompute kernel matrix if using quantum kernel. A QuantumKernel index
+                // must genuinely use the quantum kernel: if the kernel computation fails we
+                // propagate the technical error rather than silently substituting cosine
+                // similarity (which would mislabel a classical result as a quantum search).
+                let! (kernelResult: QuantumResult<float[,] option * QuantumKernelConfig option>) =
+                    match problem.Metric with
+                    | QuantumKernel ->
+                        let backend =
+                            match problem.Backend with
+                            | Some b -> b
+                            | None -> LocalBackend.LocalBackend() :> IQuantumBackend
 
-                    let featureMap = FeatureMapType.ZZFeatureMap 2
-                    let features = problem.Items |> Array.map snd
+                        let featureMap = FeatureMapType.ZZFeatureMap 2
+                        let features = problem.Items |> Array.map snd
 
-                    if problem.Verbose then
-                        logInfo problem.Logger "  Computing quantum kernel matrix..."
+                        if problem.Verbose then
+                            logInfo problem.Logger "  Computing quantum kernel matrix..."
 
-                    (QuantumKernels.computeKernelMatrixAsync
-                        backend
-                        featureMap
-                        features
-                        problem.Shots
-                        CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult()
-                    |> Result.map (fun matrix ->
-                        Some matrix,
-                        Some
-                            {
-                                Backend = backend
-                                FeatureMap = featureMap
-                                Shots = problem.Shots
-                            })
+                        task {
+                            let! matrixResult =
+                                QuantumKernels.computeKernelMatrixAsync
+                                    backend
+                                    featureMap
+                                    features
+                                    problem.Shots
+                                    cancellationToken
 
-                | Cosine
-                | Euclidean -> Ok(None, None)
-
-            kernelResult
-            |> Result.map (fun (kernelMatrix, quantumConfig) ->
-                let endTime = DateTime.UtcNow
-
-                if problem.Verbose then
-                    logInfo problem.Logger (sprintf "[OK] Index built in %A" (endTime - startTime))
-
-                {
-                    Items = problem.Items
-                    Metric = problem.Metric
-                    Threshold = problem.Threshold
-                    KernelMatrix = kernelMatrix
-                    QuantumConfig = quantumConfig
-                    Metadata =
-                        {
-                            NumItems = problem.Items.Length
-                            NumFeatures = numFeatures
-                            Metric = problem.Metric
-                            CreatedAt = startTime
-                            Note = problem.Note
+                            return
+                                matrixResult
+                                |> Result.map (fun matrix ->
+                                    Some matrix,
+                                    Some
+                                        {
+                                            Backend = backend
+                                            FeatureMap = featureMap
+                                            Shots = problem.Shots
+                                        })
                         }
-                }))
+
+                    | Cosine
+                    | Euclidean -> Task.FromResult(Ok(None, None))
+
+                return
+                    kernelResult
+                    |> Result.map (fun (kernelMatrix, quantumConfig) ->
+                        let endTime = DateTime.UtcNow
+
+                        if problem.Verbose then
+                            logInfo problem.Logger (sprintf "[OK] Index built in %A" (endTime - startTime))
+
+                        {
+                            Items = problem.Items
+                            Metric = problem.Metric
+                            Threshold = problem.Threshold
+                            KernelMatrix = kernelMatrix
+                            QuantumConfig = quantumConfig
+                            Metadata =
+                                {
+                                    NumItems = problem.Items.Length
+                                    NumFeatures = numFeatures
+                                    Metric = problem.Metric
+                                    CreatedAt = startTime
+                                    Note = problem.Note
+                                }
+                        })
+            }
 
     // ========================================================================
     // SIMILARITY SEARCH
@@ -336,40 +333,47 @@ module SimilaritySearch =
     /// cost of a quantum kernel. Returns an error (never silently falls back to a
     /// classical metric) when no live backend is available, e.g. an index loaded from
     /// disk: the caller asked for a quantum-kernel search and must get one or an error.
-    let private quantumKernelSimilarities
+    let private quantumKernelSimilaritiesAsync
         (index: SearchIndex<'T>)
         (queryFeatures: float array)
-        : QuantumResult<('T * float) array> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<('T * float) array>> =
         match index.QuantumConfig with
         | None ->
-            Error(
-                QuantumError.Other
-                    "QuantumKernel search requires a live backend. This index was loaded from disk (or built without quantum config); rebuild it with a backend to run quantum-kernel queries."
+            Task.FromResult(
+                Error(
+                    QuantumError.Other
+                        "QuantumKernel search requires a live backend. This index was loaded from disk (or built without quantum config); rebuild it with a backend to run quantum-kernel queries."
+                )
             )
         | Some cfg ->
-            (Ok [], index.Items)
-            ||> Array.fold (fun acc (item, features) ->
-                acc
-                |> Result.bind (fun sims ->
-                    (QuantumKernels.computeKernelAsync
-                        cfg.Backend
-                        cfg.FeatureMap
-                        queryFeatures
-                        features
-                        cfg.Shots
-                        CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult()
-                    |> Result.map (fun sim -> (item, sim) :: sims)))
-            |> Result.map (List.rev >> Array.ofList)
+            // One item after another; the first failing kernel's error is the result
+            quantumResultTask {
+                let sims = ResizeArray<'T * float>(index.Items.Length)
 
-    /// Find top N most similar items
-    let findSimilar
+                for (item, features) in index.Items do
+                    let! sim =
+                        QuantumKernels.computeKernelAsync
+                            cfg.Backend
+                            cfg.FeatureMap
+                            queryFeatures
+                            features
+                            cfg.Shots
+                            cancellationToken
+
+                    sims.Add((item, sim))
+
+                return sims.ToArray()
+            }
+
+    /// Find top N most similar items, asynchronously
+    let findSimilarAsync
         (queryItem: 'T)
         (queryFeatures: float array)
         (topN: int)
         (index: SearchIndex<'T>)
-        : QuantumResult<SearchResults<'T>> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SearchResults<'T>>> =
 
         let startTime = DateTime.UtcNow
 
@@ -378,38 +382,45 @@ module SimilaritySearch =
             index.Items |> Array.tryFindIndex (fun (item, _) -> obj.Equals(item, queryItem))
 
         // Compute similarities
-        let similaritiesResult: QuantumResult<('T * float) array> =
+        let similaritiesTask: Task<QuantumResult<('T * float) array>> =
             match index.Metric with
             | QuantumKernel when index.KernelMatrix.IsSome && queryIdx.IsSome ->
                 let idx = queryIdx.Value
                 // Query is an indexed item: reuse the precomputed kernel row.
-                Ok
-                    [|
-                        for i in 0 .. index.Items.Length - 1 ->
-                            if i = idx then
-                                (fst index.Items.[i], 1.0) // Self-similarity is 1.0
-                            else
-                                (fst index.Items.[i], index.KernelMatrix.Value.[idx, i])
-                    |]
+                Task.FromResult(
+                    Ok
+                        [|
+                            for i in 0 .. index.Items.Length - 1 ->
+                                if i = idx then
+                                    (fst index.Items.[i], 1.0) // Self-similarity is 1.0
+                                else
+                                    (fst index.Items.[i], index.KernelMatrix.Value.[idx, i])
+                        |]
+                )
 
             | QuantumKernel ->
                 // Novel query: evaluate the genuine quantum kernel against each item.
-                quantumKernelSimilarities index queryFeatures
+                quantumKernelSimilaritiesAsync index queryFeatures cancellationToken
 
             | Cosine ->
-                Ok(
-                    index.Items
-                    |> Array.map (fun (item, features) -> (item, cosineSimilarity queryFeatures features))
+                Task.FromResult(
+                    Ok(
+                        index.Items
+                        |> Array.map (fun (item, features) -> (item, cosineSimilarity queryFeatures features))
+                    )
                 )
 
             | Euclidean ->
-                Ok(
-                    index.Items
-                    |> Array.map (fun (item, features) -> (item, euclideanSimilarity queryFeatures features))
+                Task.FromResult(
+                    Ok(
+                        index.Items
+                        |> Array.map (fun (item, features) -> (item, euclideanSimilarity queryFeatures features))
+                    )
                 )
 
-        similaritiesResult
-        |> Result.map (fun similarities ->
+        quantumResultTask {
+            let! similarities = similaritiesTask
+
             // Filter by threshold and exclude exact match
             let filtered =
                 similarities
@@ -426,55 +437,72 @@ module SimilaritySearch =
                         Rank = i + 1
                     })
 
-            {
-                Query = queryItem
-                Matches = matches
-                SearchTime = DateTime.UtcNow - startTime
-            })
+            return
+                {
+                    Query = queryItem
+                    Matches = matches
+                    SearchTime = DateTime.UtcNow - startTime
+                }
+        }
 
-    /// Find all similar items above threshold
-    let findAllSimilar (queryFeatures: float array) (index: SearchIndex<'T>) : QuantumResult<Match<'T> array> =
+    /// Find all similar items above threshold, asynchronously
+    let findAllSimilarAsync
+        (queryFeatures: float array)
+        (index: SearchIndex<'T>)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Match<'T> array>> =
 
         // Compute similarities for all items
-        let similaritiesResult: QuantumResult<('T * float) array> =
+        let similaritiesTask: Task<QuantumResult<('T * float) array>> =
             match index.Metric with
             | Cosine ->
-                Ok(
-                    index.Items
-                    |> Array.map (fun (item, features) -> (item, cosineSimilarity queryFeatures features))
+                Task.FromResult(
+                    Ok(
+                        index.Items
+                        |> Array.map (fun (item, features) -> (item, cosineSimilarity queryFeatures features))
+                    )
                 )
 
             | Euclidean ->
-                Ok(
-                    index.Items
-                    |> Array.map (fun (item, features) -> (item, euclideanSimilarity queryFeatures features))
+                Task.FromResult(
+                    Ok(
+                        index.Items
+                        |> Array.map (fun (item, features) -> (item, euclideanSimilarity queryFeatures features))
+                    )
                 )
 
             | QuantumKernel ->
                 // Genuine quantum kernel against each item (no classical substitution).
-                quantumKernelSimilarities index queryFeatures
+                quantumKernelSimilaritiesAsync index queryFeatures cancellationToken
 
-        similaritiesResult
-        |> Result.map (fun similarities ->
-            similarities
-            |> Array.filter (fun (_, sim) -> sim >= index.Threshold)
-            |> Array.sortByDescending snd
-            |> Array.mapi (fun i (item, sim) ->
-                {
-                    Item = item
-                    Similarity = sim
-                    Rank = i + 1
-                }))
+        quantumResultTask {
+            let! similarities = similaritiesTask
+
+            return
+                similarities
+                |> Array.filter (fun (_, sim) -> sim >= index.Threshold)
+                |> Array.sortByDescending snd
+                |> Array.mapi (fun i (item, sim) ->
+                    {
+                        Item = item
+                        Similarity = sim
+                        Rank = i + 1
+                    })
+        }
 
     // ========================================================================
     // DUPLICATE DETECTION
     // ========================================================================
 
-    /// Find duplicate groups (items similar to each other)
-    let findDuplicates (threshold: float) (index: SearchIndex<'T>) : QuantumResult<DuplicateGroup<'T> array> =
+    /// Find duplicate groups (items similar to each other), asynchronously
+    let findDuplicatesAsync
+        (threshold: float)
+        (index: SearchIndex<'T>)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<DuplicateGroup<'T> array>> =
 
         if threshold < 0.0 || threshold > 1.0 then
-            Error(QuantumError.ValidationError("Threshold", "must be between 0.0 and 1.0"))
+            Task.FromResult(Error(QuantumError.ValidationError("Threshold", "must be between 0.0 and 1.0")))
         else
             // Compute all pairwise similarities using functional approach
             let n = index.Items.Length
@@ -482,33 +510,36 @@ module SimilaritySearch =
             // For a quantum-kernel index ensure a genuine kernel matrix is available:
             // reuse the precomputed one, else compute it via the retained backend. We
             // never substitute cosine for a quantum-kernel duplicate search.
-            let matrixResult: QuantumResult<float[,] option> =
+            let matrixTask: Task<QuantumResult<float[,] option>> =
                 match index.Metric with
                 | QuantumKernel ->
                     match index.KernelMatrix with
-                    | Some m -> Ok(Some m)
+                    | Some m -> Task.FromResult(Ok(Some m))
                     | None ->
                         match index.QuantumConfig with
                         | Some cfg ->
-                            (QuantumKernels.computeKernelMatrixAsync
-                                cfg.Backend
-                                cfg.FeatureMap
-                                (index.Items |> Array.map snd)
-                                cfg.Shots
-                                CancellationToken.None)
-                                .GetAwaiter()
-                                .GetResult()
-                            |> Result.map Some
+                            task {
+                                let! matrixResult =
+                                    QuantumKernels.computeKernelMatrixAsync
+                                        cfg.Backend
+                                        cfg.FeatureMap
+                                        (index.Items |> Array.map snd)
+                                        cfg.Shots
+                                        cancellationToken
+
+                                return matrixResult |> Result.map Some
+                            }
                         | None ->
-                            Error(
-                                QuantumError.Other
-                                    "QuantumKernel duplicate detection requires a precomputed kernel matrix or a live backend; this index (loaded from disk) has neither."
+                            Task.FromResult(
+                                Error(
+                                    QuantumError.Other
+                                        "QuantumKernel duplicate detection requires a precomputed kernel matrix or a live backend; this index (loaded from disk) has neither."
+                                )
                             )
                 | Cosine
-                | Euclidean -> Ok None
+                | Euclidean -> Task.FromResult(Ok None)
 
-            matrixResult
-            |> Result.bind (fun kernelOpt ->
+            let groupDuplicates (kernelOpt: float[,] option) : DuplicateGroup<'T> array =
 
                 let computeSimilarity i j repFeatures features =
                     match index.Metric with
@@ -566,7 +597,12 @@ module SimilaritySearch =
 
                         findGroups (i + 1) newVisited newGroups
 
-                Ok(findGroups 0 Set.empty [] |> List.rev |> Array.ofList))
+                findGroups 0 Set.empty [] |> List.rev |> Array.ofList
+
+            quantumResultTask {
+                let! kernelOpt = matrixTask
+                return groupDuplicates kernelOpt
+            }
 
     // ========================================================================
     // CLUSTERING
@@ -817,9 +853,12 @@ module SimilaritySearch =
 
         member _.Delay(f: unit -> SearchProblem<'T>) = f
 
-        member _.Run(f: unit -> SearchProblem<'T>) : QuantumResult<SearchIndex<'T>> =
+        /// The `similaritySearch { ... }` expression yields a task: write
+        /// `let! index = similaritySearch { ... }` inside `task { }`. The
+        /// `cancellationToken` operation, when given, cancels the kernel evaluation.
+        member _.Run(f: unit -> SearchProblem<'T>) : Task<QuantumResult<SearchIndex<'T>>> =
             let problem = f ()
-            build problem
+            buildAsync problem (problem.CancellationToken |> Option.defaultValue CancellationToken.None)
 
         member _.Combine(p1: SearchProblem<'T>, p2: SearchProblem<'T>) =
             { p2 with

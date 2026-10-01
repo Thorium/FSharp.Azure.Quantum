@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System.Numerics
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -101,74 +103,76 @@ module PrimitivesTests =
         | Ok(QuantumState.StateVector _) -> ()
         | Ok other -> failwith $"expected a StateVector, got: {other}"
 
-    let private runSync (t: System.Threading.Tasks.Task<'a>) : 'a =
-        t |> Async.AwaitTask |> Async.RunSynchronously
+    [<Fact>]
+    let ``sampleBatchAsync runs several circuits concurrently, in order`` () : Task =
+        task {
+            // |0>, X|0> = |1>, Bell
+            let zero = CircuitBuilder.empty 1
+            let one = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.X 0)
+
+            let! results =
+                Primitives.sampleBatchAsync (backend ()) [ zero; one; bell () ] 1000 CancellationToken.None
+
+            Assert.Equal(3, results.Length)
+
+            match results with
+            | [ Ok h0; Ok h1; Ok hBell ] ->
+                Assert.Equal(1000, h0.["0"]) // |0> always measures 0
+                Assert.Equal(1000, h1.["1"]) // |1> always measures 1
+                let bellKeys = hBell |> Map.toList |> List.map fst |> Set.ofList
+                Assert.True(Set.isSubset bellKeys (Set.ofList [ "00"; "11" ]))
+            | _ -> failwith $"expected three Ok results, got: {results}"
+        }
+        :> Task
 
     [<Fact>]
-    let ``sampleBatchAsync runs several circuits concurrently, in order`` () =
-        // |0>, X|0> = |1>, Bell
-        let zero = CircuitBuilder.empty 1
-        let one = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.X 0)
+    let ``observeBatchAsync computes an expectation per circuit`` () : Task =
+        task {
+            let zz: TrotterSuzuki.PauliHamiltonian =
+                {
+                    Terms =
+                        [
+                            {
+                                Operators = [| 'Z'; 'Z' |]
+                                Coefficient = Complex(1.0, 0.0)
+                            }
+                        ]
+                    NumQubits = 2
+                }
+            // |00> has ⟨Z0Z1⟩ = +1; Bell also has ⟨Z0Z1⟩ = +1.
+            let! results =
+                Primitives.observeBatchAsync
+                    (backend ())
+                    [ CircuitBuilder.empty 2; bell () ]
+                    zz
+                    CancellationToken.None
 
-        let results =
-            Primitives.sampleBatchAsync (backend ()) [ zero; one; bell () ] 1000 System.Threading.CancellationToken.None
-            |> runSync
-
-        Assert.Equal(3, results.Length)
-
-        match results with
-        | [ Ok h0; Ok h1; Ok hBell ] ->
-            Assert.Equal(1000, h0.["0"]) // |0> always measures 0
-            Assert.Equal(1000, h1.["1"]) // |1> always measures 1
-            let bellKeys = hBell |> Map.toList |> List.map fst |> Set.ofList
-            Assert.True(Set.isSubset bellKeys (Set.ofList [ "00"; "11" ]))
-        | _ -> failwith $"expected three Ok results, got: {results}"
-
-    [<Fact>]
-    let ``observeBatchAsync computes an expectation per circuit`` () =
-        let zz: TrotterSuzuki.PauliHamiltonian =
-            {
-                Terms =
-                    [
-                        {
-                            Operators = [| 'Z'; 'Z' |]
-                            Coefficient = Complex(1.0, 0.0)
-                        }
-                    ]
-                NumQubits = 2
-            }
-        // |00> has ⟨Z0Z1⟩ = +1; Bell also has ⟨Z0Z1⟩ = +1.
-        let results =
-            Primitives.observeBatchAsync
-                (backend ())
-                [ CircuitBuilder.empty 2; bell () ]
-                zz
-                System.Threading.CancellationToken.None
-            |> runSync
-
-        match results with
-        | [ Ok a; Ok b ] ->
-            Assert.Equal(1.0, a, 6)
-            Assert.Equal(1.0, b, 6)
-        | _ -> failwith $"expected two Ok results, got: {results}"
+            match results with
+            | [ Ok a; Ok b ] ->
+                Assert.Equal(1.0, a, 6)
+                Assert.Equal(1.0, b, 6)
+            | _ -> failwith $"expected two Ok results, got: {results}"
+        }
+        :> Task
 
     [<Fact>]
-    let ``sampleDistributedAsync fans out across backends`` () =
-        let jobs = [ (backend (), bell ()); (backend (), CircuitBuilder.empty 1) ]
+    let ``sampleDistributedAsync fans out across backends`` () : Task =
+        task {
+            let jobs = [ (backend (), bell ()); (backend (), CircuitBuilder.empty 1) ]
 
-        let results =
-            Primitives.sampleDistributedAsync jobs 500 System.Threading.CancellationToken.None
-            |> runSync
+            let! results = Primitives.sampleDistributedAsync jobs 500 CancellationToken.None
 
-        Assert.Equal(2, results.Length)
+            Assert.Equal(2, results.Length)
 
-        Assert.All(
-            results,
-            fun r ->
-                r
-                |> Result.map (fun _ -> ())
-                |> Result.defaultWith (fun e -> failwith e.Message)
-        )
+            Assert.All(
+                results,
+                fun r ->
+                    r
+                    |> Result.map (fun _ -> ())
+                    |> Result.defaultWith (fun e -> failwith e.Message)
+            )
+        }
+        :> Task
 
     [<Fact>]
     let ``sample with negative shots returns a ValidationError`` () =

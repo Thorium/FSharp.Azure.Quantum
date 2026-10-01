@@ -147,10 +147,10 @@ let ``Bell state through IonQ returns only 00 and 11`` () =
 ## Other Clients
 
 - **`JobLifecycle` and the provider modules** (`IonQBackend.submitAndWaitForResultsAsync` and the others) take the same `http` and `service.WorkspaceUrl`.
-- **`Client.QuantumClient`** builds its URLs from the workspace location (`https://{location}.quantum.azure.com/...`). `service.CreateClientConfig http` returns a config for the local workspace, and the client from `CreateHttpClient` routes that host to the service:
+- **`Core.Client.QuantumClient`** builds its URLs from the workspace location (`https://{location}.quantum.azure.com/...`). `service.CreateClientConfig http` returns a config for the local workspace, and the client from `CreateHttpClient` routes that host to the service:
 
   ```fsharp
-  let client = Client.QuantumClient(service.CreateClientConfig http)
+  let client = Core.Client.QuantumClient(service.CreateClientConfig http)
   ```
 
 - **Your own HTTP pipeline**: `service.Credential` is a `TokenCredential` that hands out the dummy token without contacting Azure AD.

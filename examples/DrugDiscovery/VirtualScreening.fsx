@@ -110,26 +110,42 @@ printfn "   Quantum Drug Discovery - Virtual Screening Pipeline"
 printfn "============================================================"
 printfn ""
 
-/// Built-in SMILES data (used when no --input provided)
-let builtinSmiles =
+/// Built-in compound library (used when no --input provided).
+/// The label is an illustrative activity flag: 1 = aromatic / drug-like scaffold,
+/// 0 = small aliphatic. The kernel SVM and VQC methods train on it; the QAOA
+/// selection uses it as the activity score.
+let builtinCompounds =
     [
-        "CCO"
-        "CCCO"
-        "CCCCO"
-        "CC(C)O"
-        "CC(=O)O"
-        "c1ccccc1"
-        "c1ccc(O)cc1"
-        "c1ccc(N)cc1"
-        "CC(=O)Oc1ccccc1C(=O)O"
-        "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"
+        "CCO", 0
+        "CCCO", 0
+        "CCCCO", 0
+        "CC(C)O", 0
+        "CC(=O)O", 0
+        "c1ccccc1", 1
+        "c1ccc(O)cc1", 1
+        "c1ccc(N)cc1", 1
+        "CC(=O)Oc1ccccc1C(=O)O", 1
+        "CN1C=NC2=C1C(=O)N(C(=O)N2C)C", 1
     ]
 
-/// Write SMILES to a temp file for the drugDiscovery builder
-let prepareSmilesFile (smilesList: string list) : string =
-    let tempFile = Path.GetTempFileName() + ".smi"
-    File.WriteAllText(tempFile, smilesList |> String.concat "\n")
-    tempFile
+let builtinSmiles = builtinCompounds |> List.map fst
+
+/// Write the candidates to a temp file for the drugDiscovery builder:
+/// a SMILES,Label CSV when labels are known, otherwise a plain .smi list.
+let prepareCandidateFile (compounds: (string * int option) list) : string =
+    if compounds |> List.forall (fun (_, label) -> label.IsSome) then
+        let tempFile = Path.GetTempFileName() + ".csv"
+
+        let rows =
+            compounds
+            |> List.map (fun (smiles, label) -> $"{smiles},{label.Value}")
+
+        File.WriteAllText(tempFile, "SMILES,Label\n" + String.concat "\n" rows)
+        tempFile
+    else
+        let tempFile = Path.GetTempFileName() + ".smi"
+        File.WriteAllText(tempFile, compounds |> List.map fst |> String.concat "\n")
+        tempFile
 
 let smilesData, usingExternalInput =
     match inputFile with
@@ -141,19 +157,40 @@ let smilesData, usingExternalInput =
             exit 1
 
         printfn "Loading candidates from: %s" resolved
-        let smiles = Data.readSmiles resolved
 
-        if smiles.IsEmpty then
+        // A CSV keeps its Label column (needed by the kernel SVM and VQC methods);
+        // a plain SMILES list has none, so only the QAOA selection can run on it.
+        let compounds =
+            match Path.GetExtension(resolved).ToLowerInvariant() with
+            | ".csv" ->
+                Data.readCsvWithHeader resolved
+                |> List.choose (fun row ->
+                    let column name =
+                        row.Values
+                        |> Map.tryFind name
+                        |> Option.orElse (row.Values |> Map.tryFind (name.ToLowerInvariant()))
+
+                    let label =
+                        column "Label"
+                        |> Option.bind (fun s ->
+                            match Int32.TryParse s with
+                            | true, v -> Some v
+                            | _ -> None)
+
+                    column "SMILES" |> Option.map (fun smiles -> smiles, label))
+            | _ -> Data.readSmiles resolved |> List.map (fun smiles -> smiles, None)
+
+        if compounds.IsEmpty then
             eprintfn "Error: No SMILES found in %s" resolved
             exit 1
 
-        printfn "Loaded %d compounds" smiles.Length
-        (smiles, true)
+        printfn "Loaded %d compounds" compounds.Length
+        (compounds, true)
     | None ->
         printfn "Using built-in compound library (use --input to load your own)"
-        (builtinSmiles, false)
+        (builtinCompounds |> List.map (fun (smiles, label) -> smiles, Some label), false)
 
-let smilesFile = prepareSmilesFile smilesData
+let smilesFile = prepareCandidateFile smilesData
 
 printfn "Compounds: %d" smilesData.Length
 printfn ""

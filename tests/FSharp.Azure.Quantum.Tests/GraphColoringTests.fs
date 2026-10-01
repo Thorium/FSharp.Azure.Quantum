@@ -811,7 +811,7 @@ let ``HybridSolver reports an edgeless graph as classical`` () =
                 None
                 None
                 (Some HybridSolver.Quantum)
-                System.Threading.CancellationToken.None
+                CancellationToken.None
         with
         | Ok solution ->
             Assert.Equal(HybridSolver.Classical, solution.Method)
@@ -819,4 +819,4 @@ let ``HybridSolver reports an edgeless graph as classical`` () =
             Assert.Equal(QSolver.NoCircuitBackendName, solution.Result.BackendName)
         | Error err -> Assert.Fail($"solveGraphColoringAsync failed: {err.Message}")
     }
-    :> System.Threading.Tasks.Task
+    :> Task
