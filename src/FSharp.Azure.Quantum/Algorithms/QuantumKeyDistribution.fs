@@ -452,11 +452,42 @@ module QuantumKeyDistribution =
     let private chooseRandomBasis (rng: Random) : Basis =
         if rng.Next(2) = 0 then Rectilinear else Diagonal
 
+    /// The sifted-key positions revealed for the eavesdropping check: a uniform sample
+    /// without repeats, the first `sampleSize` positions of a shuffle.
     let private buildSampleIndices (siftedLength: int) (sampleRatio: float) (rng: Random) : int[] =
         let sampleSize = int (float siftedLength * sampleRatio)
-        let allIndices = [| 0 .. siftedLength - 1 |]
-        let shuffled = allIndices |> Array.sortBy (fun _ -> rng.Next())
-        shuffled |> Array.take (min sampleSize siftedLength)
+        let indices = Array.init siftedLength id
+        rng.Shuffle indices
+        indices |> Array.truncate (max 0 sampleSize)
+
+    /// Qubits Alice sends for a key of `keyLength` bits: about half survive sifting and
+    /// `sampleRatio` of those are revealed, plus a margin of ten.
+    let private transmissionsFor (keyLength: int) (sampleRatio: float) : float =
+        floor (float keyLength / (0.5 * (1.0 - sampleRatio))) + 10.0
+
+    /// A run needs a key to produce and a check sample that is a real part of the sifted key:
+    /// a ratio of 0 or less reveals nothing, so the run would pass with no check at all, and
+    /// a ratio of 1 or more leaves no key. A ratio close to 1 multiplies the transmissions
+    /// without bound.
+    let private validateBb84Parameters (keyLength: int) (sampleRatio: float) : Result<unit, QuantumError> =
+        if keyLength < 1 then
+            Error(QuantumError.ValidationError("keyLength", $"must be at least 1, got {keyLength}"))
+        elif not (sampleRatio > 0.0 && sampleRatio < 1.0) then
+            Error(
+                QuantumError.ValidationError(
+                    "sampleRatio",
+                    $"must be greater than 0 and less than 1, got {sampleRatio}"
+                )
+            )
+        elif transmissionsFor keyLength sampleRatio > float Array.MaxLength then
+            Error(
+                QuantumError.ValidationError(
+                    "sampleRatio",
+                    $"a key of %d{keyLength} bits with a sample ratio of {sampleRatio} needs %.3g{transmissionsFor keyLength sampleRatio} transmissions, more than one run holds (%d{Array.MaxLength})"
+                )
+            )
+        else
+            Ok()
 
     let private buildBb84Intent
         (keyLength: int)
@@ -466,13 +497,12 @@ module QuantumKeyDistribution =
         (seed: int option)
         : Bb84Intent =
 
-        let rng =
-            match seed with
-            | Some s -> Random(s)
-            | None -> Random()
+        // Bits, bases and the check sample are secret material: without a seed they come
+        // from the OS cryptographic generator. A seed gives a reproducible run.
+        let rng = CryptographicRandom.UnlessSeeded(ValueOption.ofOption seed)
 
         // Scale up initial qubits to account for sifting (~50%) and sampling
-        let initialQubits = int (float keyLength / (0.5 * (1.0 - sampleRatio))) + 10
+        let initialQubits = int (transmissionsFor keyLength sampleRatio)
 
         // Alice + Bob randomness
         let alice = createAliceState initialQubits rng
@@ -674,6 +704,18 @@ module QuantumKeyDistribution =
             let eavesdropCheck =
                 checkEavesdroppingWithSample siftedKey intent.SampleIndices intent.QberThreshold
 
+            // An empty sample has an error rate of 0 and would report a secure key unchecked.
+            do!
+                if eavesdropCheck.SampleSize = 0 then
+                    Error(
+                        QuantumError.ValidationError(
+                            "sampleRatio",
+                            $"{intent.SampleRatio} of a sifted key of {siftedKey.Length} bits leaves no bit for the eavesdropping check"
+                        )
+                    )
+                else
+                    Ok()
+
             let finalKey = extractFinalKey siftedKey eavesdropCheck.SampleIndices
 
             let finalKeyLength = finalKey.Length
@@ -723,6 +765,8 @@ module QuantumKeyDistribution =
         : Result<BB84Result, QuantumError> =
 
         result {
+            do! validateBb84Parameters keyLength sampleRatio
+
             let intent =
                 buildBb84Intent keyLength sampleRatio qberThreshold Bb84Attack.None seed
 
@@ -761,6 +805,8 @@ module QuantumKeyDistribution =
         : Result<BB84Result, QuantumError> =
 
         result {
+            do! validateBb84Parameters keyLength sampleRatio
+
             let intent =
                 buildBb84Intent keyLength sampleRatio qberThreshold Bb84Attack.InterceptResend seed
 
@@ -908,6 +954,8 @@ module QuantumKeyDistribution =
         : Result<BB84Result, QuantumError> =
 
         result {
+            do! validateBb84Parameters keyLength sampleRatio
+
             let intent =
                 buildBb84Intent keyLength sampleRatio qberThreshold (Bb84Attack.Beamsplitter probability) seed
 

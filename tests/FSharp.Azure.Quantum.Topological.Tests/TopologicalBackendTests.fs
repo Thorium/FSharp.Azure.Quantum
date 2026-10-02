@@ -631,3 +631,55 @@ module TopologicalBackendTests =
 
         Assert.Equal(ValueSome 4, QaoaExecutionHelpers.splitPieceQubits settings backend 9)
         Assert.Equal(ValueNone, QaoaExecutionHelpers.splitPieceQubits settings backend 4)
+
+    // ========================================================================
+    // AMPLITUDE AMPLIFICATION
+    // ========================================================================
+
+    /// Amplification of |101⟩ over `prep`, as the probabilities of the 2^n outcomes.
+    let private amplified (backend: IQuantumBackend) (prep: CircuitBuilder.Gate list) (numQubits: int) =
+        let intent: GroverSearch.AmplitudeAmplification.Unified.AmplitudeAmplificationIntent =
+            {
+                NumQubits = numQubits
+                StatePreparation =
+                    prep
+                    |> List.fold (fun c g -> CircuitBuilder.addGate g c) (CircuitBuilder.empty numQubits)
+                Oracle =
+                    GroverSearch.Oracle.forValue 5 numQubits
+                    |> Result.defaultWith (fun e -> failwith e.Message)
+                Iterations = 2
+                Exactness = GroverSearch.AmplitudeAmplification.Unified.Exact
+            }
+
+        match GroverSearch.AmplitudeAmplification.Unified.execute backend intent with
+        | Ok state ->
+            Array.init (1 <<< numQubits) (fun index ->
+                QuantumState.probability (Array.init numQubits (fun q -> (index >>> q) &&& 1)) state)
+        | Error e -> failwith $"amplification on {backend.Name}: {e.Message}"
+
+    [<Fact>]
+    let ``amplitude amplification matches the gate simulator on both anyon types`` () =
+        let local () =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+
+        // A uniform preparation takes the backend's Grover operations; any other preparation
+        // is lowered to gates, about 270 of them at four qubits.
+        let preparations =
+            [
+                3, [ CircuitBuilder.H 0; CircuitBuilder.H 1; CircuitBuilder.H 2 ]
+                3, [ CircuitBuilder.RY(0, 1.1); CircuitBuilder.H 1; CircuitBuilder.RY(2, 0.7) ]
+                4, [ CircuitBuilder.RY(0, 0.7); CircuitBuilder.H 1; CircuitBuilder.RY(2, 1.1); CircuitBuilder.H 3 ]
+            ]
+
+        for numQubits, prep in preparations do
+            let expected = amplified (local ()) prep numQubits
+
+            for backend in
+                [
+                    TopologicalUnifiedBackendFactory.createIsing 16
+                    TopologicalUnifiedBackendFactory.createFibonacci 16
+                ] do
+                let actual = amplified backend prep numQubits
+
+                for index in 0 .. expected.Length - 1 do
+                    Assert.Equal(expected.[index], actual.[index], 9)

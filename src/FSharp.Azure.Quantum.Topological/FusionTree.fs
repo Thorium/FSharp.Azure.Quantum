@@ -290,6 +290,20 @@ module FusionTree =
         | Fusion(l1, r1, c1), Fusion(l2, r2, c2) -> c1 = c2 && equals l1 l2 && equals r1 r2
         | _ -> false
 
+    /// Comparer for trees as dictionary or set keys: structural equality with a hash that
+    /// mixes every node.
+    ///
+    /// The compiler-generated hash of a tree collides heavily (about 60 distinct values over
+    /// the 1024 basis trees of ten qubits), which turns each lookup into a scan of the bucket.
+    /// Hash values differ between processes; only equality is stable.
+    let structuralComparer: System.Collections.Generic.IEqualityComparer<Tree> =
+        let rec hashOf (tree: Tree) : int =
+            match tree with
+            | Leaf p -> System.HashCode.Combine(17, hash p)
+            | Fusion(left, right, channel) -> System.HashCode.Combine(hashOf left, hashOf right, hash channel)
+
+        HashIdentity.FromFunctions hashOf equals
+
     // ========================================================================
     // PRETTY PRINTING
     // ========================================================================

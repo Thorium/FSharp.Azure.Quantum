@@ -6,12 +6,16 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.5.1</Version>
+    <Version>1.5.2</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification, QPE, Shor, HHL) and quantum chemistry (VQE, QPE) with cloud backend execution as whole-circuit jobs. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.5.1: QUBO encoding fixes; QAOA solutions report how often they were sampled
+    <PackageReleaseNotes>v1.5.2: BB84 and E91 draw their secrets from the OS cryptographic generator; BB84 checks its parameters
+- CHANGED: BB84 and E91 without a seed draw bits, bases and the eavesdropping-check sample from the OS cryptographic generator (new Core.CryptographicRandom, a System.Random); BB84's check sample is a uniform shuffle, so a seeded run picks different positions than before
+- CHANGED: BB84 returns a validation error for a sample ratio outside (0, 1) or too close to 1 for one run, for a check sample that comes out empty and for a key length below 1 (was a key reported secure with no check, or an exception)
+
+v1.5.1: QUBO encoding fixes; QAOA solutions report how often they were sampled
 - FIXED (network flow): the demand term is a squared penalty, so the QUBO minimum is the cheapest flow that serves every sink; solveWithShotsAsync and solveWithDefaultsAsync optimise the angles (2 layers); solveWithQaoaConfigAsync takes a QaoaSolverConfig
 - FIXED (TSP): every step is charged in the direction taken, return leg included; the penalty scales with the distances; only a permutation matrix decodes to a tour (no padding), so few shots can end in a "no valid tour" error. 2 optimised layers by default (QuantumTspConfig.NumLayers, QuantumTspSolution.LayerParameters); a 4-city default solve takes minutes on the simulator
 - FIXED (bin packing): capacity is an inequality with slack bits (4,3,3 into 6 takes 12 qubits, was 8); sizes are rescaled to integers; isValid is strict; repair always returns a valid packing; PackingResult gains WasRepaired and Sampling
@@ -72,6 +76,7 @@
     <Compile Include="Core\Types.fs" />
     <Compile Include="Core\Progress.fs" />
     <Compile Include="Core\ResultBuilder.fs" />
+    <Compile Include="Core\CryptographicRandom.fs" />
 
     <!-- Data Infrastructure Layer (depends on Core) -->
     <Compile Include="Data\PeriodicTable.fs" />

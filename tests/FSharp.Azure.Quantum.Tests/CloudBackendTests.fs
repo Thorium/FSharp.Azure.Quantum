@@ -1286,13 +1286,18 @@ module CloudBackendTests =
         Assert.Equal(Some 25, CloudBackendHelpers.qubitLimit ValueNone (ValueSome 25))
         Assert.Equal(None, CloudBackendHelpers.qubitLimit ValueNone ValueNone)
 
-        Assert.Throws<ArgumentException>(fun () ->
-            CloudBackendHelpers.qubitLimit (ValueSome 0) (ValueSome 25) |> ignore)
-        |> ignore
+        // The exception names the argument the caller passed, here and through a constructor.
+        let direct =
+            Assert.Throws<ArgumentException>(fun () ->
+                CloudBackendHelpers.qubitLimit (ValueSome 0) (ValueSome 25) |> ignore)
+
+        Assert.Equal("maxQubits", direct.ParamName)
 
         use client = new HttpClient()
 
-        Assert.Throws<ArgumentException>(fun () ->
-            CloudBackends.IonQCloudBackend(client, "https://test", "ionq.qpu.aria-1", maxQubits = -3)
-            |> ignore)
-        |> ignore
+        let throughConstructor =
+            Assert.Throws<ArgumentException>(fun () ->
+                CloudBackends.IonQCloudBackend(client, "https://test", "ionq.qpu.aria-1", maxQubits = -3)
+                |> ignore)
+
+        Assert.Equal("maxQubits", throughConstructor.ParamName)

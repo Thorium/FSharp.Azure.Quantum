@@ -183,3 +183,26 @@ let ``EkertQKD.computeCHSH on empty list returns zero S`` () =
     let chsh = EkertQKD.computeCHSH []
     Assert.Equal(0.0, chsh.S)
     Assert.True(chsh.EavesdropperDetected, "Empty pairs should show eavesdropper detected (|S|=0 <= 2)")
+
+// ========================================================================
+// Basis choices: reproducible with a seed, unpredictable without one
+// ========================================================================
+
+let private basesOf (seed: int option) =
+    match EkertQKD.run (createLocalBackend ()) 120 seed with
+    | Ok result -> result.Pairs |> List.map (fun p -> (p.AliceBasis, p.BobBasis))
+    | Error err -> failwith $"E91 failed: {err}"
+
+[<Fact>]
+let ``EkertQKD.run repeats its basis choices with a seed`` () =
+    Assert.Equal<(EkertQKD.AliceBasis * EkertQKD.BobBasis) list>(basesOf (Some 7), basesOf (Some 7))
+
+[<Fact>]
+let ``EkertQKD.run without a seed uses every basis and never repeats a run`` () =
+    let first = basesOf None
+    let second = basesOf None
+
+    // 120 pairs over three choices each: a missing choice has probability (2/3)^120.
+    Assert.Equal(3, first |> List.map fst |> List.distinct |> List.length)
+    Assert.Equal(3, first |> List.map snd |> List.distinct |> List.length)
+    Assert.NotEqual<(EkertQKD.AliceBasis * EkertQKD.BobBasis) list>(first, second)

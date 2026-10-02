@@ -626,3 +626,44 @@ module FusionTreeTests =
             let decoded = FusionTree.toComputationalBasis tree
             Assert.Equal<int list>(bits, decoded)
         | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+
+    // ========================================================================
+    // TREES AS DICTIONARY KEYS
+    // ========================================================================
+
+    let private basisTrees (anyonType: AnyonSpecies.AnyonType) (numQubits: int) =
+        [
+            for x in 0 .. (1 <<< numQubits) - 1 ->
+                match FusionTree.fromComputationalBasis [ for q in 0 .. numQubits - 1 -> (x >>> q) &&& 1 ] anyonType with
+                | Ok tree -> tree
+                | Error err -> failwith $"basis tree {x}: {err.Message}"
+        ]
+
+    [<Fact>]
+    let ``structuralComparer treats separately built equal trees as one key`` () =
+        let comparer = FusionTree.structuralComparer
+
+        for anyonType in [ AnyonSpecies.AnyonType.Ising; AnyonSpecies.AnyonType.Fibonacci ] do
+            let first = basisTrees anyonType 4
+            let second = basisTrees anyonType 4
+
+            for a, b in List.zip first second do
+                Assert.True(comparer.Equals(a, b))
+                Assert.Equal(comparer.GetHashCode a, comparer.GetHashCode b)
+
+            Assert.Equal(16, System.Collections.Generic.HashSet<FusionTree.Tree>(first @ second, comparer).Count)
+            // Trees that differ in one channel only are different keys.
+            Assert.False(comparer.Equals(first.[0], first.[1]))
+
+    [<Fact>]
+    let ``structuralComparer spreads the basis trees of ten qubits over distinct hashes`` () =
+        // A hash that collides on most trees makes every merge of a wide state scan its
+        // bucket. Of 1024 trees a mixing 32-bit hash leaves all but a handful apart.
+        for anyonType in [ AnyonSpecies.AnyonType.Ising; AnyonSpecies.AnyonType.Fibonacci ] do
+            let distinct =
+                basisTrees anyonType 10
+                |> List.map FusionTree.structuralComparer.GetHashCode
+                |> List.distinct
+                |> List.length
+
+            Assert.InRange(distinct, 1000, 1024)

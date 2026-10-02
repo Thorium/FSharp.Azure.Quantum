@@ -226,10 +226,9 @@ module EkertQKD =
     /// Build the E91 intent with random basis choices
     let private buildE91Intent (numPairs: int) (withEve: bool) (seed: int option) : E91Intent =
 
-        let rng =
-            match seed with
-            | Some s -> Random(s)
-            | None -> Random()
+        // Basis choices are secret until announced: without a seed they come from the OS
+        // cryptographic generator. A seed gives a reproducible run.
+        let rng = CryptographicRandom.UnlessSeeded(ValueOption.ofOption seed)
 
         let aliceBases =
             Array.init numPairs (fun _ ->
@@ -616,10 +615,9 @@ module EkertQKD =
             // Validate backend supports required operations
             let! _ = planE91 backend
 
+            // The seed is offset so the eavesdropper's choices do not repeat the basis choices.
             let rng =
-                match intent.Seed with
-                | ValueSome s -> Random(s + 1) // Offset seed to avoid correlation with basis choices
-                | ValueNone -> Random()
+                CryptographicRandom.UnlessSeeded(intent.Seed |> ValueOption.map (fun s -> s + 1))
 
             // Asked up front, before any pair runs, so that a backend that runs complete
             // circuits only gets every pair as circuits rather than the first one failing.

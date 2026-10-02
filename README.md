@@ -95,7 +95,7 @@ flowchart TD
 
 **Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with opt-in classical routing (via `HybridSolver` / `QuantumAdvisor`) for small problems where quantum offers no advantage. Quantum solvers never fall back to classical silently — see [Design Philosophy](#design-philosophy).
 
-**Current Version:** 1.5.1 (core) / 0.5.1 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
+**Current Version:** 1.5.2 (core) / 0.5.2 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
 
 **Current Features:**
 - Multiple Backends: LocalBackend (simulation), NoisyLocalBackend (density-matrix noise), Azure Quantum (IonQ, Rigetti, Quantinuum, Atom Computing, IQM), D-Wave quantum annealers (1200-5640 qubits), AWS Braket (separate plugin)

@@ -138,6 +138,7 @@
     <Compile Include="VisualizationTests.fs" />
     <Compile Include="QuantumKeyDistributionTests.fs" />
     <Compile Include="EkertQKDTests.fs" />
+    <Compile Include="CryptographicRandomTests.fs" />
     <Compile Include="QuantumErrorCorrectionTests.fs" />
     <Compile Include="QuantumResultTaskBuilderTests.fs" />
     

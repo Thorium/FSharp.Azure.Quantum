@@ -66,23 +66,27 @@ module TopologicalOperations =
     /// Combine identical basis states by summing amplitudes.
     ///
     /// This is required for interference to work correctly (|ψ⟩ + |ψ⟩ = 2|ψ⟩).
+    ///
+    /// Terms are the same basis state when their trees are structurally equal. A merged
+    /// term keeps the position and the state of its first occurrence, and amplitudes are
+    /// summed in term order. The tree itself is the key: formatting a tree as text costs
+    /// far more than every other step of a gate.
     let combineLikeTerms (superposition: Superposition) : Superposition =
-        let merged =
-            superposition.Terms
-            |> List.mapi (fun idx (amp, state) -> (idx, amp, state))
-            |> List.fold
-                (fun (acc: Map<string, int * Complex * FusionTree.State>) (idx, amp, state) ->
-                    let key = FusionTree.toString state.Tree
+        let position =
+            System.Collections.Generic.Dictionary<FusionTree.Tree, int>(FusionTree.structuralComparer)
 
-                    match acc |> Map.tryFind key with
-                    | None -> acc |> Map.add key (idx, amp, state)
-                    | Some(firstIdx, existingAmp, existingState) ->
-                        acc |> Map.add key (firstIdx, existingAmp + amp, existingState))
-                Map.empty
-            |> Map.toList
-            |> List.map (fun (_, (idx, amp, state)) -> (idx, (amp, state)))
-            |> List.sortBy fst
-            |> List.map snd
+        let terms = ResizeArray<Complex * FusionTree.State>()
+
+        for (amp, state) in superposition.Terms do
+            match position.TryGetValue state.Tree with
+            | true, index ->
+                let (existingAmp, existingState) = terms.[index]
+                terms.[index] <- (existingAmp + amp, existingState)
+            | _ ->
+                position.[state.Tree] <- terms.Count
+                terms.Add((amp, state))
+
+        let merged = List.ofSeq terms
 
         // Avoid dropping all terms for an all-zero state.
         let eps = 1e-14
@@ -93,7 +97,8 @@ module TopologicalOperations =
             Terms = finalTerms
         }
 
-    /// Normalize a superposition (ensure sum of |amplitude|² = 1)
+    /// Normalize a superposition (ensure sum of |amplitude|² = 1). Like terms are combined
+    /// first, so a caller never needs `combineLikeTerms` before it.
     let normalize (superposition: Superposition) : Superposition =
         let combined = combineLikeTerms superposition
 
@@ -304,7 +309,6 @@ module TopologicalOperations =
 
                     { superpos with Terms = expanded })
                 (pureState state)
-            |> combineLikeTerms
             |> normalize
 
     // ========================================================================
@@ -706,7 +710,6 @@ module TopologicalOperations =
             { superposition with
                 Terms = List.rev terms
             }
-            |> combineLikeTerms
             |> normalize)
 
     let braidSuperposition (leftIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
@@ -1089,7 +1092,7 @@ module TopologicalOperations =
                         // Qubit channel not found — keep term unchanged
                         [ (amp, state) ])
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// Controlled-NOT gate for topological qubits
     ///
@@ -1141,7 +1144,7 @@ module TopologicalOperations =
                             Some(amp, state)
                     | None -> Some(amp, state))
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// Pauli-X gate (NOT gate) for topological qubits
     ///
@@ -1175,7 +1178,7 @@ module TopologicalOperations =
                         | None -> Some(amp, state) // fallback: keep unchanged
                     | None -> Some(amp, state))
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// Pauli-Y gate for topological qubits
     ///
@@ -1217,7 +1220,7 @@ module TopologicalOperations =
                         | None -> Some(amp, state)
                     | None -> Some(amp, state))
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// Pauli-Z gate for topological qubits
     ///
@@ -1250,7 +1253,7 @@ module TopologicalOperations =
                             (amp, state) // unchanged for |0⟩
                     | None -> (amp, state))
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// T gate (π/8 gate) for topological qubits
     ///
@@ -1286,7 +1289,7 @@ module TopologicalOperations =
                             (amp, state) // unchanged for |0⟩
                     | None -> (amp, state))
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// T† gate (inverse of T gate) for topological qubits
     ///
@@ -1319,7 +1322,7 @@ module TopologicalOperations =
                             (amp, state) // unchanged for |0⟩
                     | None -> (amp, state))
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// Phase gate Rz(θ) = P(θ) = diag(1, e^{iθ}) for topological qubits
     ///
@@ -1357,7 +1360,7 @@ module TopologicalOperations =
                             (amp, state) // unchanged for |0⟩
                     | None -> (amp, state))
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// Apply an arbitrary single-qubit unitary U = [[u00, u01]; [u10, u11]]
     /// (columns indexed by the input channel: Vacuum=|0⟩, Psi=|1⟩) at the
@@ -1404,7 +1407,7 @@ module TopologicalOperations =
                         | _ -> [ (amp, state) ]
                     | None -> [ (amp, state) ])
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     /// RX(θ) = [[cos(θ/2), -i·sin(θ/2)]; [-i·sin(θ/2), cos(θ/2)]] — exact
     /// amplitude-level X-rotation (simulator-only, like hadamard/phaseGate).
@@ -1460,7 +1463,7 @@ module TopologicalOperations =
                         | None -> Some(amp, state)
                     | _ -> Some(amp, state))
 
-            { superposition with Terms = newTerms } |> combineLikeTerms |> normalize |> Ok
+            { superposition with Terms = newTerms } |> normalize |> Ok
 
     // ========================================================================
     // UTILITY FUNCTIONS
@@ -1482,9 +1485,10 @@ module TopologicalOperations =
 
     /// Extract all distinct fusion tree states from superposition
     let basisStates (superposition: Superposition) : FusionTree.State list =
-        superposition.Terms
-        |> List.map snd
-        |> List.distinctBy (fun s -> FusionTree.toString s.Tree)
+        let seen =
+            System.Collections.Generic.HashSet<FusionTree.Tree>(FusionTree.structuralComparer)
+
+        superposition.Terms |> List.map snd |> List.filter (fun s -> seen.Add s.Tree)
 
     /// Pretty-print a superposition
     let displaySuperposition (superposition: Superposition) : string =

@@ -935,7 +935,9 @@ module WholeCircuitRouteTests =
         | Ok result -> Assert.Equal(0.0, result.EavesdropCheck.ErrorRate)
         | Error e -> Assert.Fail(e.Message)
 
-        match QuantumKeyDistribution.runBB84WithEve 150 (noisy ()) 0.2 0.11 (Some 3) with
+        // Outcomes are drawn afresh each run: 800 key bits give a check sample large enough
+        // that a missed eavesdropper is more than six standard deviations out.
+        match QuantumKeyDistribution.runBB84WithEve 800 (noisy ()) 0.2 0.11 (Some 3) with
         | Ok result -> Assert.True(result.EavesdropCheck.EavesdropDetected, $"QBER {result.EavesdropCheck.ErrorRate}")
         | Error e -> Assert.Fail(e.Message)
 

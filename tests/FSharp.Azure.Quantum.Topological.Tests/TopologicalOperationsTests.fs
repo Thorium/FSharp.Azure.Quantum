@@ -962,3 +962,70 @@ module TopologicalOperationsTests =
         let results = TopologicalOperations.measureAll sup10 20
         Assert.Equal(20, results.Length)
         results |> Array.iter (fun bits -> Assert.Equal<int[]>([| 1; 0 |], bits))
+
+    // ========================================================================
+    // COMBINING LIKE TERMS
+    // ========================================================================
+
+    let private termOf (re: float) (bits: int list) =
+        match (mkBasisState bits).Terms with
+        | [ (_, state) ] -> (Complex(re, 0.0), state)
+        | _ -> failwith "a basis state is one term"
+
+    let private ising (terms: (Complex * FusionTree.State) list) : TopologicalOperations.Superposition =
+        {
+            Terms = terms
+            AnyonType = AnyonSpecies.AnyonType.Ising
+        }
+
+    [<Fact>]
+    let ``combineLikeTerms sums equal trees at the position of the first occurrence`` () =
+        // Each tree is built afresh, so equal terms are equal by structure, not by reference.
+        let combined =
+            ising
+                [
+                    termOf 0.5 [ 1; 0 ]
+                    termOf 0.25 [ 0; 1 ]
+                    termOf 0.125 [ 1; 0 ]
+                    termOf 1.0 [ 1; 1 ]
+                    termOf 0.25 [ 0; 1 ]
+                ]
+            |> TopologicalOperations.combineLikeTerms
+
+        let expected: (Complex * int list) list =
+            [ Complex(0.625, 0.0), [ 1; 0 ]; Complex(0.5, 0.0), [ 0; 1 ]; Complex(1.0, 0.0), [ 1; 1 ] ]
+
+        Assert.Equal<(Complex * int list) list>(expected, readTermBits combined)
+
+    [<Fact>]
+    let ``combineLikeTerms keeps trees apart that differ in one channel only`` () =
+        let all = [ for a in 0..1 do for b in 0..1 do for c in 0..1 -> termOf 1.0 [ a; b; c ] ]
+        let combined = ising all |> TopologicalOperations.combineLikeTerms
+
+        Assert.Equal(8, combined.Terms.Length)
+        Assert.Equal(8, (TopologicalOperations.basisStates (ising (all @ all))).Length)
+
+    [<Fact>]
+    let ``combineLikeTerms drops a cancelled term but never empties the state`` () =
+        let cancelled =
+            ising [ termOf 1.0 [ 0; 1 ]; termOf 0.5 [ 1; 1 ]; termOf -1.0 [ 0; 1 ] ]
+            |> TopologicalOperations.combineLikeTerms
+
+        Assert.Equal<(Complex * int list) list>([ Complex(0.5, 0.0), [ 1; 1 ] ], readTermBits cancelled)
+
+        let allZero =
+            ising [ termOf 1.0 [ 0; 1 ]; termOf -1.0 [ 0; 1 ] ]
+            |> TopologicalOperations.combineLikeTerms
+
+        Assert.Equal<(Complex * int list) list>([ Complex.Zero, [ 0; 1 ] ], readTermBits allZero)
+
+    [<Fact>]
+    let ``normalize combines like terms itself`` () =
+        let normalized =
+            ising [ termOf 3.0 [ 1; 0 ]; termOf 4.0 [ 0; 0 ]; termOf -3.0 [ 1; 0 ]; termOf 3.0 [ 1; 1 ] ]
+            |> TopologicalOperations.normalize
+
+        let expected: (Complex * int list) list =
+            [ Complex(0.8, 0.0), [ 0; 0 ]; Complex(0.6, 0.0), [ 1; 1 ] ]
+
+        Assert.Equal<(Complex * int list) list>(expected, readTermBits normalized)
