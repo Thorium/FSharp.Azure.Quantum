@@ -498,10 +498,10 @@ module QuantumPhaseEstimator =
             depth
             (pown 2 p)
             (1.0 / float (pown 2 p))
-            (if totalQubits <= 20 then
-                 "✓ Feasible on NISQ devices"
+            (if p <= MaxPrecision then
+                 $"✓ Runs on any backend that supports {totalQubits} qubits"
              else
-                 "✗ Requires fault-tolerant quantum computer")
+                 $"✗ Exceeds the {MaxPrecision} precision qubits a measurement reads into an Int32")
 
     /// Export result to human-readable string
     let describeResult (result: PhaseEstimatorResult) : string =

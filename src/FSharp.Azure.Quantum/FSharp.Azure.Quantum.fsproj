@@ -6,12 +6,22 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.6.0</Version>
+    <Version>1.6.2</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification, QPE, Shor, HHL) and quantum chemistry (VQE, QPE) with cloud backend execution as whole-circuit jobs. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.6.0: qubit limits come from the backend; QUBO splitting joins by variable elimination within a run budget
+    <PackageReleaseNotes>v1.6.2: Neighbourhood search for QUBOs that no exact split cuts; drone examples at swarm scale and on a map
+- ADDED (QuboSplitting): searchNeighbourhoodsAsync improves any problem one block at a time with the rest fixed (Neighbourhoods: blocks per sweep, a block's QUBO, Apply, Score, Accept); runs are blocks times sweeps; quboNeighbourhoods and searchQuboNeighbourhoodsAsync for a dense QUBO
+- ADDED (QaoaExecutionHelpers): SplitSettings.MaxSweeps (default 0, off) lets runQaoaAsync search a QUBO that neither cuts nor fits; SplitReport.Sweeps tells a heuristic answer from an exact join
+- EXAMPLES (SwarmChoreography): a swarm wider than one circuit is assigned in blocks of ⌊√limit⌋ drones (BlockAssignment); --drones n scale run, --lights light show, show.svg with the drones' light colours
+- EXAMPLES (FireAirBridge): --fire and --water name the scenario as points; --map draws the run on OpenStreetMap tiles with the round's candidate corridors, the plan, the fire and the decisions, zoomable
+
+v1.6.1: Grover lowers an oracle once per search; resource estimates no longer judge by a fixed qubit count
+- CHANGED (Grover): a predicate oracle is lowered to gates once per search, not once per iteration count tried and again for a cloud backend's whole-circuit job
+- CHANGED: the period finder and phase estimator builders' estimateResources judge feasibility by QPE.MaxCountingQubits and MaxPrecision, not a fixed 20 qubits
+
+v1.6.0: qubit limits come from the backend; QUBO splitting joins by variable elimination within a run budget
 - BREAKING: Types.NisqPracticalQubits and the fixed qubit caps are removed; every width check uses UnifiedBackend.getRunnableQubits (local simulator: 20 by default, FSAQ_MAX_CIRCUIT_QUBITS), and a backend with no declared limit is not refused
 - BREAKING: SplitSettings.MaxFixedVariables removed; MaxShareRuns bounds the circuit runs of either split, counted before any run (conditioning: 2^boundary per piece; shares: block runs)
 - BREAKING: QuboSplitting.ConditioningLimits.MaxRuns replaces MaxFixedVariables; MostFixedVariables removed, MostJoinSpan (20) added

@@ -488,8 +488,11 @@ module Grover =
         let numQubits = oracle.NumQubits
         let searchSpaceSize = 1 <<< numQubits
 
+        // A seq, not a list: the search space is up to 2^Oracle.MaxIndexQubits indices.
         let solutions =
-            [ 0 .. searchSpaceSize - 1 ] |> List.filter (Oracle.isSolution oracle.Spec)
+            seq { 0 .. searchSpaceSize - 1 }
+            |> Seq.filter (Oracle.isSolution oracle.Spec)
+            |> List.ofSeq
 
         if List.isEmpty solutions then
             Error(QuantumError.ValidationError("Oracle", "matches no solutions"))
@@ -539,8 +542,15 @@ module Grover =
                 yield QuantumOperation.Gate(CircuitBuilder.H q)
         ]
 
-    /// Plan Grover execution on the given backend.
-    let plan (backend: IQuantumBackend) (intent: GroverSearchIntent) : Result<GroverPlan, QuantumError> =
+    /// Plan Grover execution on the given backend, taking the oracle's lowered gates from
+    /// `loweredOracle`: lowering a predicate oracle enumerates its search space and lowers a
+    /// multi-controlled gate per marked state, so a search shares one lowering between the
+    /// plans it asks for (one per iteration count) and the whole-circuit job of a cloud backend.
+    let private planWith
+        (loweredOracle: Lazy<Result<QuantumOperation list, QuantumError>>)
+        (backend: IQuantumBackend)
+        (intent: GroverSearchIntent)
+        : Result<GroverPlan, QuantumError> =
 
         // Prefer semantic algorithm intents when available; otherwise lower explicitly.
         match backend.NativeStateType with
@@ -563,7 +573,7 @@ module Grover =
             else
                 result {
                     let prepareOps = lowerPrepareOps intent.Oracle.NumQubits
-                    let! oracleOps = lowerOracleOps intent.Oracle
+                    let! oracleOps = loweredOracle.Value
                     let diffusionOps = lowerDiffusionOps intent.Oracle.NumQubits
 
                     let iterationOps = oracleOps @ diffusionOps
@@ -582,6 +592,10 @@ module Grover =
                             )
                 }
 
+    /// Plan Grover execution on the given backend.
+    let plan (backend: IQuantumBackend) (intent: GroverSearchIntent) : Result<GroverPlan, QuantumError> =
+        planWith (lazy (lowerOracleOps intent.Oracle)) backend intent
+
     let private repeatM (count: int) (step: 'state -> Result<'state, QuantumError>) (initial: 'state) =
         let rec loop remaining state =
             if remaining <= 0 then
@@ -591,26 +605,23 @@ module Grover =
 
         loop count initial
 
-    /// Rebuild the complete Grover gate circuit (prepare + iterations × (oracle + diffusion))
+    /// Build the complete Grover gate circuit (prepare + iterations × (oracle + diffusion))
     /// and submit it as one job via ExecuteToState. Used for backends that cannot apply
     /// operations incrementally (real cloud hardware).
     let private submitWholeCircuit
         (backend: IQuantumBackend)
-        (oracle: Oracle.CompiledOracle)
+        (numQubits: int)
+        (prepareOps: QuantumOperation list)
+        (iterationOps: QuantumOperation list)
         (iterations: int)
         : Result<QuantumState, QuantumError> =
-        result {
-            let prepareOps = lowerPrepareOps oracle.NumQubits
-            let! oracleOps = lowerOracleOps oracle
-            let diffusionOps = lowerDiffusionOps oracle.NumQubits
-            let iterationOps = oracleOps @ diffusionOps
-            let allOps = prepareOps @ (List.replicate iterations iterationOps |> List.concat)
-            return! UnifiedBackend.submitAsCircuit backend oracle.NumQubits allOps
-        }
+        let allOps = prepareOps @ (List.replicate iterations iterationOps |> List.concat)
+        UnifiedBackend.submitAsCircuit backend numQubits allOps
 
     let private executePlan
         (backend: IQuantumBackend)
         (oracle: Oracle.CompiledOracle)
+        (loweredOracle: Lazy<Result<QuantumOperation list, QuantumError>>)
         (plan: GroverPlan)
         : Result<QuantumState, QuantumError> =
 
@@ -642,13 +653,19 @@ module Grover =
         match incremental with
         | Ok state -> Ok state
         | Error e when UnifiedBackend.isIncrementalUnsupported e ->
-            // Cloud backend: fall back to whole-circuit job submission.
-            let iterations =
-                match plan with
-                | ExecuteNatively(_, k, _)
-                | ExecuteViaOps(_, _, k, _) -> k
-
-            submitWholeCircuit backend oracle iterations
+            // Cloud backend: fall back to whole-circuit job submission of the lowered gates.
+            match plan with
+            | ExecuteViaOps(prepareOps, iterationOps, iterations, _) ->
+                submitWholeCircuit backend oracle.NumQubits prepareOps iterationOps iterations
+            | ExecuteNatively(_, iterations, _) ->
+                loweredOracle.Value
+                |> Result.bind (fun oracleOps ->
+                    submitWholeCircuit
+                        backend
+                        oracle.NumQubits
+                        (lowerPrepareOps oracle.NumQubits)
+                        (oracleOps @ lowerDiffusionOps oracle.NumQubits)
+                        iterations)
         | Error e -> Error e
 
     /// Grover search on an oracle the backend has been checked to run.
@@ -667,6 +684,9 @@ module Grover =
         // threshold above 1/M would discard every true solution of a broad predicate.
         let threshold = min config.SolutionThreshold (1.0 / float searchSpace)
 
+        // Lowered at most once, however many iteration counts the search tries.
+        let loweredOracle = lazy (lowerOracleOps oracle)
+
         let runWith (iterationCount: int) =
             // Build intent → plan → execute (ADR).
             let intent =
@@ -677,7 +697,9 @@ module Grover =
                 }
 
             result {
-                let! finalState = plan backend intent |> Result.bind (executePlan backend oracle)
+                let! finalState =
+                    planWith loweredOracle backend intent
+                    |> Result.bind (executePlan backend oracle loweredOracle)
                 // On a cloud backend these are the job's recorded shots, never more: a 500-shot
                 // job yields 500 outcomes whatever config.Shots says, so frequencies below are
                 // taken over the outcomes measured rather than the outcomes requested.
@@ -770,7 +792,11 @@ module Grover =
         (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
-        UnifiedBackend.requireRunnableQubits "NumQubits" $"Grover search over 2^{oracle.NumQubits} states" oracle.NumQubits backend
+        UnifiedBackend.requireRunnableQubits
+            "NumQubits"
+            $"Grover search over 2^{oracle.NumQubits} states"
+            oracle.NumQubits
+            backend
         |> Result.bind (fun () -> searchWithinLimit oracle backend config)
 
     // ========================================================================

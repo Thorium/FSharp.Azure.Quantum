@@ -145,6 +145,8 @@ module QuantumTreeSearchBuilderTests =
 
     [<Fact>]
     let ``solve admits a 20-qubit tree when the backend declares no limit`` () =
+        // The stub takes the Grover intents natively: lowering a predicate oracle to gates
+        // enumerates the 2^20 paths and lowers a gate per marked one, which is not the point.
         let problem =
             QuantumTreeSearch.quantumTreeSearch {
                 initialState 0
@@ -152,11 +154,11 @@ module QuantumTreeSearchBuilderTests =
                 branchingFactor 16 // 5 * 4 bits = 20 qubits
                 evaluateWith simpleEval
                 generateMovesWith simpleMoveGen
-                backend (CapacityStubBackend("non-simulating", None) :> IQuantumBackend)
+                backend (CapacityStubBackend("non-simulating", None, nativeAlgorithms = true) :> IQuantumBackend)
             }
 
         match QuantumTreeSearch.solve problem with
-        | Error err -> Assert.Contains("does not simulate", err.Message)
+        | Error err -> Assert.Contains(CapacityStubBackend.Marker, err.Message)
         | Ok _ -> Assert.Fail("Expected the backend's own error")
 
     [<Fact>]

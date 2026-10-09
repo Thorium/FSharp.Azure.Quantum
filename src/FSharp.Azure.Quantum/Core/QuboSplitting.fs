@@ -7,7 +7,7 @@ open FSharp.Azure.Quantum
 
 /// Solving a problem that is wider than one circuit by splitting it into circuits that fit.
 ///
-/// Two splits, both trading qubits for circuit runs:
+/// Two exact splits, both trading qubits for circuit runs:
 ///
 /// - Conditioning (any QUBO): fix a few variables whose removal breaks the QUBO's interaction
 ///   graph into pieces that fit, solve every piece for each assignment of the fixed variables
@@ -20,10 +20,18 @@ open FSharp.Azure.Quantum
 ///   the resource, and join the blocks' tables. A block asked for an exact share is an
 ///   equality, so it needs no slack bits. The runs grow with the capacity, not with 2^k.
 ///
+/// And one heuristic for problems neither cuts, whose runs grow linearly with the problem:
+///
+/// - Neighbourhood search (any problem, dense ones included): keep a best solution so far,
+///   sample one block of its variables at a time with the rest fixed, and take a sample that
+///   scores better. A sweep samples every block once; the search ends when a sweep improves
+///   nothing. Nothing is joined exactly, so the answer is the best sample seen, not a proven
+///   optimum.
+///
 /// The caller passes the function that solves or samples a piece, so every circuit runs on
 /// the caller's backend; only the bookkeeping that joins the pieces is classical. The joined
-/// answer is exact when every piece is solved exactly, and inherits the misses of the pieces
-/// otherwise.
+/// answer of an exact split is exact when every piece is solved exactly, and inherits the
+/// misses of the pieces otherwise.
 module QuboSplitting =
 
     // ========================================================================
@@ -146,8 +154,7 @@ module QuboSplitting =
     /// Variables to fix so that every connected component of the rest has at most
     /// `maxPieceQubits` variables: sorted, and empty when the QUBO already fits or falls apart
     /// by itself. It is a heuristic (see cutInto): a smaller set may exist.
-    let chooseFixedVariables (maxPieceQubits: int) (qubo: float[,]) : int list =
-        cutInto (adjacency qubo) maxPieceQubits
+    let chooseFixedVariables (maxPieceQubits: int) (qubo: float[,]) : int list = cutInto (adjacency qubo) maxPieceQubits
 
     /// Variables that every cut within the run limit fixes, and a lower bound on the span of
     /// the join over them. A free variable keeps every neighbour in its own piece or among the
@@ -297,7 +304,11 @@ module QuboSplitting =
                 |> Seq.map (fun term ->
                     term.Table,
                     term.Scope
-                    |> Array.map (fun v -> if v = variable then top else System.Array.BinarySearch(others, v)))
+                    |> Array.map (fun v ->
+                        if v = variable then
+                            top
+                        else
+                            System.Array.BinarySearch(others, v)))
                 |> Seq.toArray
 
             waiting.[step].Clear()
@@ -314,7 +325,7 @@ module QuboSplitting =
 
             let size = 1 <<< others.Length
             let minimum = Array.zeroCreate<float> size
-            let choice = Array.zeroCreate<uint64> ((size + 63) / 64)
+            let choice = Array.zeroCreate<uint64>((size + 63) / 64)
 
             for mask in 0 .. size - 1 do
                 let atZero = valueAt mask
@@ -336,9 +347,7 @@ module QuboSplitting =
             let variable, others = order.[step]
 
             let mask =
-                others
-                |> Array.indexed
-                |> Array.sumBy (fun (bit, v) -> values.[v] <<< bit)
+                others |> Array.indexed |> Array.sumBy (fun (bit, v) -> values.[v] <<< bit)
 
             values.[variable] <- int ((choices.[step].[mask >>> 6] >>> (mask &&& 63)) &&& 1UL)
 
@@ -399,8 +408,7 @@ module QuboSplitting =
                     let inPiece = HashSet<int>(piece)
 
                     [| 0 .. fixedArray.Length - 1 |]
-                    |> Array.filter (fun position ->
-                        adjacent.[fixedArray.[position]] |> Array.exists inPiece.Contains))
+                    |> Array.filter (fun position -> adjacent.[fixedArray.[position]] |> Array.exists inPiece.Contains))
 
             let runs =
                 boundaries
@@ -424,7 +432,9 @@ module QuboSplitting =
                     |]
 
                 let order = eliminationOrder fixedArray.Length (Seq.append couplings boundaries)
-                let span = order |> Array.fold (fun widest (_, others) -> max widest others.Length) 0
+
+                let span =
+                    order |> Array.fold (fun widest (_, others) -> max widest others.Length) 0
 
                 if span > MostJoinSpan then
                     Error(
@@ -510,13 +520,22 @@ module QuboSplitting =
                 [
                     for p in 0 .. fixedArray.Length - 1 do
                         let f = fixedArray.[p]
-                        yield { Scope = [| p |]; Table = [| 0.0; qubo.[f, f] |] }
+
+                        yield
+                            {
+                                Scope = [| p |]
+                                Table = [| 0.0; qubo.[f, f] |]
+                            }
 
                         for q in p + 1 .. fixedArray.Length - 1 do
                             let c = coupling qubo f fixedArray.[q]
 
                             if c <> 0.0 then
-                                yield { Scope = [| p; q |]; Table = [| 0.0; 0.0; 0.0; c |] }
+                                yield
+                                    {
+                                        Scope = [| p; q |]
+                                        Table = [| 0.0; 0.0; 0.0; c |]
+                                    }
 
                     for index in 0 .. pieces.Length - 1 do
                         yield
@@ -528,7 +547,9 @@ module QuboSplitting =
 
             let values = minimizeTerms plan.Order terms
             let bits = Array.zeroCreate n
-            fixedArray |> Array.iteri (fun position variable -> bits.[variable] <- values.[position])
+
+            fixedArray
+            |> Array.iteri (fun position variable -> bits.[variable] <- values.[position])
 
             pieces
             |> Array.iteri (fun index piece ->
@@ -599,6 +620,76 @@ module QuboSplitting =
         /// The problem was solved through pieces.
         | Solved of bits: int[] * report: QaoaExecutionHelpers.SplitReport
 
+    /// What the settings and the backend make of a QUBO offered for conditioning.
+    [<RequireQualifiedAccess>]
+    type private Cut =
+        /// Cut into pieces of this many qubits, by this plan
+        | Planned of pieceQubits: int * plan: ConditioningPlan
+
+        /// Not cut, and the caller runs it as one circuit (see SplitAttempt.RunAsOneCircuit)
+        | Unsplit
+
+        /// Neither cut nor held by the backend: the refusal naming the limit, and the piece
+        /// width a split would have used
+        | Refused of pieceQubits: int * refusal: QuantumError
+
+    /// How a QUBO is cut by conditioning: when it is wider than the backend runs and the
+    /// policy allows a split on this backend (QaoaExecutionHelpers.splitPieceQubits), it is
+    /// cut within settings.MaxShareRuns runs and a join of at most MostJoinSpan; a QUBO that
+    /// does not cut is Unsplit while the backend can hold it and Refused otherwise.
+    let private cutBy
+        (settings: QaoaExecutionHelpers.SplitSettings)
+        (backend: BackendAbstraction.IQuantumBackend)
+        (qubo: float[,])
+        : Cut =
+        let n = Array2D.length1 qubo
+
+        match QaoaExecutionHelpers.splitPieceQubits settings backend n with
+        | ValueNone -> Cut.Unsplit
+        | ValueSome pieceQubits ->
+            match planWithin "SplitSettings.MaxShareRuns" settings.MaxShareRuns pieceQubits qubo with
+            | Ok plan -> Cut.Planned(pieceQubits, plan)
+            | Error reason ->
+                match BackendAbstraction.UnifiedBackend.getMaxQubits backend with
+                | Some capacity when n > capacity ->
+                    Cut.Refused(
+                        pieceQubits,
+                        QuantumError.ValidationError(
+                            "qubits",
+                            $"the problem needs {n} qubits and the backend holds {capacity}; it was not split because "
+                            + $"cutting it into circuits of {pieceQubits} qubits {reason}"
+                        )
+                    )
+                | _ -> Cut.Unsplit
+
+    /// Solve a QUBO cut by `plan` with `solvePiece`: the bits and the report.
+    let private solvePlannedAsync
+        (qubo: float[,])
+        (plan: ConditioningPlan)
+        (solvePiece: float[,] -> Task<Result<int[], QuantumError>>)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[] * QaoaExecutionHelpers.SplitReport, QuantumError>> =
+        let widest = ref 0
+
+        let trackedPiece (piece: float[,]) =
+            widest.Value <- max widest.Value (Array2D.length1 piece)
+            solvePiece piece
+
+        quantumResultTask {
+            let! solved = solveConditionedAsync qubo plan trackedPiece cancellationToken
+
+            let report: QaoaExecutionHelpers.SplitReport =
+                {
+                    Runs = solved.PiecesSolved
+                    FixedVariables = solved.FixedVariables.Length
+                    Blocks = 0
+                    WidestPieceQubits = widest.Value
+                    Sweeps = 0
+                }
+
+            return solved.Bits, report
+        }
+
     /// Solve a QUBO by conditioning when the settings and the backend call for a split.
     ///
     /// The QUBO is split when it is wider than the backend runs and settings.Policy allows a
@@ -614,40 +705,374 @@ module QuboSplitting =
         (solvePiece: float[,] -> Task<Result<int[], QuantumError>>)
         (cancellationToken: CancellationToken)
         : Task<Result<SplitAttempt, QuantumError>> =
+        match cutBy settings backend qubo with
+        | Cut.Unsplit -> Task.FromResult(Ok SplitAttempt.RunAsOneCircuit)
+        | Cut.Refused(_, refusal) -> Task.FromResult(Error refusal)
+        | Cut.Planned(_, plan) ->
+            quantumResultTask {
+                let! bits, report = solvePlannedAsync qubo plan solvePiece cancellationToken
+                return SplitAttempt.Solved(bits, report)
+            }
+
+    // ========================================================================
+    // NEIGHBOURHOOD SEARCH
+    // ========================================================================
+
+    /// Limits of a neighbourhood search.
+    [<Struct>]
+    type NeighbourhoodLimits =
+        {
+            /// Widest neighbourhood, in qubits
+            MaxPieceQubits: int
+
+            /// Most sweeps over the neighbourhoods; a sweep that improves nothing ends the
+            /// search before that
+            MaxSweeps: int
+
+            /// Most circuit runs, one per neighbourhood sampled; a sweep that would pass it
+            /// is not started
+            MaxRuns: int
+        }
+
+    /// A problem improved one neighbourhood at a time: a neighbourhood is a few of its
+    /// variables, sampled on the backend with the rest of the best solution so far fixed.
+    type Neighbourhoods<'solution, 'neighbourhood> =
+        {
+            /// The neighbourhoods of a sweep (numbered from 0) around the best solution so
+            /// far, in the order they are sampled
+            OfSweep: int -> 'solution -> 'neighbourhood[]
+
+            /// The QUBO over a neighbourhood's variables with the rest of the solution fixed
+            Qubo: 'solution -> 'neighbourhood -> float[,]
+
+            /// The solution with a neighbourhood's sampled bits written in, or ValueNone when
+            /// the bits do not decode to a solution
+            Apply: 'solution -> 'neighbourhood -> int[] -> 'solution voption
+
+            /// What the search minimizes
+            Score: 'solution -> float
+
+            /// Whether a solution may be taken (the problem's own constraints). While the best
+            /// solution so far is not accepted, a neighbourhood's accepted sample of the
+            /// lowest score replaces it, or failing one its sample of a lower score; once it
+            /// is accepted, only an accepted sample of a lower score does. The samples are
+            /// tried in order of score, so this is asked of the best few only.
+            Accept: 'solution -> bool
+        }
+
+    /// What a neighbourhood search found.
+    type NeighbourhoodSolution<'solution> =
+        {
+            /// The accepted solution of the lowest score seen
+            Solution: 'solution
+
+            /// Its score
+            Score: float
+
+            /// Circuit runs made, one per neighbourhood sampled
+            Runs: int
+
+            /// Sweeps made
+            Sweeps: int
+
+            /// Neighbourhoods whose samples replaced the best solution so far (see
+            /// Neighbourhoods.Accept: a replacement lowers the score or gains acceptance)
+            Improvements: int
+
+            /// Widest neighbourhood sampled, in qubits
+            WidestPieceQubits: int
+        }
+
+    /// Improve `start` by sampling one neighbourhood at a time (see Neighbourhoods).
+    ///
+    /// `sample` runs a QUBO of at most limits.MaxPieceQubits variables and returns its
+    /// samples. Each sweep samples every neighbourhood of the sweep once, and after each
+    /// neighbourhood the best solution so far is replaced as Neighbourhoods.Accept says:
+    /// by an accepted sample of a lower score, or while none is held yet, by an accepted
+    /// sample of any score or a sample of a lower score. The search ends after a sweep
+    /// that replaced nothing, after limits.MaxSweeps sweeps, or before a sweep that would
+    /// pass limits.MaxRuns. The runs are linear in the problem: neighbourhoods per sweep
+    /// times sweeps. A first sweep over more neighbourhoods than limits.MaxRuns is a
+    /// ValidationError before any run, and ending without an accepted solution is an
+    /// OperationError.
+    let searchNeighbourhoodsAsync
+        (limits: NeighbourhoodLimits)
+        (problem: Neighbourhoods<'solution, 'neighbourhood>)
+        (start: 'solution)
+        (sample: float[,] -> Task<Result<int[][], QuantumError>>)
+        (cancellationToken: CancellationToken)
+        : Task<Result<NeighbourhoodSolution<'solution>, QuantumError>> =
+        if limits.MaxPieceQubits < 1 then
+            invalid "MaxPieceQubits" "must be at least 1"
+        elif limits.MaxSweeps < 1 then
+            invalid "MaxSweeps" $"must be at least 1, got {limits.MaxSweeps}"
+        elif limits.MaxRuns < 1 then
+            invalid "MaxRuns" $"must be at least 1, got {limits.MaxRuns}"
+        else
+            let first = problem.OfSweep 0 start
+
+            if first.Length > limits.MaxRuns then
+                invalid
+                    "MaxRuns"
+                    $"one sweep samples {first.Length} neighbourhoods, more than MaxRuns = {limits.MaxRuns}"
+            else
+                quantumResultTask {
+                    let best = ref start
+                    let accepted = ref (problem.Accept start)
+                    let score = ref (problem.Score start)
+                    let runs = ref 0
+                    let sweeps = ref 0
+                    let improvements = ref 0
+                    let widest = ref 0
+                    let searching = ref true
+
+                    while searching.Value do
+                        let neighbourhoods =
+                            if sweeps.Value = 0 then
+                                first
+                            else
+                                problem.OfSweep sweeps.Value best.Value
+
+                        if neighbourhoods.Length = 0 || runs.Value + neighbourhoods.Length > limits.MaxRuns then
+                            searching.Value <- false
+                        else
+                            let improved = ref false
+
+                            for neighbourhood in neighbourhoods do
+                                cancellationToken.ThrowIfCancellationRequested()
+                                let qubo = problem.Qubo best.Value neighbourhood
+                                let width = Array2D.length1 qubo
+
+                                if width > limits.MaxPieceQubits then
+                                    do!
+                                        Error(
+                                            QuantumError.ValidationError(
+                                                "MaxPieceQubits",
+                                                $"a neighbourhood of {width} qubits is wider than MaxPieceQubits = {limits.MaxPieceQubits}"
+                                            )
+                                        )
+
+                                widest.Value <- max widest.Value width
+                                let! samples = sample qubo
+                                runs.Value <- runs.Value + 1
+
+                                // The neighbourhood's solutions, best score first
+                                let candidates =
+                                    samples
+                                    |> Array.distinct
+                                    |> Array.choose (fun bits ->
+                                        match problem.Apply best.Value neighbourhood bits with
+                                        | ValueSome solution -> Some(solution, problem.Score solution)
+                                        | ValueNone -> None)
+                                    |> Array.sortBy snd
+
+                                let lower = candidates |> Array.filter (fun (_, candidate) -> candidate < score.Value)
+
+                                let accepting (choices: ('solution * float)[]) =
+                                    choices
+                                    |> Array.tryFind (fun (solution, _) -> problem.Accept solution)
+                                    |> Option.map (fun (solution, candidate) -> solution, candidate, true)
+
+                                let replacement =
+                                    if accepted.Value then
+                                        accepting lower
+                                    else
+                                        accepting candidates
+                                        |> Option.orElse (
+                                            lower
+                                            |> Array.tryHead
+                                            |> Option.map (fun (solution, candidate) -> solution, candidate, false)
+                                        )
+
+                                match replacement with
+                                | Some(solution, candidate, isAccepted) ->
+                                    best.Value <- solution
+                                    score.Value <- candidate
+                                    accepted.Value <- isAccepted
+                                    improved.Value <- true
+                                    improvements.Value <- improvements.Value + 1
+                                | None -> ()
+
+                            sweeps.Value <- sweeps.Value + 1
+                            searching.Value <- improved.Value && sweeps.Value < limits.MaxSweeps
+
+                    if not accepted.Value then
+                        return!
+                            Error(
+                                QuantumError.OperationError(
+                                    "QuboSplitting",
+                                    $"no sample of {runs.Value} neighbourhood runs gave an acceptable solution"
+                                )
+                            )
+                    else
+                        return
+                            {
+                                Solution = best.Value
+                                Score = score.Value
+                                Runs = runs.Value
+                                Sweeps = sweeps.Value
+                                Improvements = improvements.Value
+                                WidestPieceQubits = widest.Value
+                            }
+                }
+
+    /// The best assignment so far of a QUBO neighbourhood search: its bits and their energy.
+    type QuboIncumbent =
+        {
+            /// One bit per variable
+            Bits: int[]
+
+            /// QUBO energy of Bits
+            Energy: float
+        }
+
+    /// The blocks of a sweep: the variables in index order from `offset` on, wrapping
+    /// around, each block grown from the first unassigned variable by adding the unassigned
+    /// variable most coupled to it (the sum of |coupling| to its members; the earlier in
+    /// the sweep's order among equals, so a QUBO of uniform couplings is cut into
+    /// consecutive blocks from the offset) until it has `maxPieceQubits`.
+    let private coupledBlocks (adjacentWeight: float[][]) (maxPieceQubits: int) (offset: int) : int[][] =
+        let n = adjacentWeight.Length
+        let assigned = Array.zeroCreate<bool> n
+        let attach = Array.zeroCreate<float> n
+        let width = max 1 maxPieceQubits
+        let inOrder (step: int) = (offset + step) % n
+
+        [|
+            for step in 0 .. n - 1 do
+                let seed = inOrder step
+
+                if not assigned.[seed] then
+                    let block = ResizeArray<int>()
+                    Array.fill attach 0 n 0.0
+
+                    let add (v: int) =
+                        block.Add v
+                        assigned.[v] <- true
+
+                        for u in 0 .. n - 1 do
+                            attach.[u] <- attach.[u] + adjacentWeight.[v].[u]
+
+                    add seed
+
+                    let rec grow () =
+                        if block.Count < width then
+                            let mutable next = -1
+
+                            for later in 0 .. n - 1 do
+                                let u = inOrder later
+
+                                if not assigned.[u] && (next < 0 || attach.[u] > attach.[next]) then
+                                    next <- u
+
+                            if next >= 0 then
+                                add next
+                                grow ()
+
+                    grow ()
+                    yield block.ToArray() |> Array.sort
+        |]
+
+    /// Neighbourhoods of a QUBO for searchNeighbourhoodsAsync: the blocks of a sweep are
+    /// grown by coupling (see coupledBlocks) from seeds that move ⌈k/2⌉ variables on each
+    /// sweep, so the blocks of one sweep straddle the borders of the last; a block's QUBO is
+    /// the QUBO conditioned on the bits outside it; the score is the QUBO energy, kept up to
+    /// date by the energy change of the block, and every assignment is accepted.
+    let quboNeighbourhoods (maxPieceQubits: int) (qubo: float[,]) : Neighbourhoods<QuboIncumbent, int[]> =
+        let n = Array2D.length1 qubo
+        let width = max 1 maxPieceQubits
+
+        let adjacentWeight =
+            Array.init n (fun v -> Array.init n (fun u -> if u = v then 0.0 else abs (coupling qubo v u)))
+
+        // The block's QUBO given the bits outside it: a bit at 1 outside adds its coupling
+        // to each block variable's linear term.
+        let conditioned (bits: int[]) (block: int[]) : float[,] =
+            let inBlock = Array.zeroCreate<bool> n
+            block |> Array.iter (fun v -> inBlock.[v] <- true)
+
+            Array2D.init block.Length block.Length (fun a b ->
+                let direct = qubo.[block.[a], block.[b]]
+
+                if a = b then
+                    let mutable field = 0.0
+
+                    for j in 0 .. n - 1 do
+                        if not inBlock.[j] && bits.[j] = 1 then
+                            field <- field + coupling qubo block.[a] j
+
+                    direct + field
+                else
+                    direct)
+
+        {
+            OfSweep =
+                fun sweep _ ->
+                    if n = 0 then
+                        [||]
+                    else
+                        coupledBlocks adjacentWeight width ((sweep * ((width + 1) / 2)) % n)
+            Qubo = fun incumbent block -> conditioned incumbent.Bits block
+            Apply =
+                fun incumbent block sampled ->
+                    if sampled.Length < block.Length then
+                        ValueNone
+                    else
+                        let piece = conditioned incumbent.Bits block
+                        let before = block |> Array.map (fun v -> incumbent.Bits.[v])
+                        let after = Array.sub sampled 0 block.Length
+                        let bits = Array.copy incumbent.Bits
+                        block |> Array.iteri (fun row v -> bits.[v] <- after.[row])
+
+                        ValueSome
+                            {
+                                Bits = bits
+                                Energy =
+                                    incumbent.Energy
+                                    + QaoaExecutionHelpers.evaluateQubo piece after
+                                    - QaoaExecutionHelpers.evaluateQubo piece before
+                            }
+            Score = fun incumbent -> incumbent.Energy
+            Accept = fun _ -> true
+        }
+
+    /// A QUBO improved by a neighbourhood search (searchNeighbourhoodsAsync over
+    /// quboNeighbourhoods) from `start`, one bit per variable; the energy of the answer is
+    /// recomputed from its bits.
+    let searchQuboNeighbourhoodsAsync
+        (limits: NeighbourhoodLimits)
+        (qubo: float[,])
+        (start: int[])
+        (sample: float[,] -> Task<Result<int[][], QuantumError>>)
+        (cancellationToken: CancellationToken)
+        : Task<Result<NeighbourhoodSolution<int[]>, QuantumError>> =
         let n = Array2D.length1 qubo
 
-        match QaoaExecutionHelpers.splitPieceQubits settings backend n with
-        | ValueNone -> Task.FromResult(Ok SplitAttempt.RunAsOneCircuit)
-        | ValueSome pieceQubits ->
-            match planWithin "SplitSettings.MaxShareRuns" settings.MaxShareRuns pieceQubits qubo with
-            | Error reason ->
-                match BackendAbstraction.UnifiedBackend.getMaxQubits backend with
-                | Some capacity when n > capacity ->
-                    invalid
-                        "qubits"
-                        ($"the problem needs {n} qubits and the backend holds {capacity}; it was not split because "
-                         + $"cutting it into circuits of {pieceQubits} qubits {reason}")
-                | _ -> Task.FromResult(Ok SplitAttempt.RunAsOneCircuit)
-            | Ok plan ->
-                let widest = ref 0
-
-                let trackedPiece (piece: float[,]) =
-                    widest.Value <- max widest.Value (Array2D.length1 piece)
-                    solvePiece piece
-
-                quantumResultTask {
-                    let! solved = solveConditionedAsync qubo plan trackedPiece cancellationToken
-
-                    let report: QaoaExecutionHelpers.SplitReport =
+        if start.Length <> n then
+            invalid "start" $"one bit per variable is required: {n} variables, {start.Length} bits"
+        else
+            quantumResultTask {
+                let! found =
+                    searchNeighbourhoodsAsync
+                        limits
+                        (quboNeighbourhoods limits.MaxPieceQubits qubo)
                         {
-                            Runs = solved.PiecesSolved
-                            FixedVariables = solved.FixedVariables.Length
-                            Blocks = 0
-                            WidestPieceQubits = widest.Value
+                            Bits = start
+                            Energy = QaoaExecutionHelpers.evaluateQubo qubo start
                         }
+                        sample
+                        cancellationToken
 
-                    return SplitAttempt.Solved(solved.Bits, report)
-                }
+                return
+                    {
+                        Solution = found.Solution.Bits
+                        Score = QaoaExecutionHelpers.evaluateQubo qubo found.Solution.Bits
+                        Runs = found.Runs
+                        Sweeps = found.Sweeps
+                        Improvements = found.Improvements
+                        WidestPieceQubits = found.WidestPieceQubits
+                    }
+            }
 
     /// How a QUBO was run through QAOA.
     type QaoaSplitRun =
@@ -662,33 +1087,44 @@ module QuboSplitting =
             Split: QaoaExecutionHelpers.SplitReport option
         }
 
-    /// QAOA on a QUBO, split by conditioning when config.Splitting and the backend call for
-    /// it (trySolveByConditioningAsync); otherwise one QaoaExecutionHelpers.runQaoaSampledAsync.
-    /// Every piece of a split runs with the same configuration.
+    /// QAOA on a QUBO: one QaoaExecutionHelpers.runQaoaSampledAsync when it fits or the
+    /// settings forbid a split; split by conditioning when config.Splitting and the backend
+    /// call for it (trySolveByConditioningAsync); and when it neither cuts nor fits, a
+    /// neighbourhood search from the all-zero assignment (searchQuboNeighbourhoodsAsync)
+    /// with config.Splitting.MaxSweeps sweeps within MaxShareRuns runs, when MaxSweeps is
+    /// above 0. Every piece runs with the same configuration.
     let runQaoaAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
         (config: QaoaExecutionHelpers.QaoaSolverConfig)
         (cancellationToken: CancellationToken)
         : Task<Result<QaoaSplitRun, QuantumError>> =
-        let solvePiece (piece: float[,]) =
+        let settings = config.Splitting
+
+        let samplePiece (piece: float[,]) =
             quantumResultTask {
                 let! run =
                     QaoaExecutionHelpers.runQaoaSampledAsync backend piece config cancellationToken
 
-                return run.Best
+                return run.Samples
+            }
+
+        let solvePiece (piece: float[,]) =
+            quantumResultTask {
+                let! samples = samplePiece piece
+                return samples |> Array.minBy (QaoaExecutionHelpers.evaluateQubo piece)
+            }
+
+        let split (bits: int[]) (report: QaoaExecutionHelpers.SplitReport) =
+            {
+                Best = bits
+                Direct = None
+                Split = Some report
             }
 
         quantumResultTask {
-            match! trySolveByConditioningAsync config.Splitting backend qubo solvePiece cancellationToken with
-            | SplitAttempt.Solved(bits, report) ->
-                return
-                    {
-                        Best = bits
-                        Direct = None
-                        Split = Some report
-                    }
-            | SplitAttempt.RunAsOneCircuit ->
+            match cutBy settings backend qubo with
+            | Cut.Unsplit ->
                 let! run =
                     QaoaExecutionHelpers.runQaoaSampledAsync backend qubo config cancellationToken
 
@@ -698,6 +1134,49 @@ module QuboSplitting =
                         Direct = Some run
                         Split = None
                     }
+            | Cut.Planned(_, plan) ->
+                let! bits, report = solvePlannedAsync qubo plan solvePiece cancellationToken
+                return split bits report
+            | Cut.Refused(_, refusal) when settings.MaxSweeps < 1 -> return! Error refusal
+            | Cut.Refused(pieceQubits, refusal) ->
+                let limits: NeighbourhoodLimits =
+                    {
+                        MaxPieceQubits = pieceQubits
+                        MaxSweeps = settings.MaxSweeps
+                        MaxRuns = settings.MaxShareRuns
+                    }
+
+                let n = Array2D.length1 qubo
+                let blocks = (n + pieceQubits - 1) / pieceQubits
+
+                if blocks > settings.MaxShareRuns then
+                    // The refusal of the exact split, with why the search was not made either
+                    return!
+                        Error(
+                            match refusal with
+                            | QuantumError.ValidationError(field, message) ->
+                                QuantumError.ValidationError(
+                                    field,
+                                    message
+                                    + $"; a neighbourhood search samples {blocks} blocks per sweep, more than "
+                                    + $"SplitSettings.MaxShareRuns = {settings.MaxShareRuns}"
+                                )
+                            | other -> other
+                        )
+                else
+                    let! found =
+                        searchQuboNeighbourhoodsAsync limits qubo (Array.zeroCreate n) samplePiece cancellationToken
+
+                    return
+                        split
+                            found.Solution
+                            {
+                                Runs = found.Runs
+                                FixedVariables = 0
+                                Blocks = blocks
+                                WidestPieceQubits = found.WidestPieceQubits
+                                Sweeps = found.Sweeps
+                            }
         }
 
     // ========================================================================

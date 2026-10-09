@@ -1436,13 +1436,30 @@ type SplitSettings = {
     MaxShareRuns: int               // most circuit runs of a split (default 256): conditioning runs a piece
                                     // touching b fixed variables 2^b times, blocks run once per block and share
     MaxBlockItems: int              // blocks: items per block (default 12)
+    MaxSweeps: int                  // neighbourhood search of a QUBO that neither cuts nor fits: most sweeps
+                                    // (default 0: such a QUBO is refused with the reason)
 }
 
 type SplitReport = {
     Runs: int                       // circuit runs made in place of the single run
     FixedVariables: int             // conditioning: how many were fixed; 0 for a block split
-    Blocks: int                     // block split; 0 for conditioning
+    Blocks: int                     // block split, or the blocks of one sweep; 0 for conditioning
     WidestPieceQubits: int
+    Sweeps: int                     // neighbourhood search (a heuristic); 0 for an exact split
+}
+
+type NeighbourhoodLimits = { MaxPieceQubits: int; MaxSweeps: int; MaxRuns: int }
+
+type Neighbourhoods<'solution, 'neighbourhood> = {
+    OfSweep: int → 'solution → 'neighbourhood[]           // the blocks of a sweep around the best solution so far
+    Qubo: 'solution → 'neighbourhood → float[,]           // a block's QUBO with the rest fixed
+    Apply: 'solution → 'neighbourhood → int[] → 'solution voption   // a sample written in; ValueNone = not a solution
+    Score: 'solution → float                              // minimized
+    Accept: 'solution → bool                              // the problem's own constraints
+}
+
+type NeighbourhoodSolution<'solution> = {
+    Solution: 'solution; Score: float; Runs: int; Sweeps: int; Improvements: int; WidestPieceQubits: int
 }
 
 val defaultSplitSettings : SplitSettings
@@ -1465,6 +1482,18 @@ val runQaoaAsync :
     backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
     → cancellationToken:CancellationToken → Task<Result<QaoaSplitRun, QuantumError>>
 
+val searchNeighbourhoodsAsync :
+    limits:NeighbourhoodLimits → problem:Neighbourhoods<'solution, 'neighbourhood> → start:'solution
+    → sample:(float[,] → Task<Result<int[][], QuantumError>>)
+    → cancellationToken:CancellationToken → Task<Result<NeighbourhoodSolution<'solution>, QuantumError>>
+
+val quboNeighbourhoods : maxPieceQubits:int → qubo:float[,] → Neighbourhoods<QuboIncumbent, int[]>
+
+val searchQuboNeighbourhoodsAsync :
+    limits:NeighbourhoodLimits → qubo:float[,] → start:int[]
+    → sample:(float[,] → Task<Result<int[][], QuantumError>>)
+    → cancellationToken:CancellationToken → Task<Result<NeighbourhoodSolution<int[]>, QuantumError>>
+
 val shareRuns : maxBlockItems:int → weights:int[] → capacity:int → int64
 
 val solveSharesAsync :
@@ -1477,7 +1506,8 @@ val solveSharesAsync :
 - `splitPieceQubits` answers whether a problem of that width is split on that backend, and with what piece width: `ValueNone` means it runs as one circuit.
 - `solvePiecewiseAsync` fixes the variables `chooseFixedVariables` picks and solves every remaining piece (a connected component, one circuit each) with `solvePiece` once per assignment of the fixed variables that piece is coupled to. It returns the assignment of all fixed variables with the lowest energy of the whole QUBO, found by eliminating the fixed variables one at a time, so the join costs 2^span for the most fixed variables one step spans (`MostJoinSpan` = 20), not 2^(fixed variables). There is no limit on how many variables are fixed: `ConditioningLimits.MaxRuns` (at least 1) bounds the circuit runs, and a QUBO that needs more runs or a wider join is a `ValidationError` before any piece runs.
 - `trySolveByConditioningAsync` applies the settings: `SplitAttempt.Solved(bits, report)` when it split, `SplitAttempt.RunAsOneCircuit` when the problem fits, the policy forbids a split, or the QUBO needs more than `MaxShareRuns` runs or a join wider than `MostJoinSpan` while the backend can still hold it; a `ValidationError` naming the limit when it can neither be split nor held.
-- `runQaoaAsync` is QAOA on a QUBO of any width: `Direct = Some run` when it ran as one circuit, `Split = Some report` when it was split.
+- `runQaoaAsync` is QAOA on a QUBO of any width: `Direct = Some run` when it ran as one circuit, `Split = Some report` when it was split. A QUBO that neither cuts nor fits is refused with the reason, or, when `MaxSweeps` is above 0, searched by neighbourhoods from the all-zero assignment (`Sweeps` above 0 in the report).
+- `searchNeighbourhoodsAsync` improves any problem one block at a time: each sweep runs `sample` on the QUBO of every block of the sweep (`OfSweep`), with the rest of the best solution so far fixed, and takes the accepted sample of the lowest `Score` when that is lower (while no accepted solution is held yet, an accepted sample of any score, or failing one a sample of a lower score, so the search moves into the constraints); it ends after a sweep that replaced nothing, after `MaxSweeps`, or before a sweep that would pass `MaxRuns`, and ending without an accepted solution is an error. The runs are blocks per sweep times sweeps, linear in the problem, and the answer is the best sample seen, not a proven optimum. `quboNeighbourhoods` is the problem for a dense `float[,]` (blocks grown by coupling, shifted between sweeps, each conditioned on the bits outside it), and `searchQuboNeighbourhoodsAsync` runs it; a problem too large for a matrix writes its own `Neighbourhoods` (the SwarmChoreography example's `BlockAssignment` permutes drones a block at a time).
 - `solveSharesAsync` solves a knapsack-shaped selection block by block: `sampleBlock` is run on `exactShareQubo` for every block and exact share of the capacity (`shareRuns` in all), every sample feeds the block's table (`harvest`), and the tables are joined (`joinTables`). `QuantumKnapsackSolver.solveInBlocksAsync backend problem config maxBlockItems cancellationToken` is the knapsack entry point.
 - `QuantumKnapsackSolver.findAllExactCombinationsAsync` (every subset that sums to a target) splits by halves under the same settings (`SubsetSumConfig.Splitting`): a subset is a subset of one half summing to t joined with a subset of the other half summing to target − t.
 - Solutions of the solvers that can split carry `Split: SplitReport option`. A solution joined from several connected components carries their reports added up (`combineSplitReports`).
@@ -1887,4 +1917,4 @@ val exportToFileWithConfigAsync : config:QasmConfig -> circuit:Circuit -> filePa
 
 ---
 
-**Last Updated**: 2026-10-09 (package version 1.6.0)
+**Last Updated**: 2026-10-10 (package version 1.6.2)

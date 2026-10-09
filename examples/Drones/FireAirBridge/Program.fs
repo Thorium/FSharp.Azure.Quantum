@@ -116,6 +116,8 @@ type Decision =
         At: int
         Reason: string
         Candidates: int
+        /// The candidate corridors' ids: the set the plan was chosen from
+        CandidateIds: string list
         IncumbentScore: float
         GreedyScore: float option
         ExactScore: float option
@@ -331,6 +333,7 @@ module Planning =
                 At = tick
                 Reason = reason
                 Candidates = cands.Length
+                CandidateIds = cands |> Array.map (fun c -> c.Id) |> List.ofArray
                 IncumbentScore = incScore
                 GreedyScore = Some greedyScore
                 ExactScore = exact |> Option.map score
@@ -443,6 +446,7 @@ module Planning =
                      At = tick
                      Reason = $"QAOA answer asked at t=%d{askedAt} arrives"
                      Candidates = corridors.Length
+                     CandidateIds = corridors |> Array.map (fun c -> c.Id) |> List.ofArray
                      IncumbentScore = current
                      GreedyScore = None
                      ExactScore = None
@@ -1867,6 +1871,13 @@ module Program =
         printfn "  --events <path>        scenario events CSV     (default examples/Drones/_data/fire_events.csv)"
         printfn "  --out <dir>            output directory        (default runs/drone/fire-air-bridge)"
         printfn ""
+        printfn "  --fire <points>        the fire, instead of --sectors: \"Name=lat,lon;Name=lat,lon\" (each a 1 ha"
+        printfn "                         sector burning at 0.6); --water <points> the water, instead of --sources."
+        printfn "                         With both and no --events, the wind turns once at T+15."
+        printfn "  --map                  draw the run on an OpenStreetMap background (map.svg, animated; tiles are"
+        printfn "                         fetched once into runs/drone/osm-tiles); --map-every <ticks> a frame per"
+        printfn "                         that many ticks (default 5)"
+        printfn ""
         printfn "  Positions are latitude/longitude (projected around the centroid) or x_m/y_m (a local"
         printfn "  frame in metres, the pilot at its origin); the columns decide, and all files must agree."
         printfn ""
@@ -1885,7 +1896,10 @@ module Program =
         printfn "  --crews <n>            ground crews; each source in use needs one (default 2)"
         printfn "  --coordinators <n>     drop coordinators; each open corridor needs one (default 5)"
         printfn "  --crew-move <n>        ticks for a crew to relocate to another source (default 6)"
-        printfn "  --max-corridors <n>    candidate corridors per round; QAOA adds one qubit per source (default 12; a round wider than the backend is refused)"
+
+        printfn
+            "  --max-corridors <n>    candidate corridors per round; QAOA adds one qubit per source (default 12; a round wider than the backend is refused)"
+
         printfn "  --exact-limit <n>      brute-force oracle up to this many candidates (default 20)"
         printfn "  --latency <n>          ticks of queueing before a QAOA answer is usable (default 1);"
         printfn "                         the measured compute time is always added as a floor"
@@ -1909,6 +1923,231 @@ module Program =
     let private fail (msg: string) =
         printfn "❌ %s" msg
         1
+
+    /// Points given on the command line as "Name=lat,lon;Name=lat,lon" (the name is
+    /// optional: `prefix` and a number stand in): (name, latitude, longitude) in order, or
+    /// what is wrong with the option. Absent: an empty list.
+    let private parsePoints (option: string) (prefix: string) (args: Cli.ParsedArgs) =
+        let invariant = Globalization.CultureInfo.InvariantCulture
+
+        let number (s: string) =
+            match Double.TryParse(s.Trim(), Globalization.NumberStyles.Float, invariant) with
+            | true, v -> Some v
+            | _ -> None
+
+        match Cli.tryGet option args with
+        | None -> Ok []
+        | Some text ->
+            text.Split(';', StringSplitOptions.RemoveEmptyEntries ||| StringSplitOptions.TrimEntries)
+            |> Array.toList
+            |> List.mapi (fun i item ->
+                let name, coordinates =
+                    match item.IndexOf '=' with
+                    | -1 -> $"%s{prefix} %d{i + 1}", item
+                    | at -> item.Substring(0, at).Trim(), item.Substring(at + 1)
+
+                match coordinates.Split(',') |> Array.map number with
+                | [| Some lat; Some lon |] when abs lat <= 90.0 && abs lon <= 180.0 -> Ok(name, lat, lon)
+                | _ -> Error $"--%s{option}: '%s{item}' is not Name=latitude,longitude")
+            |> List.fold
+                (fun acc item ->
+                    match acc, item with
+                    | Ok points, Ok point -> Ok(points @ [ point ])
+                    | Error e, _
+                    | _, Error e -> Error e)
+                (Ok [])
+
+    /// The scenario events when the fire and the water are given on the command line and
+    /// no events file is: the wind, turning once.
+    let private builtInEvents: TimedEvent list =
+        [
+            { At = 0; Event = WindDirection 45.0 }
+            { At = 0; Event = WindSpeed 4.0 }
+            { At = 15; Event = WindDirection 120.0 }
+            { At = 15; Event = WindSpeed 7.0 }
+        ]
+
+    /// A scenario event, for the map's notes.
+    let private describeEvent (e: ScenarioEvent) =
+        match e with
+        | WindDirection deg -> sprintf "wind now blowing toward %.0f°" deg
+        | WindSpeed ms -> sprintf "wind %.0f m/s" ms
+        | CloseSource id -> sprintf "%s closed" id
+        | OpenSource id -> sprintf "%s usable again" id
+        | SpotFire(id, v) -> sprintf "spot fire in %s (%.2f)" id v
+        | LoseDrones n -> sprintf "%d drones lost" n
+
+    /// The run on a map (MapPicture): one frame every `every` ticks of the result shown,
+    /// the plan's corridors, the fire, the wind and the events as they happen.
+    let private drawMap
+        (outDir: string)
+        (origin: float * float)
+        (sc: Scenario)
+        (st: Settings)
+        (cond0: Conditions)
+        (result: PolicyResult)
+        (every: int)
+        =
+        let lat0, lon0 = origin
+        let kmPerDegLat = 110.574
+        let kmPerDegLon = 111.320 * Math.Cos(lat0 * Math.PI / 180.0)
+
+        let place (id: string) (name: string) (p: Pos) : MapPicture.Place =
+            {
+                Id = id
+                Name = name
+                Lat = lat0 + p.Y / kmPerDegLat
+                Lon = lon0 + p.X / kmPerDegLon
+            }
+
+        let sources = sc.Sources |> Array.map (fun s -> place s.Id s.Name s.Pos)
+        let sectors = sc.Sectors |> Array.map (fun s -> place s.Id s.Name s.Pos)
+        let last = st.Ticks - 1
+        let ticks = [ 0..every..last ] @ [ last ] |> List.distinct
+
+        let delivered (upTo: int) =
+            result.Timeline |> List.filter (fun r -> r.At <= upTo) |> List.sumBy (fun r -> r.Delivered)
+
+        let frames =
+            ticks
+            |> List.mapi (fun i tick ->
+                let previous = if i = 0 then -1 else ticks.[i - 1]
+                let record = result.Timeline |> List.find (fun r -> r.At = tick)
+
+                let cond =
+                    sc.Events
+                    |> List.filter (fun e -> e.At <= tick)
+                    |> List.fold
+                        (fun (c: Conditions) e ->
+                            match e.Event with
+                            | WindDirection d -> { c with WindToDeg = d }
+                            | WindSpeed ms -> { c with WindSpeedMs = ms }
+                            | CloseSource id -> { c with ClosedSources = c.ClosedSources.Add id }
+                            | OpenSource id -> { c with ClosedSources = c.ClosedSources.Remove id }
+                            | _ -> c)
+                        cond0
+
+                let notes =
+                    [
+                        for e in sc.Events do
+                            if e.At > previous && e.At <= tick then
+                                sprintf "T+%d: %s" e.At (describeEvent e.Event)
+                        for d in result.Decisions do
+                            if d.At > previous && d.At <= tick then
+                                let scores =
+                                    [
+                                        d.QuantumScore |> Option.map (sprintf "QAOA %.0f")
+                                        d.ExactScore |> Option.map (sprintf "exact %.0f")
+                                        d.GreedyScore |> Option.map (sprintf "greedy %.0f")
+                                    ]
+                                    |> List.choose id
+
+                                let choice =
+                                    if d.Qubits > 0 then
+                                        sprintf
+                                            " · %d candidates, %d qubits, 2^%d plans, %d circuits"
+                                            d.Candidates
+                                            d.Qubits
+                                            d.Candidates
+                                            d.QuantumCircuits
+                                    else
+                                        sprintf " · %d candidates" d.Candidates
+
+                                sprintf
+                                    "T+%d: re-plan (%s)%s%s → %s: %s"
+                                    d.At
+                                    d.Reason
+                                    choice
+                                    (if scores.IsEmpty then "" else " · " + String.Join(", ", scores))
+                                    d.Adopted
+                                    d.Plan
+                    ]
+
+                // The corridors the latest re-plan chose from, as (source, sector). A QAOA
+                // answer's arrival is a decision too, but it records only the corridors it
+                // re-scored, so it does not stand for the round's choice.
+                let candidates =
+                    result.Decisions
+                    |> List.filter (fun d -> d.At <= tick && d.GreedyScore.IsSome)
+                    |> List.tryLast
+                    |> Option.map (fun d ->
+                        d.CandidateIds
+                        |> List.choose (fun id ->
+                            match id.Split('>') with
+                            | [| sourceId; sectorId |] ->
+                                match
+                                    sc.Sources |> Array.tryFindIndex (fun s -> s.Id = sourceId),
+                                    sc.SectorIndex.TryFind sectorId
+                                with
+                                | Some i, Some j -> Some(i, j)
+                                | _ -> None
+                            | _ -> None)
+                        |> List.toArray)
+                    |> Option.defaultValue [||]
+
+                let frame: MapPicture.Frame =
+                    {
+                        Tick = tick
+                        Clock = sprintf "T+%d %s" tick (Tick.unit st.Tick)
+                        Lanes =
+                            record.Lanes
+                            |> List.map (fun l ->
+                                {
+                                    MapPicture.Lane.Source = l.Corridor.SourceIdx
+                                    MapPicture.Lane.Sector = l.Corridor.SectorIdx
+                                    MapPicture.Lane.Drones = l.Drones
+                                    MapPicture.Lane.Draining = l.Draining
+                                })
+                            |> List.toArray
+                        Candidates = candidates
+                        Progress = record.Progress
+                        Closed = cond.ClosedSources
+                        WindToDeg = cond.WindToDeg
+                        WindMs = cond.WindSpeedMs
+                        Status =
+                            sprintf
+                                "%s · active %.2f · %.0f delivered so far · %.0f drones flying, %.0f idle"
+                                (Policy.name result.Policy)
+                                record.Active
+                                (delivered tick)
+                                record.DronesFlying
+                                record.DronesIdle
+                        Notes = notes
+                    }
+
+                frame)
+            |> List.toArray
+
+        // Names when they fit beside the clock, counts when they would not
+        let title =
+            let named =
+                sprintf
+                    "Air bridge: %s → %s"
+                    (String.Join(", ", sources |> Array.map (fun s -> s.Name)))
+                    (String.Join(", ", sectors |> Array.map (fun s -> s.Name)))
+
+            if named.Length <= 82 then
+                named
+            else
+                sprintf "Air bridge: %d sources → %d targets" sources.Length sectors.Length
+
+        let cacheDir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath outDir), "osm-tiles")
+
+        MapPicture.write
+            (Path.Combine(outDir, "map.svg"))
+            title
+            (sprintf
+                "%d drones · %d ground crews · %d drop coordinators · up to %d candidate corridors a round"
+                sc.Fleet.Count
+                st.Limits.Crews
+                st.Limits.Coordinators
+                st.MaxCorridors)
+            cacheDir
+            sources
+            sectors
+            (sc.Sectors |> Array.map (fun s -> s.AreaHa))
+            frames
+            2.0
 
     [<EntryPoint>]
     let main argv =
@@ -1998,10 +2237,77 @@ module Program =
                     | Some policy -> Ok [ policy ]
                     | None -> Error $"unknown policy '%s{p}'"
 
-            let rawSources, e1 = Parse.readSources sourcesPath
-            let rawSectors, e2 = Parse.readSectors sectorsPath
+            // The fire and the water given on the command line stand in for the CSVs:
+            // each fire a 1 ha sector burning at 0.6 with 4 drop slots, each water a
+            // source with 4 fill slots and a 25 s fill, and the wind of builtInEvents
+            // unless an events file is named.
+            let fires = parsePoints "fire" "Fire" args
+            let waters = parsePoints "water" "Water" args
+
+            let pointsError =
+                match fires, waters with
+                | Error e, _
+                | _, Error e -> Some e
+                | Ok [], Ok(_ :: _) -> Some "--water needs --fire as well: where the fire is"
+                | Ok(_ :: _), Ok [] -> Some "--fire needs --water as well: where the water is"
+                | _ -> None
+
+            let pointsGiven =
+                match fires, waters with
+                | Ok(_ :: _), Ok(_ :: _) -> true
+                | _ -> false
+
+            if pointsGiven then
+                for file in [ "sources"; "sectors" ] do
+                    if (Cli.tryGet file args).IsSome then
+                        printfn "⚠ --%s is not read: --fire and --water give the scenario" file
+
+            let rawSources, e1 =
+                match waters with
+                | Ok(points & _ :: _) ->
+                    points
+                    |> List.mapi (fun i (name, lat, lon) ->
+                        LatLon(lat, lon),
+                        {
+                            Id = $"W%d{i + 1}"
+                            Name = name
+                            Pos = { X = 0.0; Y = 0.0 }
+                            FillSlots = 4
+                            FillTimeS = 25.0
+                        }),
+                    []
+                | _ -> Parse.readSources sourcesPath
+
+            let rawSectors, e2 =
+                match fires with
+                | Ok(points & _ :: _) ->
+                    let ids = points |> List.mapi (fun i _ -> $"F%d{i + 1}")
+
+                    points
+                    |> List.mapi (fun i (name, lat, lon) ->
+                        LatLon(lat, lon),
+                        {
+                            Id = ids.[i]
+                            Name = name
+                            Pos = { X = 0.0; Y = 0.0 }
+                            AreaHa = 1.0
+                            InitialIntensity = 0.6
+                            AssetPriority = 1.0
+                            DropSlots = 4
+                            Touches = 1
+                            Neighbors = ids |> List.filter ((<>) ids.[i])
+                        }),
+                    []
+                | _ -> Parse.readSectors sectorsPath
+
             let fleets, e3 = Parse.readFleet fleetPath
-            let events, e4 = Parse.readEvents eventsPath
+            let eventsFromFile = not pointsGiven || (Cli.tryGet "events" args).IsSome
+
+            let events, e4 =
+                if eventsFromFile then
+                    Parse.readEvents eventsPath
+                else
+                    builtInEvents, []
 
             for e in e1 @ e2 @ e3 @ e4 do
                 printfn "⚠ %s" e
@@ -2011,6 +2317,7 @@ module Program =
 
             match tick, demand, policies, frame, fleets with
             | _ when not numberErrors.IsEmpty -> fail (String.Join("; ", numberErrors))
+            | _ when pointsError.IsSome -> fail pointsError.Value
             | Error msg, _, _, _, _
             | _, Error msg, _, _, _
             | _, _, Error msg, _, _ -> fail msg
@@ -2045,7 +2352,7 @@ module Program =
                         if (Cli.tryGet "minutes" args).IsSome && (Cli.tryGet "ticks" args).IsNone then
                             printfn "⚠ --minutes with --tick second counts ticks, i.e. seconds; use --ticks"
 
-                        if Parse.eventTimeColumn eventsPath = Some "minute" then
+                        if eventsFromFile && Parse.eventTimeColumn eventsPath = Some "minute" then
                             printfn
                                 "⚠ the events file has a 'minute' column but the tick is one second: its times are read as seconds"
 
@@ -2193,6 +2500,28 @@ module Program =
                     sw.Stop()
 
                     Report.writeFiles outDir scenario settings results hybrid
+
+                    // The run on a map, for the policy the evidence covers
+                    if Cli.hasFlag "map" args then
+                        let mapOrigin =
+                            match origin, Cli.tryFloat "home-lat" args, Cli.tryFloat "home-lon" args with
+                            | Some o, _, _ -> Some o
+                            | None, Ok(Some lat), Ok(Some lon) -> Some(lat, lon)
+                            | _ -> None
+
+                        match mapOrigin with
+                        | None ->
+                            printfn
+                                "⚠ --map needs positions as latitude/longitude, or --home-lat and --home-lon for a local frame: no map drawn"
+                        | Some o ->
+                            drawMap
+                                outDir
+                                o
+                                scenario
+                                settings
+                                cond0
+                                (defaultArg hybrid results.Head)
+                                (max 1 (Cli.getIntOr "map-every" 5 args))
 
                     // Evidence for the proposed design, or the only policy run.
                     let evidence =

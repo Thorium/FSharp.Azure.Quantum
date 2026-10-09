@@ -209,7 +209,7 @@ let noisyExecutor (circuit: Circuit) : Task<Result<float, string>> =
         let trueValue = -1.137 // True H2 ground state energy (Hartree)
         let circuitDepth = float (gateCount circuit)
         let noiseLevel = circuitDepth * 0.02 // 2% error per gate
-        let random = Random()
+        let random = Random.Shared
         let noise = (random.NextDouble() - 0.5) * noiseLevel
         return Ok(trueValue + noise)
     }

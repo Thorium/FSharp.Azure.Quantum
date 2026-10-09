@@ -86,7 +86,11 @@ module ChemistryIntegrals =
                 | None -> Ok integrals)
 
     /// Provider for the species' FCIDUMP in `directory`, when that file exists.
-    let tryFcidump (backend: IQuantumBackend) (directory: string option) (molecule: Molecule) : IntegralProvider option =
+    let tryFcidump
+        (backend: IQuantumBackend)
+        (directory: string option)
+        (molecule: Molecule)
+        : IntegralProvider option =
         directory
         |> Option.map (fun dir -> Path.Combine(dir, fcidumpFileName molecule))
         |> Option.filter File.Exists

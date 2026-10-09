@@ -111,13 +111,15 @@ module QuantumConstraintSolverBuilderTests =
 
     [<Fact>]
     let ``solve admits an 18-qubit problem when the backend declares no limit`` () =
-        // 9 variables × 2 bits (4-value domain) = 18 qubits
+        // 9 variables × 2 bits (4-value domain) = 18 qubits. The stub takes the Grover intents
+        // natively: lowering the predicate oracle to gates would enumerate the 2^18
+        // assignments and lower a gate per satisfying one.
         let problem =
             QuantumConstraintSolver.constraintSolver {
                 searchSpace 9
                 domain [ 1..4 ]
                 satisfies allEvenConstraint
-                backend (CapacityStubBackend("non-simulating", None) :> IQuantumBackend)
+                backend (CapacityStubBackend("non-simulating", None, nativeAlgorithms = true) :> IQuantumBackend)
             }
 
         let result = QuantumConstraintSolver.solve problem
@@ -137,7 +139,9 @@ module QuantumConstraintSolverBuilderTests =
                 backend (limited :> IQuantumBackend)
             }
 
-        let msg = QubitLimitBackends.validationMessage (QuantumConstraintSolver.solve problem)
+        let msg =
+            QubitLimitBackends.validationMessage (QuantumConstraintSolver.solve problem)
+
         Assert.Contains("limited-local-8", msg)
         Assert.Contains("needs 10 qubits", msg)
         Assert.Equal(0, limited.WidestRequested)

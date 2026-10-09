@@ -615,6 +615,7 @@ let ``default split settings split on simulators only`` () =
     Assert.Equal(ValueNone, settings.MaxPieceQubits)
     Assert.Equal(256, settings.MaxShareRuns)
     Assert.Equal(12, settings.MaxBlockItems)
+    Assert.Equal(0, settings.MaxSweeps)
     Assert.Equal(settings, QaoaExecutionHelpers.defaultConfig.Splitting)
     Assert.Equal(settings, QuantumMaxCutSolver.defaultConfig.Splitting)
     Assert.Equal(settings, QuantumKnapsackSolver.defaultConfig.Splitting)
@@ -1227,7 +1228,11 @@ let ``MaxRuns below 1 is refused`` (runs: int) : Task =
         let widths = ResizeArray<int>()
 
         match!
-            QuboSplitting.solvePiecewiseAsync (limits 5 runs) (sparseQubo 2 12 1) (exactPieces widths) CancellationToken.None
+            QuboSplitting.solvePiecewiseAsync
+                (limits 5 runs)
+                (sparseQubo 2 12 1)
+                (exactPieces widths)
+                CancellationToken.None
         with
         | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("MaxRuns", field)
         | other -> Assert.Fail($"Expected a MaxRuns validation error, got %A{other}")
@@ -1285,20 +1290,21 @@ let ``harvest ignores samples whose weight is beyond the capacity or the integer
 
 [<Fact>]
 let ``combineSplitReports adds up the parts and keeps the widest piece`` () =
-    let report runs fixedVariables blocks widest : QaoaExecutionHelpers.SplitReport =
+    let report runs fixedVariables blocks widest sweeps : QaoaExecutionHelpers.SplitReport =
         {
             Runs = runs
             FixedVariables = fixedVariables
             Blocks = blocks
             WidestPieceQubits = widest
+            Sweeps = sweeps
         }
 
     Assert.Equal(None, QaoaExecutionHelpers.combineSplitReports [ None; None ])
     Assert.Equal(None, QaoaExecutionHelpers.combineSplitReports [])
 
     Assert.Equal(
-        Some(report 13 3 2 5),
-        QaoaExecutionHelpers.combineSplitReports [ Some(report 6 1 0 4); None; Some(report 7 2 2 5) ]
+        Some(report 13 3 2 5 3),
+        QaoaExecutionHelpers.combineSplitReports [ Some(report 6 1 0 4 0); None; Some(report 7 2 2 5 3) ]
     )
 
 [<Fact>]
@@ -1356,4 +1362,324 @@ let ``subset-sum search over halves returns every subset when its pieces do`` ()
 
         Assert.Equal<string list list>(exactSubsetIds weights 4, idsOf found.Combinations)
         Assert.InRange(narrow.WidestCircuit, 1, 4)
+    }
+
+// ----------------------------------------------------------------------------
+// Neighbourhood search: a heuristic for QUBOs that no exact split cuts
+// ----------------------------------------------------------------------------
+
+/// Every variable coupled to every other.
+let private denseQubo (n: int) : float[,] =
+    Array2D.init n n (fun i j ->
+        if i < j then 1.0
+        elif i = j then -2.0
+        else 0.0)
+
+/// Three blocks of four with random couplings inside each block and none between them, so
+/// the blocks a sweep grows by coupling are the true blocks and the optimum is theirs.
+let private blockDiagonalQubo (seed: int) : float[,] =
+    let rng = Random(seed)
+    let qubo = Array2D.zeroCreate 12 12
+    let weight () = float (rng.Next(-9, 10)) / 2.0 + 0.25
+
+    for block in 0..2 do
+        for a in 0..3 do
+            let i = 4 * block + a
+            qubo.[i, i] <- weight ()
+
+            for b in a + 1 .. 3 do
+                qubo.[i, 4 * block + b] <- weight ()
+
+    qubo
+
+let private searchLimits (piece: int) (sweeps: int) (runs: int) : QuboSplitting.NeighbourhoodLimits =
+    {
+        MaxPieceQubits = piece
+        MaxSweeps = sweeps
+        MaxRuns = runs
+    }
+
+[<Fact>]
+let ``quboNeighbourhoods cuts every variable into one block within the width and shifts the blocks between sweeps`` () =
+    let qubo = denseQubo 9
+    let neighbourhoods = QuboSplitting.quboNeighbourhoods 4 qubo
+
+    let incumbent: QuboSplitting.QuboIncumbent =
+        {
+            Bits = Array.zeroCreate 9
+            Energy = 0.0
+        }
+
+    let first = neighbourhoods.OfSweep 0 incumbent
+    Assert.Equal(3, first.Length)
+    Assert.Equal<int list>([ 0..8 ], first |> Array.concat |> Array.sort |> Array.toList)
+
+    for block in first do
+        Assert.InRange(block.Length, 1, 4)
+
+    // the second sweep starts its seeds two variables on, so the blocks straddle the first
+    let second = neighbourhoods.OfSweep 1 incumbent
+    Assert.Equal<int list>([ 0..8 ], second |> Array.concat |> Array.sort |> Array.toList)
+    Assert.NotEqual<int list>(first.[0] |> Array.toList, second.[0] |> Array.toList)
+
+    // a block of a coupled QUBO is grown by coupling: the true blocks come out whole
+    let blocks = (QuboSplitting.quboNeighbourhoods 4 (blockDiagonalQubo 1)).OfSweep 0 incumbent
+
+    Assert.Equal<int list list>(
+        [ [ 0..3 ]; [ 4..7 ]; [ 8..11 ] ],
+        blocks |> Array.map Array.toList |> Array.sortBy List.head |> Array.toList
+    )
+
+[<Fact>]
+let ``quboNeighbourhoods keeps the energy of the bits it writes`` () =
+    let qubo = sparseQubo 5 10 3
+    let neighbourhoods = QuboSplitting.quboNeighbourhoods 4 qubo
+    let rng = Random(7)
+
+    for _ in 1..20 do
+        let bits = Array.init 10 (fun _ -> rng.Next 2)
+
+        let incumbent: QuboSplitting.QuboIncumbent =
+            {
+                Bits = bits
+                Energy = energy qubo bits
+            }
+
+        let block = (neighbourhoods.OfSweep (rng.Next 5) incumbent).[rng.Next 3]
+        let sampled = Array.init block.Length (fun _ -> rng.Next 2)
+
+        match neighbourhoods.Apply incumbent block sampled with
+        | ValueSome written ->
+            block |> Array.iteri (fun row v -> Assert.Equal(sampled.[row], written.Bits.[v]))
+
+            for v in 0..9 do
+                if not (Array.contains v block) then
+                    Assert.Equal(bits.[v], written.Bits.[v])
+
+            Assert.Equal(energy qubo written.Bits, written.Energy, 9)
+            Assert.Equal(written.Energy, neighbourhoods.Score written)
+        | ValueNone -> Assert.Fail("a sample of the block's width is a solution")
+
+        Assert.Equal(ValueNone, neighbourhoods.Apply incumbent block (Array.sub sampled 0 (block.Length - 1)))
+
+[<Fact>]
+let ``a neighbourhood search with every block sample reaches the optimum of a QUBO whose couplings stay within its blocks``
+    ()
+    : Task =
+    task {
+        for seed in 1..10 do
+            let qubo = blockDiagonalQubo seed
+            let runs = ResizeArray<int>()
+
+            let! result =
+                QuboSplitting.searchQuboNeighbourhoodsAsync
+                    (searchLimits 4 5 100)
+                    qubo
+                    (Array.zeroCreate 12)
+                    (everySubset runs)
+                    CancellationToken.None
+
+            let found = ok result
+            let _, lowest = minimumOf qubo
+
+            Assert.Equal(lowest, found.Score, 9)
+            Assert.Equal(lowest, energy qubo found.Solution, 9)
+            // one sweep improves what it can; the next improves nothing and ends the search
+            Assert.Equal(2, found.Sweeps)
+            Assert.Equal(6, found.Runs)
+            Assert.Equal(6, runs.Count)
+            Assert.Equal(4, found.WidestPieceQubits)
+            Assert.InRange(found.Improvements, 0, 3)
+    }
+
+[<Fact>]
+let ``a neighbourhood search is bounded by its sweeps and its runs`` () : Task =
+    task {
+        let qubo = denseQubo 9
+
+        // one sweep only: three blocks, three runs
+        let runs = ResizeArray<int>()
+
+        let! one =
+            QuboSplitting.searchQuboNeighbourhoodsAsync
+                (searchLimits 4 1 100)
+                qubo
+                (Array.zeroCreate 9)
+                (everySubset runs)
+                CancellationToken.None
+
+        Assert.Equal(1, (ok one).Sweeps)
+        Assert.Equal(3, (ok one).Runs)
+        Assert.Equal(3, runs.Count)
+
+        // a second sweep would pass 4 runs, so the search ends after the first
+        let runs = ResizeArray<int>()
+
+        let! bounded =
+            QuboSplitting.searchQuboNeighbourhoodsAsync
+                (searchLimits 4 5 4)
+                qubo
+                (Array.zeroCreate 9)
+                (everySubset runs)
+                CancellationToken.None
+
+        Assert.Equal(1, (ok bounded).Sweeps)
+        Assert.Equal(3, runs.Count)
+
+        // a first sweep over more blocks than the limit is refused before any run
+        let runs = ResizeArray<int>()
+
+        match!
+            QuboSplitting.searchQuboNeighbourhoodsAsync
+                (searchLimits 4 5 2)
+                qubo
+                (Array.zeroCreate 9)
+                (everySubset runs)
+                CancellationToken.None
+        with
+        | Error(QuantumError.ValidationError(field, message)) ->
+            Assert.Equal("MaxRuns", field)
+            Assert.Contains("one sweep samples 3 neighbourhoods, more than MaxRuns = 2", message)
+        | other -> Assert.Fail($"Expected a MaxRuns validation error, got %A{other}")
+
+        Assert.Empty runs
+    }
+
+[<Fact>]
+let ``a neighbourhood search takes only accepted solutions and fails with none`` () : Task =
+    task {
+        let qubo = denseQubo 9
+
+        // only assignments with the first bit set are acceptable; the all-zero start is not
+        let gated =
+            { QuboSplitting.quboNeighbourhoods 4 qubo with
+                Accept = fun incumbent -> incumbent.Bits.[0] = 1
+            }
+
+        let start: QuboSplitting.QuboIncumbent =
+            {
+                Bits = Array.zeroCreate 9
+                Energy = 0.0
+            }
+
+        let! result =
+            QuboSplitting.searchNeighbourhoodsAsync
+                (searchLimits 4 5 100)
+                gated
+                start
+                (everySubset (ResizeArray()))
+                CancellationToken.None
+
+        let found = ok result
+        Assert.Equal(1, found.Solution.Bits.[0])
+        Assert.True(found.Improvements >= 1)
+        Assert.Equal(energy qubo found.Solution.Bits, found.Score, 9)
+
+        // nothing accepted: the search still lowers the score (two sweeps, six runs) and
+        // then fails for want of an accepted solution
+        let refusing =
+            { QuboSplitting.quboNeighbourhoods 4 qubo with
+                Accept = fun _ -> false
+            }
+
+        match!
+            QuboSplitting.searchNeighbourhoodsAsync
+                (searchLimits 4 2 100)
+                refusing
+                start
+                (everySubset (ResizeArray()))
+                CancellationToken.None
+        with
+        | Error(QuantumError.OperationError(operation, message)) ->
+            Assert.Equal("QuboSplitting", operation)
+            Assert.Contains("no sample of 6 neighbourhood runs gave an acceptable solution", message)
+        | other -> Assert.Fail($"Expected an operation error, got %A{other}")
+    }
+
+[<Fact>]
+let ``a neighbourhood search moves into acceptance before it demands it`` () : Task =
+    task {
+        let qubo = denseQubo 9
+
+        // acceptable: at least two bits set. The all-zero start is not; a block of four with
+        // every sample on offer gets there in one step and the search keeps it from then on
+        let gated =
+            { QuboSplitting.quboNeighbourhoods 4 qubo with
+                Accept = fun incumbent -> Array.sum incumbent.Bits >= 2
+            }
+
+        let start: QuboSplitting.QuboIncumbent =
+            {
+                Bits = Array.zeroCreate 9
+                Energy = 0.0
+            }
+
+        let! result =
+            QuboSplitting.searchNeighbourhoodsAsync
+                (searchLimits 4 5 100)
+                gated
+                start
+                (everySubset (ResizeArray()))
+                CancellationToken.None
+
+        let found = ok result
+        Assert.True(Array.sum found.Solution.Bits >= 2)
+        Assert.Equal(energy qubo found.Solution.Bits, found.Score, 9)
+        // the dense QUBO's optimum sets every bit, which the search reaches block by block
+        Assert.Equal(snd (minimumOf qubo), found.Score, 9)
+    }
+
+[<Fact>]
+let ``runQaoaAsync searches neighbourhoods when a QUBO neither cuts nor fits and MaxSweeps allows`` () : Task =
+    task {
+        let narrow = NarrowBackend 5
+
+        let config =
+            withSplitting
+                { QaoaExecutionHelpers.defaultSplitSettings with
+                    MaxShareRuns = 8
+                    MaxSweeps = 2
+                }
+
+        let! result = QuboSplitting.runQaoaAsync narrow (denseQubo 9) config CancellationToken.None
+        let run = ok result
+
+        Assert.Equal(9, run.Best.Length)
+        Assert.True(run.Direct.IsNone)
+        Assert.InRange(narrow.WidestCircuit, 1, 5)
+
+        match run.Split with
+        | Some report ->
+            Assert.InRange(report.Sweeps, 1, 2)
+            Assert.Equal(2, report.Blocks)
+            Assert.Equal(0, report.FixedVariables)
+            Assert.InRange(report.Runs, 2, 4)
+            Assert.Equal(narrow.WidestCircuit, report.WidestPieceQubits)
+        | None -> Assert.Fail("a neighbourhood search reports its sweeps")
+    }
+
+[<Fact>]
+let ``a neighbourhood search that cannot sweep within MaxShareRuns is refused with both reasons`` () : Task =
+    task {
+        let narrow = NarrowBackend 5
+
+        let config =
+            withSplitting
+                { QaoaExecutionHelpers.defaultSplitSettings with
+                    MaxShareRuns = 1
+                    MaxSweeps = 1
+                }
+
+        match! QuboSplitting.runQaoaAsync narrow (denseQubo 9) config CancellationToken.None with
+        | Error(QuantumError.ValidationError(field, message)) ->
+            Assert.Equal("qubits", field)
+            Assert.Contains("it was not split because", message)
+
+            Assert.Contains(
+                "a neighbourhood search samples 2 blocks per sweep, more than SplitSettings.MaxShareRuns = 1",
+                message
+            )
+        | other -> Assert.Fail($"Expected a qubits validation error, got %A{other}")
+
+        Assert.Equal(0, narrow.WidestCircuit)
     }

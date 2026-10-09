@@ -677,9 +677,7 @@ module Oracle =
             Error(QuantumError.ValidationError("NumVertices", $"must be at least 1, got {config.Graph.NumVertices}"))
         elif config.NumColors < 2 then
             Error(QuantumError.ValidationError("NumColors", $"must be at least 2, got {config.NumColors}"))
-        elif
-            int64 config.Graph.NumVertices * int64 (qubitsPerVertex config.NumColors) > int64 MaxIndexQubits
-        then
+        elif int64 config.Graph.NumVertices * int64 (qubitsPerVertex config.NumColors) > int64 MaxIndexQubits then
             Error(
                 QuantumError.ValidationError(
                     "NumQubits",

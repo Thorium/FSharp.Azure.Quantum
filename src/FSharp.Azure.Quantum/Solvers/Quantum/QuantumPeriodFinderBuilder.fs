@@ -425,10 +425,10 @@ module QuantumPeriodFinder =
             totalQubits
             gateCount
             qpeDepth
-            (if totalQubits <= 20 then
-                 "✓ Feasible on NISQ devices"
+            (if precision <= QPE.MaxCountingQubits then
+                 $"✓ Runs on any backend that supports {totalQubits} qubits"
              else
-                 "✗ Requires fault-tolerant quantum computer")
+                 $"✗ Exceeds the {QPE.MaxCountingQubits} counting qubits a measurement reads into an Int32")
             (pown number 3) // Rough classical estimate
 
     /// Export result to human-readable string

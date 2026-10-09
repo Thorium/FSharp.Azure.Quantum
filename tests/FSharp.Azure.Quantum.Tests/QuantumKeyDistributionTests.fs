@@ -115,7 +115,9 @@ module QuantumKeyDistributionTests =
     [<Fact>]
     let ``BB84 refuses a run whose check sample comes out empty`` () =
         // 0.001 of a few dozen sifted bits rounds down to no bit: an unchecked key must not pass.
-        match QuantumKeyDistribution.runBB84 16 (LocalBackend.LocalBackend() :> IQuantumBackend) 0.001 0.11 (Some 5) with
+        match
+            QuantumKeyDistribution.runBB84 16 (LocalBackend.LocalBackend() :> IQuantumBackend) 0.001 0.11 (Some 5)
+        with
         | Error(FSharp.Azure.Quantum.Core.QuantumError.ValidationError(field, message)) ->
             Assert.Equal("sampleRatio", field)
             Assert.Contains("eavesdropping check", message)

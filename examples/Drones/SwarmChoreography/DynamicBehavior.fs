@@ -665,53 +665,6 @@ module SwarmState =
             | Departed(evt, time) -> Some(id, evt, time)
             | _ -> None)
 
-/// Attempts of a fixed-angle QAOA run whose samples hold no acceptable solution: the same
-/// angles with four times the shots, then two other angle sets at four times the shots. When
-/// every attempt fails the caller gets an Error; no classical solver stands in.
-module QaoaAttempts =
-
-    /// (shots, angles) per attempt, in order.
-    let schedule (shots: int) (angles: (float * float)[]) : (int * (float * float)[]) list =
-        [
-            shots, angles
-            4 * shots, angles
-            4 * shots, angles |> Array.map (fun (gamma, beta) -> (1.6 * gamma, 1.3 * beta))
-            4 * shots, angles |> Array.map (fun (gamma, beta) -> (0.6 * gamma, 0.7 * beta))
-        ]
-
-    /// The first attempt's accepted solution and a description of that attempt. `attempt`
-    /// runs the circuit and returns the accepted solution its samples hold, if any; an
-    /// execution Error stops at once.
-    let firstSolved
-        (shots: int)
-        (angles: (float * float)[])
-        (attempt: int -> (float * float)[] -> Result<'T option, string>)
-        : Result<'T * string, string> =
-        let attempts = schedule shots angles
-
-        let describe (s: int) (a: (float * float)[]) =
-            a
-            |> Array.map (fun (gamma, beta) -> sprintf "γ=%.3f β=%.3f" gamma beta)
-            |> String.concat ", "
-            |> sprintf "%d shots, %s" s
-
-        let rec go (index: int) (remaining: (int * (float * float)[]) list) =
-            match remaining with
-            | [] ->
-                Error(
-                    sprintf
-                        "no QAOA sample gave an acceptable solution in %d attempts (%s)"
-                        attempts.Length
-                        (attempts |> List.map (fun (s, a) -> describe s a) |> String.concat "; ")
-                )
-            | (s, a) :: rest ->
-                match attempt s a with
-                | Error err -> Error err
-                | Ok(Some solution) -> Ok(solution, sprintf "attempt %d of %d: %s" index attempts.Length (describe s a))
-                | Ok None -> go (index + 1) rest
-
-        go 1 attempts
-
 /// Result of swarm adaptation calculation
 type AdaptationResult =
     {
@@ -926,16 +879,25 @@ module SwarmAdaptation =
                 None // Not all drones assigned
 
 
+    /// Most sweeps of a block search (BlockAssignment) when the swarm is wider than one
+    /// circuit; the search ends itself after a sweep that improves nothing. The show's
+    /// measured bound (Solver.BlockSweeps: 50 and 100 drones converged in at most 8).
+    [<Literal>]
+    let BlockSweeps = 12
+
     /// Run QAOA to find an assignment: the most frequent sampled bitstring that decodes to a
-    /// valid assignment `accept` takes (local position indices), retried by QaoaAttempts. No
-    /// valid, accepted sample in any attempt, or a problem (n drones × m positions qubits)
-    /// wider than the backend runs, is an
-    /// Error; no classical solver stands in. Returns the assignment and the attempt that
-    /// found it.
+    /// valid assignment `accept` takes (local position indices), retried by QaoaAttempts.
+    /// A problem (n drones × m positions qubits) wider than the backend runs is searched in
+    /// blocks of ⌊√limit⌋ drones instead (BlockAssignment.solve, from the pairing of
+    /// `starts` and `targets` in Morton order) when it has as many positions as drones. No
+    /// valid, accepted sample, or a wider problem with more positions than drones, is an
+    /// Error; no classical solver stands in. Returns the assignment and how it was found.
     let qaoaAssignment
         (backend: IQuantumBackend)
         (shots: int)
         (accept: Map<int, int> -> bool)
+        (starts: BlockAssignment.Point[])
+        (targets: BlockAssignment.Point[])
         (distanceMatrix: float[,])
         (droneIds: int list)
         : Result<Map<int, int> * string, string> =
@@ -945,6 +907,23 @@ module SwarmAdaptation =
         let numQubits = n * m
 
         match UnifiedBackend.getRunnableQubits backend with
+        | Some limit when numQubits > limit && n = m ->
+            let toMap (assignment: int[]) =
+                droneIds |> List.mapi (fun i droneId -> droneId, assignment.[i]) |> Map.ofList
+
+            // Squared distances, the objective under which a gated assignment exists (CAPT);
+            // the gate is the caller's closure, so no pair steers the blocks here
+            BlockAssignment.solve
+                backend
+                shots
+                (BlockAssignment.widestBlock backend |> Option.defaultValue 2)
+                BlockSweeps
+                (toMap >> accept)
+                (fun _ -> [||])
+                (fun drone slot -> distanceMatrix.[drone, slot] ** 2.0)
+                starts
+                targets
+            |> Result.map (fun (assignment, how) -> toMap assignment, how)
         | Some limit when numQubits > limit ->
             Error
                 $"%d{n} drones × %d{m} positions need %d{numQubits} qubits; backend '%s{backend.Name}' runs at most %d{limit}"
@@ -1035,7 +1014,23 @@ module SwarmAdaptation =
                 local
                 |> Map.map (fun _droneId localPosIdx -> Array.item localPosIdx selectedIndices)
 
-            qaoaAssignment backend shots (toOriginal >> accept) distanceMatrix activeDroneIds
+            // Where the drones are and where the selected positions lie, for the block
+            // search's spatial pairing; an unknown drone position counts as the origin
+            let toPoint (p: Position) : BlockAssignment.Point = { X = p.X; Y = p.Y; Z = p.Z }
+
+            let starts =
+                activeDroneIds
+                |> List.map (fun droneId ->
+                    state.DronePositions
+                    |> Map.tryFind droneId
+                    |> Option.defaultValue Position.origin
+                    |> toPoint)
+                |> List.toArray
+
+            let targets =
+                selectedIndices |> Array.map (fun i -> toPoint targetFormation.Positions.[i])
+
+            qaoaAssignment backend shots (toOriginal >> accept) starts targets distanceMatrix activeDroneIds
             |> Result.map (fun (localAssignments, how) ->
                 sw.Stop()
 

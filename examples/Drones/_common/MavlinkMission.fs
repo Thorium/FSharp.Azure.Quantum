@@ -346,10 +346,12 @@ let imageCapture (seq: int) : MissionItem =
     }
 
 /// Start recording video on every camera's stream (stream 0 = all).
-let videoStart (seq: int) : MissionItem = createItem seq VideoStartCapture Mission 0.0 0.0 0.0
+let videoStart (seq: int) : MissionItem =
+    createItem seq VideoStartCapture Mission 0.0 0.0 0.0
 
 /// Stop recording video on every camera's stream.
-let videoStop (seq: int) : MissionItem = createItem seq VideoStopCapture Mission 0.0 0.0 0.0
+let videoStop (seq: int) : MissionItem =
+    createItem seq VideoStopCapture Mission 0.0 0.0 0.0
 
 /// A copter comes to rest at a waypoint only when the waypoint holds: with no
 /// hold it carries its speed through the corner onto the next leg, sooner

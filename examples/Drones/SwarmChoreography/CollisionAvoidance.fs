@@ -537,7 +537,7 @@ let solveTimings
             |> Ok
 
     // No valid sample in any attempt is an Error; no classical solver stands in.
-    DynamicBehavior.QaoaAttempts.firstSolved shots parameters attempt
+    QaoaAttempts.firstSolved shots parameters attempt
     |> Result.map fst
 
 // =============================================================================

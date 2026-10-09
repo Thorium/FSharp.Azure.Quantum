@@ -66,6 +66,7 @@ module SocialNetworkAnalyzerTests =
         }
         :> Task
 
+    [<Literal>]
     let private probeName = "width-probe"
 
     /// A ring of n people.

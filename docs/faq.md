@@ -43,7 +43,7 @@ FSharp.Azure.Quantum is a **quantum-first F# library** for solving combinatorial
 
 ### Is this production-ready?
 
-The current package version is **1.6.0**. It is suitable for:
+The current package version is **1.6.2**. It is suitable for:
 - ✅ Development and prototyping
 - ✅ Academic research and learning
 - ✅ Quantum algorithm experimentation
@@ -203,13 +203,16 @@ The local simulator holds up to `StateVector.maxQubits` (derived from memory, at
 
 ### My problem is wider than the backend. Can it still run on it?
 
-Often, by trading qubits for circuit runs. `QuboSplitting` cuts a problem into pieces that fit, runs every piece on the backend, and joins the answers classically. Two splits exist:
+Often, by trading qubits for circuit runs. `QuboSplitting` cuts a problem into pieces that fit, runs every piece on the backend, and joins the answers classically. Three exact splits exist, and one heuristic search for problems none of them cuts:
 
 | Split | Works when | Cost | Used by |
 |---|---|---|---|
 | **Conditioning** | the QUBO is sparse: fixing variables breaks it into pieces that fit, and the fixed variables couple narrowly enough to join (chains, trees, ladders, strips) | a piece runs once per assignment of the fixed variables it touches: 2^b runs for b of them (at most 256 runs by default) | MaxCut, vertex cover, clique, matching, set cover, MAX-SAT, binary ILP and the drug-discovery solvers |
 | **Blocks** | a linear objective under one additive integer limit (a knapsack) | one run per block and share of the capacity (at most 256 by default) | Knapsack (`solveAsync`, or `solveInBlocksAsync` to ask for it) |
 | **Halves** | every subset that sums to a target is wanted (subset-sum) | one search per half and partial sum (at most 256 by default) | `QuantumKnapsackSolver.findAllExactCombinationsAsync` and the `Knapsack.findAll…Async` functions with a backend |
+| **Neighbourhood search** (heuristic, off by default) | any QUBO, dense ones included: conditioning does not cut it and the backend cannot hold it | linear in the problem: one run per block of the backend's width per sweep, `MaxSweeps` sweeps at most, all within `MaxShareRuns` | the conditioning solvers above, when `MaxSweeps` is above 0; any problem through `QuboSplitting.searchNeighbourhoodsAsync` |
+
+The neighbourhood search keeps a best assignment so far (the all-zero one to start), samples one block of variables at a time with the rest fixed, and takes a sample of lower energy; a sweep samples every block once, and the search ends after a sweep that improved nothing. Nothing is joined exactly, so the answer is the best sample seen, not a proven optimum. `searchNeighbourhoodsAsync` takes any problem whose blocks you can write as QUBOs (its `Neighbourhoods` record: the blocks of a sweep, a block's QUBO, how a sample is written back, the score, and an `Accept` gate for the problem's own constraints, which the search moves into before it starts demanding it), so a 5000-drone assignment can be improved a block of drones at a time without a 5000²-variable QUBO ever existing (see the SwarmChoreography example's `BlockAssignment`).
 
 **When it happens.** Only when the problem needs more qubits than the backend runs (or than `MaxPieceQubits`, when you set it), and only where the split settings allow it. The default is `SplitPolicy.OnSimulators`:
 
@@ -229,7 +232,8 @@ let splitting: QaoaExecutionHelpers.SplitSettings =
         Policy = QaoaExecutionHelpers.SplitPolicy.Always // also on billed hardware
         MaxPieceQubits = ValueSome 12 // widest circuit: wider problems are split even if the backend could run them
         MaxShareRuns = 100         // at most 100 circuit runs per split
-        MaxBlockItems = 10 }       // at most 10 items per block
+        MaxBlockItems = 10         // at most 10 items per block
+        MaxSweeps = 3 }            // a QUBO that neither cuts nor fits: 3 sweeps of neighbourhood search (default 0: refuse it)
 
 let config =
     { QaoaExecutionHelpers.defaultConfig with
@@ -245,19 +249,21 @@ open FSharp.Azure.Quantum.Core
 
 let describe (split: QaoaExecutionHelpers.SplitReport option) =
     match split with
-    | Some s -> printfn "%d runs, widest %d qubits, %d fixed variables, %d blocks" s.Runs s.WidestPieceQubits s.FixedVariables s.Blocks
+    | Some s -> printfn "%d runs, widest %d qubits, %d fixed variables, %d blocks, %d sweeps" s.Runs s.WidestPieceQubits s.FixedVariables s.Blocks s.Sweeps
     | None -> printfn "ran as one circuit"
 ```
+
+`Sweeps` above 0 means a neighbourhood search: the answer is the best sample seen, not an exact join.
 
 What to expect:
 
 - **Runs multiply.** On a simulator that is time; on hardware every run is billed, so `Always` belongs together with a `JobBudget` on the backend.
-- **A problem that cannot be split runs as one circuit** while the backend can hold it, and otherwise returns an error that names the limit it hit (`MaxShareRuns`, or `QuboSplitting.MostJoinSpan` when a QUBO is too densely coupled to join its pieces). The subset-sum search counts its searches as it goes, so it returns that error once it passes `MaxShareRuns`.
+- **A problem that cannot be split runs as one circuit** while the backend can hold it, and otherwise returns an error that names the limit it hit (`MaxShareRuns`, or `QuboSplitting.MostJoinSpan` when a QUBO is too densely coupled to join its pieces), unless `MaxSweeps` is above 0, when it is searched by neighbourhoods instead. The subset-sum search counts its searches as it goes, so it returns that error once it passes `MaxShareRuns`.
 - **Pieces stay separate.** Every piece is a circuit of its own, never packed with another: a narrow circuit is faster to simulate and its best sample is not diluted by the other piece. A chain of 100 vertices in pieces of 12 takes 7 fixed vertices and 28 runs.
 - **A graph of several components adds its reports up.** `Split` then counts the runs, fixed variables and blocks of all components.
 - **The join is exact; the pieces are not.** If every piece returned its true optimum the joined answer would be the optimum of the whole problem. Each piece is sampled, so a missed piece optimum carries into the answer.
 - **It is not a wider quantum computation.** No circuit is wider than a piece, so no entanglement spans the pieces; what crosses the cut is tried classically. The split extends the problem size a small device can take on, not the size of the quantum state.
-- **Dense encodings do not split by conditioning.** A penalty that squares a sum couples every variable to every other (TSP, task scheduling, knapsack as one QUBO). Knapsack splits by blocks instead.
+- **Dense encodings do not split by conditioning.** A penalty that squares a sum couples every variable to every other (TSP, task scheduling, knapsack as one QUBO). Knapsack splits by blocks instead; the others can be searched by neighbourhoods (`MaxSweeps`), which is a heuristic and is measured, not assumed, to help: in the FireAirBridge example the re-scored samples of a block search ran level with uniform random samples and below the greedy planner.
 - **A block needs no slack bits.** It is asked for an exact share, which is an equality: a knapsack of 12 items with capacity 15 is 16 qubits as one QUBO and 6 qubits per block in two blocks.
 
 ### Can I use my own distance calculations?

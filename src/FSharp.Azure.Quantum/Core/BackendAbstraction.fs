@@ -711,7 +711,8 @@ module BackendAbstraction =
                     else
                         ""
 
-                Some $"{problem} needs {qubitsNeeded} qubits, but backend '{backend.Name}' runs at most {limit} qubits{hint}"
+                Some
+                    $"{problem} needs {qubitsNeeded} qubits, but backend '{backend.Name}' runs at most {limit} qubits{hint}"
             | _ -> None
 
         /// runnableQubitsReason as a ValidationError on `parameter`.

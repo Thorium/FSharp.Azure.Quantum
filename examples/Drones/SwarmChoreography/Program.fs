@@ -191,49 +191,9 @@ module QapQubo =
 
     /// Build QUBO matrix for the Quadratic Assignment Problem
     /// Variables: x[i,j] = 1 if drone i is assigned to position j
+    /// (BlockAssignment.assignmentQubo, which the block search uses on every block)
     let buildQubo (distanceMatrix: float[,]) (penaltyWeight: float) : float[,] =
-        let n = Array2D.length1 distanceMatrix
-        let numVars = n * n
-        let q = Array2D.zeroCreate<float> numVars numVars
-
-        // Helper: variable index for x[i,j]
-        let varIndex i j = i * n + j
-
-        // Step 1: Encode objective (minimize total distance)
-        for i in 0 .. n - 1 do
-            for j in 0 .. n - 1 do
-                let idx = varIndex i j
-                q.[idx, idx] <- distanceMatrix.[i, j]
-
-        // Step 2: Add constraint penalties
-
-        // Constraint 1: Each drone assigned to exactly one position
-        for i in 0 .. n - 1 do
-            for j in 0 .. n - 1 do
-                let idx = varIndex i j
-                q.[idx, idx] <- q.[idx, idx] - penaltyWeight
-
-            for j1 in 0 .. n - 1 do
-                for j2 in j1 + 1 .. n - 1 do
-                    let idx1 = varIndex i j1
-                    let idx2 = varIndex i j2
-                    q.[idx1, idx2] <- q.[idx1, idx2] + 2.0 * penaltyWeight
-                    q.[idx2, idx1] <- q.[idx2, idx1] + 2.0 * penaltyWeight
-
-        // Constraint 2: Each position has exactly one drone
-        for j in 0 .. n - 1 do
-            for i in 0 .. n - 1 do
-                let idx = varIndex i j
-                q.[idx, idx] <- q.[idx, idx] - penaltyWeight
-
-            for i1 in 0 .. n - 1 do
-                for i2 in i1 + 1 .. n - 1 do
-                    let idx1 = varIndex i1 j
-                    let idx2 = varIndex i2 j
-                    q.[idx1, idx2] <- q.[idx1, idx2] + 2.0 * penaltyWeight
-                    q.[idx2, idx1] <- q.[idx2, idx1] + 2.0 * penaltyWeight
-
-        q
+        BlockAssignment.assignmentQubo penaltyWeight distanceMatrix
 
     /// Decode QUBO solution to assignment
     let decodeAssignment (solution: int[]) (n: int) : Assignment[] =
@@ -270,36 +230,52 @@ module QapQubo =
 /// drone sent from the bottom of a column to its top flies through the others.
 module TransitionSafety =
 
+    /// Closest drones i and j come, both moving in straight lines from `starts` to `ends`
+    /// in the same time (exact: the relative motion is linear).
+    let private pairSeparation (starts: Position3D[]) (ends: Position3D[]) (i: int) (j: int) : float =
+        let a =
+            [|
+                starts.[i].X - starts.[j].X
+                starts.[i].Y - starts.[j].Y
+                starts.[i].Z - starts.[j].Z
+            |]
+
+        let b =
+            [| ends.[i].X - ends.[j].X; ends.[i].Y - ends.[j].Y; ends.[i].Z - ends.[j].Z |]
+
+        let w = Array.map2 (-) b a
+        let ww = Array.sumBy (fun x -> x * x) w
+
+        let t =
+            if ww = 0.0 then
+                0.0
+            else
+                -(Array.map2 (*) a w |> Array.sum) / ww |> max 0.0 |> min 1.0
+
+        Array.map2 (fun ai wi -> ai + t * wi) a w |> Array.sumBy (fun x -> x * x) |> sqrt
+
     /// Closest two drones come, all moving in straight lines from `starts` to
-    /// `ends` in the same time (exact: the relative motion is linear).
+    /// `ends` in the same time.
     let minSeparation (starts: Position3D[]) (ends: Position3D[]) : float =
         [
             for i in 0 .. starts.Length - 1 do
                 for j in i + 1 .. starts.Length - 1 do
-                    let a =
-                        [|
-                            starts.[i].X - starts.[j].X
-                            starts.[i].Y - starts.[j].Y
-                            starts.[i].Z - starts.[j].Z
-                        |]
-
-                    let b =
-                        [| ends.[i].X - ends.[j].X; ends.[i].Y - ends.[j].Y; ends.[i].Z - ends.[j].Z |]
-
-                    let w = Array.map2 (-) b a
-                    let ww = Array.sumBy (fun x -> x * x) w
-
-                    let t =
-                        if ww = 0.0 then
-                            0.0
-                        else
-                            -(Array.map2 (*) a w |> Array.sum) / ww |> max 0.0 |> min 1.0
-
-                    Array.map2 (fun ai wi -> ai + t * wi) a w
-                    |> Array.sumBy (fun x -> x * x)
-                    |> sqrt
+                    pairSeparation starts ends i j
         ]
         |> List.fold min Double.PositiveInfinity
+
+    /// The pairs of drones that come closer than `bound` in flight, closest first.
+    let unsafePairs (starts: Position3D[]) (ends: Position3D[]) (bound: float) : (int * int)[] =
+        [|
+            for i in 0 .. starts.Length - 1 do
+                for j in i + 1 .. starts.Length - 1 do
+                    let separation = pairSeparation starts ends i j
+
+                    if separation < bound then
+                        yield separation, (i, j)
+        |]
+        |> Array.sortBy fst
+        |> Array.map snd
 
     let private spacing (ps: Position3D[]) =
         [
@@ -596,75 +572,529 @@ module IndoorLayout =
 
 module Solver =
 
+    /// Most sweeps of a block search over a swarm wider than one circuit. The search ends
+    /// itself after a sweep that improves nothing; this bounds one that keeps improving.
+    /// Measured on the local simulator with blocks of 4: scale runs through a ground grid,
+    /// a grid aloft and a ring passed the gate and converged in 4-6 sweeps with 50 drones
+    /// and 1-8 sweeps with 100 drones; at 3 sweeps one of three 50-drone transitions
+    /// had not reached the gate.
+    [<Literal>]
+    let BlockSweeps = 12
+
+    /// Assign the drones in blocks (BlockAssignment.solve): from the pairing of `starts`
+    /// and `targets` in Morton order, blocks of `blockDrones` drones, each a QAOA circuit
+    /// of blockDrones² qubits, through the same gate. The blocks lower the sum of SQUARED
+    /// distances, the objective under which an assignment meeting the gate's bound exists
+    /// (CAPT, see TransitionSafety.bound), and the pairs the gate names are put in a block
+    /// first; the plain distance is what the show reports.
+    let solveInBlocks
+        (backend: IQuantumBackend)
+        (shots: int)
+        (blockDrones: int)
+        (accept: Assignment[] -> bool)
+        (starts: Position3D[])
+        (targets: Position3D[])
+        (distanceMatrix: float[,])
+        : Result<Assignment[] * string, string> =
+        let toPoint (p: Position3D) : BlockAssignment.Point = { X = p.X; Y = p.Y; Z = p.Z }
+
+        let toAssignments (assignment: int[]) =
+            assignment |> Array.mapi (fun d j -> { DroneId = d; TargetPositionIndex = j })
+
+        let bound = TransitionSafety.bound starts targets
+
+        let unsafePairs (assignment: int[]) =
+            TransitionSafety.unsafePairs starts (assignment |> Array.map (fun j -> targets.[j])) bound
+
+        BlockAssignment.solve
+            backend
+            shots
+            blockDrones
+            BlockSweeps
+            (toAssignments >> accept)
+            unsafePairs
+            (fun drone slot -> distanceMatrix.[drone, slot] ** 2.0)
+            (Array.map toPoint starts)
+            (Array.map toPoint targets)
+        |> Result.map (fun (assignment, how) -> toAssignments assignment, how)
+
     /// Quantum QAOA solver using IQuantumBackend
     /// RULE 1 COMPLIANT: Requires IQuantumBackend parameter.
     ///
     /// Returns the lowest-distance sampled assignment that is valid and that `accept` takes
-    /// (the transition safety gate), and the attempt that found it (DynamicBehavior.QaoaAttempts:
-    /// more shots, then other angles). No such sample in any attempt is an Error; no classical
-    /// solver stands in.
+    /// (the transition safety gate), and the attempt that found it (QaoaAttempts: more
+    /// shots, then other angles). A swarm whose n² qubits are more than the backend runs is
+    /// assigned in blocks of ⌊√limit⌋ drones instead (solveInBlocks), as is any swarm when
+    /// `blockDrones` asks for blocks of that many. No accepted sample is an Error; no
+    /// classical solver stands in.
     let solve
         (backend: IQuantumBackend)
         (shots: int)
+        (blockDrones: int option)
         (accept: Assignment[] -> bool)
+        (starts: Position3D[])
+        (targets: Position3D[])
         (distanceMatrix: float[,])
         : Result<Assignment[] * string, string> =
 
         let n = Array2D.length1 distanceMatrix
         let numVars = n * n
 
-        match UnifiedBackend.getRunnableQubits backend with
-        | Some limit when numVars > limit ->
-            Error $"%d{n} drones need %d{numVars} qubits (n²); backend '%s{backend.Name}' runs at most %d{limit}"
+        match blockDrones, UnifiedBackend.getRunnableQubits backend with
+        | Some k, _ -> solveInBlocks backend shots k accept starts targets distanceMatrix
+        | None, Some limit when numVars > limit ->
+            match BlockAssignment.widestBlock backend with
+            | Some k when k >= 2 -> solveInBlocks backend shots k accept starts targets distanceMatrix
+            | _ ->
+                Error
+                    $"%d{n} drones need %d{numVars} qubits (n²); backend '%s{backend.Name}' runs at most %d{limit}, under the 4 a block of 2 drones needs"
         | _ ->
 
-        // Calculate penalty weight (Lucas rule)
-        let maxDistance =
+            // Calculate penalty weight (Lucas rule)
+            let maxDistance =
+                [|
+                    for i in 0 .. n - 1 do
+                        for j in 0 .. n - 1 do
+                            yield distanceMatrix.[i, j]
+                |]
+                |> Array.max
+
+            let penaltyWeight = maxDistance * float n * 2.0
+
+            // Build QUBO matrix
+            let qubo = QapQubo.buildQubo distanceMatrix penaltyWeight
+
+            // Convert to Problem Hamiltonian, normalised so the fixed angles below are on the
+            // same scale the library's solvers use
+            let problemHam =
+                QaoaCircuit.ProblemHamiltonian.fromQubo qubo
+                |> QaoaCircuit.ProblemHamiltonian.normalize
+
+            let mixerHam = QaoaCircuit.MixerHamiltonian.create numVars
+
+            // QAOA parameters (p=1 layer)
+            let gamma = 0.5
+            let beta = 0.3
+            let parameters = [| (gamma, beta) |]
+
+            let attempt (attemptShots: int) (angles: (float * float)[]) =
+                // Build QAOA circuit
+                let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam angles
+
+                let circuit =
+                    CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
+
+                // Execute on provided backend
+                match backend.ExecuteToState circuit with
+                | Error err -> Error err.Message
+                | Ok state ->
+                    // Lowest-distance valid, accepted sample
+                    QuantumState.measure state attemptShots
+                    |> Array.map (fun bits -> QapQubo.decodeAssignment bits n)
+                    |> Array.filter (fun assignments -> QapQubo.validateAssignment assignments n && accept assignments)
+                    |> Array.sortBy (QapQubo.calculateTotalDistance distanceMatrix)
+                    |> Array.tryHead
+                    |> Ok
+
+            QaoaAttempts.firstSolved shots parameters attempt
+
+// =============================================================================
+// SCALE RUN (more drones than one circuit holds)
+// =============================================================================
+
+/// A show of n drones through generated formations, every transition assigned in blocks
+/// (Solver.solveInBlocks) through the same safety gate as the 4-drone show. It measures
+/// the block search at scale: the distance of the spatial start pairing against the
+/// searched one, the circuit runs and the time, per transition. Nothing is exported and no
+/// evidence pack is built; a transition with no accepted assignment is reported as failed
+/// and the drones hold where they are for the next one. No classical solver stands in.
+module ScaleShow =
+
+    /// Slot spacing, as in the 4-drone show.
+    [<Literal>]
+    let SpacingM = 4.0
+
+    /// Formations of n slots at least SpacingM apart: a ground grid, then a grid aloft, a
+    /// ring and a sphere (Fibonacci) in turn until `count` formations, closing on the
+    /// ground grid again.
+    let formations (n: int) (count: int) : Formation[] =
+        let side = int (ceil (sqrt (float n)))
+        let half = float (side - 1) * SpacingM / 2.0
+
+        let grid (name: string) (z: float) (turned: bool) : Formation =
+            {
+                Name = name
+                Positions =
+                    Array.init n (fun i ->
+                        let row = float (i / side) * SpacingM - half
+                        let column = float (i % side) * SpacingM - half
+
+                        if turned then
+                            { X = row; Y = column; Z = z }
+                        else
+                            { X = column; Y = row; Z = z })
+                Colors = None
+            }
+
+        let ring: Formation =
+            let radius = max SpacingM (float n * SpacingM / (2.0 * Math.PI))
+
+            {
+                Name = "Ring"
+                Positions =
+                    Array.init n (fun i ->
+                        let angle = 2.0 * Math.PI * float i / float n
+
+                        {
+                            X = radius * cos angle
+                            Y = radius * sin angle
+                            Z = 20.0
+                        })
+                Colors = None
+            }
+
+        let sphere: Formation =
+            // area per slot ≈ spacing²: 4πR²/n = spacing²
+            let radius = max SpacingM (SpacingM * sqrt (float n / (4.0 * Math.PI)))
+            let golden = Math.PI * (3.0 - sqrt 5.0)
+
+            {
+                Name = "Sphere"
+                Positions =
+                    Array.init n (fun i ->
+                        let y = 1.0 - 2.0 * (float i + 0.5) / float n
+                        let r = sqrt (1.0 - y * y)
+                        let angle = golden * float i
+
+                        {
+                            X = radius * r * cos angle
+                            Y = radius * r * sin angle
+                            Z = radius + 5.0 + radius * y
+                        })
+                Colors = None
+            }
+
+        let middle = [| grid "Grid aloft" 25.0 true; ring; sphere |]
+        let ground = grid "Ground grid" 0.0 false
+
+        [|
+            yield ground
+
+            for i in 0 .. max 0 (count - 2) - 1 do
+                yield middle.[i % middle.Length]
+
+            if count >= 2 then
+                yield ground
+        |]
+
+    /// Steps the globe's lands turn through a full turn, each a formation of its own with
+    /// the same slots: a change of lights only, which the picture plays as a short step.
+    [<Literal>]
+    let GlobeSteps = 24
+
+    /// Lit formations of n slots, the pictures of a light show: a globe (sea, land, ice)
+    /// shown GlobeSteps times with its lands turning a step further each time while the
+    /// drones hold, a diamond and a cube drawn along their edges, and a star (a gold
+    /// outline around a dark inner star), between the ground grid in white. Every
+    /// formation is scaled so its closest slots are SpacingM apart (the globe 2.5 × that,
+    /// so it fills the picture) and flown at least 5 m up. `count` formations are flown,
+    /// in this order.
+    let litFormations (n: int) (count: int) : Formation[] =
+        let rgb r g b : CrazyflieExport.LedColor = { R = r; G = g; B = b }
+        let white = rgb 255 255 255
+        let black = rgb 0 0 0
+
+        // Points of a unit sphere spread evenly (Fibonacci)
+        let sphere =
+            let golden = Math.PI * (3.0 - sqrt 5.0)
+
+            Array.init n (fun i ->
+                let z = 1.0 - 2.0 * (float i + 0.5) / float n
+                let r = sqrt (1.0 - z * z)
+                let angle = golden * float i
+                r * cos angle, r * sin angle, z)
+
+        // A shape scaled so its closest two points are `closest` × SpacingM apart, lifted to 5 m
+        let spaced
+            (name: string)
+            (closest: float)
+            (points: (float * float * float)[])
+            (light: float * float * float -> CrazyflieExport.LedColor)
+            =
+            let nearest =
+                [
+                    for i in 0 .. n - 1 do
+                        for j in i + 1 .. n - 1 do
+                            let (ax, ay, az), (bx, by, bz) = points.[i], points.[j]
+                            sqrt ((ax - bx) ** 2.0 + (ay - by) ** 2.0 + (az - bz) ** 2.0)
+                ]
+                |> List.fold min Double.PositiveInfinity
+
+            let scale =
+                if nearest > 0.0 && nearest < Double.PositiveInfinity then
+                    closest * SpacingM / nearest
+                else
+                    1.0
+
+            let lowest = points |> Array.map (fun (_, _, z) -> z * scale) |> Array.min
+
+            {
+                Name = name
+                Positions =
+                    points
+                    |> Array.map (fun (x, y, z) ->
+                        {
+                            X = x * scale
+                            Y = y * scale
+                            Z = z * scale - lowest + 5.0
+                        })
+                Colors = Some(points |> Array.map light)
+            }
+
+        // Land where a few smooth waves add up; ice near the poles
+        let land (x: float, y: float, z: float) =
+            sin (3.1 * x + 1.0) * cos (2.3 * z) + sin (4.0 * y - 0.5) * cos (1.7 * x) > 0.45
+
+        let ice (_, _, z: float) = abs z > 0.82
+
+        // The globe's lights with its lands turned `turn` radians about the vertical axis
+        let day (turn: float) (x: float, y: float, z: float) =
+            let p = x * cos turn - y * sin turn, x * sin turn + y * cos turn, z
+
+            if ice p then white
+            elif land p then rgb 40 190 70
+            else rgb 20 90 230
+
+        // n points along the edges of a wire shape: every vertex, and the rest spread over
+        // the edges as evenly as they divide
+        let wire (vertices: (float * float * float)[]) (edges: (int * int)[]) =
+            let inner = n - vertices.Length
+            let perEdge = inner / edges.Length
+            let extra = inner % edges.Length
+
+            Array.append
+                vertices
+                (edges
+                 |> Array.mapi (fun e (a, b) ->
+                     let count = perEdge + (if e < extra then 1 else 0)
+                     let (ax, ay, az), (bx, by, bz) = vertices.[a], vertices.[b]
+
+                     Array.init count (fun k ->
+                         let t = float (k + 1) / float (count + 1)
+                         ax + t * (bx - ax), ay + t * (by - ay), az + t * (bz - az)))
+                 |> Array.concat)
+
+        // An octahedron on its point: six corners, twelve edges
+        let octahedron =
+            wire
+                [| 1.0, 0.0, 0.0; -1.0, 0.0, 0.0; 0.0, 1.0, 0.0; 0.0, -1.0, 0.0; 0.0, 0.0, 1.0; 0.0, 0.0, -1.0 |]
+                [| 0, 2; 2, 1; 1, 3; 3, 0; 4, 0; 4, 1; 4, 2; 4, 3; 5, 0; 5, 1; 5, 2; 5, 3 |]
+
+        // Upper edges white, lower edges blue, the top and bottom corners cyan
+        let diamondLight (_, _, z) =
+            if abs z > 0.999 then rgb 0 255 255
+            elif z >= 0.0 then white
+            else rgb 0 110 255
+
+        // A cube: eight corners, twelve edges
+        let cube =
+            wire
+                [|
+                    for x in [ -1.0; 1.0 ] do
+                        for y in [ -1.0; 1.0 ] do
+                            for z in [ -1.0; 1.0 ] do
+                                x, y, z
+                |]
+                [| 0, 1; 2, 3; 4, 5; 6, 7; 0, 2; 1, 3; 4, 6; 5, 7; 0, 4; 1, 5; 2, 6; 3, 7 |]
+
+        let cubeLight (_: float * float * float) = rgb 255 60 220
+
+        // A five-point star in the east-up plane: the outline lit, an inner star dark
+        let star =
+            let vertices (radiusOuter: float) (radiusInner: float) =
+                Array.init 10 (fun i ->
+                    let angle = Math.PI / 2.0 + float i * Math.PI / 5.0
+                    let r = if i % 2 = 0 then radiusOuter else radiusInner
+                    r * cos angle, r * sin angle)
+
+            let along (ring: (float * float)[]) (count: int) =
+                let edges = Array.init 10 (fun i -> ring.[i], ring.[(i + 1) % 10])
+
+                let lengths =
+                    edges |> Array.map (fun ((ax, ay), (bx, by)) -> sqrt ((ax - bx) ** 2.0 + (ay - by) ** 2.0))
+
+                let total = Array.sum lengths
+
+                Array.init count (fun k ->
+                    let mutable s = total * float k / float count
+                    let mutable e = 0
+
+                    while e < 9 && s > lengths.[e] do
+                        s <- s - lengths.[e]
+                        e <- e + 1
+
+                    let (ax, ay), (bx, by) = edges.[e]
+                    let t = s / lengths.[e]
+                    ax + t * (bx - ax), 0.0, ay + t * (by - ay))
+
+            let outline = max 10 (n * 3 / 5)
+            let inner = n - outline
+
+            Array.append
+                (along (vertices 1.0 0.42) outline |> Array.map (fun (x, y, z) -> x, y, z, true))
+                (along (vertices 0.55 0.23) inner |> Array.map (fun (x, y, z) -> x, y, z, false))
+
+        let starPoints = star |> Array.map (fun (x, y, z, _) -> x, y, z)
+        let starLit = star |> Array.map (fun (_, _, _, lit) -> lit)
+
+        let starLight (p: float * float * float) =
+            if starLit.[Array.findIndex ((=) p) starPoints] then rgb 255 190 0 else black
+
+        let ground =
+            { (formations n 1).[0] with
+                Colors = Some(Array.create n white)
+            }
+
+        let step = 2.0 * Math.PI / float GlobeSteps
+
+        let show =
             [|
-                for i in 0 .. n - 1 do
-                    for j in 0 .. n - 1 do
-                        yield distanceMatrix.[i, j]
+                ground
+                spaced "Globe" 2.5 sphere (day 0.0)
+
+                for k in 1 .. GlobeSteps - 1 do
+                    spaced $"Globe, turned %d{k}/%d{GlobeSteps}" 2.5 sphere (day (float k * step))
+
+                spaced "Diamond" 1.0 octahedron diamondLight
+                spaced "Cube" 1.0 cube cubeLight
+                spaced "Star" 1.0 starPoints starLight
+                ground
             |]
-            |> Array.max
 
-        let penaltyWeight = maxDistance * float n * 2.0
+        if count >= show.Length then show
+        else Array.append (Array.truncate (max 1 (count - 1)) show) [| ground |]
 
-        // Build QUBO matrix
-        let qubo = QapQubo.buildQubo distanceMatrix penaltyWeight
+    /// One transition of the scale run.
+    type Transition =
+        {
+            From: string
+            To: string
+            /// Total distance of the Morton-order start pairing
+            StartDistance: float
+            /// Total distance of the assignment found; the start distance when none was
+            Distance: float
+            /// How it was found, or why it was not
+            Method: string
+            Solved: bool
+            ElapsedMs: int64
+        }
 
-        // Convert to Problem Hamiltonian, normalised so the fixed angles below are on the
-        // same scale the library's solvers use
-        let problemHam =
-            QaoaCircuit.ProblemHamiltonian.fromQubo qubo
-            |> QaoaCircuit.ProblemHamiltonian.normalize
+    /// A formation as flown: each drone's position and the light of the slot it holds
+    /// (white where the formation has no lights), for LightShowPicture.
+    let private frame (formation: Formation) (assignment: int[]) : LightShowPicture.Frame =
+        {
+            Name = formation.Name
+            Positions =
+                assignment
+                |> Array.map (fun slot ->
+                    let p = formation.Positions.[slot]
+                    p.X, p.Y, p.Z)
+            Lights =
+                assignment
+                |> Array.map (fun slot ->
+                    match formation.Colors with
+                    | Some colours -> colours.[slot].R, colours.[slot].G, colours.[slot].B
+                    | None -> 255, 255, 255)
+        }
 
-        let mixerHam = QaoaCircuit.MixerHamiltonian.create numVars
+    /// Fly `formations` with `n` drones: every transition through the gate, in blocks of
+    /// `blockDrones` drones with `sweeps` sweeps at most (Solver.BlockSweeps when 0). The
+    /// transitions, and every formation as flown (a failed transition holds the drones in
+    /// the formation before it).
+    let run
+        (backend: IQuantumBackend)
+        (shots: int)
+        (blockDrones: int)
+        (sweeps: int)
+        (formations: Formation[])
+        : Transition[] * LightShowPicture.Frame[] =
+        let toPoint (p: Position3D) : BlockAssignment.Point = { X = p.X; Y = p.Y; Z = p.Z }
+        let n = formations.[0].Positions.Length
+        let first = frame formations.[0] (Array.init n id)
 
-        // QAOA parameters (p=1 layer)
-        let gamma = 0.5
-        let beta = 0.3
-        let parameters = [| (gamma, beta) |]
+        let _, transitions, frames =
+            ((formations.[0].Positions, [], [ first ]), Array.pairwise formations)
+            ||> Array.fold (fun (current, flown, frames) (fromFormation, toFormation) ->
+                let sw = Stopwatch.StartNew()
+                let targets = toFormation.Positions
+                let distance (drone: int) (slot: int) = Geometry.distance current.[drone] targets.[slot]
+                let bound = TransitionSafety.bound current targets
+                let ends (assignment: int[]) = assignment |> Array.map (fun j -> targets.[j])
 
-        let attempt (attemptShots: int) (angles: (float * float)[]) =
-            // Build QAOA circuit
-            let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam angles
+                let safe (assignment: int[]) =
+                    TransitionSafety.minSeparation current (ends assignment) >= bound - 1e-9
 
-            let circuit =
-                CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
+                let unsafePairs (assignment: int[]) =
+                    TransitionSafety.unsafePairs current (ends assignment) bound
 
-            // Execute on provided backend
-            match backend.ExecuteToState circuit with
-            | Error err -> Error err.Message
-            | Ok state ->
-                // Lowest-distance valid, accepted sample
-                QuantumState.measure state attemptShots
-                |> Array.map (fun bits -> QapQubo.decodeAssignment bits n)
-                |> Array.filter (fun assignments -> QapQubo.validateAssignment assignments n && accept assignments)
-                |> Array.sortBy (QapQubo.calculateTotalDistance distanceMatrix)
-                |> Array.tryHead
-                |> Ok
+                let total (assignment: int[]) = assignment |> Array.mapi distance |> Array.sum
 
-        DynamicBehavior.QaoaAttempts.firstSolved shots parameters attempt
+                let start =
+                    BlockAssignment.startAssignment (Array.map toPoint current) (Array.map toPoint targets)
+
+                printfn "═══════════════════════════════════════════════════"
+                printfn "TRANSITION %d: %s → %s" (List.length flown + 1) fromFormation.Name toFormation.Name
+                printfn "  start pairing: %.2f m in all, gate %.2f m" (total start) bound
+
+                // Squared distances, the CAPT objective (Solver.solveInBlocks)
+                let found =
+                    BlockAssignment.solve
+                        backend
+                        shots
+                        blockDrones
+                        (if sweeps > 0 then sweeps else Solver.BlockSweeps)
+                        safe
+                        unsafePairs
+                        (fun drone slot -> distance drone slot ** 2.0)
+                        (Array.map toPoint current)
+                        (Array.map toPoint targets)
+
+                sw.Stop()
+
+                let next, flownFrame, transition =
+                    match found with
+                    | Ok(assignment, how) ->
+                        printfn "  QAOA %s (%d ms)" how sw.ElapsedMilliseconds
+
+                        assignment |> Array.map (fun j -> targets.[j]),
+                        frame toFormation assignment,
+                        {
+                            From = fromFormation.Name
+                            To = toFormation.Name
+                            StartDistance = total start
+                            Distance = total assignment
+                            Method = how
+                            Solved = true
+                            ElapsedMs = sw.ElapsedMilliseconds
+                        }
+                    | Error msg ->
+                        eprintfn "  FAILED: %s (%d ms); the drones hold" msg sw.ElapsedMilliseconds
+
+                        current,
+                        { List.head frames with Name = fromFormation.Name + " (held)" },
+                        {
+                            From = fromFormation.Name
+                            To = toFormation.Name
+                            StartDistance = total start
+                            Distance = total start
+                            Method = msg
+                            Solved = false
+                            ElapsedMs = sw.ElapsedMilliseconds
+                        }
+
+                next, transition :: flown, flownFrame :: frames)
+
+        transitions |> List.rev |> List.toArray, frames |> List.rev |> List.toArray
 
 // =============================================================================
 // VISUALIZATION
@@ -2158,6 +2588,135 @@ type Metrics =
 
 module Program =
 
+    /// The backend --backend names: the local simulator (default), or the topological one
+    /// with --anyons.
+    let private createBackend (args: Cli.ParsedArgs) : IQuantumBackend =
+        match (Cli.getOr "backend" "local" args).ToLower() with
+        | "topological"
+        | "topo" ->
+            // Ising encoding: 16 qubits needs 2*(16+1) = 34 anyons
+            let maxAnyons = Cli.getOr "anyons" "34" args |> int
+            printfn "Backend: Topological (Ising, %d anyons)" maxAnyons
+            TopologicalUnifiedBackendFactory.createIsing maxAnyons
+        | _ ->
+            printfn "Backend: LocalBackend (gate-based)"
+            LocalBackend() :> IQuantumBackend
+
+    /// --block: blocks of that many drones per circuit, when given.
+    let private blockOption (args: Cli.ParsedArgs) : int option =
+        match Cli.tryInt "block" args with
+        | Ok block -> block
+        | Error msg ->
+            eprintfn "%s" msg
+            exit 2
+
+    /// The scale run (--drones n, n other than 4): see ScaleShow. Exit code 1 when a
+    /// transition found no accepted assignment.
+    let private scaleMain (args: Cli.ParsedArgs) : int =
+        let sw = Stopwatch.StartNew()
+        let outDir = Cli.getOr "out" (Path.Combine("runs", "drone", "swarm-scale")) args
+        let shots = Cli.getOr "shots" "2000" args |> int
+        let droneCount = Cli.getOr "drones" "4" args |> int
+        let lights = Cli.hasFlag "lights" args
+        let formationCount =
+            Cli.getOr "formations" (if lights then string (ScaleShow.GlobeSteps + 5) else "5") args
+            |> int
+        let sweeps = Cli.getOr "sweeps" "0" args |> int
+
+        printfn ""
+        printfn "╔══════════════════════════════════════════════════╗"
+        printfn "║  DRONE SWARM CHOREOGRAPHY: SCALE RUN             ║"
+        printfn "║  FSharp.Azure.Quantum Example                    ║"
+        printfn "╚══════════════════════════════════════════════════╝"
+        printfn ""
+
+        let backend = createBackend args
+
+        let blockDrones =
+            match blockOption args, BlockAssignment.widestBlock backend with
+            | Some k, _ -> k
+            | None, Some k when k >= 2 -> k
+            | None, Some limit ->
+                eprintfn "backend '%s' runs %d qubits, under the 4 a block of 2 drones needs" backend.Name limit
+                exit 2
+            | None, None ->
+                eprintfn "backend '%s' reports no qubit limit: give --block <k>" backend.Name
+                exit 2
+
+        let formations =
+            if lights then
+                ScaleShow.litFormations droneCount formationCount
+            else
+                ScaleShow.formations droneCount formationCount
+
+        printfn
+            "%d drones, %d formations%s, blocks of %d drones (%d qubits a circuit), %s sweeps, %d shots"
+            droneCount
+            formations.Length
+            (if lights then " (a light show)" else "")
+            blockDrones
+            (blockDrones * blockDrones)
+            (if sweeps > 0 then string sweeps else $"up to {Solver.BlockSweeps}")
+            shots
+
+        printfn "No missions are exported from a scale run; it measures the block search and draws the show."
+        printfn ""
+
+        let transitions, frames = ScaleShow.run backend shots blockDrones sweeps formations
+        sw.Stop()
+
+        Data.ensureDirectory outDir
+
+        LightShowPicture.write
+            (Path.Combine(outDir, "show.svg"))
+            (sprintf "%d drones, %d formations: the lights the drones have on" droneCount formations.Length)
+            3.0
+            frames
+
+        let solved = transitions |> Array.filter (fun t -> t.Solved) |> Array.length
+        let startDistance = transitions |> Array.sumBy (fun t -> t.StartDistance)
+        let distance = transitions |> Array.sumBy (fun t -> t.Distance)
+
+        printfn ""
+        printfn "╔══════════════════════════════════════════════════╗"
+        printfn "║  SCALE RUN SUMMARY                               ║"
+        printfn "╠══════════════════════════════════════════════════╣"
+        printfn "║  Drones: %-40d║" droneCount
+        printfn "║  Transitions solved: %d of %-23d║" solved transitions.Length
+        printfn "║  Distance, start pairing: %-23s║" (sprintf "%.1f m" startDistance)
+        printfn "║  Distance, block search:  %-23s║" (sprintf "%.1f m" distance)
+        printfn "║  Elapsed: %-39s║" (sprintf "%d ms" sw.ElapsedMilliseconds)
+        printfn "╚══════════════════════════════════════════════════╝"
+
+        Reporting.writeJson
+            (Path.Combine(outDir, "scale-metrics.json"))
+            {|
+                run_id = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
+                num_drones = droneCount
+                block_drones = blockDrones
+                block_qubits = blockDrones * blockDrones
+                shots = shots
+                backend = backend.Name
+                transitions_solved = solved
+                start_pairing_distance = startDistance
+                total_distance = distance
+                elapsed_ms = sw.ElapsedMilliseconds
+                transitions =
+                    transitions
+                    |> Array.map (fun t ->
+                        {|
+                            from_formation = t.From
+                            to_formation = t.To
+                            start_pairing_distance = t.StartDistance
+                            distance = t.Distance
+                            solved = t.Solved
+                            method = t.Method
+                            elapsed_ms = t.ElapsedMs
+                        |})
+            |}
+
+        if solved = transitions.Length then 0 else 1
+
     [<EntryPoint>]
     let main argv =
         let args = Cli.parse argv
@@ -2191,6 +2750,11 @@ module Program =
             printfn "║                      (20 MAVLink, 7 Crazyflie)   ║"
             printfn "║    --room-x <m>      Room east-west (default 4)  ║"
             printfn "║    --room-y <m>      Room north-south (default 4)║"
+            printfn "║    --block <k>       Assign in blocks of k drones║"
+            printfn "║    --drones <n>      Scale run with n drones     ║"
+            printfn "║    --formations <m>  Scale run formations (5, 29)║"
+            printfn "║    --lights          Scale run as a light show   ║"
+            printfn "║    --sweeps <s>      Scale run sweeps (up to 12) ║"
             printfn "║    --help            Show this help              ║"
             printfn "╚══════════════════════════════════════════════════╝"
             printfn ""
@@ -2216,12 +2780,24 @@ module Program =
             printfn "  Every run writes permission-evidence.md/.json: 1:N permission"
             printfn "  evidence for the MAVLink missions (with --mavlink) or else the"
             printfn "  Crazyflie show."
+            printfn ""
+            printfn "MORE DRONES THAN ONE CIRCUIT HOLDS:"
+            printfn "  A swarm whose n² qubits exceed the backend is assigned in blocks of"
+            printfn "  ⌊√limit⌋ drones (BlockAssignment): --block <k> asks for blocks of k."
+            printfn "  Scale run: dotnet run -- --drones 200 --formations 5 [--sweeps 12]"
+            printfn "  (generated formations, every transition in blocks; no missions exported,"
+            printfn "  show.svg animates the drones in the colours of their lights). With"
+            printfn "  --lights the formations are a globe whose lands turn, a diamond, a cube"
+            printfn "  and a star with its inner lights off: dotnet run -- --drones 100 --lights"
             0
+        elif (Cli.getOr "drones" "4" args |> int) <> 4 then
+            scaleMain args
         else
             let sw = Stopwatch.StartNew()
 
             let outDir = Cli.getOr "out" (Path.Combine("runs", "drone", "swarm")) args
             let shots = Cli.getOr "shots" "2000" args |> int
+            let blockDrones = blockOption args
 
             Data.ensureDirectory outDir
             let runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
@@ -2238,19 +2814,7 @@ module Program =
             printfn ""
 
             // Create quantum backend (RULE 1 COMPLIANT)
-            let backendType = Cli.getOr "backend" "local" args
-
-            let backend: IQuantumBackend =
-                match backendType.ToLower() with
-                | "topological"
-                | "topo" ->
-                    // Ising encoding: 16 qubits needs 2*(16+1) = 34 anyons
-                    let maxAnyons = Cli.getOr "anyons" "34" args |> int
-                    printfn "Backend: Topological (Ising, %d anyons)" maxAnyons
-                    TopologicalUnifiedBackendFactory.createIsing maxAnyons
-                | _ ->
-                    printfn "Backend: LocalBackend (gate-based)"
-                    LocalBackend() :> IQuantumBackend
+            let backend = createBackend args
 
             // Define show sequence
             let formations =
@@ -2308,7 +2872,7 @@ module Program =
                         TransitionSafety.minSeparation currentPositions (TransitionSafety.ends toFormation candidate n)
                         >= bound - 1e-9
 
-                    match Solver.solve backend shots safe distMatrix with
+                    match Solver.solve backend shots blockDrones safe currentPositions toFormation.Positions distMatrix with
                     | Ok(a, how) ->
                         printfn "  QAOA %s" how
                         (a, "Quantum (QAOA)")
@@ -2570,7 +3134,7 @@ This example is **RULE 1 compliant**:
 
                 printfn "Indoor downwash gate: re-solving a transition by QAOA on weighted distances..."
 
-                Solver.solve backend shots safe distances
+                Solver.solve backend shots blockDrones safe starts targets distances
                 |> Result.map (fun (a, how) ->
                     printfn "  QAOA %s" how
                     (a, how))

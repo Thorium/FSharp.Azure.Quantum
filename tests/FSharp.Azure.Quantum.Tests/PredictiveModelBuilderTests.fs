@@ -157,7 +157,7 @@ module PredictiveModelBuilderTests =
 
             match! trainAsync (wideProblem problemType 4 probe) CancellationToken.None with
             | Error(QuantumError.ValidationError("features", msg)) ->
-                Assert.Contains("4 features needs 4 qubits", msg)
+                Assert.Contains("4 features (one qubit per feature) needs 4 qubits", msg)
                 Assert.Contains("'Width probe'", msg)
                 Assert.Contains("at most 3 qubits", msg)
                 Assert.Contains("Reduce dimensionality", msg)

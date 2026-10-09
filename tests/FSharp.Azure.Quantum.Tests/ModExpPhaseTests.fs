@@ -14,6 +14,7 @@ module ModExpPhaseTests =
     module Shor = FSharp.Azure.Quantum.Algorithms.Shor
     module QPE = FSharp.Azure.Quantum.Algorithms.QPE
 
+    [<Literal>]
     let private probeName = "width-probe"
 
     // ========================================================================

@@ -634,7 +634,9 @@ module FusionTreeTests =
     let private basisTrees (anyonType: AnyonSpecies.AnyonType) (numQubits: int) =
         [
             for x in 0 .. (1 <<< numQubits) - 1 ->
-                match FusionTree.fromComputationalBasis [ for q in 0 .. numQubits - 1 -> (x >>> q) &&& 1 ] anyonType with
+                match
+                    FusionTree.fromComputationalBasis [ for q in 0 .. numQubits - 1 -> (x >>> q) &&& 1 ] anyonType
+                with
                 | Ok tree -> tree
                 | Error err -> failwith $"basis tree {x}: {err.Message}"
         ]

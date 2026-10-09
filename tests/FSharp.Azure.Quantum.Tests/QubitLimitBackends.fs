@@ -36,6 +36,7 @@ type CapacityStubBackend(name: string, limit: int option, ?nativeAlgorithms: boo
     interface IQuantumBackend with
         member _.Name = name
         member _.NativeStateType = QuantumStateType.GateBased
+
         member _.SupportsOperation operation =
             match operation with
             | QuantumOperation.Algorithm _ -> defaultArg nativeAlgorithms false

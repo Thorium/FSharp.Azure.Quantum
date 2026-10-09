@@ -191,7 +191,7 @@ let fullNoisyExecutor (circuit: Circuit) (shots: int) : Task<Result<Map<string, 
         let gateCount = List.length circuit.Gates |> float
         let gateNoise = gateCount * 0.005
 
-        let random = Random()
+        let random = Random.Shared
         let noise = (random.NextDouble() - 0.5) * gateNoise
         let noisyExpectation = trueEnergy + noise
 
@@ -225,7 +225,7 @@ let noisyExpectationExecutor (circuit: Circuit) : Task<Result<float, string>> =
     task {
         let circuitDepth = float (gateCount circuit)
         let noiseLevel = circuitDepth * 0.02
-        let random = Random()
+        let random = Random.Shared
         let noise = (random.NextDouble() - 0.5) * noiseLevel
         return Ok(trueEnergy + noise)
     }

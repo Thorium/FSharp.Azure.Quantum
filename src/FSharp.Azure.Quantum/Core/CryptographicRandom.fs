@@ -21,8 +21,7 @@ type CryptographicRandom() =
     /// Uniform in [0, bound) for bound > 0: rejection over the smallest bit mask that covers
     /// the range, so no value is favoured.
     static let below (bound: uint64) : uint64 =
-        let mask =
-            UInt64.MaxValue >>> BitOperations.LeadingZeroCount((bound - 1UL) ||| 1UL)
+        let mask = UInt64.MaxValue >>> BitOperations.LeadingZeroCount((bound - 1UL) ||| 1UL)
 
         let mutable value = bits64 () &&& mask
 

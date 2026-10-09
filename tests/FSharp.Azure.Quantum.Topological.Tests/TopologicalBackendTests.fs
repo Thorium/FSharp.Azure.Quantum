@@ -668,7 +668,13 @@ module TopologicalBackendTests =
             [
                 3, [ CircuitBuilder.H 0; CircuitBuilder.H 1; CircuitBuilder.H 2 ]
                 3, [ CircuitBuilder.RY(0, 1.1); CircuitBuilder.H 1; CircuitBuilder.RY(2, 0.7) ]
-                4, [ CircuitBuilder.RY(0, 0.7); CircuitBuilder.H 1; CircuitBuilder.RY(2, 1.1); CircuitBuilder.H 3 ]
+                4,
+                [
+                    CircuitBuilder.RY(0, 0.7)
+                    CircuitBuilder.H 1
+                    CircuitBuilder.RY(2, 1.1)
+                    CircuitBuilder.H 3
+                ]
             ]
 
         for numQubits, prep in preparations do

@@ -12,12 +12,14 @@
     <Compile Include="..\_common\DroneDomain.fs" Link="_common\DroneDomain.fs" />
     <Compile Include="..\_common\PermissionEvidence.fs" Link="_common\PermissionEvidence.fs" />
     <Compile Include="..\_common\MavlinkMission.fs" Link="_common\MavlinkMission.fs" />
+    <Compile Include="..\_common\MapUnderlay.fs" Link="_common\MapUnderlay.fs" />
     <Compile Include="FireDomain.fs" />
     <Compile Include="AirBridge.fs" />
     <Compile Include="QuantumPlanner.fs" />
     <Compile Include="FireSim.fs" />
     <Compile Include="Demand.fs" />
     <Compile Include="Dispatch.fs" />
+    <Compile Include="MapPicture.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

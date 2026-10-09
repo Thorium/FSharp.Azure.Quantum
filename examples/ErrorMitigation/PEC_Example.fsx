@@ -234,7 +234,7 @@ let noisyExecutor (circuit: Circuit) : Task<Result<float, string>> =
             (float singleQubitGates * noiseModel.SingleQubitDepolarizing)
             + (float twoQubitGates * noiseModel.TwoQubitDepolarizing)
 
-        let random = Random()
+        let random = Random.Shared
         let noise = (random.NextDouble() - 0.5) * noiseContribution * 10.0
         return Ok(trueEnergy + noise)
     }

@@ -319,7 +319,10 @@ module PredictiveModel =
             numFeatures
             backend
         |> Option.map (fun reason ->
-            QuantumError.ValidationError("features", $"{reason}. Reduce dimensionality first (feature selection or PCA)."))
+            QuantumError.ValidationError(
+                "features",
+                $"{reason}. Reduce dimensionality first (feature selection or PCA)."
+            ))
 
     /// A prediction sample must have the width the VQC model was trained on: the
     /// trained parameters size the circuit, so another width is refused.

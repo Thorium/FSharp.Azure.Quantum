@@ -68,11 +68,20 @@ module CryptographicRandomTests =
     let ``an invalid range is refused as System.Random refuses it`` () =
         let rng = CryptographicRandom() :> Random
 
-        Assert.Throws<ArgumentOutOfRangeException>(fun () -> rng.Next -1 |> ignore) |> ignore
-        Assert.Throws<ArgumentOutOfRangeException>(fun () -> rng.Next(4, 3) |> ignore) |> ignore
-        Assert.Throws<ArgumentOutOfRangeException>(fun () -> rng.NextInt64 -1L |> ignore) |> ignore
-        Assert.Throws<ArgumentOutOfRangeException>(fun () -> rng.NextInt64(4L, 3L) |> ignore) |> ignore
-        Assert.Throws<ArgumentNullException>(fun () -> rng.NextBytes(null: byte[])) |> ignore
+        Assert.Throws<ArgumentOutOfRangeException>(fun () -> rng.Next -1 |> ignore)
+        |> ignore
+
+        Assert.Throws<ArgumentOutOfRangeException>(fun () -> rng.Next(4, 3) |> ignore)
+        |> ignore
+
+        Assert.Throws<ArgumentOutOfRangeException>(fun () -> rng.NextInt64 -1L |> ignore)
+        |> ignore
+
+        Assert.Throws<ArgumentOutOfRangeException>(fun () -> rng.NextInt64(4L, 3L) |> ignore)
+        |> ignore
+
+        Assert.Throws<ArgumentNullException>(fun () -> rng.NextBytes(null: byte[]))
+        |> ignore
 
     [<Fact>]
     let ``fractions are in the half-open unit interval`` () =
@@ -99,7 +108,11 @@ module CryptographicRandomTests =
             Assert.InRange(count, 9300, 10700)
 
         // The same through NextDouble, which the samplers use.
-        let below = Seq.init draws (fun _ -> rng.NextDouble()) |> Seq.filter (fun d -> d < 0.25) |> Seq.length
+        let below =
+            Seq.init draws (fun _ -> rng.NextDouble())
+            |> Seq.filter (fun d -> d < 0.25)
+            |> Seq.length
+
         Assert.InRange(below, 9300, 10700)
 
     [<Fact>]
@@ -127,8 +140,12 @@ module CryptographicRandomTests =
         let draw (rng: Random) = Array.init 16 (fun _ -> rng.Next 1000)
 
         Assert.Equal<int[]>(draw (Random 11), draw (CryptographicRandom.UnlessSeeded(ValueSome 11)))
-        Assert.IsType<CryptographicRandom>(CryptographicRandom.UnlessSeeded ValueNone) |> ignore
-        Assert.IsNotType<CryptographicRandom>(CryptographicRandom.UnlessSeeded(ValueSome 11)) |> ignore
+
+        Assert.IsType<CryptographicRandom>(CryptographicRandom.UnlessSeeded ValueNone)
+        |> ignore
+
+        Assert.IsNotType<CryptographicRandom>(CryptographicRandom.UnlessSeeded(ValueSome 11))
+        |> ignore
 
     [<Fact>]
     let ``BB84 building blocks accept the cryptographic generator`` () =
@@ -140,7 +157,11 @@ module CryptographicRandomTests =
         Assert.Equal(400, bobBases.Length)
 
         // 400 fair coins: 200 expected, standard deviation 10.
-        let ones = alice.Bits |> Array.filter (fun b -> b = QuantumKeyDistribution.One) |> Array.length
+        let ones =
+            alice.Bits
+            |> Array.filter (fun b -> b = QuantumKeyDistribution.One)
+            |> Array.length
+
         Assert.InRange(ones, 120, 280)
 
         let diagonal =

@@ -165,11 +165,13 @@ module QuantumPatternMatcherBuilderTests =
 
     [<Fact>]
     let ``solve admits a 2^17 search space when the backend declares no limit`` () =
+        // The stub takes the Grover intents natively: lowering the predicate oracle to gates
+        // would lower a gate for each of the 2^16 even items.
         let problem =
             QuantumPatternMatcher.patternMatcher {
                 searchSpaceSize (1 <<< 17)
                 matchPattern evenNumberPattern
-                backend (CapacityStubBackend("non-simulating", None) :> IQuantumBackend)
+                backend (CapacityStubBackend("non-simulating", None, nativeAlgorithms = true) :> IQuantumBackend)
             }
 
         let result = QuantumPatternMatcher.solve problem

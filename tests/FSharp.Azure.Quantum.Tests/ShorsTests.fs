@@ -227,20 +227,21 @@ module ShorsTests =
         |> Result.map (fun _ -> Assert.Fail("Should reject 0 precision qubits"))
         |> Result.defaultWith (fun msg -> Assert.Contains("positive", msg.Message.ToLower()))
 
-        // Precision is bounded by the circuit budget (wall-clock), not by state capacity.
-        let budget = StateVector.practicalCircuitQubits
+        // A precision wider than the backend leaves room for is reduced, not refused (see
+        // ModExpPhaseTests); the refusal is the int32 read of the counting register.
+        let most = FSharp.Azure.Quantum.Algorithms.QPE.MaxCountingQubits
 
         let invalidConfig2 =
             {
                 NumberToFactor = 15
-                RandomBase = None
-                PrecisionQubits = budget + 5 // Too many
+                RandomBase = Some 7
+                PrecisionQubits = most + 1 // Too many
                 MaxAttempts = 5
             }
 
         (executeShorsWithBackend invalidConfig2 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000)
-        |> Result.map (fun _ -> Assert.Fail($"Should reject > {budget} precision qubits"))
-        |> Result.defaultWith (fun msg -> Assert.Contains(string budget, msg.Message))
+        |> Result.map (fun _ -> Assert.Fail($"Should reject > {most} precision qubits"))
+        |> Result.defaultWith (fun msg -> Assert.Contains(string most, msg.Message))
 
     [<Fact>]
     let ``Shor factors small composites`` () =

@@ -4618,7 +4618,10 @@ module ChemistryQpeTests =
         task {
             // H2/STO-3G has 4 system qubits: a 10-qubit backend leaves 6 for counting.
             match!
-                QPE.runAsync (Molecule.createH2 0.7414) (config (Some(LimitedLocalBackend 10 :> IQuantumBackend))) CancellationToken.None
+                QPE.runAsync
+                    (Molecule.createH2 0.7414)
+                    (config (Some(LimitedLocalBackend 10 :> IQuantumBackend)))
+                    CancellationToken.None
             with
             | Error e -> Assert.Fail e.Message
             | Ok r -> Assert.Equal(6, (details r).CountingQubits)
@@ -4626,7 +4629,12 @@ module ChemistryQpeTests =
             // A 6-qubit backend leaves 2, fewer than QPE needs.
             let narrow = CapacityStubBackend("stub-6", Some 6)
 
-            match! QPE.runAsync (Molecule.createH2 0.7414) (config (Some(narrow :> IQuantumBackend))) CancellationToken.None with
+            match!
+                QPE.runAsync
+                    (Molecule.createH2 0.7414)
+                    (config (Some(narrow :> IQuantumBackend)))
+                    CancellationToken.None
+            with
             | Ok _ -> Assert.Fail "2 counting qubits are too few"
             | Error e ->
                 Assert.Contains("leave 2 of the 6", e.Message)
@@ -4636,7 +4644,12 @@ module ChemistryQpeTests =
             // A backend that declares no limit gets the algorithmic default of 8.
             let unlimited = CapacityStubBackend("unlimited-stub", None)
 
-            match! QPE.runAsync (Molecule.createH2 0.7414) (config (Some(unlimited :> IQuantumBackend))) CancellationToken.None with
+            match!
+                QPE.runAsync
+                    (Molecule.createH2 0.7414)
+                    (config (Some(unlimited :> IQuantumBackend)))
+                    CancellationToken.None
+            with
             | Ok _ -> Assert.Fail "the stub runs nothing"
             | Error e ->
                 Assert.Contains(CapacityStubBackend.Marker, e.Message)

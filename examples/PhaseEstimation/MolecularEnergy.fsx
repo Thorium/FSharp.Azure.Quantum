@@ -80,7 +80,8 @@ Cli.exitIfHelp
         }
         {
             Name = "counting"
-            Description = "Counting qubits for the h2 scenario (at least 3; 4 system qubits + counting, up to what the backend runs)"
+            Description =
+                "Counting qubits for the h2 scenario (at least 3; 4 system qubits + counting, up to what the backend runs)"
             Default = Some "8"
         }
         {

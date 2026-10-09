@@ -993,13 +993,23 @@ module TopologicalOperationsTests =
             |> TopologicalOperations.combineLikeTerms
 
         let expected: (Complex * int list) list =
-            [ Complex(0.625, 0.0), [ 1; 0 ]; Complex(0.5, 0.0), [ 0; 1 ]; Complex(1.0, 0.0), [ 1; 1 ] ]
+            [
+                Complex(0.625, 0.0), [ 1; 0 ]
+                Complex(0.5, 0.0), [ 0; 1 ]
+                Complex(1.0, 0.0), [ 1; 1 ]
+            ]
 
         Assert.Equal<(Complex * int list) list>(expected, readTermBits combined)
 
     [<Fact>]
     let ``combineLikeTerms keeps trees apart that differ in one channel only`` () =
-        let all = [ for a in 0..1 do for b in 0..1 do for c in 0..1 -> termOf 1.0 [ a; b; c ] ]
+        let all =
+            [
+                for a in 0..1 do
+                    for b in 0..1 do
+                        for c in 0..1 -> termOf 1.0 [ a; b; c ]
+            ]
+
         let combined = ising all |> TopologicalOperations.combineLikeTerms
 
         Assert.Equal(8, combined.Terms.Length)
@@ -1022,7 +1032,13 @@ module TopologicalOperationsTests =
     [<Fact>]
     let ``normalize combines like terms itself`` () =
         let normalized =
-            ising [ termOf 3.0 [ 1; 0 ]; termOf 4.0 [ 0; 0 ]; termOf -3.0 [ 1; 0 ]; termOf 3.0 [ 1; 1 ] ]
+            ising
+                [
+                    termOf 3.0 [ 1; 0 ]
+                    termOf 4.0 [ 0; 0 ]
+                    termOf -3.0 [ 1; 0 ]
+                    termOf 3.0 [ 1; 1 ]
+                ]
             |> TopologicalOperations.normalize
 
         let expected: (Complex * int list) list =

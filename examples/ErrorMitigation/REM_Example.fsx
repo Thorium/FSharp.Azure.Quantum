@@ -190,7 +190,7 @@ let noisyMeasurementExecutor
                 | Gate.X qq when qq = q -> true
                 | _ -> false)
 
-        let random = Random()
+        let random = Random.Shared
         let mutable results = Map.empty
 
         for _ in 1..shots do

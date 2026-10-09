@@ -64,16 +64,26 @@ module QaoaExecutionHelpers =
             /// Most items in a block of a block split, one qubit each (default 12); never more
             /// than the widest piece.
             MaxBlockItems: int
+
+            /// Most sweeps of a neighbourhood search over a QUBO that conditioning does not
+            /// cut (QuboSplitting.searchNeighbourhoodsAsync): a sweep samples every block of
+            /// MaxPieceQubits variables once with the rest of the best assignment so far
+            /// fixed, and keeps every improvement; the runs of all sweeps stay within
+            /// MaxShareRuns. The search is a heuristic: it keeps the best sample it sees and
+            /// joins nothing exactly. 0, the default, searches nothing: such a QUBO is refused
+            /// with the reason.
+            MaxSweeps: int
         }
 
     /// Default split settings: split on simulators only, pieces as wide as the backend runs,
-    /// at most 256 circuit runs, blocks of at most 12 items.
+    /// at most 256 circuit runs, blocks of at most 12 items, no neighbourhood search.
     let defaultSplitSettings: SplitSettings =
         {
             Policy = SplitPolicy.OnSimulators
             MaxPieceQubits = ValueNone
             MaxShareRuns = 256
             MaxBlockItems = 12
+            MaxSweeps = 0
         }
 
     /// How a solution was put together when its problem was split. Solutions carry it as
@@ -90,16 +100,22 @@ module QaoaExecutionHelpers =
             /// for a block split
             FixedVariables: int
 
-            /// Blocks the items were cut into (block split); 0 for conditioning
+            /// Blocks the items were cut into (block split), or the blocks one sweep samples
+            /// (neighbourhood search); 0 for conditioning
             Blocks: int
 
             /// Widest circuit among the runs, in qubits
             WidestPieceQubits: int
+
+            /// Sweeps of a neighbourhood search (a heuristic: nothing was joined exactly); 0
+            /// for an exact split
+            Sweeps: int
         }
 
     /// The report of a solution joined from independently solved parts (connected
-    /// components), each with its own report or None: runs, fixed variables and blocks add
-    /// up, and the widest piece is the widest of any part. None when no part was split.
+    /// components), each with its own report or None: runs, fixed variables, blocks and
+    /// sweeps add up, and the widest piece is the widest of any part. None when no part was
+    /// split.
     let combineSplitReports (reports: SplitReport option list) : SplitReport option =
         match List.choose id reports with
         | [] -> None
@@ -110,6 +126,7 @@ module QaoaExecutionHelpers =
                     FixedVariables = split |> List.sumBy (fun report -> report.FixedVariables)
                     Blocks = split |> List.sumBy (fun report -> report.Blocks)
                     WidestPieceQubits = split |> List.map (fun report -> report.WidestPieceQubits) |> List.max
+                    Sweeps = split |> List.sumBy (fun report -> report.Sweeps)
                 }
 
     /// The widest piece a split may use on this backend, or ValueNone when the problem runs as

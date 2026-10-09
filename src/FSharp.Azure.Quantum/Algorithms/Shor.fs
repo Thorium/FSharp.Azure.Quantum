@@ -158,7 +158,8 @@ module Shor =
     /// natively, the Beauregard circuit's 2·registerBits + 4 otherwise). Period finding is
     /// refused exactly when this exceeds the backend's runnable qubits.
     let narrowestPeriodFindingQubits (backend: IQuantumBackend) (n: int) (precisionQubits: int) : int =
-        min (max 1 precisionQubits) (registerBitsFor n) + nonCountingQubitsFor backend 2 n
+        min (max 1 precisionQubits) (registerBitsFor n)
+        + nonCountingQubitsFor backend 2 n
 
     // ========================================================================
     // CLASSICAL NUMBER THEORY HELPERS
@@ -770,6 +771,7 @@ module Shor =
                 match room with
                 | Some most -> max 1 (min precisionQubits most)
                 | None -> max 1 precisionQubits
+
             let maxAttempts = 16
 
             let periodFindingPlan =

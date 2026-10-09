@@ -42,8 +42,7 @@ module BinaryClassificationBuilderTests =
         let numSamples = 4
 
         {
-            TrainFeatures =
-                Array.init numSamples (fun i -> Array.init numFeatures (fun j -> float ((i + j) % 5) / 5.0))
+            TrainFeatures = Array.init numSamples (fun i -> Array.init numFeatures (fun j -> float ((i + j) % 5) / 5.0))
             TrainLabels = Array.init numSamples (fun i -> i % 2)
             Architecture = architecture
             LearningRate = 0.01
@@ -298,7 +297,7 @@ module BinaryClassificationBuilderTests =
 
             match! trainAsync (wideProblem architecture 4 probe) CancellationToken.None with
             | Error(QuantumError.ValidationError("features", msg)) ->
-                Assert.Contains("4 features needs 4 qubits", msg)
+                Assert.Contains("4 features (one qubit per feature) needs 4 qubits", msg)
                 Assert.Contains("'Width probe'", msg)
                 Assert.Contains("at most 3 qubits", msg)
                 Assert.Contains("Reduce dimensionality", msg)

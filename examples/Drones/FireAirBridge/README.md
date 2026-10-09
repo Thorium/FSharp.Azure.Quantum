@@ -26,6 +26,24 @@ with nobody in it changes the risk calculus. It is not a replacement for
 aircraft on a running front. The run shows this: the fire spreads under every
 policy, and the plan decides how much.
 
+Two settings fit that description, and the example runs both:
+
+- **Wildland hotspots.** Lakes and reservoirs around a burning hillside: the
+  CSV scenario (lakes near Kuopio, and the same shape as a Californian hillside
+  above a reservoir). Many sources, many sectors, the wind turning, a lake
+  closed by smoke, a spot fire, aircraft lost.
+- **A high-rise facade fire above ladder reach.** At Grenfell Tower in London
+  on 14 June 2017 the fire ran up the external cladding of a 67 m building;
+  the tallest aerial ladder on scene reached about 30 m, and 72 people died.
+  Water carried from a river to a facade at any height, continuously, within
+  minutes of the call, is what an air bridge does that a ladder cannot. Name
+  the tower and the river on the command line (`--fire`, `--water`, see
+  [On a map](#on-a-map-name-the-fire-and-the-water)) and the same planner runs
+  it. What the model does not claim: that 40 L drops put out an established
+  cladding fire, or that the sector model (an area in hectares) stands for a
+  facade. Sustained delivery at height is the claim the run supports; a target
+  with a height and a drop beside it is the next modelling step.
+
 ## The model: the corridor is the unit, drones are flow
 
 A drone is neither a node nor a path. The planned entity is the **corridor**:
@@ -380,6 +398,57 @@ Run with `--help` for the full list. The main options are:
 | `--latency`, `--layers`, `--shots` | QAOA answer delay (ticks), depth p, and final shots. |
 | `--horizon` (default 20), `--replan-every` (default 10) | Planning horizon and periodic re-plan interval, in ticks. The horizon must exceed a corridor's warm-up or nothing is worth opening. |
 | `--pilots` | Pilots declared in the permission evidence. |
+| `--fire <points>`, `--water <points>` | The scenario from two lists of points instead of the CSVs, see below. |
+| `--map`, `--map-every <ticks>` | Draw the run on a map (`map.svg`), a frame per that many ticks (default 5). |
+
+## On a map: name the fire and the water
+
+The CSVs are the full scenario. For a quick one, name the points on the command
+line, `"Name=latitude,longitude;Name=latitude,longitude"`, and draw the run on a
+map:
+
+```bash
+dotnet run --project examples/Drones/FireAirBridge -- \
+  --fire "The Shard=51.5045,-0.0865;The Gherkin=51.5144,-0.0803" \
+  --water "Thames at London Bridge=51.5079,-0.0877;Thames at Tower Bridge=51.5055,-0.0754" \
+  --map --policy adaptive-hybrid
+```
+
+Each fire is a 1 ha sector burning at intensity 0.6 with 4 drop slots (every
+fire a neighbour of every other, so it can spread); each water a source with 4
+fill slots and a 25 s fill; the fleet is the default one, and the wind is 4 m/s
+toward 45° turning to 7 m/s toward 120° at T+15 unless `--events` names a file.
+Everything else is as for the CSV scenario: the same planner, the same evidence.
+
+`--map` writes `map.svg`: the sources and targets where they are on an
+OpenStreetMap background (© OpenStreetMap contributors; the tiles are fetched
+once into `runs/drone/osm-tiles/` and reused, a detailed layer and a coarser
+one around it for zooming out). It shows the choice the planner makes, not only
+its result: every candidate corridor of the latest round as a dotted line (one
+qubit each), the corridors the plan has open as solid lines whose width and
+flowing dots are the drones on them (dashed while draining), each target red
+by its fire intensity and growing with it, a grey source while it is closed,
+the wind, and the clock, one frame per `--map-every` ticks. The footer gives
+the events and the plan decisions of that stretch: candidates, qubits, how
+many plans that is, circuits run, and the QAOA, exact and greedy scores with
+what was adopted. Opened in a browser the map zooms with the wheel or the +/−
+buttons and pans by dragging; as an image in a page it plays but stays put.
+With the CSV scenario it draws the Kuopio lakes and sectors the same way; a
+local-metres scenario (the can demo) needs `--home-lat` and `--home-lon` to be
+placed. Without the tiles (no network) the picture is drawn on a plain ground
+and says so.
+
+A scenario with a real choice each round needs several water points and
+several sectors within one battery's reach. The hills above Oakland, the
+ground of the 1991 firestorm, with three water points and eight sectors
+(24 candidate pairs, capped at 10 a round, 13 qubits with the source qubits):
+
+```bash
+dotnet run --project examples/Drones/FireAirBridge -- \
+  --fire "Hiller Highlands=37.8530,-122.2330;Parkwoods=37.8500,-122.2250;Buckingham=37.8470,-122.2150;Broadway Terrace=37.8440,-122.2200;Charing Cross=37.8560,-122.2290;Grizzly Peak=37.8600,-122.2260;Tunnel Road=37.8585,-122.2345;Marlborough Terrace=37.8420,-122.2270" \
+  --water "Lake Temescal=37.8470,-122.2290;Hiller tank=37.8560,-122.2360;Claremont=37.8590,-122.2410" \
+  --map --policy adaptive-hybrid --max-corridors 10 --coordinators 4
+```
 
 ## Data
 

@@ -2470,6 +2470,7 @@ module Export =
             if recording.Value then
                 items.Add(Mav.videoStop items.Count)
                 recording.Value <- false
+
         let first, _ = List.head points
         let last, _ = List.last points
         let padOnGround = toMav { pad with AltitudeMeters = 0.0 }

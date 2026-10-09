@@ -337,7 +337,9 @@ module TreeSearch =
                 UnifiedBackend.requireRunnableQubits
                     "TreeSearch"
                     $"tree search with depth {config.MaxDepth} and branching {config.BranchingFactor}"
-                    (int (min (int64 config.MaxDepth * int64 (bitsNeeded config.BranchingFactor)) (int64 Int32.MaxValue)))
+                    (int (
+                        min (int64 config.MaxDepth * int64 (bitsNeeded config.BranchingFactor)) (int64 Int32.MaxValue)
+                    ))
                     backend
 
             // Step 1: Calculate score threshold from top percentile

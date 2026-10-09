@@ -434,6 +434,7 @@ module QuantumKnapsackSolver =
                                                 QuboSplitting.blocksOf maxBlockItems items.Length
                                                 |> List.map Array.length
                                                 |> List.max
+                                            Sweeps = 0
                                         }
                             })
         }
@@ -1108,6 +1109,7 @@ module QuantumKnapsackSolver =
                                     FixedVariables = 0
                                     Blocks = blocks.Count
                                     WidestPieceQubits = widest.Value
+                                    Sweeps = 0
                                 }
                     }
             }

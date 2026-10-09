@@ -5947,8 +5947,7 @@ module QPE =
 
                     let systemQubits = 2 * integrals.NumOrbitals
 
-                    let runnable =
-                        Core.BackendAbstraction.UnifiedBackend.getRunnableQubits backend
+                    let runnable = Core.BackendAbstraction.UnifiedBackend.getRunnableQubits backend
 
                     let countingQubits =
                         match settings.CountingQubits, runnable with
@@ -5971,9 +5970,7 @@ module QPE =
                                 invalid "CountingQubits" $"must be at least {MinCountingQubits}, got {countingQubits}"
                             | _ when countingQubits > MaxCountingQubits ->
                                 invalid "CountingQubits" $"must be at most {MaxCountingQubits}, got {countingQubits}"
-                            | _ when
-                                int64 settings.TrotterSteps <<< (countingQubits - 1) > int64 Int32.MaxValue
-                                ->
+                            | _ when int64 settings.TrotterSteps <<< (countingQubits - 1) > int64 Int32.MaxValue ->
                                 invalid
                                     "CountingQubits"
                                     $"the last controlled-U repeats {settings.TrotterSteps} Trotter steps 2^{countingQubits - 1} times, more than Int32 counts"

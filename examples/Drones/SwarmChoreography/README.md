@@ -530,7 +530,7 @@ let solve (backend: IQuantumBackend) (shots: int) (accept: Assignment[] -> bool)
 
     // 4. No accepted sample: more shots, then other angles; then an Error, never a
     //    classical assignment
-    DynamicBehavior.QaoaAttempts.firstSolved shots parameters attempt
+    QaoaAttempts.firstSolved shots parameters attempt
 ```
 
 ### QUBO Encoding
@@ -539,6 +539,30 @@ For n drones and n positions:
 - Variables: `x[i,j] = 1` if drone i assigned to position j
 - Total variables: n² = 16 for 4 drones
 - Qubits required: 16 (within 20-qubit limit)
+
+### More drones than one circuit holds
+
+n² qubits run out fast: a backend of q qubits holds ⌊√q⌋ drones in one circuit (4 at 20, 8 at 80, 31 at 1000), and no encoding fits a swarm of thousands. A swarm wider than the backend is assigned in **blocks** instead (`BlockAssignment.fs`, on the library's `QuboSplitting.searchNeighbourhoodsAsync`):
+
+1. Drones and target slots are each sorted along a space-filling curve (Morton order) and paired in that order. That is O(n log n) bookkeeping, not a solver.
+2. A block is k consecutive drones in that order and the k slots they hold. Its QUBO is the k × k assignment of those drones to those slots (the same `assignmentQubo` as the one-circuit solver) with squared distances as costs, k² qubits. A QAOA sample that is a permutation moves the block's drones among their own slots, so every other drone keeps its slot and every valid block sample is a valid assignment of the whole swarm. No QUBO over the whole swarm ever exists.
+3. A sweep samples every block once; the best sample of a lower sum of squared distances replaces the assignment. Squared distance is the CAPT objective: the assignment minimising it meets the gate's bound, and swapping two drones whose paths conflict lowers it. The next sweep's blocks start half a block further along, so improvements cross borders. The search ends after a sweep that improves nothing, or after 12 sweeps (measured: 50 drones converged in 4–6 sweeps, 100 drones in 1–8).
+4. The transition safety gate of the 4-drone show is the search's `Accept`, scored on the whole swarm. The start pairing rarely passes it, so the pairs the gate names as too close are put into a block first in every sweep (the pair and its Morton neighbours), and until an assignment passes the gate the search moves to lower cost; from then on only gated assignments replace it.
+
+Runs are linear: ⌈n/k⌉ blocks per sweep, plus at most as many steered blocks. With 5000 drones that is 1250 blocks of 4 (16 qubits) on the local simulator, 162 blocks of 31 (961 qubits) on a 1000-qubit device. The result is the best sample seen, a heuristic, and the run reports the distance of the start pairing next to it so the gain is measured, not assumed. Measured on the local simulator (blocks of 4, 2000 shots): 50 drones through 4 formations, every transition gated, 72–105 runs and 13–15 s per transition, total distance 4014 m at the start pairing against 3849 m found; 100 drones, every transition gated, 25–270 runs and 5–49 s per transition, 12918 m against 12639 m. The same path serves the live re-plan (`DynamicBehavior.SwarmAdaptation.adaptFormation`) when the remaining swarm is wider than the backend.
+
+- `--block <k>` asks for blocks of k drones even when the swarm fits (`--block 2` on the 4-drone show: 4-qubit circuits).
+- `--drones <n>` (n other than 4) runs a **scale run**: n drones through `--formations <m>` generated formations (a ground grid, a grid aloft, a ring, a sphere), every transition in blocks, `--sweeps <s>` sweeps at most. It prints per transition the start pairing's distance, the found distance, runs, circuits and time, and writes `scale-metrics.json` and `show.svg`, an animated picture of the show in which every drone is drawn in the colour its light has on (white here). No missions are exported from a scale run.
+- `--lights` makes the scale run a **light show** (`ScaleShow.litFormations`): a globe (sea, land, ice) held while its lands turn a full turn in 24 steps (each a change of lights only, the drones stay; the picture plays each step in 0.15 s, so the globe turns in about the time another formation is held), a diamond and a cube drawn along their edges, and a star (a gold outline around a dark inner star), from and back to the ground grid in white, 29 formations unless `--formations` says fewer. Every formation is scaled so its closest slots are 4 m apart, the globe 10 m so it fills the picture. A drone shows the light of the slot it flies to, set when it leaves, as the Crazyflie script does; the picture draws a light that is off as a dark dot, so the drone is still seen.
+
+```bash
+dotnet run -- --drones 200 --formations 5
+dotnet run -- --drones 100 --lights
+```
+
+Measured, the light show with 100 drones on the local simulator (blocks of 4, 2000 shots), with six globe steps: all 10 transitions gated; the five light-only globe steps 25 runs and 6 s each, the shape changes 195–437 runs and 28–129 s each (three of them reached the 12-sweep cap still improving), 463 s in all; total distance 21484 m at the start pairing against 17651 m found.
+
+Quality caveat: at 961 qubits a one-hot QUBO with penalty terms rarely samples a valid permutation at p = 1. Blocks that wide need a permutation-preserving mixer, which this example does not have yet; the block width that still yields valid samples is a number to measure on the device.
 
 ## Collision Avoidance Extension
 
@@ -614,8 +638,10 @@ let constraints =
 | 4 | 4 | 16 | Yes |
 | 4 | 5 | 20 | Yes (limit) |
 | 5 | 4 | 20 | Yes (limit) |
-| 8 | 4 | 32 | No (needs Azure) |
-| 100 | 4 | 400 | No (needs Azure) |
+| 8 | 4 | 32 | No (needs a wider backend) |
+| 100 | 4 | 400 | No (needs a wider backend) |
+
+(This table is the collision-avoidance timing QUBO. The formation assignment itself is not bound by n²: see *More drones than one circuit holds*.)
 
 ### When to Use
 

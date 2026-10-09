@@ -68,7 +68,8 @@ let ``Bernstein-Vazirani admits a 24-bit secret when the backend declares no lim
 let ``Bernstein-Vazirani refuses a secret wider than the backend runs, naming the backend`` () =
     let limited = LimitedLocalBackend 4
 
-    let result = BernsteinVazirani.runWithSecret [| 1; 0; 1; 1; 0; 1 |] (limited :> IQuantumBackend) 10
+    let result =
+        BernsteinVazirani.runWithSecret [| 1; 0; 1; 1; 0; 1 |] (limited :> IQuantumBackend) 10
 
     let msg = QubitLimitBackends.validationMessage result
     Assert.Contains("limited-local-4", msg)

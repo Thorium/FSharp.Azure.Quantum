@@ -190,11 +190,7 @@ module DeutschJozsa =
         : Result<DeutschJozsaResult, QuantumError> =
 
         let tooWide =
-            UnifiedBackend.runnableQubitsError
-                "numQubits"
-                $"Deutsch-Jozsa on {numQubits} input bits"
-                numQubits
-                backend
+            UnifiedBackend.runnableQubitsError "numQubits" $"Deutsch-Jozsa on {numQubits} input bits" numQubits backend
 
         // Validate inputs
         if numQubits < 1 then
