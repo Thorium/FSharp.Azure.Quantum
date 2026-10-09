@@ -122,14 +122,8 @@ module QuantumTreeSearch =
             Error(QuantumError.ValidationError("InitialState", "must be provided via 'initialState' in the builder"))
         elif problem.MaxDepth < 1 then
             Error(QuantumError.ValidationError("MaxDepth", "must be at least 1"))
-        elif problem.MaxDepth > 8 then
-            Error(
-                QuantumError.ValidationError("MaxDepth", "exceeds 8 (would require too many qubits for NISQ devices)")
-            )
         elif problem.BranchingFactor < 2 then
             Error(QuantumError.ValidationError("BranchingFactor", "must be at least 2"))
-        elif problem.BranchingFactor > 256 then
-            Error(QuantumError.ValidationError("BranchingFactor", "exceeds 256 (would require too many qubits)"))
         elif problem.TopPercentile <= 0.0 || problem.TopPercentile > 1.0 then
             Error(
                 QuantumError.ValidationError(
@@ -152,14 +146,17 @@ module QuantumTreeSearch =
                 )
             )
         else
+            // Paths are Int32 oracle indices; the backend's own qubit limit is checked by solve.
+            // int64, so that an absurd depth cannot overflow into a small count.
             let qubitsNeeded =
-                GroverSearch.TreeSearch.estimateQubitsNeeded problem.MaxDepth problem.BranchingFactor
+                int64 problem.MaxDepth
+                * int64 (GroverSearch.TreeSearch.estimateQubitsNeeded 1 problem.BranchingFactor)
 
-            if qubitsNeeded > 16 then
+            if qubitsNeeded > int64 GroverSearch.Oracle.MaxIndexQubits then
                 Error(
                     QuantumError.ValidationError(
                         "TreeSearchSize",
-                        $"requires {qubitsNeeded} qubits (depth={problem.MaxDepth}, branching={problem.BranchingFactor}). Max: 16"
+                        $"requires {qubitsNeeded} qubits (depth={problem.MaxDepth}, branching={problem.BranchingFactor}); an oracle indexes at most {GroverSearch.Oracle.MaxIndexQubits}"
                     )
                 )
             else
@@ -378,8 +375,23 @@ module QuantumTreeSearch =
     let solve (problem: TreeSearchProblem<'T>) : Result<TreeSearchSolution, QuantumError> =
 
         try
-            // Validate problem first
-            match validate problem with
+            // Use provided backend or create LocalBackend for simulation
+            let actualBackend =
+                problem.Backend
+                |> Option.defaultValue (
+                    Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+                )
+
+            // Validate problem first, then its width against what the backend runs
+            match
+                validate problem
+                |> Result.bind (fun () ->
+                    BackendAbstraction.UnifiedBackend.requireRunnableQubits
+                        "TreeSearchSize"
+                        $"tree search with depth {problem.MaxDepth} and branching {problem.BranchingFactor}"
+                        (GroverSearch.TreeSearch.estimateQubitsNeeded problem.MaxDepth problem.BranchingFactor)
+                        actualBackend)
+            with
             | Error err -> Error err
             | Ok() ->
 
@@ -390,13 +402,6 @@ module QuantumTreeSearch =
                     | None ->
                         failwith
                             $"InitialState must be set (should have been caught by validation), calling solve with problem: {problem}"
-
-                // Use provided backend or create LocalBackend for simulation
-                let actualBackend =
-                    problem.Backend
-                    |> Option.defaultValue (
-                        Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
-                    )
 
                 // Report search start
                 problem.ProgressReporter
@@ -492,7 +497,8 @@ module QuantumTreeSearch =
             ProgressReporter = None
         }
 
-    /// Estimate resource requirements without executing
+    /// Estimate resource requirements without executing. Whether a given backend runs the
+    /// qubits required is its own limit (UnifiedBackend.getRunnableQubits), checked by solve.
     let estimateResources (maxDepth: int) (branchingFactor: int) : string =
         let qubits = GroverSearch.TreeSearch.estimateQubitsNeeded maxDepth branchingFactor
 
@@ -510,10 +516,10 @@ module QuantumTreeSearch =
             branchingFactor
             qubits
             searchSpace
-            (if qubits <= 16 then
-                 "✓ Feasible on NISQ devices"
+            (if qubits <= GroverSearch.Oracle.MaxIndexQubits then
+                 $"✓ Runs on any backend that supports {qubits} qubits"
              else
-                 "✗ Requires fault-tolerant quantum computer")
+                 $"✗ Exceeds the {GroverSearch.Oracle.MaxIndexQubits} qubits a Grover oracle indexes")
 
     /// Export solution to human-readable string
     let describeSolution (solution: TreeSearchSolution) : string =

@@ -1005,6 +1005,11 @@ let export (outDir: string) (fleet: DroneClass) (home: Mav.GeoCoordinate) (r: Re
                 WaypointRadiusM = acceptM
                 LostLink = Mav.ContinueMission
             }
+        // DO_SET_SERVO drives only an output with no function of its own.
+        @ (if fleet.ReleaseServo > 0 then
+               [ sprintf "SERVO%d_FUNCTION" fleet.ReleaseServo, 0.0 ]
+           else
+               [])
 
     let waypointHold (p: Pt) (holdS: float) (items: ResizeArray<Mav.MissionItem>) =
         Mav.stopAt acceptM (toGeo p) holdS items
@@ -1030,7 +1035,19 @@ let export (outDir: string) (fleet: DroneClass) (home: Mav.GeoCoordinate) (r: Re
         items.Add(Mav.setSpeed outGs items.Count)
         waypointHold (at tgtC s.OutAltM) 0.0 items
         items.Add(Mav.setSpeed fleet.LoadedSpeedMs items.Count)
-        waypointHold (at s.DropSlot s.OutAltM) fleet.DropTimeS items
+
+        if fleet.ReleaseServo > 0 then
+            // A DO command runs once the waypoint before it is done: the release
+            // opens when the copter has come to rest on the drop slot, stays open
+            // through the drop (a second waypoint at the same point, nothing to
+            // fly), and closes for the next fill. The tracks time the same stop.
+            waypointHold (at s.DropSlot s.OutAltM) 0.0 items
+            items.Add(Mav.doSetServo fleet.ReleaseServo fleet.ReleaseOpenPwm items.Count)
+            Mav.holdAt acceptM (toGeo (at s.DropSlot s.OutAltM)) fleet.DropTimeS items
+            items.Add(Mav.doSetServo fleet.ReleaseServo fleet.ReleaseClosePwm items.Count)
+        else
+            waypointHold (at s.DropSlot s.OutAltM) fleet.DropTimeS items
+
         items.Add(Mav.setSpeed fleet.EmptySpeedMs items.Count)
         waypointHold (at s.DropSlot s.RetAltM) 0.0 items
         waypointHold (at tgtC s.RetAltM) 0.0 items

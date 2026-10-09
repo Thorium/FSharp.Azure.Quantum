@@ -681,10 +681,7 @@ module QuantumArithmeticOps =
             qubits
             gateEstimate
             depthEstimate
-            (if qubits <= 16 then
-                 "✓ Feasible on NISQ devices"
-             else
-                 "✗ Requires fault-tolerant quantum computer")
+            $"Runs on any backend that supports {qubits} qubits"
 
     /// Export result to human-readable string
     let describeResult (result: ArithmeticResult) : string =

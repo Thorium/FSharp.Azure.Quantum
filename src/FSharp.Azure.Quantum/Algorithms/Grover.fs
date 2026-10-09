@@ -651,16 +651,8 @@ module Grover =
             submitWholeCircuit backend oracle iterations
         | Error e -> Error e
 
-    /// Execute Grover search algorithm with unified backend
-    ///
-    /// Parameters:
-    ///   oracle - Compiled oracle marking target states
-    ///   backend - Quantum backend (gate-based or topological)
-    ///   config - Algorithm configuration
-    ///
-    /// Returns:
-    ///   Result with found solutions or error
-    let search
+    /// Grover search on an oracle the backend has been checked to run.
+    let private searchWithinLimit
         (oracle: Oracle.CompiledOracle)
         (backend: IQuantumBackend)
         (config: GroverConfig)
@@ -762,6 +754,24 @@ module Grover =
             { r with
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds
             })
+
+    /// Execute Grover search algorithm with unified backend
+    ///
+    /// Parameters:
+    ///   oracle - Compiled oracle marking target states
+    ///   backend - Quantum backend (gate-based or topological)
+    ///   config - Algorithm configuration
+    ///
+    /// Returns:
+    ///   Result with found solutions or error; a ValidationError, before any circuit runs,
+    ///   when the oracle is wider than the backend runs (UnifiedBackend.getRunnableQubits).
+    let search
+        (oracle: Oracle.CompiledOracle)
+        (backend: IQuantumBackend)
+        (config: GroverConfig)
+        : Result<GroverResult, QuantumError> =
+        UnifiedBackend.requireRunnableQubits "NumQubits" $"Grover search over 2^{oracle.NumQubits} states" oracle.NumQubits backend
+        |> Result.bind (fun () -> searchWithinLimit oracle backend config)
 
     // ========================================================================
     // CONVENIENCE API FUNCTIONS

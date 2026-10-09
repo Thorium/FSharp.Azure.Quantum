@@ -985,11 +985,6 @@ module ConstraintScheduler =
                 return! Error(QuantumError.ValidationError("Tasks", "must have at least one task"))
             elif problem.Resources.IsEmpty then
                 return! Error(QuantumError.ValidationError("Resources", "must have at least one resource"))
-            elif problem.Tasks.Length > 50 then
-                return!
-                    Error(
-                        QuantumError.ValidationError("Tasks", $"too many tasks ({problem.Tasks.Length}), maximum is 50")
-                    )
             elif
                 problem.HardConstraints
                 |> List.exists (function

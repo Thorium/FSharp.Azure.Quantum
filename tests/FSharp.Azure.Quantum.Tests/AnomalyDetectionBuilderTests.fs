@@ -31,6 +31,67 @@ module AnomalyDetectionBuilderTests =
 
     let private defaultNormalData = generateNormalData 15 42
 
+    /// Ten normal samples of numFeatures features on the given backend
+    let private wideProblem (numFeatures: int) (backend: IQuantumBackend) =
+        let rng = Random 7
+
+        {
+            NormalData = Array.init 10 (fun _ -> Array.init numFeatures (fun _ -> 1.0 + rng.NextDouble() * 0.2))
+            Sensitivity = Medium
+            ContaminationRate = 0.05
+            Backend = Some backend
+            Shots = 50
+            Verbose = false
+            Logger = None
+            SavePath = None
+            Note = None
+            ProgressReporter = None
+            CancellationToken = None
+        }
+
+    // ========================================================================
+    // CIRCUIT WIDTH (one qubit per feature, limited only by the backend)
+    // ========================================================================
+
+    [<Fact>]
+    let ``train encodes every feature when the backend's limit allows it`` () : Task =
+        task {
+            // 9 features: beyond any fixed cap, within the backend's declared 9.
+            let probe = CapacityStubBackend("Width probe", Some 9)
+
+            match! trainAsync (wideProblem 9 probe) CancellationToken.None with
+            | Error(QuantumError.ValidationError("features", msg)) -> failwith $"Should not be refused: {msg}"
+            | Ok _ -> failwith "The width probe executes nothing, so training cannot succeed"
+            | Error _ ->
+                Assert.NotEmpty(probe.Widths)
+                Assert.All(probe.Widths, (fun width -> Assert.Equal(9, width)))
+        }
+
+    [<Fact>]
+    let ``train reports the real circuit width as NumQubits`` () : Task =
+        task {
+            match! trainAsync (wideProblem 9 (LocalBackend.LocalBackend() :> IQuantumBackend)) CancellationToken.None with
+            | Ok detector ->
+                Assert.Equal(9, detector.NumQubits)
+                Assert.Equal(9, detector.Metadata.NumFeatures)
+            | Error e -> failwith $"train should succeed, got error: {e}"
+        }
+
+    [<Fact>]
+    let ``train refuses more features than the backend's runnable limit, naming the backend`` () : Task =
+        task {
+            let probe = CapacityStubBackend("Width probe", Some 3)
+
+            match! trainAsync (wideProblem 4 probe) CancellationToken.None with
+            | Error(QuantumError.ValidationError("features", msg)) ->
+                Assert.Contains("4 features needs 4 qubits", msg)
+                Assert.Contains("'Width probe'", msg)
+                Assert.Contains("at most 3 qubits", msg)
+                Assert.Contains("Reduce dimensionality", msg)
+                Assert.Empty(probe.Widths)
+            | other -> failwith $"Expected a features ValidationError, got {other}"
+        }
+
     // ========================================================================
     // VALIDATION TESTS
     // ========================================================================

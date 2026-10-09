@@ -139,13 +139,17 @@ module CircuitValidator =
                 ConnectedPairs = Set.ofList rigettiConnectivity
             }
 
-        /// Local Simulator constraints (1-16 qubits, all gates supported)
-        /// This is the local state vector simulator with exponential memory requirements
+        /// Local Simulator constraints (all gates supported)
+        /// This is the local state vector simulator with exponential memory requirements.
+        /// MaxQubits is the simulator's own runnable limit, StateVector.practicalCircuitQubits:
+        /// the wall-clock limit (FSAQ_MAX_CIRCUIT_QUBITS) clamped to what this machine's
+        /// memory holds (StateVector.maxQubits, FSAQ_MAX_QUBITS) — the same figure
+        /// UnifiedBackend.getRunnableQubits reports for LocalBackend.
         /// Supports full OpenQASM 2.0 gate set including S, SDG, T, TDG, CZ, CCX
         let localSimulator () : BackendConstraints =
             {
                 Name = "Local Simulator"
-                MaxQubits = 16 // Limited by 2^n state vector memory (~1 MB for 16 qubits)
+                MaxQubits = FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits
                 SupportedGates =
                     Set.ofList
                         [

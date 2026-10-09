@@ -42,6 +42,11 @@ module QPE =
 
     open FSharp.Azure.Quantum.Algorithms.QFT
 
+    /// Most counting qubits a measured outcome is read from: the counting register is read
+    /// into an int and the phase divided by 1 <<< CountingQubits, so it must stay below 2³¹.
+    [<Literal>]
+    let MaxCountingQubits = 30
+
     // ========================================================================
     // TYPES - QPE configuration and results
     // ========================================================================
@@ -627,6 +632,11 @@ module QPE =
     /// ```
     ///
     /// The phase is the most frequent outcome over `shots` measurements.
+    ///
+    /// CountingQubits is at most MaxCountingQubits, and the whole state (counting + target,
+    /// plus the arithmetic workspace for modular exponentiation) must fit the backend's
+    /// runnable qubits (UnifiedBackend.getRunnableQubits); a backend that declares no limit
+    /// is not refused.
     let executeWithShots
         (config: QPEConfig)
         (backend: IQuantumBackend)
@@ -634,6 +644,15 @@ module QPE =
         (exactness: Exactness)
         (shots: int)
         : Result<QPEResult, QuantumError> =
+        let totalQubits = stateWidthFor config
+
+        let tooWide =
+            UnifiedBackend.runnableQubitsError
+                "CountingQubits"
+                $"QPE with {config.CountingQubits} counting qubits"
+                totalQubits
+                backend
+
         result {
             // Validation
             if shots <= 0 then
@@ -642,17 +661,17 @@ module QPE =
                 return! Error(QuantumError.ValidationError("CountingQubits", "must be positive"))
             elif config.TargetQubits <= 0 then
                 return! Error(QuantumError.ValidationError("TargetQubits", "must be positive"))
-            elif config.CountingQubits > 16 then
+            elif config.CountingQubits > MaxCountingQubits then
                 return!
                     Error(
                         QuantumError.ValidationError(
                             "CountingQubits",
-                            "more than 16 is not practical for local simulation"
+                            $"must be ≤ {MaxCountingQubits}: the measured counting register is read into an int"
                         )
                     )
+            elif tooWide.IsSome then
+                return! Error tooWide.Value
             else
-                let totalQubits = stateWidthFor config
-
                 // Step 1: Initialize state |0⟩^(⊗(n+m))
                 let! initialState = backend.InitializeState totalQubits
 

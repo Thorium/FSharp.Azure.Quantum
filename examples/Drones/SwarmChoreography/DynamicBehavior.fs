@@ -743,12 +743,6 @@ module SwarmAdaptation =
     [<Literal>]
     let private UnknownPositionDistance = 1000.0
 
-    /// Maximum problem size for QAOA (n drones * n positions = n² qubits)
-    /// For n=4 drones: 16 qubits. For n=5: 25 qubits (too large).
-    /// Effective limit: 4 drones; wider problems are an Error.
-    [<Literal>]
-    let private MaxQaoaQubits = 20
-
     /// QAOA depth (number of layers) - higher = better quality, slower
     [<Literal>]
     let private QaoaDepth = 2
@@ -934,7 +928,8 @@ module SwarmAdaptation =
 
     /// Run QAOA to find an assignment: the most frequent sampled bitstring that decodes to a
     /// valid assignment `accept` takes (local position indices), retried by QaoaAttempts. No
-    /// valid, accepted sample in any attempt, or a problem wider than MaxQaoaQubits, is an
+    /// valid, accepted sample in any attempt, or a problem (n drones × m positions qubits)
+    /// wider than the backend runs, is an
     /// Error; no classical solver stands in. Returns the assignment and the attempt that
     /// found it.
     let qaoaAssignment
@@ -949,10 +944,11 @@ module SwarmAdaptation =
         let m = Array2D.length2 distanceMatrix
         let numQubits = n * m
 
-        // Check if problem size is within QAOA limits
-        if numQubits > MaxQaoaQubits then
-            Error $"problem too large for QAOA (%d{numQubits} qubits > %d{MaxQaoaQubits} max)"
-        else
+        match UnifiedBackend.getRunnableQubits backend with
+        | Some limit when numQubits > limit ->
+            Error
+                $"%d{n} drones × %d{m} positions need %d{numQubits} qubits; backend '%s{backend.Name}' runs at most %d{limit}"
+        | _ ->
             // Encode as QUBO
             let quboMatrix = encodeAssignmentQubo distanceMatrix
 

@@ -354,6 +354,28 @@ module GroverTests =
         | Error(QuantumError.ValidationError _) -> Assert.True(true) // Expected error
         | Error err -> Assert.True(false, $"Wrong error type: {err}")
 
+    // Width limits come from the backend (UnifiedBackend.getRunnableQubits). No test here
+    // simulates more than 16 qubits: wide searches go to a backend that simulates nothing.
+
+    [<Fact>]
+    let ``Search admits a 24-qubit oracle when the backend declares no limit`` () =
+        let backend = CapacityStubBackend("non-simulating", None) :> IQuantumBackend
+
+        let result = Grover.searchSingle 5 24 backend testConfig
+
+        Assert.True(QubitLimitBackends.reachedBackend result, $"Expected the backend's own error, got {result}")
+
+    [<Fact>]
+    let ``Search refuses an oracle wider than the backend runs, naming the backend`` () =
+        let limited = LimitedLocalBackend 3
+
+        let result = Grover.searchSingle 5 5 (limited :> IQuantumBackend) testConfig
+
+        let msg = QubitLimitBackends.validationMessage result
+        Assert.Contains("limited-local-3", msg)
+        Assert.Contains("needs 5 qubits", msg)
+        Assert.Equal(0, limited.WidestRequested)
+
     [<Fact>]
     let ``Search rejects negative target`` () =
         let backend = createLocalBackend ()

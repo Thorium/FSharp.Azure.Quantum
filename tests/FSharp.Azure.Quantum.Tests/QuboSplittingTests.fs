@@ -49,10 +49,10 @@ let private sparseQubo (seed: int) (n: int) (chords: int) : float[,] =
 
     qubo
 
-let private limits (piece: int) (fixedVariables: int) : QuboSplitting.ConditioningLimits =
+let private limits (piece: int) (runs: int) : QuboSplitting.ConditioningLimits =
     {
         MaxPieceQubits = piece
-        MaxFixedVariables = fixedVariables
+        MaxRuns = runs
     }
 
 let private ok (result: Result<'T, QuantumError>) : 'T =
@@ -129,7 +129,7 @@ let ``pieces solved exactly join into the minimum of the whole QUBO`` () : Task 
             let widths = ResizeArray<int>()
 
             let! solved =
-                QuboSplitting.solvePiecewiseAsync (limits 5 8) qubo (exactPieces widths) CancellationToken.None
+                QuboSplitting.solvePiecewiseAsync (limits 5 256) qubo (exactPieces widths) CancellationToken.None
 
             let solution = ok solved
             let _, lowest = minimumOf qubo
@@ -148,7 +148,7 @@ let ``a QUBO that fits is passed to the piece solver whole`` () : Task =
         let widths = ResizeArray<int>()
 
         let! solved =
-            QuboSplitting.solvePiecewiseAsync (limits 6 0) qubo (exactPieces widths) CancellationToken.None
+            QuboSplitting.solvePiecewiseAsync (limits 6 1) qubo (exactPieces widths) CancellationToken.None
 
         let solution = ok solved
 
@@ -159,15 +159,16 @@ let ``a QUBO that fits is passed to the piece solver whole`` () : Task =
     }
 
 [<Fact>]
-let ``a dense QUBO needs too many fixed variables and is refused before any piece runs`` () : Task =
+let ``a dense QUBO needs too many circuit runs and is refused before any piece runs`` () : Task =
     task {
+        // pieces of 4 out of 12 all coupled: the piece touches 8 fixed variables, 256 runs
         let dense = Array2D.init 12 12 (fun i j -> if i < j then 1.0 else 0.0)
         let widths = ResizeArray<int>()
 
         match! QuboSplitting.solvePiecewiseAsync (limits 4 3) dense (exactPieces widths) CancellationToken.None with
         | Error(QuantumError.ValidationError(field, message)) ->
             Assert.Equal("qubits", field)
-            Assert.Contains("fixed variables", message)
+            Assert.Contains("needs 256 circuit runs, more than MaxRuns = 3", message)
         | other -> Assert.Fail($"Expected a qubits validation error, got %A{other}")
 
         Assert.Empty widths
@@ -179,7 +180,7 @@ let ``a failing piece fails the whole solve with its error`` () : Task =
         let failing (_: float[,]) : Task<Result<int[], QuantumError>> =
             Task.FromResult(Error(QuantumError.OperationError("Piece", "no")))
 
-        match! QuboSplitting.solvePiecewiseAsync (limits 5 8) (sparseQubo 2 12 1) failing CancellationToken.None with
+        match! QuboSplitting.solvePiecewiseAsync (limits 5 256) (sparseQubo 2 12 1) failing CancellationToken.None with
         | Error(QuantumError.OperationError(operation, _)) -> Assert.Equal("Piece", operation)
         | other -> Assert.Fail($"Expected the piece error, got %A{other}")
     }
@@ -612,7 +613,6 @@ let ``default split settings split on simulators only`` () =
     let settings = QaoaExecutionHelpers.defaultSplitSettings
     Assert.Equal(QaoaExecutionHelpers.SplitPolicy.OnSimulators, settings.Policy)
     Assert.Equal(ValueNone, settings.MaxPieceQubits)
-    Assert.Equal(8, settings.MaxFixedVariables)
     Assert.Equal(256, settings.MaxShareRuns)
     Assert.Equal(12, settings.MaxBlockItems)
     Assert.Equal(settings, QaoaExecutionHelpers.defaultConfig.Splitting)
@@ -724,11 +724,11 @@ let ``a QUBO that does not cut within the limit runs as one circuit while the ba
 
         let roomy = RoomyBackend(5, 9)
 
-        // Pieces of 5 would take 4 fixed variables; only 2 are allowed.
+        // A piece of 5 touches the 4 fixed variables and runs 16 times; only 8 runs are allowed.
         let config =
             withSplitting
                 { QaoaExecutionHelpers.defaultSplitSettings with
-                    MaxFixedVariables = 2
+                    MaxShareRuns = 8
                 }
 
         let! result = QuboSplitting.runQaoaAsync roomy dense config CancellationToken.None
@@ -753,13 +753,13 @@ let ``a QUBO that neither cuts nor fits is refused with the reason`` () : Task =
         let config =
             withSplitting
                 { QaoaExecutionHelpers.defaultSplitSettings with
-                    MaxFixedVariables = 2
+                    MaxShareRuns = 8
                 }
 
         match! QuboSplitting.runQaoaAsync narrow dense config CancellationToken.None with
         | Error(QuantumError.ValidationError(field, message)) ->
             Assert.Equal("qubits", field)
-            Assert.Contains("MaxFixedVariables = 2", message)
+            Assert.Contains("needs 16 circuit runs, more than SplitSettings.MaxShareRuns = 8", message)
         | other -> Assert.Fail($"Expected a qubits validation error, got %A{other}")
 
         Assert.Equal(0, narrow.WidestCircuit)
@@ -1080,7 +1080,7 @@ let ``a piece runs once per assignment of the fixed variables it touches`` () : 
             let widths = ResizeArray<int>()
 
             let! solved =
-                QuboSplitting.solvePiecewiseAsync (limits 6 8) qubo (exactPieces widths) CancellationToken.None
+                QuboSplitting.solvePiecewiseAsync (limits 6 256) qubo (exactPieces widths) CancellationToken.None
 
             let solution = ok solved
             let cuts = solution.FixedVariables.Length
@@ -1092,6 +1092,94 @@ let ``a piece runs once per assignment of the fixed variables it touches`` () : 
             Assert.InRange(cuts, 5, 8)
             Assert.InRange(solution.PiecesSolved, cuts + 1, 4 * (cuts + 1))
             Assert.All(widths, (fun width -> Assert.InRange(width, 1, 6)))
+    }
+
+[<Fact>]
+let ``pieces of one variable join into the minimum however many variables are fixed`` () : Task =
+    task {
+        // most variables fixed: the join, not the pieces, finds the minimum
+        for seed in 1..8 do
+            let qubo = sparseQubo seed 16 4
+            let widths = ResizeArray<int>()
+
+            let! solved =
+                QuboSplitting.solvePiecewiseAsync (limits 1 4096) qubo (exactPieces widths) CancellationToken.None
+
+            let solution = ok solved
+            Assert.Equal(snd (minimumOf qubo), solution.Energy, 9)
+            Assert.Equal(solution.Energy, energy qubo solution.Bits, 9)
+            Assert.InRange(solution.FixedVariables.Length, 8, 16)
+
+        // a chain of 64 cut into single variables: dozens of fixed variables, a few runs each
+        for seed in 1..3 do
+            let qubo = chainQubo seed 64
+            let widths = ResizeArray<int>()
+
+            let! solved =
+                QuboSplitting.solvePiecewiseAsync (limits 1 256) qubo (exactPieces widths) CancellationToken.None
+
+            let solution = ok solved
+            Assert.InRange(solution.FixedVariables.Length, 21, 63)
+            Assert.InRange(solution.PiecesSolved, 1, 256)
+            Assert.Equal(chainMinimum qubo, solution.Energy, 9)
+            Assert.Equal(solution.Energy, energy qubo solution.Bits, 9)
+    }
+
+[<Fact>]
+let ``a split over the run limit is refused before any piece runs`` () : Task =
+    task {
+        // a chain of 40 in pieces of 6 runs a few times per piece, more than 10 in all
+        let widths = ResizeArray<int>()
+
+        match!
+            QuboSplitting.solvePiecewiseAsync (limits 6 10) (chainQubo 1 40) (exactPieces widths) CancellationToken.None
+        with
+        | Error(QuantumError.ValidationError(field, message)) ->
+            Assert.Equal("qubits", field)
+            Assert.Contains("circuit runs, more than MaxRuns = 10", message)
+        | other -> Assert.Fail($"Expected a qubits validation error, got %A{other}")
+
+        Assert.Empty widths
+    }
+
+/// Seeded graph of degree 3: a ring and a random perfect matching across it.
+let private cubicQubo (seed: int) (n: int) : float[,] =
+    let rng = Random(seed)
+    let matching = Array.init n id |> Array.sortBy (fun _ -> rng.Next())
+    let qubo = Array2D.zeroCreate n n
+
+    let couple i j =
+        if i <> j then
+            qubo.[min i j, max i j] <- 1.0
+
+    for i in 0 .. n - 1 do
+        qubo.[i, i] <- -1.0
+        couple i ((i + 1) % n)
+
+    for k in 0..2 .. n - 2 do
+        couple matching.[k] matching.[k + 1]
+
+    qubo
+
+[<Fact>]
+let ``a split whose join is too wide is refused before any piece runs`` () : Task =
+    task {
+        // a sparse graph with no narrow structure: runs are allowed, the join is not
+        let widths = ResizeArray<int>()
+
+        match!
+            QuboSplitting.solvePiecewiseAsync
+                (limits 16 Int32.MaxValue)
+                (cubicQubo 5 256)
+                (exactPieces widths)
+                CancellationToken.None
+        with
+        | Error(QuantumError.ValidationError(field, message)) ->
+            Assert.Equal("qubits", field)
+            Assert.Contains($"QuboSplitting.MostJoinSpan = {QuboSplitting.MostJoinSpan}", message)
+        | other -> Assert.Fail($"Expected a qubits validation error, got %A{other}")
+
+        Assert.Empty widths
     }
 
 [<Fact>]
@@ -1107,7 +1195,7 @@ let ``independent pieces are not packed into one circuit`` () : Task =
         let widths = ResizeArray<int>()
 
         let! solved =
-            QuboSplitting.solvePiecewiseAsync (limits 4 2) star (exactPieces widths) CancellationToken.None
+            QuboSplitting.solvePiecewiseAsync (limits 4 16) star (exactPieces widths) CancellationToken.None
 
         let solution = ok solved
 
@@ -1124,48 +1212,32 @@ let ``a wide dense QUBO is refused without running anything`` () : Task =
         let widths = ResizeArray<int>()
 
         match! QuboSplitting.solvePiecewiseAsync (limits 12 8) dense (exactPieces widths) CancellationToken.None with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("qubits", field)
+        | Error(QuantumError.ValidationError(field, message)) ->
+            Assert.Equal("qubits", field)
+            Assert.Contains("fixes 300 variables", message)
+            Assert.Contains("MostJoinSpan", message)
         | other -> Assert.Fail($"Expected a qubits validation error, got %A{other}")
 
         Assert.Empty widths
     }
 
-[<Theory; InlineData(-1); InlineData(21); InlineData(64)>]
-let ``MaxFixedVariables outside 0 to 20 is refused`` (fixedVariables: int) : Task =
+[<Theory; InlineData(-1); InlineData(0)>]
+let ``MaxRuns below 1 is refused`` (runs: int) : Task =
     task {
         let widths = ResizeArray<int>()
 
         match!
-            QuboSplitting.solvePiecewiseAsync
-                (limits 5 fixedVariables)
-                (sparseQubo 2 12 1)
-                (exactPieces widths)
-                CancellationToken.None
+            QuboSplitting.solvePiecewiseAsync (limits 5 runs) (sparseQubo 2 12 1) (exactPieces widths) CancellationToken.None
         with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("MaxFixedVariables", field)
-        | other -> Assert.Fail($"Expected a MaxFixedVariables validation error, got %A{other}")
+        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("MaxRuns", field)
+        | other -> Assert.Fail($"Expected a MaxRuns validation error, got %A{other}")
 
         Assert.Empty widths
     }
 
 [<Fact>]
-let ``split settings beyond the range are taken as the nearest allowed value`` () : Task =
+let ``a backend that reports no qubits still gets pieces of one qubit`` () : Task =
     task {
-        // 64 fixed variables allowed: counted as 20, and the ring still needs only a few
-        let config =
-            withSplitting
-                { QaoaExecutionHelpers.defaultSplitSettings with
-                    MaxFixedVariables = 64
-                }
-
-        let! result =
-            QuboSplitting.runQaoaAsync (NarrowBackend 5) ring12 config CancellationToken.None
-
-        match (ok result).Split with
-        | Some report -> Assert.InRange(report.FixedVariables, 1, 20)
-        | None -> Assert.Fail("expected a split")
-
-        // a backend that reports no qubits still gets pieces of one qubit, not of none
         let none = NarrowBackend 0 :> BackendAbstraction.IQuantumBackend
 
         Assert.Equal(

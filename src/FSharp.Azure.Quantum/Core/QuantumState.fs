@@ -524,7 +524,7 @@ module QuantumState =
                 // Sample from D-Wave annealing solutions using reflection
                 let solutionsArr = objToSeq solutions |> Array.ofSeq
                 let n = numQubits state
-                let rng = Random()
+                let rng = Random.Shared
 
                 let spinToBit =
                     function

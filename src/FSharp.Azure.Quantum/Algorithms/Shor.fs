@@ -28,9 +28,11 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 /// 4. Extract factors from period (classical post-processing)
 ///
 /// Limitations:
-/// - This implementation focuses on educational value (N ≤ 100)
-/// - For larger numbers, use ShorsBackendAdapter with cloud backends
-/// - Genuine quantum path bounded by StateVector.practicalCircuitQubits (wall-clock, not capacity)
+/// - Period finding is counting + 2·registerBits + 4 qubits wide (counting + registerBits
+///   where the backend runs the QPE intent natively) and must fit the backend's runnable
+///   qubits (UnifiedBackend.getRunnableQubits); on the local simulator that is
+///   StateVector.practicalCircuitQubits (wall-clock, not capacity)
+/// - N ≤ MaxNumberToFactor and counting qubits ≤ QPE.MaxCountingQubits (int arithmetic)
 ///
 /// Example:
 /// ```fsharp
@@ -52,20 +54,34 @@ module Shor =
     open FSharp.Azure.Quantum.Algorithms.ShorsTypes
     open FSharp.Azure.Quantum.Algorithms.QPE
 
-    /// Qubits the genuine quantum path may spend on one circuit.
+    /// Largest N this module factors: the modular arithmetic multiplies residues in int32,
+    /// so N² must stay below 2³¹.
+    [<Literal>]
+    let MaxNumberToFactor = 46340
+
+    /// Reported for an N above MaxNumberToFactor.
+    let private numberTooLargeError (parameter: string) (n: int) : QuantumError =
+        QuantumError.ValidationError(
+            parameter,
+            $"N={n} exceeds {MaxNumberToFactor}: the modular arithmetic multiplies residues in int32, so N² must stay below 2³¹"
+        )
+
+    /// Qubits the period-finding circuit may use on this backend: what the backend RUNS
+    /// (UnifiedBackend.getRunnableQubits), not merely what it holds. None means the backend
+    /// declares no limit.
     ///
-    /// Shor's modular-exponentiation circuit is counting + 2·registerBits + 4 wide,
-    /// so this decides which N are factored quantumly rather than through the
-    /// classically-assisted fallback.
-    ///
-    /// Budgeted against how wide a circuit FINISHES, not how wide a state FITS. The
-    /// distinction matters here more than anywhere: the circuit applies hundreds of
-    /// gates, and each qubit doubles the cost of every one of them. Budgeting against
-    /// memory capacity instead pulls N=33, 35, 51 off the fast classical fallback and
-    /// onto 26-qubit circuits that take hours — the state fits comfortably; the run
-    /// does not finish. Raise FSAQ_MAX_CIRCUIT_QUBITS to opt into the wider circuits.
-    let private simulatorQubitBudget =
-        FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits
+    /// The modular-exponentiation circuit applies hundreds of gates, so on a simulator the
+    /// wall-clock limit is the one that binds: the local simulator's is
+    /// StateVector.practicalCircuitQubits, raised with FSAQ_MAX_CIRCUIT_QUBITS.
+    let private runnableQubits (backend: IQuantumBackend) : int option =
+        UnifiedBackend.getRunnableQubits backend
+
+    /// What to change when a circuit is wider than the backend runs.
+    let private widenHint (backend: IQuantumBackend) : string =
+        match backend with
+        | :? FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend ->
+            "Raise FSAQ_MAX_CIRCUIT_QUBITS if the machine has the memory and the time"
+        | _ -> "Use a backend that runs more qubits"
 
     /// Bits needed to hold a residue mod N — the width of each of the two work registers.
     ///
@@ -75,28 +91,74 @@ module Shor =
     let private registerBitsFor (n: int) : int =
         ModularExponentiationCircuit.registerBitsFor n
 
-    /// Counting qubits left for QPE once modular exponentiation has taken its workspace.
-    /// The circuit is counting + 2·registerBits + 4, so this is what the budget leaves over.
-    /// It goes negative for large N, which is why callers compare it against registerBits
-    /// rather than against zero.
-    let private maxCountingQubitsFor (n: int) : int =
-        simulatorQubitBudget - 2 * registerBitsFor n - 4
+    /// The modular-exponentiation QPE intent for U_a on N with this many counting qubits.
+    let private modExpQpeIntent (a: int) (n: int) (countingQubits: int) : QpeIntent =
+        {
+            CountingQubits = countingQubits
+            TargetQubits = registerBitsFor n
+            Unitary = QpeUnitary.ModularExponentiation(a, n)
+            PrepareTargetOne = true
+            ApplySwaps = false
+        }
 
-    /// Reported when the modular-exponentiation circuit for N does not fit the budget.
-    ///
-    /// This is the error that used to be a classical fallback. It names the shortfall and
-    /// the one knob that moves it, and it deliberately does not offer a classical route,
-    /// because there no longer is one.
-    let private unfittableCircuitError (n: int) : QuantumError =
+    /// Qubits period finding needs besides the counting register on this backend: the target
+    /// register alone where the backend accepts modular-exponentiation QPE as an intent (the
+    /// route planPeriodFinding chooses), the Beauregard circuit's 2·registerBits + 4 otherwise.
+    let private nonCountingQubitsFor (backend: IQuantumBackend) (a: int) (n: int) : int =
+        if backend.SupportsOperation(QuantumOperation.Algorithm(AlgorithmOperation.QPE(modExpQpeIntent a n 1))) then
+            registerBitsFor n
+        else
+            ModularExponentiationCircuit.totalQubitsFor n 0
+
+    /// Reported when period finding for N does not fit the backend. It names the shortfall,
+    /// the backend and what moves the limit; there is no classical period-finding route to
+    /// offer instead.
+    let private unfittableCircuitError
+        (backend: IQuantumBackend)
+        (limit: int)
+        (nonCounting: int)
+        (n: int)
+        : QuantumError =
         let registerBits = registerBitsFor n
 
         QuantumError.ValidationError(
             "n",
             $"N={n} needs {registerBits} counting qubits to resolve the period, but only "
-            + $"{max 0 (maxCountingQubitsFor n)} fit the {simulatorQubitBudget}-qubit circuit budget "
-            + $"(counting + 2·{registerBits} + 4). Raise FSAQ_MAX_CIRCUIT_QUBITS if the machine "
-            + "has the memory and the time, or factor a smaller N."
+            + $"{max 0 (limit - nonCounting)} fit backend '{backend.Name}', which runs at most {limit} qubits "
+            + $"(counting + {nonCounting} for the {registerBits}-bit register and its workspace). "
+            + $"{widenHint backend}, or factor a smaller N."
         )
+
+    /// Counting qubits the backend leaves for period finding on N with base a (None: the
+    /// backend declares no limit), or the unfittable-circuit error when the backend clamps the
+    /// requested precision below N's register bits. With fewer counting qubits than register
+    /// bits the phase grid 2^c < N, so the continued-fraction step can only ever return the
+    /// dyadic denominator 2^c; a caller who asks for that few is not refused for it.
+    let private countingRoomFor
+        (backend: IQuantumBackend)
+        (a: int)
+        (n: int)
+        (precisionQubits: int)
+        : Result<int option, QuantumError> =
+        match runnableQubits backend with
+        | None -> Ok None
+        | Some limit ->
+            let nonCounting = nonCountingQubitsFor backend a n
+            let room = limit - nonCounting
+
+            if room < min precisionQubits (registerBitsFor n) then
+                Error(unfittableCircuitError backend limit nonCounting n)
+            else
+                Ok(Some room)
+
+    /// Qubits the narrowest period-finding circuit for N needs on this backend: counting qubits
+    /// min(precisionQubits, register bits), since period finding reduces counting qubits that
+    /// do not fit but needs a register's worth to resolve the period, plus what the backend's
+    /// route needs beside them (the target register where it runs modular-exponentiation QPE
+    /// natively, the Beauregard circuit's 2·registerBits + 4 otherwise). Period finding is
+    /// refused exactly when this exceeds the backend's runnable qubits.
+    let narrowestPeriodFindingQubits (backend: IQuantumBackend) (n: int) (precisionQubits: int) : int =
+        min (max 1 precisionQubits) (registerBitsFor n) + nonCountingQubitsFor backend 2 n
 
     // ========================================================================
     // CLASSICAL NUMBER THEORY HELPERS
@@ -492,7 +554,9 @@ module Shor =
     /// Constraints:
     /// - N must be > 1 and composite (not checked here; caller's responsibility)
     /// - a must be coprime to N and 1 < a < N
-    /// - Total qubits must not exceed the local simulator's memory-derived capacity
+    /// - N ≤ MaxNumberToFactor and countingQubits ≤ QPE.MaxCountingQubits
+    /// - Total qubits must not exceed the backend's runnable qubits
+    ///   (UnifiedBackend.getRunnableQubits); a backend that declares none is not refused
     let estimateModExpPhase
         (baseNum: int)
         (modulus: int)
@@ -505,14 +569,21 @@ module Shor =
 
         if modulus < 2 then
             Error(QuantumError.ValidationError("modulus", "must be ≥ 2"))
+        elif modulus > MaxNumberToFactor then
+            Error(numberTooLargeError "modulus" modulus)
         elif baseNum < 2 || baseNum >= modulus then
             Error(QuantumError.ValidationError("baseNum", $"must be in range [2, {modulus - 1}]"))
         elif gcd baseNum modulus <> 1 then
             Error(QuantumError.ValidationError("baseNum", $"{baseNum} is not coprime to {modulus}"))
         elif countingQubits <= 0 then
             Error(QuantumError.ValidationError("countingQubits", "must be positive"))
-        elif countingQubits > 16 then
-            Error(QuantumError.ValidationError("countingQubits", "must be ≤ 16 for local simulation"))
+        elif countingQubits > QPE.MaxCountingQubits then
+            Error(
+                QuantumError.ValidationError(
+                    "countingQubits",
+                    $"must be ≤ {QPE.MaxCountingQubits}: the measured counting register is read into an int"
+                )
+            )
         else
             // Qubit allocation:
             //   counting:  [0 .. countingQubits-1]
@@ -521,16 +592,17 @@ module Shor =
             // Total: countingQubits + 2n + 4
             let totalQubits = countingQubits + 2 * n + 4
 
-            if totalQubits > simulatorQubitBudget then
+            match runnableQubits backend with
+            | Some limit when totalQubits > limit ->
                 Error(
                     QuantumError.ValidationError(
                         "totalQubits",
                         $"Requires {totalQubits} qubits (counting={countingQubits}, register={n}, workspace={n + 4}) "
-                        + $"but the local simulator holds at most {simulatorQubitBudget}. "
-                        + $"Reduce countingQubits to ≤ {simulatorQubitBudget - 2 * n - 4}."
+                        + $"but backend '{backend.Name}' runs at most {limit}. "
+                        + $"Reduce countingQubits to ≤ {limit - 2 * n - 4}. {widenHint backend}."
                     )
                 )
-            else
+            | _ ->
                 modExpCircuitState baseNum modulus countingQubits backend
                 |> Result.map (readPhase countingQubits totalQubits)
     // ========================================================================
@@ -589,14 +661,7 @@ module Shor =
         elif countingQubits <= 0 then
             Error(QuantumError.ValidationError("CountingQubits", "must be positive"))
         else
-            let qpeIntent: QpeIntent =
-                {
-                    CountingQubits = countingQubits
-                    TargetQubits = registerBitsFor n
-                    Unitary = QpeUnitary.ModularExponentiation(a, n)
-                    PrepareTargetOne = true
-                    ApplySwaps = false
-                }
+            let qpeIntent = modExpQpeIntent a n countingQubits
 
             if backend.SupportsOperation(QuantumOperation.Algorithm(AlgorithmOperation.QPE qpeIntent)) then
                 Ok(ShorPeriodFindingPlan.ExecuteNatively qpeIntent)
@@ -659,14 +724,15 @@ module Shor =
     ///
     /// The period is found by the quantum routine or not at all. There is no classical
     /// period-finding path: when the modular-exponentiation circuit does not fit the
-    /// simulator's qubit budget this errors rather than computing the answer classically
+    /// backend's runnable qubits this errors rather than computing the answer classically
     /// and presenting it as a quantum result.
     /// </remarks>
     /// Genuine quantum period finding: plan modular-exponentiation QPE for this backend,
     /// then recover the period from the measured phase φ ≈ s/r via its continued-fraction
     /// convergent. Each QPE shot is probabilistic, so this retries until it obtains a convergent
-    /// r satisfying a^r ≡ 1 (mod N). Counting qubits are clamped so the circuit fits the
-    /// simulator's qubit budget.
+    /// r satisfying a^r ≡ 1 (mod N). Counting qubits are `precisionQubits`, clamped so the
+    /// circuit fits the backend's runnable qubits (UnifiedBackend.getRunnableQubits); a backend
+    /// that declares no limit gets `precisionQubits` as asked.
     ///
     /// The plan is made once, and each attempt reads a distinct measured shot: which backend
     /// path runs cannot change between shots, only the measurement outcome does. On a backend
@@ -680,17 +746,30 @@ module Shor =
         (backend: IQuantumBackend)
         : Result<PeriodFindingResult, QuantumError> =
 
-        let maxCounting = maxCountingQubitsFor n
+        // Counting qubits that fit the backend. When the backend clamps the request below what
+        // resolves the period, the circuit would run at full width and every retry would then
+        // fail anyway (for any period that is not a power of two ≤ 2^c), so that fails fast.
+        let countingRoom =
+            if n > MaxNumberToFactor then
+                Error(numberTooLargeError "n" n)
+            elif precisionQubits > QPE.MaxCountingQubits then
+                Error(
+                    QuantumError.ValidationError(
+                        "precisionQubits",
+                        $"must be ≤ {QPE.MaxCountingQubits}: the measured counting register is read into an int"
+                    )
+                )
+            else
+                countingRoomFor backend a n (max 1 precisionQubits)
 
-        if maxCounting < registerBitsFor n then
-            // With fewer counting qubits than register bits the phase grid 2^c < N, so the
-            // continued-fraction step can only ever return the dyadic denominator 2^c — the
-            // circuit would run at full width and every retry would then fail anyway (for
-            // any period that is not a power of two ≤ 2^c). Fail fast instead.
-            Error(unfittableCircuitError n)
-        else
+        match countingRoom with
+        | Error err -> Error err
+        | Ok room ->
 
-            let countingQubits = max 1 (min precisionQubits maxCounting)
+            let countingQubits =
+                match room with
+                | Some most -> max 1 (min precisionQubits most)
+                | None -> max 1 precisionQubits
             let maxAttempts = 16
 
             let periodFindingPlan =
@@ -761,10 +840,9 @@ module Shor =
 
     /// Find the period of a^x mod N by QPE on modular exponentiation.
     ///
-    /// Identical to `findPeriodQuantum` — it exists as the conventional name. Where this
-    /// once degraded to a classical period search for N too large for the simulator, it
-    /// now reports that qubit-budget error unchanged. A period this library returns was
-    /// measured, not computed.
+    /// Identical to `findPeriodQuantum` — it exists as the conventional name. A circuit wider
+    /// than the backend runs is reported as an error, never searched classically: a period
+    /// this library returns was measured, not computed.
     let findPeriod
         (a: int)
         (n: int)
@@ -857,6 +935,9 @@ module Shor =
             | QPE.Exactness.Exact -> None
 
         // ========== CONFIGURATION VALIDATION ==========
+        // A precision wider than the backend leaves room for is not refused here: period
+        // finding reduces the counting qubits to what fits (countingRoomFor), and refuses only
+        // when that is fewer than the period needs.
         // Exactness was only ever read by the classically-assisted QPE demonstration. The
         // quantum path builds its inverse QFT with every controlled-phase rotation present,
         // so there is nothing for Approximate to loosen. Refuse it rather than accept a
@@ -868,17 +949,17 @@ module Shor =
                     $"Shor period finding builds an exact inverse QFT; Approximate {approximateEpsilon.Value} is not implemented. Pass QPE.Exactness.Exact."
                 )
             )
-        // Validate number range FIRST (before precision qubits check)
-        // This ensures N > 1000 error takes precedence over derived precision errors.
-        elif n > 1000 then
-            Error(QuantumError.ValidationError("NumberToFactor", "must be ≤ 1000 for local simulation"))
+        // N's domain is checked before precision, so an N outside it is reported as such
+        // rather than through a precision error derived from it.
+        elif n > MaxNumberToFactor then
+            Error(numberTooLargeError "NumberToFactor" n)
         elif config.PrecisionQubits <= 0 then
             Error(QuantumError.ValidationError("PrecisionQubits", "must be positive"))
-        elif config.PrecisionQubits > simulatorQubitBudget then
+        elif config.PrecisionQubits > QPE.MaxCountingQubits then
             Error(
                 QuantumError.ValidationError(
                     "PrecisionQubits",
-                    $"must be ≤ {simulatorQubitBudget} for local simulation"
+                    $"must be ≤ {QPE.MaxCountingQubits}: the measured counting register is read into an int"
                 )
             )
 
@@ -919,15 +1000,15 @@ module Shor =
                             config
                     )
                 )
-            elif maxCountingQubitsFor n < registerBitsFor n then
-                // Period finding needs enough counting qubits to resolve the period within
-                // the simulator budget. When it does not fit, say so. Computing the period
-                // classically and returning it as a quantum result is the one thing this
-                // library must not do, so infeasibility is reported at plan time rather
-                // than papered over at execution time.
-                Error(unfittableCircuitError n)
             else
-                Ok(ShorPlan.ExecuteQuantum(a, n, config.PrecisionQubits, intent.Exactness, config.MaxAttempts, config))
+                // Period finding needs enough counting qubits to resolve the period within
+                // the backend's runnable qubits. When it does not fit, say so. Computing the
+                // period classically and returning it as a quantum result is the one thing
+                // this library must not do, so infeasibility is reported at plan time rather
+                // than papered over at execution time.
+                countingRoomFor backend a n config.PrecisionQubits
+                |> Result.map (fun _ ->
+                    ShorPlan.ExecuteQuantum(a, n, config.PrecisionQubits, intent.Exactness, config.MaxAttempts, config))
 
     let private executePlan (backend: IQuantumBackend) (plan: ShorPlan) : Result<ShorsResult, QuantumError> =
         match plan with
@@ -1086,11 +1167,11 @@ module Shor =
     /// </example>
     let factor (n: int) (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
 
-        // Calculate recommended precision: 2 * log₂(N) + 3, clamped to the simulator
-        // validation bound (the formula exceeds it from N = 512; for such N the plan degrades
-        // to the classically-assisted path anyway, which clamps further to its own 16 cap).
+        // Recommended precision 2·log₂(N) + 3, at most QPE.MaxCountingQubits. Period finding
+        // fits the counting register into whatever the backend leaves beside the
+        // modular-exponentiation workspace.
         let precisionQubits =
-            min simulatorQubitBudget (2 * int (Math.Log(float n, 2.0)) + 3)
+            min QPE.MaxCountingQubits (2 * int (Math.Log(float n, 2.0)) + 3)
 
         let config =
             {

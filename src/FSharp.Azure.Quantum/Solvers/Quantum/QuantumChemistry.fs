@@ -3399,9 +3399,10 @@ module FermionMapping =
 // │    - This doubles the qubit count: nQubits = 2 * NumOrbitals            │
 // │                                                                         │
 // │ 5. QUBIT LIMITS                                                         │
-// │    - Maximum Types.NisqPracticalQubits (10 spatial orbitals) on NISQ       │
-// │    - H2 in STO-3G: 2 orbitals → 4 qubits ✓                              │
-// │    - H2O in STO-3G: 7 orbitals → 14 qubits ✓                            │
+// │    - The backend sets the limit: VQE and QPE refuse a Hamiltonian wider │
+// │      than UnifiedBackend.getRunnableQubits of the configured backend    │
+// │    - H2 in STO-3G: 2 orbitals → 4 qubits                                │
+// │    - H2O in STO-3G: 7 orbitals → 14 qubits                              │
 // │    - Large molecules require active space selection                     │
 // │                                                                         │
 // │ 6. UNITS                                                                │
@@ -3421,7 +3422,7 @@ module FermionMapping =
 // - Dimension mismatch: IndexOutOfRangeException during Hamiltonian build
 // - Wrong notation: Incorrect energies (may converge to wrong value)
 // - AO basis integrals: Incorrect energies (integrals not properly transformed)
-// - Too many orbitals: ValidationError "Molecule too large"
+// - More spin orbitals than the backend runs: ValidationError "MoleculeSize" naming the backend
 //
 // EXAMPLE USAGE:
 //   let provider = createPySCFProvider "sto-3g"  // From PySCFIntegration.fsx
@@ -3459,14 +3460,14 @@ type TwoElectronIntegrals =
 /// Can be provided by external tools (PySCF, Psi4, etc.) or computed internally
 ///
 /// PRECONDITIONS:
-/// - NumOrbitals must be ≤ 10 (gives 20 qubits after spin-orbital expansion)
+/// - 2 * NumOrbitals (one qubit per spin orbital) must not exceed the backend's runnable qubits
 /// - All integrals must be in molecular orbital (MO) basis
 /// - Two-electron integrals must use chemist notation (pq|rs)
 /// - All energies in Hartree
 type MolecularIntegrals =
     {
         /// Number of spatial molecular orbitals
-        /// PRECONDITION: Must be ≤ 10 for NISQ simulation (expands to 2N qubits)
+        /// Expands to 2N qubits, which the backend's runnable qubits must cover
         NumOrbitals: int
         /// Number of electrons
         NumElectrons: int
@@ -4341,7 +4342,6 @@ module MolecularHamiltonian =
     /// (PySCF, Psi4, etc.) to construct an accurate qubit Hamiltonian.
     ///
     /// PRECONDITIONS (validated):
-    /// - NumOrbitals ≤ 10 (expands to 20 qubits)
     /// - OneElectron.Integrals dimensions match NumOrbitals
     /// - TwoElectron.Integrals dimensions match NumOrbitals
     /// - NumElectrons > 0
@@ -4353,6 +4353,9 @@ module MolecularHamiltonian =
     ///
     /// Returns: (ProblemHamiltonian, nuclearRepulsion) where nuclearRepulsion should
     /// be added to the VQE energy to get the total molecular energy.
+    ///
+    /// The Hamiltonian has 2 * NumOrbitals qubits and no width limit of its own: VQE and
+    /// QPE compare it with the backend's runnable qubits before running a circuit.
     let buildFromIntegrals
         (integrals: MolecularIntegrals)
         (mapping: MappingMethod)
@@ -4360,19 +4363,6 @@ module MolecularHamiltonian =
         result {
             let n = integrals.NumOrbitals
             let numSpinOrbitals = n * 2
-
-            // Validate qubit count
-            do!
-                if numSpinOrbitals > Types.NisqPracticalQubits then
-                    Error(
-                        QuantumError.ValidationError(
-                            "MoleculeSize",
-                            $"Molecule too large: {n} spatial orbitals → {numSpinOrbitals} spin orbitals (max {Types.NisqPracticalQubits}). "
-                            + "Consider using active space selection to reduce orbital count."
-                        )
-                    )
-                else
-                    Ok()
 
             // Validate electron count
             do!
@@ -4484,6 +4474,9 @@ module MolecularHamiltonian =
     /// `buildFromIntegrals` (e.g. the bundled `h2Sto3gIntegrals`, or integrals loaded
     /// from an FCIDUMP file). `buildWithMapping` with JordanWigner/BravyiKitaev routes
     /// through an `IntegralProvider` and will not fabricate integrals.
+    ///
+    /// No width limit of its own: VQE compares the Hamiltonian with the backend's runnable
+    /// qubits before running a circuit.
     let build (molecule: Molecule) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
         result {
             // Validate molecule
@@ -4516,17 +4509,6 @@ module MolecularHamiltonian =
                     // Generic: 2 qubits per atom (minimal basis approximation)
                     let nq = molecule.Atoms.Length * 2
                     (nq, 1.0, 0.5)
-
-            do!
-                if numQubits > Types.NisqPracticalQubits then
-                    Error(
-                        QuantumError.ValidationError(
-                            "MoleculeSize",
-                            $"Molecule too large: {numQubits} qubits required (max {Types.NisqPracticalQubits})"
-                        )
-                    )
-                else
-                    Ok()
 
             // Build Hamiltonian terms
             // One-electron terms (Z operators)
@@ -5145,8 +5127,7 @@ module VQE =
                             + $"backend '{backend.Name}' runs at most {limit}"
                         )
                     )
-            // Wider than the NISQ budget: buildFromIntegrals refuses it before building anything.
-            | _ when parameters > MaxUccsdParameters && numQubits <= Types.NisqPracticalQubits ->
+            | _ when parameters > MaxUccsdParameters ->
                 return
                     Error(
                         QuantumError.ValidationError(
@@ -5223,7 +5204,8 @@ module VQE =
     /// - H2O or LiH → Error: they need an IntegralProvider;
     /// - any other molecule → hardware-efficient VQE on the empirical prototype Hamiltonian
     ///   (Source = EmpiricalHamiltonian).
-    /// UCCSD with more than MaxUccsdParameters parameters is an Error. Never substitutes a
+    /// A Hamiltonian wider than UnifiedBackend.getRunnableQubits of the backend, or UCCSD with
+    /// more than MaxUccsdParameters parameters, is an Error before any circuit runs. Never substitutes a
     /// tabulated energy; ClassicalDFT.runAsync returns those on request. `basis` applies only to
     /// the library's own H/He integrals: provider integrals carry their own basis.
     let runInBasisAsync
@@ -5266,7 +5248,15 @@ module VQE =
                     )
             | Ok None, None ->
                 // Generic VQE for unknown molecules (may be less accurate)
-                match MolecularHamiltonian.build molecule with
+                let runnable (hamiltonian: QaoaCircuit.ProblemHamiltonian) =
+                    UnifiedBackend.requireRunnableQubits
+                        "MoleculeSize"
+                        $"VQE on the empirical Hamiltonian of '{molecule.Name}' ({molecule.Atoms.Length} atoms)"
+                        hamiltonian.NumQubits
+                        backend
+                    |> Result.map (fun () -> hamiltonian)
+
+                match MolecularHamiltonian.build molecule |> Result.bind runnable with
                 | Error err -> return Error err
                 | Ok hamiltonian ->
 
@@ -5279,7 +5269,7 @@ module VQE =
                         | Some providedParameters when providedParameters.Length >= numParameters ->
                             providedParameters |> Array.take numParameters
                         | _ ->
-                            let rng = Random()
+                            let rng = Random.Shared
                             Array.init numParameters (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
 
                     // Report VQE start
@@ -5655,9 +5645,17 @@ module QPE =
     open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki
     open FSharp.Azure.Quantum.CircuitBuilder
 
-    /// Largest circuit (system + counting qubits) QPE.runAsync builds.
+    /// Counting qubits QPE.runAsync uses when the backend leaves room for them.
     [<Literal>]
-    let MaxTotalQubits = 16
+    let DefaultCountingQubits = 8
+
+    /// Fewest counting qubits that resolve a peak and its neighbours.
+    [<Literal>]
+    let MinCountingQubits = 3
+
+    /// Most counting qubits: the outcome distribution is an Int32-indexed array of 2^m bins.
+    [<Literal>]
+    let MaxCountingQubits = 30
 
     /// State the system register is prepared in before phase estimation.
     type InitialState =
@@ -5671,7 +5669,8 @@ module QPE =
     /// Settings of a chemistry QPE run.
     type Settings =
         {
-            /// Counting (phase) qubits; None takes min(8, MaxTotalQubits - system qubits)
+            /// Counting (phase) qubits; None takes DefaultCountingQubits, or fewer when the
+            /// backend's runnable qubits leave less room beside the system qubits
             CountingQubits: int option
             /// Trotter-Suzuki order of the circuit for U: 1 or 2
             TrotterOrder: int
@@ -5915,8 +5914,9 @@ module QPE =
     /// QPE of the molecule's electronic Hamiltonian (see the module summary): the energy of
     /// the most probable peak, every peak in Estimation, and the overlap caveat in Notes.
     /// Errors: no integrals (a molecule other than H/He without SolverConfig.IntegralProvider),
-    /// spin states UCCSD-VQE also refuses, more than MaxTotalQubits qubits, fewer than 3
-    /// counting qubits, a Trotter order other than 1 or 2, or fewer than one Trotter step.
+    /// spin states UCCSD-VQE also refuses, more qubits than UnifiedBackend.getRunnableQubits of
+    /// the backend, fewer than MinCountingQubits or more than MaxCountingQubits counting
+    /// qubits, a Trotter order other than 1 or 2, or fewer than one Trotter step.
     let runWithAsync
         (settings: Settings)
         (molecule: Molecule)
@@ -5947,29 +5947,40 @@ module QPE =
 
                     let systemQubits = 2 * integrals.NumOrbitals
 
+                    let runnable =
+                        Core.BackendAbstraction.UnifiedBackend.getRunnableQubits backend
+
                     let countingQubits =
-                        settings.CountingQubits
-                        |> Option.defaultValue (min 8 (MaxTotalQubits - systemQubits))
+                        match settings.CountingQubits, runnable with
+                        | Some counting, _ -> counting
+                        | None, Some limit -> min DefaultCountingQubits (limit - systemQubits)
+                        | None, None -> DefaultCountingQubits
 
                     do!
                         if settings.TrotterOrder <> 1 && settings.TrotterOrder <> 2 then
                             invalid "TrotterOrder" $"must be 1 or 2, got {settings.TrotterOrder}"
                         elif settings.TrotterSteps < 1 then
                             invalid "TrotterSteps" $"must be at least 1, got {settings.TrotterSteps}"
-                        elif countingQubits < 3 then
-                            invalid
-                                "CountingQubits"
-                                $"{systemQubits} system qubits leave {MaxTotalQubits - systemQubits} of the {MaxTotalQubits} for counting; QPE needs at least 3. Choose a smaller active space (IntegralProvider or FCIDUMP)."
-                        elif systemQubits + countingQubits > MaxTotalQubits then
-                            invalid
-                                "CountingQubits"
-                                $"{systemQubits} system + {countingQubits} counting qubits exceed {MaxTotalQubits}"
                         else
-                            match Core.BackendAbstraction.UnifiedBackend.getRunnableQubits backend with
-                            | Some limit when systemQubits + countingQubits > limit ->
+                            match settings.CountingQubits, runnable with
+                            | None, Some limit when countingQubits < MinCountingQubits ->
                                 invalid
                                     "MoleculeSize"
-                                    $"QPE needs {systemQubits + countingQubits} qubits; backend '{backend.Name}' runs at most {limit}"
+                                    $"{systemQubits} system qubits leave {max 0 (limit - systemQubits)} of the {limit} qubits backend '{backend.Name}' runs for counting; QPE needs at least {MinCountingQubits}. Choose a smaller active space (IntegralProvider or FCIDUMP)."
+                            | _ when countingQubits < MinCountingQubits ->
+                                invalid "CountingQubits" $"must be at least {MinCountingQubits}, got {countingQubits}"
+                            | _ when countingQubits > MaxCountingQubits ->
+                                invalid "CountingQubits" $"must be at most {MaxCountingQubits}, got {countingQubits}"
+                            | _ when
+                                int64 settings.TrotterSteps <<< (countingQubits - 1) > int64 Int32.MaxValue
+                                ->
+                                invalid
+                                    "CountingQubits"
+                                    $"the last controlled-U repeats {settings.TrotterSteps} Trotter steps 2^{countingQubits - 1} times, more than Int32 counts"
+                            | _, Some limit when systemQubits + countingQubits > limit ->
+                                invalid
+                                    "MoleculeSize"
+                                    $"QPE needs {systemQubits + countingQubits} qubits ({systemQubits} system + {countingQubits} counting); backend '{backend.Name}' runs at most {limit}"
                             | _ -> Ok()
 
                     let! (hamiltonian, nuclearRepulsion) =

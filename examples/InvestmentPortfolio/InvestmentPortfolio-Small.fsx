@@ -4,7 +4,7 @@
 // Direct quantum portfolio optimization using QuantumPortfolioSolver with a
 // minimal asset set (3 qubits by default).
 // QUBO encoding + QAOA execution for mean-variance portfolio problems.
-// One qubit per asset; the local simulator run is capped at 16 assets.
+// One qubit per asset, up to what the backend runs.
 //
 // Figures: annual return and volatility estimated from Yahoo Finance daily
 // adjusted closes 2019-2023 (data/market-stats-2019-2023.json); the buy price
@@ -63,7 +63,7 @@ Cli.exitIfHelp
     [
         {
             Cli.OptionSpec.Name = "symbols"
-            Description = "Comma-separated symbols, at most 16 (any Yahoo ticker with --live)"
+            Description = "Comma-separated symbols, one qubit each (any Yahoo ticker with --live)"
             Default = Some "AAPL,MSFT,GOOGL"
         }
         {
@@ -164,10 +164,6 @@ type StockResult =
 
 let private presetSymbols = [ "AAPL"; "MSFT"; "GOOGL" ]
 
-/// One qubit per asset; larger problems do not fit the local state-vector simulator.
-[<Literal>]
-let private maxAssets = 16
-
 /// A stock to include; Figures = (expected return, risk, price) when the CSV supplies them.
 type private StockSpec =
     {
@@ -263,14 +259,19 @@ if selectedSpecs.IsEmpty then
     eprintfn "ERROR: No stocks selected. Check --symbols filter or --input CSV."
     exit 1
 
-if selectedSpecs.Length > maxAssets then
+let backend = LocalBackend() :> IQuantumBackend
+
+match UnifiedBackend.getRunnableQubits backend with
+| Some limit when selectedSpecs.Length > limit ->
     eprintfn
-        "ERROR: %d assets need %d qubits; this example simulates at most %d."
+        "ERROR: %d assets need %d qubits; backend '%s' runs at most %d."
         selectedSpecs.Length
         selectedSpecs.Length
-        maxAssets
+        backend.Name
+        limit
 
     exit 1
+| _ -> ()
 
 // ==============================================================================
 // MARKET FIGURES (bundled, or --live from Yahoo Finance)
@@ -368,7 +369,6 @@ if not quiet then
 
     printfn ""
 
-let backend = LocalBackend() :> IQuantumBackend
 
 let toAsset (s: StockInfo) : Asset =
     {

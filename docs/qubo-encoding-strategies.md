@@ -655,14 +655,12 @@ let quboMap =
         (0, 1),  1.0
     ]
 
-let config : QaoaExecutionHelpers.QaoaSolverConfig = {
-    NumLayers = 2
-    OptimizationShots = 50
-    FinalShots = 200
-    EnableOptimization = true
-    EnableConstraintRepair = true
-    MaxOptimizationIterations = 100
-}
+let config : QaoaExecutionHelpers.QaoaSolverConfig =
+    { QaoaExecutionHelpers.defaultConfig with
+        NumLayers = 2
+        OptimizationShots = 50
+        FinalShots = 200
+        MaxOptimizationIterations = 100 }
 
 task {
     match! QaoaExecutionHelpers.executeQaoaWithOptimizationSparseAsync backend 2 quboMap config CancellationToken.None with

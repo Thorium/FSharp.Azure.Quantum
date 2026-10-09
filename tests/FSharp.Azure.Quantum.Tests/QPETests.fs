@@ -418,12 +418,10 @@ module QPETests =
 
     [<Fact>]
     let ``QPE on modular exponentiation is refused by the noisy backend's qubit cap, not crashed`` () =
-        // The whole fallback path now runs on this backend — plan, lowered ops, incremental
-        // refusal, gates form, ExecuteToState — and stops only at the density-matrix
-        // simulator's own 8-qubit cap. No modular-exponentiation instance can ever fit: the
-        // Beauregard workspace alone is 2n + 4 >= 8, before any counting qubit. So on this
-        // backend the honest answer is that ValidationError. It used to be a thrown
-        // exception from the lowering, and before that a conversion failure.
+        // The density-matrix simulator declares an 8-qubit limit, and no modular-exponentiation
+        // instance fits it: the Beauregard workspace alone is 2n + 4 >= 8, before any counting
+        // qubit. QPE refuses the width against the backend's declared limit before allocating
+        // anything, naming the backend.
         let backend =
             DensityMatrixSimulator.NoisyLocalBackend(DensityMatrixSimulator.noiseless) :> IQuantumBackend
 
@@ -436,7 +434,10 @@ module QPETests =
             }
 
         match QPE.execute config backend with
-        | Error(QuantumError.ValidationError("numQubits", message)) -> Assert.Contains("8 qubits", message)
+        | Error(QuantumError.ValidationError("CountingQubits", message)) ->
+            Assert.Contains("needs 10 qubits", message)
+            Assert.Contains("at most 8 qubits", message)
+            Assert.Contains(backend.Name, message)
         | Error err -> Assert.Fail($"Expected the density-matrix qubit-cap ValidationError, got: {err}")
         | Ok _ -> Assert.Fail("A 10-qubit density-matrix simulation cannot succeed under an 8-qubit cap")
 

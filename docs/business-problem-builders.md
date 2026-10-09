@@ -236,7 +236,7 @@ let configuredResult = binaryClassification {
 | `backend` | Quantum backend | `LocalBackend` |
 | `saveModelTo`, `note`, `verbose`, `progressReporter`, `cancellationToken` | Bookkeeping | none |
 
-The `Quantum` architecture uses one qubit per feature and accepts at most 8 features; reduce dimensionality first for wider data. Feature map (ZZ, depth 2) and ansatz (RealAmplitudes, depth 2) are fixed by the builder.
+The `Quantum` architecture uses one qubit per feature, up to the qubits the backend runs (`UnifiedBackend.getRunnableQubits`; 20 on the local simulator by default); reduce dimensionality first for wider data. Feature map (ZZ, depth 2) and ansatz (RealAmplitudes, depth 2) are fixed by the builder.
 
 ### Example: Fraud Detection
 
@@ -367,7 +367,7 @@ task {
 | `backend` | Quantum backend | `LocalBackend` |
 | `saveModelTo`, `note`, `verbose`, `progressReporter`, `cancellationToken` | Bookkeeping | none |
 
-Other functions: `AnomalyDetector.checkBatchAsync samples detector cancellationToken` (counts, rate and the most anomalous indices), `AnomalyDetector.explain sample detector trainingData` (per-feature contributions), `save`/`load`. The detector uses up to 8 qubits.
+Other functions: `AnomalyDetector.checkBatchAsync samples detector cancellationToken` (counts, rate and the most anomalous indices), `AnomalyDetector.explain sample detector trainingData` (per-feature contributions), `save`/`load`. The detector uses one qubit per feature, up to the qubits the backend runs.
 
 ### Example: Network Intrusion Detection
 
@@ -476,7 +476,7 @@ For a held-out set, `PredictiveModel.evaluateRegressionAsync testX testY model c
 | `backend` | Quantum backend | `LocalBackend` |
 | `saveModelTo`, `note`, `verbose`, `progressReporter`, `cancellationToken` | Bookkeeping | none |
 
-Regression always runs on the quantum backend (an HHL linear fit, falling back to VQC regression), whatever the architecture. For multi-class, `Hybrid` uses quantum kernel SVMs and `Quantum`/`Classical` use VQC. VQC models accept at most 5 features.
+Regression always runs on the quantum backend (an HHL linear fit, falling back to VQC regression), whatever the architecture. For multi-class, `Hybrid` uses quantum kernel SVMs and `Quantum`/`Classical` use VQC. VQC models use one qubit per feature, up to the qubits the backend runs.
 
 ### Example: Customer Churn Prediction
 
@@ -1023,7 +1023,7 @@ task {
 
 | Operation | Description |
 |-----------|-------------|
-| `task id` / `tasks ids` | Tasks to assign (at most 50) |
+| `task id` / `tasks ids` | Tasks to assign (as many as the backend's qubits allow) |
 | `resource id cost` | Resource with a cost and unlimited capacity |
 | `resourceWithCapacity id cost capacity` | Resource that can take at most `capacity` tasks |
 | `conflict t1 t2` | Hard: the two tasks may not share a resource |
@@ -1278,8 +1278,8 @@ The machine-learning builders take an `architecture` (AutoML takes a list via `t
 
 | Builder | `Quantum` | `Hybrid` | `Classical` |
 |---------|-----------|----------|-------------|
-| Binary Classification | VQC (default), at most 8 features | Quantum kernel + SVM | Not implemented (returns an error) |
-| Predictive Modeling | Regression: HHL/VQC. Multi-class: VQC, at most 5 features | Regression: same as Quantum. Multi-class: quantum kernel SVMs | Accepted; runs the same quantum paths |
+| Binary Classification | VQC (default), one qubit per feature | Quantum kernel + SVM | Not implemented (returns an error) |
+| Predictive Modeling | Regression: HHL/VQC. Multi-class: VQC, one qubit per feature | Regression: same as Quantum. Multi-class: quantum kernel SVMs | Accepted; runs the same quantum paths |
 | AutoML | Tried by default | Tried by default | Opt-in; binary trials fail |
 
 Anomaly detection and similarity search don't take an architecture: anomaly detection always uses a quantum kernel, and similarity search uses whichever `similarityMetric` you choose.
@@ -1294,9 +1294,9 @@ Anomaly detection and similarity search don't take an architecture: anomaly dete
 
 ### Common Issues
 
-#### 1. "supports at most N features"
+#### 1. "needs N qubits ... but backend 'X' runs at most M qubits"
 
-**Cause:** VQC models use one qubit per feature (8 for binary classification, 5 for predictive VQC models).
+**Cause:** VQC and quantum-kernel models use one qubit per feature, and the backend runs at most M qubits (the local simulator 20 by default; raise it with `FSAQ_MAX_CIRCUIT_QUBITS` when memory and time allow).
 
 **Solutions:**
 - Reduce dimensionality (feature selection, PCA) before training

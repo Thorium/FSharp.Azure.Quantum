@@ -66,21 +66,63 @@ module SocialNetworkAnalyzerTests =
         }
         :> Task
 
+    let private probeName = "width-probe"
+
+    /// A ring of n people.
+    let private ring (n: int) : SocialNetworkProblem =
+        let people = List.init n (fun i -> $"Person{i}")
+
+        { createTriangle () with
+            People = people
+            Connections =
+                people
+                |> List.mapi (fun i p ->
+                    {
+                        Person1 = p
+                        Person2 = people.[(i + 1) % n]
+                    })
+            MinCommunitySize = None
+        }
+
     [<Fact>]
-    let ``solve should reject network with more than 100 people`` () =
+    let ``solve passes a network of 101 people to a backend that declares no limit`` () =
         task {
-            let people = List.init 101 (fun i -> $"Person{i}")
+            let probe = CapacityStubBackend(probeName, None)
 
             let problem =
-                { createTriangle () with
-                    People = people
+                { ring 101 with
+                    Mode = Some FindMonitorSet
+                    Backend = Some(probe :> IQuantumBackend)
                 }
 
             match! solveAsync problem CancellationToken.None with
-            | Error(QuantumError.ValidationError(param, msg)) ->
-                Assert.Equal("People", param)
-                Assert.Contains("too large", msg)
-            | _ -> failwith "Should return ValidationError for too many people"
+            | Error(QuantumError.ValidationError("People", msg)) -> failwith $"Network size was refused: {msg}"
+            | Ok _ -> failwith "The probe backend runs nothing"
+            | Error _ -> ()
+
+            Assert.Contains(101, probe.Widths)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``solve refuses Grover search over more people than the backend runs, naming the backend`` () =
+        task {
+            let probe = CapacityStubBackend(probeName, Some 10)
+
+            let problem =
+                { ring 12 with
+                    Mode = Some(FindCommunities 3)
+                    Backend = Some(probe :> IQuantumBackend)
+                }
+
+            match! solveAsync problem CancellationToken.None with
+            | Error(QuantumError.ValidationError("People", msg)) ->
+                Assert.Contains("12", msg)
+                Assert.Contains("10", msg)
+                Assert.Contains(probeName, msg)
+            | other -> failwith $"Expected a People error naming the backend, got: %A{other}"
+
+            Assert.Empty(probe.Widths)
         }
         :> Task
 
@@ -380,8 +422,7 @@ module SocialNetworkAnalyzerTests =
     [<Fact>]
     let ``solve with 10 people should succeed within inner solver limit`` () =
         task {
-            // The outer SocialNetworkAnalyzer allows up to 100 people, but the inner
-            // GroverCliqueSolver has a 20-vertex limit. Test with 10 to stay fast.
+            // Grover's search needs one qubit per person; 10 people keeps it fast.
             let people = List.init 10 (fun i -> $"Person{i}")
 
             let problem =

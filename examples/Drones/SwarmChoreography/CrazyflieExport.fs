@@ -333,6 +333,26 @@ def start_trajectory(scf):
     scf.cf.high_level_commander.start_trajectory(TRAJECTORY_ID, 1.0, relative=False)
 
 
+def light_schedule():
+    # When each formation is reached, counted from the trajectory's start as
+    # trajectory_for times it, and the colour each drone shows there: the
+    # colour of the slot it flew to. The lights are set over the radio, so a
+    # drone that loses the radio flies on with its last colour.
+    events = []
+    t = 0.0
+    for name in FORMATION_SEQUENCE[1:]:
+        waypoints = FORMATIONS[name]['waypoints']
+        t += max(wp['duration'] for wp in waypoints.values())
+        events.append((t, {i: wp.get('color') for i, wp in waypoints.items()}))
+        t += PAUSE_DURATION
+    return events
+
+
+def light(scf, color):
+    if color:
+        set_led_color(scf.cf, color[0], color[1], color[2])
+
+
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
@@ -369,9 +389,15 @@ def run_show():
             swarm.parallel_safe(takeoff)
             print(f'Show running on board ({duration:.1f} s)...')
             swarm.parallel_safe(start_trajectory)
-            end = time.time() + duration
+            started = time.time()
+            end = started + duration
+            lights = light_schedule()
             while time.time() < end and not EMERGENCY_STOP.is_set():
-                time.sleep(0.1)
+                while lights and time.time() - started >= lights[0][0]:
+                    _, colors = lights.pop(0)
+                    swarm.parallel_safe(
+                        light, {uri: [colors.get(i)] for i, uri in enumerate(DRONE_URIS)})
+                time.sleep(0.05)
         except KeyboardInterrupt:
             print('\nShow interrupted by user: landing in place')
             EMERGENCY_STOP.set()
@@ -706,10 +732,19 @@ let fromTransitionResults
         {|
             Name: string
             Positions: {| X: float; Y: float; Z: float |}[]
+            Colors: LedColor[] option
         |}[])
     (scale: float)
     (transitionDuration: float)
     : ShowDefinition =
+
+    // A drone shows the colour of the slot it flies to; with no slot colours,
+    // its own.
+    let colorAt (colors: LedColor[] option) (slot: int) (droneId: int) =
+        match colors with
+        | Some cs -> Some cs.[slot]
+        | None when droneId < defaultColors.Length -> Some defaultColors.[droneId]
+        | None -> None
 
     let numDrones =
         if formations.Length > 0 then
@@ -750,11 +785,7 @@ let fromTransitionResults
                             {
                                 DroneId = i
                                 Position = convertPosition pos scale
-                                Color =
-                                    if i < defaultColors.Length then
-                                        Some defaultColors.[i]
-                                    else
-                                        None
+                                Color = colorAt startFormation.Colors i i
                                 Duration = transitionDuration
                             }
                     |]
@@ -784,11 +815,7 @@ let fromTransitionResults
                                 {
                                     DroneId = a.DroneId
                                     Position = convertPosition targetPos scale
-                                    Color =
-                                        if a.DroneId < defaultColors.Length then
-                                            Some defaultColors.[a.DroneId]
-                                        else
-                                            None
+                                    Color = colorAt tf.Colors a.TargetPositionIndex a.DroneId
                                     Duration = transitionDuration
                                 }
                         |]

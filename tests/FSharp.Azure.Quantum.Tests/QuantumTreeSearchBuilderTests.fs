@@ -51,20 +51,28 @@ module QuantumTreeSearchBuilderTests =
         Assert.Contains("must be at least 1", ex.Message)
 
     [<Fact>]
-    let ``Builder should reject MaxDepth > 8`` () =
-        // Arrange & Act & Assert
-        let ex =
-            Assert.Throws<Exception>(fun () ->
-                QuantumTreeSearch.quantumTreeSearch {
-                    initialState 0
-                    maxDepth 10 // Too large
-                    branchingFactor 4
-                    evaluateWith simpleEval
-                    generateMovesWith simpleMoveGen
-                }
-                |> ignore)
+    let ``Builder should accept MaxDepth > 8 and BranchingFactor > 256 when the qubits fit an oracle index`` () =
+        // 10 levels x 2 bits = 20 qubits; 3 levels x 9 bits (512 moves) = 27 qubits
+        let deep =
+            QuantumTreeSearch.quantumTreeSearch {
+                initialState 0
+                maxDepth 10
+                branchingFactor 4
+                evaluateWith simpleEval
+                generateMovesWith simpleMoveGen
+            }
 
-        Assert.Contains("exceeds 8", ex.Message)
+        let wide =
+            QuantumTreeSearch.quantumTreeSearch {
+                initialState 0
+                maxDepth 3
+                branchingFactor 512
+                evaluateWith simpleEval
+                generateMovesWith simpleMoveGen
+            }
+
+        Assert.Equal(10, deep.MaxDepth)
+        Assert.Equal(512, wide.BranchingFactor)
 
     [<Fact>]
     let ``Builder should reject BranchingFactor < 2`` () =
@@ -117,21 +125,58 @@ module QuantumTreeSearchBuilderTests =
         Assert.Contains("must be in range", ex.Message)
 
     [<Fact>]
-    let ``Builder should reject problem requiring > 16 qubits`` () =
+    let ``Builder should reject a tree wider than an oracle indexes`` () =
         // Arrange & Act & Assert
         let ex =
             Assert.Throws<Exception>(fun () ->
                 QuantumTreeSearch.quantumTreeSearch {
                     initialState 0
-                    maxDepth 5
-                    branchingFactor 16 // 5 * 4 bits = 20 qubits (too many)
+                    maxDepth 8
+                    branchingFactor 16 // 8 * 4 bits = 32 qubits, past Oracle.MaxIndexQubits
                     evaluateWith simpleEval
                     generateMovesWith simpleMoveGen
                 }
                 |> ignore)
 
-        Assert.Contains("requires", ex.Message)
-        Assert.Contains("qubits", ex.Message)
+        Assert.Contains("requires 32 qubits", ex.Message)
+
+    // Width limits come from the backend (UnifiedBackend.getRunnableQubits). No test here
+    // simulates more than 16 qubits: wide trees go to a backend that simulates nothing.
+
+    [<Fact>]
+    let ``solve admits a 20-qubit tree when the backend declares no limit`` () =
+        let problem =
+            QuantumTreeSearch.quantumTreeSearch {
+                initialState 0
+                maxDepth 5
+                branchingFactor 16 // 5 * 4 bits = 20 qubits
+                evaluateWith simpleEval
+                generateMovesWith simpleMoveGen
+                backend (CapacityStubBackend("non-simulating", None) :> IQuantumBackend)
+            }
+
+        match QuantumTreeSearch.solve problem with
+        | Error err -> Assert.Contains("does not simulate", err.Message)
+        | Ok _ -> Assert.Fail("Expected the backend's own error")
+
+    [<Fact>]
+    let ``solve refuses a tree wider than the backend runs, naming the backend`` () =
+        let limited = LimitedLocalBackend 8
+
+        let problem =
+            QuantumTreeSearch.quantumTreeSearch {
+                initialState 0
+                maxDepth 3
+                branchingFactor 16 // 3 * 4 bits = 12 qubits
+                evaluateWith simpleEval
+                generateMovesWith simpleMoveGen
+                backend (limited :> IQuantumBackend)
+            }
+
+        let msg = QubitLimitBackends.validationMessage (QuantumTreeSearch.solve problem)
+        Assert.Contains("limited-local-8", msg)
+        Assert.Contains("needs 12 qubits", msg)
+        Assert.Equal(0, limited.WidestRequested)
 
     [<Fact>]
     let ``Builder should accept valid problem`` () =

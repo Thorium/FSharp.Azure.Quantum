@@ -37,6 +37,28 @@ module BinaryClassificationBuilderTests =
         let labels = [| 0; 0; 0; 0; 0; 1; 1; 1; 1; 1 |]
         features, labels
 
+    /// numSamples samples of numFeatures features, labels alternating 0/1
+    let private wideProblem (architecture: Architecture) (numFeatures: int) (backend: IQuantumBackend) =
+        let numSamples = 4
+
+        {
+            TrainFeatures =
+                Array.init numSamples (fun i -> Array.init numFeatures (fun j -> float ((i + j) % 5) / 5.0))
+            TrainLabels = Array.init numSamples (fun i -> i % 2)
+            Architecture = architecture
+            LearningRate = 0.01
+            MaxEpochs = 1
+            ConvergenceThreshold = 0.001
+            Backend = Some backend
+            Shots = 10
+            Verbose = false
+            SavePath = None
+            Note = None
+            ProgressReporter = None
+            CancellationToken = None
+            Logger = None
+        }
+
     // ========================================================================
     // VALIDATION TESTS
     // ========================================================================
@@ -243,6 +265,64 @@ module BinaryClassificationBuilderTests =
             match! trainAsync problem CancellationToken.None with
             | Error(QuantumError.NotImplemented _) -> ()
             | _ -> failwith "Should return NotImplemented for Classical architecture"
+        }
+        :> Task
+
+    // ========================================================================
+    // CIRCUIT WIDTH (one qubit per feature, limited only by the backend)
+    // ========================================================================
+
+    [<Theory; InlineData("Quantum"); InlineData("Hybrid")>]
+    let ``train encodes every feature when the backend's limit allows it`` (architectureName: string) =
+        task {
+            let architecture = if architectureName = "Quantum" then Quantum else Hybrid
+            // 12 features: beyond any fixed cap, within the backend's declared 12.
+            let probe = CapacityStubBackend("Width probe", Some 12)
+
+            match! trainAsync (wideProblem architecture 12 probe) CancellationToken.None with
+            | Error(QuantumError.ValidationError("features", msg)) -> failwith $"Should not be refused: {msg}"
+            | Ok _ -> failwith "The width probe executes nothing, so training cannot succeed"
+            | Error _ ->
+                Assert.NotEmpty(probe.Widths)
+                Assert.All(probe.Widths, (fun width -> Assert.Equal(12, width)))
+        }
+        :> Task
+
+    [<Theory; InlineData("Quantum"); InlineData("Hybrid")>]
+    let ``train refuses more features than the backend's runnable limit, naming the backend``
+        (architectureName: string)
+        =
+        task {
+            let architecture = if architectureName = "Quantum" then Quantum else Hybrid
+            let probe = CapacityStubBackend("Width probe", Some 3)
+
+            match! trainAsync (wideProblem architecture 4 probe) CancellationToken.None with
+            | Error(QuantumError.ValidationError("features", msg)) ->
+                Assert.Contains("4 features needs 4 qubits", msg)
+                Assert.Contains("'Width probe'", msg)
+                Assert.Contains("at most 3 qubits", msg)
+                Assert.Contains("Reduce dimensionality", msg)
+                Assert.Empty(probe.Widths)
+            | other -> failwith $"Expected a features ValidationError, got {other}"
+        }
+        :> Task
+
+    [<Fact>]
+    let ``predict refuses a VQC sample whose width differs from the trained feature count`` () =
+        task {
+            let problem =
+                { wideProblem Quantum 2 (LocalBackend.LocalBackend() :> IQuantumBackend) with
+                    Shots = 50
+                }
+
+            match! trainAsync problem CancellationToken.None with
+            | Ok classifier ->
+                for sample in [ [| 0.1 |]; [| 0.1; 0.2; 0.3 |] ] do
+                    match! predictAsync sample classifier CancellationToken.None with
+                    | Error(QuantumError.ValidationError("sample", msg)) ->
+                        Assert.Contains("trained on 2 features", msg)
+                    | other -> failwith $"Expected a sample ValidationError, got {other}"
+            | Error e -> failwith $"train should succeed, got error: {e}"
         }
         :> Task
 

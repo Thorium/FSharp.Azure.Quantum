@@ -98,8 +98,12 @@ type MavCmd =
     | DoJump
     /// MAV_CMD_DO_SET_ROI_LOCATION (195)
     | DoSetRoiLocation
-    /// Custom for LED control
-    | DoSetLedColor
+    /// MAV_CMD_IMAGE_START_CAPTURE (2000)
+    | ImageStartCapture
+    /// MAV_CMD_VIDEO_START_CAPTURE (2500)
+    | VideoStartCapture
+    /// MAV_CMD_VIDEO_STOP_CAPTURE (2501)
+    | VideoStopCapture
 
 /// MAVLink frame types
 type MavFrame =
@@ -219,7 +223,9 @@ let mavCmdId =
     | DoChangeSpeed -> 178
     | DoJump -> 177
     | DoSetRoiLocation -> 195
-    | DoSetLedColor -> 999 // Custom extension
+    | ImageStartCapture -> 2000
+    | VideoStartCapture -> 2500
+    | VideoStopCapture -> 2501
 
 /// Get MAVLink frame ID
 let mavFrameId =
@@ -330,6 +336,20 @@ let doSetServo (channel: int) (pwm: int) (seq: int) : MissionItem =
         Param1 = float channel
         Param2 = float pwm
     }
+
+/// Take one photo with every camera (MAV_CMD_IMAGE_START_CAPTURE: interval 0,
+/// one image). Which camera fires and how is the autopilot's camera setup
+/// (CAM1_TYPE and the rest on ArduPilot), not the mission's.
+let imageCapture (seq: int) : MissionItem =
+    { createItem seq ImageStartCapture Mission 0.0 0.0 0.0 with
+        Param3 = 1.0
+    }
+
+/// Start recording video on every camera's stream (stream 0 = all).
+let videoStart (seq: int) : MissionItem = createItem seq VideoStartCapture Mission 0.0 0.0 0.0
+
+/// Stop recording video on every camera's stream.
+let videoStop (seq: int) : MissionItem = createItem seq VideoStopCapture Mission 0.0 0.0 0.0
 
 /// A copter comes to rest at a waypoint only when the waypoint holds: with no
 /// hold it carries its speed through the corner onto the next leg, sooner

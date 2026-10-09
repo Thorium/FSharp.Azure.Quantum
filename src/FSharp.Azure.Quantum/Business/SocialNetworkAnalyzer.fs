@@ -245,15 +245,26 @@ module SocialNetworkAnalyzer =
             else
                 float internalConnections / float maxConnections
 
+    /// Reported when Grover's search over the network needs more qubits (one per person) than
+    /// the backend runs (UnifiedBackend.getRunnableQubits); None when it fits or the backend
+    /// declares no limit.
+    let private groverCapacityError (backend: IQuantumBackend) (problem: SocialNetworkProblem) : QuantumError option =
+        UnifiedBackend.runnableQubitsError
+            "People"
+            $"Grover community search over {problem.People.Length} people (one qubit per person)"
+            problem.People.Length
+            backend
+
     /// Find communities using quantum clique detection
     let private findCommunitiesQuantum
         (backend: IQuantumBackend)
         (problem: SocialNetworkProblem)
         : QuantumResult<Community list> =
-        match problem.MinCommunitySize with
-        | None -> Error(QuantumError.ValidationError("MinCommunitySize", "must be specified"))
-        | Some size when size < 2 -> Error(QuantumError.ValidationError("MinCommunitySize", "must be at least 2"))
-        | Some cliqueSize ->
+        match problem.MinCommunitySize, groverCapacityError backend problem with
+        | None, _ -> Error(QuantumError.ValidationError("MinCommunitySize", "must be specified"))
+        | Some size, _ when size < 2 -> Error(QuantumError.ValidationError("MinCommunitySize", "must be at least 2"))
+        | Some _, Some capacityError -> Error capacityError
+        | Some cliqueSize, None ->
             let graph = toGraph problem
 
             let config =
@@ -537,6 +548,10 @@ module SocialNetworkAnalyzer =
     /// it then takes many runs instead of one. A backend that bills every circuit is never
     /// split here. Call the solvers' solveWithConfigAsync (clique, vertex cover, matching) to change the settings or to read the
     /// split report.
+    ///
+    /// The network size is limited only by the backend: Grover's search (FindCommunities, or
+    /// GroverSearch for FindLargestCommunity) needs one qubit per person and is refused when
+    /// that exceeds the backend's runnable qubits (UnifiedBackend.getRunnableQubits).
     let solveAsync
         (problem: SocialNetworkProblem)
         (cancellationToken: CancellationToken)
@@ -544,14 +559,6 @@ module SocialNetworkAnalyzer =
         quantumResultTask {
             if problem.People.IsEmpty then
                 return! Error(QuantumError.ValidationError("People", "network must have at least one person"))
-            elif problem.People.Length > 100 then
-                return!
-                    Error(
-                        QuantumError.ValidationError(
-                            "People",
-                            $"network too large ({problem.People.Length}), maximum is 100"
-                        )
-                    )
             else
                 // Quantum-first: default to the local simulator (a real quantum backend) when
                 // no backend was supplied, then run the same quantum analysis path.

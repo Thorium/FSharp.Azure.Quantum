@@ -1118,7 +1118,7 @@ type QaoaCircuit = {
 
 **Module:** `FSharp.Azure.Quantum.QuantumLinearSystemSolver`
 
-**Use Cases:** learning and experimenting with HHL on small systems (2×2 to 16×16), e.g. the linear-algebra step of least-squares regression.
+**Use Cases:** learning and experimenting with HHL on small systems (power-of-2 dimensions, as wide as the backend runs), e.g. the linear-algebra step of least-squares regression.
 
 **Algorithm:** HHL (Harrow-Hassidim-Lloyd) - prepares a quantum state proportional to the solution of Ax = b
 
@@ -1175,7 +1175,7 @@ let diagonalProblem = linearSystemSolver {
 
 The `shots` operation is accepted but not used. On a simulator the solver reads the solution and success probability from the state vector exactly; on a cloud backend they come from the shots that backend was created with.
 
-**Limits** (checked when the builder finishes): matrix dimension 2–16 and a power of 2; `eigenvalueQubits` 2–12; eigenvalue + solution + ancilla qubits ≤ 20.
+**Limits** (checked when the builder finishes): matrix dimension at least 2 and a power of 2; `eigenvalueQubits` at least 2; eigenvalue + solution + ancilla qubits at most what the backend runs (and at most 30, the Int32 basis index).
 
 ### Types
 
@@ -1316,7 +1316,7 @@ match QuantumRegressionHHL.train regressionConfig with
 **Matrix Requirements:**
 - Must be **Hermitian** (A = A†) - real symmetric matrices qualify
 - Non-Hermitian can be embedded: [[0, A], [A†, 0]]
-- Dimension must be power of 2 (2×2, 4×4, 8×8, 16×16)
+- Dimension must be a power of 2 (2×2, 4×4, 8×8, …)
 
 **Solution Format:**
 - Output is a **quantum state |x⟩** (normalized), not a classical vector
@@ -1328,7 +1328,7 @@ match QuantumRegressionHHL.train regressionConfig with
 **Performance Considerations:**
 - **Condition number κ**: Lower is better (κ < 100 recommended)
 - **Success probability**: ∝ 1/κ² (ill-conditioned = low success rate)
-- **Size**: the library accepts matrices up to 16×16, which classical solvers handle instantly
+- **Size**: the matrices a simulator or today's hardware can hold are small, and classical solvers handle them instantly
 
 ### When to Use HHL vs Classical
 
@@ -1433,8 +1433,8 @@ type SplitPolicy = Never | OnSimulators | Always      // default OnSimulators
 type SplitSettings = {
     Policy: SplitPolicy             // when a split is allowed
     MaxPieceQubits: int voption     // widest circuit; ValueNone = the backend's limit. Wider problems are split
-    MaxFixedVariables: int          // conditioning: a piece touching b fixed variables runs 2^b times (default 8, at most 20)
-    MaxShareRuns: int               // blocks: one run per block and share (default 256)
+    MaxShareRuns: int               // most circuit runs of a split (default 256): conditioning runs a piece
+                                    // touching b fixed variables 2^b times, blocks run once per block and share
     MaxBlockItems: int              // blocks: items per block (default 12)
 }
 
@@ -1475,8 +1475,8 @@ val solveSharesAsync :
 
 - `SplitSettings` is the `Splitting` field of `QaoaSolverConfig`, `QuantumMaxCutSolver.QaoaConfig` and `QuantumKnapsackSolver.QaoaConfig`. `OnSimulators` splits on backends that do not bill every circuit; `Always` also splits on Azure Quantum and Braket backends, where every piece is a billed job.
 - `splitPieceQubits` answers whether a problem of that width is split on that backend, and with what piece width: `ValueNone` means it runs as one circuit.
-- `solvePiecewiseAsync` fixes the variables `chooseFixedVariables` picks and solves every remaining piece (a connected component, one circuit each) with `solvePiece` once per assignment of the fixed variables that piece is coupled to. It returns the assignment of all fixed variables with the lowest energy of the whole QUBO. `MaxFixedVariables` outside 0 to 20 is a `ValidationError`; a QUBO too dense to cut is refused before any piece runs.
-- `trySolveByConditioningAsync` applies the settings: `SplitAttempt.Solved(bits, report)` when it split, `SplitAttempt.RunAsOneCircuit` when the problem fits, the policy forbids a split, or the QUBO needs more than `MaxFixedVariables` while the backend can still hold it; a `ValidationError` naming the limit when it can neither be split nor held.
+- `solvePiecewiseAsync` fixes the variables `chooseFixedVariables` picks and solves every remaining piece (a connected component, one circuit each) with `solvePiece` once per assignment of the fixed variables that piece is coupled to. It returns the assignment of all fixed variables with the lowest energy of the whole QUBO, found by eliminating the fixed variables one at a time, so the join costs 2^span for the most fixed variables one step spans (`MostJoinSpan` = 20), not 2^(fixed variables). There is no limit on how many variables are fixed: `ConditioningLimits.MaxRuns` (at least 1) bounds the circuit runs, and a QUBO that needs more runs or a wider join is a `ValidationError` before any piece runs.
+- `trySolveByConditioningAsync` applies the settings: `SplitAttempt.Solved(bits, report)` when it split, `SplitAttempt.RunAsOneCircuit` when the problem fits, the policy forbids a split, or the QUBO needs more than `MaxShareRuns` runs or a join wider than `MostJoinSpan` while the backend can still hold it; a `ValidationError` naming the limit when it can neither be split nor held.
 - `runQaoaAsync` is QAOA on a QUBO of any width: `Direct = Some run` when it ran as one circuit, `Split = Some report` when it was split.
 - `solveSharesAsync` solves a knapsack-shaped selection block by block: `sampleBlock` is run on `exactShareQubo` for every block and exact share of the capacity (`shareRuns` in all), every sample feeds the block's table (`harvest`), and the tables are joined (`joinTables`). `QuantumKnapsackSolver.solveInBlocksAsync backend problem config maxBlockItems cancellationToken` is the knapsack entry point.
 - `QuantumKnapsackSolver.findAllExactCombinationsAsync` (every subset that sums to a target) splits by halves under the same settings (`SubsetSumConfig.Splitting`): a subset is a subset of one half summing to t joined with a subset of the other half summing to target − t.
@@ -1887,4 +1887,4 @@ val exportToFileWithConfigAsync : config:QasmConfig -> circuit:Circuit -> filePa
 
 ---
 
-**Last Updated**: 2026-10-02 (package version 1.5.2)
+**Last Updated**: 2026-10-09 (package version 1.6.0)

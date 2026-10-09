@@ -142,8 +142,16 @@ let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
 let csvPath = Cli.tryGet "csv" args
 
-// Clamp qubits to valid range (Oracle.compile enforces 1-20)
-let numQubits = max 1 (min 20 numQubitsRaw)
+/// The nonce space 2^qubits is counted in an int, so at most 30 qubits; the backend
+/// refuses a search wider than it runs.
+[<Literal>]
+let private MostNonceQubits = 30
+
+if numQubitsRaw < 1 || numQubitsRaw > MostNonceQubits then
+    eprintfn "ERROR: --qubits must be between 1 and %d, got %d" MostNonceQubits numQubitsRaw
+    exit 1
+
+let numQubits = numQubitsRaw
 let difficulty = max 1 (min 8 difficultyRaw)
 
 // ============================================================================

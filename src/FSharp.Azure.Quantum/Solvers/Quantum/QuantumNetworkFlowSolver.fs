@@ -23,7 +23,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// - Algorithm: QAOA (Quantum Approximate Optimization Algorithm)
 /// - Speed: Seconds to minutes (includes job queue wait for cloud backends)
 /// - Cost: ~$10-100 per run on real quantum hardware (IonQ, Rigetti)
-/// - LocalBackend: Free simulation (limited to ~16 qubits)
+/// - LocalBackend: Free simulation, up to the qubits it runs
 ///
 /// QUANTUM PIPELINE:
 /// 1. Network Flow Problem → QUBO Matrix (min-cost flow encoding)

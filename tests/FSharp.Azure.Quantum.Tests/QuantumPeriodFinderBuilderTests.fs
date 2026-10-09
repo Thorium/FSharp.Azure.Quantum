@@ -28,16 +28,79 @@ module QuantumPeriodFinderBuilderTests =
         |> Result.defaultWith (fun err -> Assert.Contains("at least 4", err.Message))
 
     [<Fact>]
-    let ``periodFinder builder rejects numbers too large`` () =
+    let ``periodFinder builder refuses a number whose circuit the backend cannot run`` () =
+        // N = 15001 = 7 · 2143: 14-bit registers, so at least 8 + 2·14 + 4 = 40 qubits.
+        let stub = CapacityStubBackend("stub-20", Some 20)
+
         let result =
             periodFinder {
-                number 15000 // Exceeds simulation limit
+                number 15001
                 precision 8
+                backend stub
             }
 
-        result
-        |> Result.map (fun _ -> Assert.True(false, "Should have rejected number > 10000"))
-        |> Result.defaultWith (fun err -> Assert.Contains("10000", err.Message))
+        match result with
+        | Ok _ -> Assert.Fail("a 40-qubit circuit on a 20-qubit backend must be refused")
+        | Error err ->
+            Assert.Contains("fewest counting qubits, needs 40 qubits", err.Message)
+            Assert.Contains("'stub-20'", err.Message)
+            Assert.Contains("runs at most 20", err.Message)
+
+    [<Fact>]
+    let ``periodFinder builder sizes a native-QPE backend by counting and register qubits only`` () =
+        // N = 15001 natively: 8 counting + 14 register = 22 qubits, not the gate circuit's 40.
+        let build (stub: CapacityStubBackend) =
+            periodFinder {
+                number 15001
+                precision 8
+                backend stub
+            }
+
+        match build (CapacityStubBackend("native-22", Some 22, nativeAlgorithms = true)) with
+        | Ok problem -> Assert.Equal(15001, problem.Number)
+        | Error err -> Assert.Fail($"22 qubits fit a 22-qubit native backend, got %s{err.Message}")
+
+        match build (CapacityStubBackend("native-21", Some 21, nativeAlgorithms = true)) with
+        | Ok _ -> Assert.Fail("22 qubits on a 21-qubit backend must be refused")
+        | Error err -> Assert.Contains("fewest counting qubits, needs 22 qubits", err.Message)
+
+        match build (CapacityStubBackend("gates-22", Some 22)) with
+        | Ok _ -> Assert.Fail("the 40-qubit gate circuit on a 22-qubit backend must be refused")
+        | Error err -> Assert.Contains("fewest counting qubits, needs 40 qubits", err.Message)
+
+    [<Fact>]
+    let ``periodFinder builder admits a large number when the backend declares no limit`` () =
+        let stub = CapacityStubBackend("unlimited-stub", None)
+
+        let result =
+            periodFinder {
+                number 15001
+                precision 8
+                backend stub
+            }
+
+        match result with
+        | Ok problem ->
+            Assert.Equal(15001, problem.Number)
+            Assert.Equal(0, stub.Requests)
+        | Error err -> Assert.Fail($"the backend declares no limit, got %s{err.Message}")
+
+    [<Fact>]
+    let ``periodFinder builder admits numbers the classical pre-checks answer on any backend`` () =
+        // Even and prime N never reach a period-finding circuit.
+        let stub = CapacityStubBackend("stub-4", Some 4)
+
+        for n in [ 15000; 15013 ] do
+            let result =
+                periodFinder {
+                    number n
+                    precision 8
+                    backend stub
+                }
+
+            match result with
+            | Ok problem -> Assert.Equal(n, problem.Number)
+            | Error err -> Assert.Fail($"N=%d{n} needs no circuit, got %s{err.Message}")
 
     [<Fact>]
     let ``periodFinder builder rejects insufficient precision`` () =
@@ -52,16 +115,37 @@ module QuantumPeriodFinderBuilderTests =
         |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
 
     [<Fact>]
-    let ``periodFinder builder rejects excessive precision`` () =
+    let ``periodFinder builder admits 25 precision qubits when the backend declares no limit`` () =
+        let stub = CapacityStubBackend("unlimited-stub", None)
+
         let result =
             periodFinder {
                 number 15
-                precision 25 // Exceeds NISQ limit
+                precision 25
+                backend stub
             }
 
-        result
-        |> Result.map (fun _ -> Assert.True(false, "Should have rejected precision > 20"))
-        |> Result.defaultWith (fun err -> Assert.Contains("20 qubits", err.Message))
+        match result with
+        | Ok problem -> Assert.Equal(25, problem.Precision)
+        | Error err -> Assert.Fail($"the backend declares no limit, got %s{err.Message}")
+
+    [<Fact>]
+    let ``periodFinder builder refuses when even a register's worth of counting qubits does not fit`` () =
+        // N = 15: 4 counting + 2·4 + 4 = 16 qubits at the least, whatever the precision.
+        let stub = CapacityStubBackend("stub-12", Some 12)
+
+        let result =
+            periodFinder {
+                number 15
+                precision 25
+                backend stub
+            }
+
+        match result with
+        | Ok _ -> Assert.Fail("16 qubits on a 12-qubit backend must be refused")
+        | Error err ->
+            Assert.Contains("fewest counting qubits, needs 16 qubits", err.Message)
+            Assert.Contains("'stub-12'", err.Message)
 
     [<Fact>]
     let ``periodFinder builder rejects base less than 2`` () =
@@ -231,28 +315,24 @@ module QuantumPeriodFinderBuilderTests =
             | Error err -> Assert.Fail($"Should factor 21: {err.Message}")
 
     [<Fact>]
-    let ``solve should refuse N=35, whose circuit does not fit the budget`` () =
+    let ``builder should refuse N=35, whose circuit does not fit the local simulator`` () =
         let problem =
             periodFinder {
                 number 35
-                // Coprime to 35, so period finding is actually reached. With a random base
-                // an unlucky draw makes gcd(a, 35) a factor outright — a real step of Shor's
-                // algorithm that returns before the qubit budget is ever consulted.
+                // Coprime to 35, so period finding is actually reached. A base sharing a
+                // factor with 35 is answered by gcd(a, 35) without a circuit.
                 chosenBase 2
                 precision 10
                 maxAttempts 3
             }
 
+        // N=35 needs 6 register bits, so the narrowest modular-exponentiation circuit is
+        // 6 + 2·6 + 4 = 22 qubits, more than the local simulator runs by default.
         match problem with
-        | Error err -> Assert.Fail($"Problem creation failed: {err.Message}")
-        | Ok prob ->
-            match solve prob with
-            // N=35 needs 6 register bits, so the modular-exponentiation circuit
-            // (counting + 2·6 + 4) leaves 4 counting qubits where 6 are required.
-            // This test asserted [5; 7] until the classical fallback was removed —
-            // factors that trial division found, reported as a quantum result.
-            | Ok result -> Assert.Fail($"Should refuse N=35 rather than factor it classically: {result.Message}")
-            | Error err -> Assert.Contains("counting qubits", err.Message)
+        | Ok prob -> Assert.Fail($"Should refuse N=35 rather than factor it classically: {prob}")
+        | Error err ->
+            Assert.Contains("fewest counting qubits, needs 22 qubits", err.Message)
+            Assert.Contains("runs at most", err.Message)
 
     // ========================================================================
     // EDGE CASE TESTS

@@ -77,7 +77,9 @@ module QuantumPeriodFinder =
             Base: int option
 
             /// QPE precision qubits (recommended: 2*log₂(N) + 3)
-            /// Higher precision = better success rate but more qubits
+            /// Higher precision = better success rate but more qubits; Shor's algorithm
+            /// reduces it to the counting qubits that fit beside the modular-exponentiation
+            /// workspace
             Precision: int
 
             /// QPE exactness contract (Exact by default).
@@ -148,27 +150,28 @@ module QuantumPeriodFinder =
     // VALIDATION HELPERS
     // ============================================================================
 
-    /// <summary>
-    /// Validates a period-finding problem specification.
-    /// Checks number range, precision bounds, and configuration validity.
-    /// </summary>
-    let private validate (problem: PeriodFinderProblem) : Result<unit, QuantumError> =
+    /// Whether Shor's algorithm reaches a period-finding circuit for N, rather than answering
+    /// from its classical pre-checks: N even, N prime, or a chosen base sharing a factor with N.
+    let private needsPeriodFinding (problem: PeriodFinderProblem) : bool =
+        let n = problem.Number
+        let rec gcd a b = if b = 0 then a else gcd b (a % b)
+
+        let isPrime =
+            n > 1 && Seq.forall (fun d -> n % d <> 0) (seq { 2 .. int (sqrt (float n)) })
+
+        n % 2 <> 0
+        && not isPrime
+        && problem.Base |> Option.forall (fun a -> gcd a n = 1)
+
+    /// Checks number range, precision, and configuration validity.
+    let private validateSettings (problem: PeriodFinderProblem) : Result<unit, QuantumError> =
         // Check number is valid for factorization
         if problem.Number < 4 then
             Error(QuantumError.ValidationError("Number", "must be at least 4 for factorization"))
-        elif problem.Number > 10000 then
-            Error(QuantumError.ValidationError("Number", "exceeds simulation limit (10000) for period finding"))
 
         // Check precision
         elif problem.Precision < 1 then
             Error(QuantumError.ValidationError("Precision", "must be at least 1 qubit"))
-        elif problem.Precision > Types.NisqPracticalQubits then
-            Error(
-                QuantumError.ValidationError(
-                    "Precision",
-                    $"exceeds practical limit ({Types.NisqPracticalQubits} qubits) for NISQ devices"
-                )
-            )
 
         // Check attempts
         elif problem.MaxAttempts < 1 then
@@ -188,6 +191,26 @@ module QuantumPeriodFinder =
                 Ok()
         else
             Ok()
+
+    /// <summary>
+    /// Validates a period-finding problem specification.
+    /// Checks number range, precision, configuration validity, and, when N needs a
+    /// period-finding circuit, that the narrowest one fits the backend's runnable qubits
+    /// (Shor.narrowestPeriodFindingQubits: the rule Shor itself refuses by).
+    /// </summary>
+    let private validate (problem: PeriodFinderProblem) : Result<unit, QuantumError> =
+        validateSettings problem
+        |> Result.bind (fun () ->
+            if needsPeriodFinding problem then
+                let backend = LocalBackendFactory.orLocal problem.Backend
+
+                UnifiedBackend.requireRunnableQubits
+                    "Number"
+                    $"Period finding for N={problem.Number}, at its fewest counting qubits,"
+                    (narrowestPeriodFindingQubits backend problem.Number problem.Precision)
+                    backend
+            else
+                Ok())
 
     // ============================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -299,10 +322,7 @@ module QuantumPeriodFinder =
                 }
 
             // Get backend (required by Rule 1)
-            let actualBackend =
-                match problem.Backend with
-                | Some backend -> backend
-                | None -> LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+            let actualBackend = LocalBackendFactory.orLocal problem.Backend
 
             // Execute Shor's algorithm with backend
             let! shorsResult = executeWith config problem.Exactness actualBackend

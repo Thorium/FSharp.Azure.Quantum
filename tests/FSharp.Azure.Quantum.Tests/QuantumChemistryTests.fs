@@ -2664,41 +2664,106 @@ module VqeIntegralPathTests =
         }
         :> Task
 
-    [<Fact>]
-    let ``Molecule wider than the NISQ qubit budget returns Error naming the limit`` () : Task =
-        task {
-            // 11 spatial orbitals -> 22 spin orbitals, above Types.NisqPracticalQubits; nothing is simulated.
+    /// One electron in 11 spatial orbitals: 22 qubits and 21 UCCSD parameters.
+    let private oneElectronIn11Orbitals: IntegralProvider =
+        fun _ ->
             let n = 11
+            let h1 = Array2D.zeroCreate n n
 
-            let tooLarge: IntegralProvider =
-                fun _ ->
-                    Ok
+            for i in 0 .. n - 1 do
+                h1.[i, i] <- -1.0 + 0.1 * float i
+
+            Ok
+                {
+                    NumOrbitals = n
+                    NumElectrons = 1
+                    NuclearRepulsion = 0.0
+                    OneElectron = { NumOrbitals = n; Integrals = h1 }
+                    TwoElectron =
                         {
                             NumOrbitals = n
-                            NumElectrons = 2
-                            NuclearRepulsion = 0.0
-                            OneElectron =
-                                {
-                                    NumOrbitals = n
-                                    Integrals = Array2D.zeroCreate n n
-                                }
-                            TwoElectron =
-                                {
-                                    NumOrbitals = n
-                                    Integrals = Array4D.zeroCreate n n n n
-                                }
-                            ReferenceEnergy = None
+                            Integrals = Array4D.zeroCreate n n n n
                         }
+                    ReferenceEnergy = None
+                }
 
-            let backend = CountingBackend(LocalBackend())
+    let private hydrogenAtom =
+        { Molecule.createH2 0.7414 with
+            Name = "H"
+            Atoms = [ (Molecule.createH2 0.7414).Atoms.Head ]
+            Bonds = []
+            Multiplicity = 2
+        }
+
+    [<Fact>]
+    let ``A 22-qubit Hamiltonian reaches a backend that declares no limit`` () : Task =
+        task {
+            // The stub simulates nothing: reaching it means validation admitted the molecule.
+            let stub = CapacityStubBackend("unlimited-stub", None)
 
             match!
-                energyOf (Molecule.createH2 0.7414) (configWith (Some(backend :> IQuantumBackend)) (Some tooLarge))
+                energyOf hydrogenAtom (configWith (Some(stub :> IQuantumBackend)) (Some oneElectronIn11Orbitals))
             with
-            | Ok r -> Assert.Fail($"22 qubits exceeds the budget, got {r.Energy} from {r.Source}")
+            | Ok r -> Assert.Fail($"the stub runs nothing, got {r.Energy} from {r.Source}")
             | Error e ->
-                Assert.Contains($"max {Types.NisqPracticalQubits}", e.Message)
-                Assert.Equal(0, backend.Applied)
+                Assert.Contains(CapacityStubBackend.Marker, e.Message)
+                Assert.Equal(22, stub.Widest)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``A Hamiltonian wider than the backend runs returns Error naming the backend`` () : Task =
+        task {
+            let stub = CapacityStubBackend("stub-20", Some 20)
+
+            match!
+                energyOf hydrogenAtom (configWith (Some(stub :> IQuantumBackend)) (Some oneElectronIn11Orbitals))
+            with
+            | Ok r -> Assert.Fail($"22 qubits exceed the backend's 20, got {r.Energy} from {r.Source}")
+            | Error e ->
+                Assert.Contains("needs 22 qubits", e.Message)
+                Assert.Contains("'stub-20'", e.Message)
+                Assert.Contains("runs at most 20", e.Message)
+                Assert.Equal(0, stub.Requests)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Empirical-Hamiltonian VQE is admitted or refused by the backend's limit`` () : Task =
+        task {
+            // An unidentified molecule takes the empirical path: 2 qubits per atom, 22 here.
+            let carbons =
+                {
+                    Name = "C11"
+                    Atoms =
+                        [
+                            for i in 0..10 ->
+                                {
+                                    Element = "C"
+                                    Position = (1.5 * float i, 0.0, 0.0)
+                                }
+                        ]
+                    Bonds = []
+                    Charge = 0
+                    Multiplicity = 1
+                }
+
+            let narrow = CapacityStubBackend("stub-20", Some 20)
+
+            match! energyOf carbons (configWith (Some(narrow :> IQuantumBackend)) None) with
+            | Ok r -> Assert.Fail($"22 qubits exceed the backend's 20, got {r.Energy}")
+            | Error e ->
+                Assert.Contains("needs 22 qubits", e.Message)
+                Assert.Contains("'stub-20'", e.Message)
+                Assert.Equal(0, narrow.Requests)
+
+            let unlimited = CapacityStubBackend("unlimited-stub", None)
+
+            match! energyOf carbons (configWith (Some(unlimited :> IQuantumBackend)) None) with
+            | Ok r -> Assert.Fail($"the stub runs nothing, got {r.Energy}")
+            | Error e ->
+                Assert.Contains(CapacityStubBackend.Marker, e.Message)
+                Assert.Equal(22, unlimited.Widest)
         }
         :> Task
 
@@ -3583,9 +3648,21 @@ module ChemistryAdmissionTests =
 
             let watch = System.Diagnostics.Stopwatch.StartNew()
 
-            match! run (molecule "X" [ atom "C" (0.0, 0.0, 0.0) ] 0 1) (Some wide) with
+            // A backend without a qubit limit: the parameter count alone refuses the ansatz.
+            let unlimited = CapacityStubBackend("unlimited-stub", None)
+
+            match!
+                GroundStateEnergy.estimateEnergyAsync
+                    (molecule "X" [ atom "C" (0.0, 0.0, 0.0) ] 0 1)
+                    { (config (Some wide)) with
+                        Backend = Some(unlimited :> Core.BackendAbstraction.IQuantumBackend)
+                    }
+                    CancellationToken.None
+            with
             | Ok r -> Assert.Fail($"2125 UCCSD parameters must be refused, got {r.Energy}")
-            | Error e -> Assert.Contains("MaxUccsdParameters", e.Message)
+            | Error e ->
+                Assert.Contains("MaxUccsdParameters", e.Message)
+                Assert.Equal(0, unlimited.Requests)
 
             Assert.True(watch.Elapsed.TotalSeconds < 3.0, $"refusal took {watch.Elapsed.TotalSeconds} s")
         }
@@ -4504,17 +4581,121 @@ module ChemistryQpeTests =
             | Ok r -> Assert.Fail $"H2O without integrals must be refused, got {r.Energy} from {r.Source}"
             | Error e -> Assert.Contains("IntegralProvider", e.Message)
 
+            let stub = CapacityStubBackend("stub-10", Some 10)
+
             match!
                 QPE.runWithAsync
                     { QPE.defaultSettings with
-                        CountingQubits = Some 13
+                        CountingQubits = Some 8
                     }
                     (Molecule.createH2 0.7414)
-                    (config None)
+                    (config (Some(stub :> IQuantumBackend)))
                     CancellationToken.None
             with
-            | Ok _ -> Assert.Fail "4 + 13 qubits exceed 16"
-            | Error e -> Assert.Contains("exceed 16", e.Message)
+            | Ok _ -> Assert.Fail "4 + 8 qubits exceed the backend's 10"
+            | Error e ->
+                Assert.Contains("needs 12 qubits", e.Message)
+                Assert.Contains("'stub-10'", e.Message)
+                Assert.Contains("runs at most 10", e.Message)
+                Assert.Equal(0, stub.Requests)
+
+            match!
+                QPE.runWithAsync
+                    { QPE.defaultSettings with
+                        CountingQubits = Some 2
+                    }
+                    (Molecule.createH2 0.7414)
+                    (config (Some(stub :> IQuantumBackend)))
+                    CancellationToken.None
+            with
+            | Ok _ -> Assert.Fail "2 counting qubits are too few"
+            | Error e -> Assert.Contains($"must be at least {QPE.MinCountingQubits}", e.Message)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Default counting qubits fill what the backend runs beside the system`` () =
+        task {
+            // H2/STO-3G has 4 system qubits: a 10-qubit backend leaves 6 for counting.
+            match!
+                QPE.runAsync (Molecule.createH2 0.7414) (config (Some(LimitedLocalBackend 10 :> IQuantumBackend))) CancellationToken.None
+            with
+            | Error e -> Assert.Fail e.Message
+            | Ok r -> Assert.Equal(6, (details r).CountingQubits)
+
+            // A 6-qubit backend leaves 2, fewer than QPE needs.
+            let narrow = CapacityStubBackend("stub-6", Some 6)
+
+            match! QPE.runAsync (Molecule.createH2 0.7414) (config (Some(narrow :> IQuantumBackend))) CancellationToken.None with
+            | Ok _ -> Assert.Fail "2 counting qubits are too few"
+            | Error e ->
+                Assert.Contains("leave 2 of the 6", e.Message)
+                Assert.Contains("'stub-6'", e.Message)
+                Assert.Equal(0, narrow.Requests)
+
+            // A backend that declares no limit gets the algorithmic default of 8.
+            let unlimited = CapacityStubBackend("unlimited-stub", None)
+
+            match! QPE.runAsync (Molecule.createH2 0.7414) (config (Some(unlimited :> IQuantumBackend))) CancellationToken.None with
+            | Ok _ -> Assert.Fail "the stub runs nothing"
+            | Error e ->
+                Assert.Contains(CapacityStubBackend.Marker, e.Message)
+                Assert.Equal(4 + QPE.DefaultCountingQubits, unlimited.Widest)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``A 17-qubit QPE circuit reaches a backend that declares no limit`` () =
+        task {
+            // One electron in 7 orbitals (14 system qubits) + 3 counting qubits. The stub
+            // simulates nothing: reaching it means validation admitted the circuit.
+            let n = 7
+            let h1 = Array2D.zeroCreate n n
+
+            for i in 0 .. n - 1 do
+                h1.[i, i] <- -1.0 + 0.1 * float i
+
+            let provider: IntegralProvider =
+                fun _ ->
+                    Ok
+                        {
+                            NumOrbitals = n
+                            NumElectrons = 1
+                            NuclearRepulsion = 0.0
+                            OneElectron = { NumOrbitals = n; Integrals = h1 }
+                            TwoElectron =
+                                {
+                                    NumOrbitals = n
+                                    Integrals = Array4D.zeroCreate n n n n
+                                }
+                            ReferenceEnergy = None
+                        }
+
+            let hydrogenAtom =
+                { Molecule.createH2 0.7414 with
+                    Name = "H"
+                    Atoms = [ (Molecule.createH2 0.7414).Atoms.Head ]
+                    Bonds = []
+                    Multiplicity = 2
+                }
+
+            let unlimited = CapacityStubBackend("unlimited-stub", None)
+
+            match!
+                QPE.runWithAsync
+                    { QPE.defaultSettings with
+                        CountingQubits = Some 3
+                    }
+                    hydrogenAtom
+                    { (config (Some(unlimited :> IQuantumBackend))) with
+                        IntegralProvider = Some provider
+                    }
+                    CancellationToken.None
+            with
+            | Ok _ -> Assert.Fail "the stub runs nothing"
+            | Error e ->
+                Assert.Contains(CapacityStubBackend.Marker, e.Message)
+                Assert.Equal(17, unlimited.Widest)
         }
         :> Task
 

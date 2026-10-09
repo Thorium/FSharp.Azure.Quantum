@@ -745,9 +745,9 @@ let report (circuit: QaoaSimulator.QaoaCircuit) =
     | Ok _ -> printfn "OK"
     | Error msg -> printfn "Error: %s" msg
 
-// ❌ Too many qubits
-report { baseCircuit with NumQubits = 17 }
-// "Number of qubits must be between 1 and 16, got 17"
+// ❌ Too many qubits (the local simulator runs 20 by default; FSAQ_MAX_CIRCUIT_QUBITS raises it)
+report { baseCircuit with NumQubits = 21 }
+// "Number of qubits must be between 1 and 20 (the local simulator's circuit limit; raise FSAQ_MAX_CIRCUIT_QUBITS), got 21"
 
 // ❌ Mismatched parameters (depth 2 needs 4 parameters)
 report { baseCircuit with Depth = 2 }

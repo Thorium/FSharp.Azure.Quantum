@@ -241,8 +241,8 @@ module NetworkFlow =
     ///   let! solution = NetworkFlow.solveAsync problem (Some ionqBackend) cancellationToken
     ///
     /// BACKEND LIMITATIONS:
-    ///   LocalBackend supports up to 16 qubits (approximately 16 routes)
-    ///   For larger problems, use cloud quantum backends (IonQ, Rigetti)
+    ///   One qubit per route, up to the qubits the backend runs (getRunnableQubits);
+    ///   for larger problems, use a wider cloud quantum backend
     ///
     /// RETURNS:
     ///   Task of Result with FlowSolution (routes, cost, fill rate) or error message

@@ -38,8 +38,7 @@ module QaoaExecutionHelpers =
         | OnSimulators
 
         /// Split on every backend. On a billed backend every piece is a billed job: set
-        /// MaxFixedVariables and MaxShareRuns to what the budget allows and give the backend
-        /// a JobBudget.
+        /// MaxShareRuns to what the budget allows and give the backend a JobBudget.
         | Always
 
     /// How a solver splits a problem that is wider than the backend. Part of
@@ -56,14 +55,10 @@ module QaoaExecutionHelpers =
             /// a 20-qubit piece minutes.
             MaxPieceQubits: int voption
 
-            /// Most QUBO variables fixed to cut a sparse QUBO into pieces (conditioning). A
-            /// piece runs once per assignment of the fixed variables it is coupled to, so one
-            /// that touches all of the default 8 runs 256 times. A QUBO that needs more is not
-            /// split. Values below 0 count as 0 and values above 20 as 20.
-            MaxFixedVariables: int
-
-            /// Most circuit runs of a block split (shares): one run per block and share of the
-            /// capacity. A problem that needs more is not split. Default 256.
+            /// Most circuit runs of a split, counted before any runs. Conditioning runs a piece
+            /// once per assignment of the fixed variables it is coupled to (2^b runs for b of
+            /// them); a block split (shares) runs once per block and share of the capacity. A
+            /// problem that needs more is not split. Default 256.
             MaxShareRuns: int
 
             /// Most items in a block of a block split, one qubit each (default 12); never more
@@ -72,12 +67,11 @@ module QaoaExecutionHelpers =
         }
 
     /// Default split settings: split on simulators only, pieces as wide as the backend runs,
-    /// at most 8 fixed variables, at most 256 block runs, blocks of at most 12 items.
+    /// at most 256 circuit runs, blocks of at most 12 items.
     let defaultSplitSettings: SplitSettings =
         {
             Policy = SplitPolicy.OnSimulators
             MaxPieceQubits = ValueNone
-            MaxFixedVariables = 8
             MaxShareRuns = 256
             MaxBlockItems = 12
         }

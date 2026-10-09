@@ -211,6 +211,13 @@ type DroneClass =
         MinSeparationM: float
         /// Least vertical separation the evidence accepts between lanes.
         MinVerticalM: float
+        /// Servo output (SERVOn) that opens the payload at a drop; 0 when the drops
+        /// release nothing (touch demand).
+        ReleaseServo: int
+        /// PWM that opens the release for the drop.
+        ReleaseOpenPwm: int
+        /// PWM that closes it again for the next fill.
+        ReleaseClosePwm: int
     }
 
 /// The terminal geometry shared by the corridor model and the dispatcher: what
@@ -532,23 +539,37 @@ module Parse =
                 && drop >= 0.0
                 && spacing > 0.0
                 ->
-                Ok
-                    {
-                        Model = model
-                        Count = count
-                        PayloadL = payload
-                        LoadedSpeedMs = loaded
-                        EmptySpeedMs = empty
-                        EnduranceMin = endurance
-                        DropTimeS = drop
-                        SwapTimeS = swap
-                        LaneSpacingM = spacing
-                        LaneBaseAltM = baseAlt
-                        LaneStepM = step
-                        ReturnOffsetM = returnOffset
-                        MinSeparationM = minSep
-                        MinVerticalM = minVert
-                    }
+                // The release defaults to SERVO9 (the first auxiliary output) when the
+                // drops carry a payload, and to none when they carry nothing.
+                match
+                    intOr "release_servo" (if payload > 0.0 then 9 else 0) (fun x -> x >= 0 && x <= 32) row,
+                    intOr "release_open_pwm" 1900 (fun x -> x >= 800 && x <= 2200) row,
+                    intOr "release_close_pwm" 1100 (fun x -> x >= 800 && x <= 2200) row
+                with
+                | Ok servo, Ok openPwm, Ok closePwm ->
+                    Ok
+                        {
+                            Model = model
+                            Count = count
+                            PayloadL = payload
+                            LoadedSpeedMs = loaded
+                            EmptySpeedMs = empty
+                            EnduranceMin = endurance
+                            DropTimeS = drop
+                            SwapTimeS = swap
+                            LaneSpacingM = spacing
+                            LaneBaseAltM = baseAlt
+                            LaneStepM = step
+                            ReturnOffsetM = returnOffset
+                            MinSeparationM = minSep
+                            MinVerticalM = minVert
+                            ReleaseServo = servo
+                            ReleaseOpenPwm = openPwm
+                            ReleaseClosePwm = closePwm
+                        }
+                | Error column, _, _
+                | _, Error column, _
+                | _, _, Error column -> Error $"row=%d{rowNum} invalid fleet field '%s{column}'"
             | _, _, _, _, _, _, _, Error column -> Error $"row=%d{rowNum} invalid fleet field '%s{column}'"
             | _ -> Error $"row=%d{rowNum} missing or invalid fleet fields")
 

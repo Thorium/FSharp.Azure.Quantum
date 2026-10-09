@@ -137,10 +137,6 @@ let fcidumpDir =
          |> Option.map (Data.resolveRelative __SOURCE_DIRECTORY__))
         false
 
-/// Widest VQE this example runs: 2 qubits per spatial orbital.
-[<Literal>]
-let maxVqeQubits = 16
-
 // ==============================================================================
 // TYPES
 // ==============================================================================
@@ -528,7 +524,7 @@ if not quiet then
 let private integralsFor (molecule: Molecule) : Result<IntegralProvider option, string> =
     let file = ChemistryIntegrals.fcidumpFileName molecule
 
-    match ChemistryIntegrals.tryFcidump maxVqeQubits fcidumpDir molecule, fcidumpDir with
+    match ChemistryIntegrals.tryFcidump backend fcidumpDir molecule, fcidumpDir with
     | Some provider, _ -> Ok(Some provider)
     | None, _ when ChemistryIntegrals.hasLibraryIntegrals molecule -> Ok None
     | None, Some dir -> Error $"needs {file} in {dir}"

@@ -127,6 +127,7 @@ Complete Python script using `cflib` that:
 - Waits for position estimation (Lighthouse/Loco)
 - Refuses a show with a waypoint outside `MIN_HEIGHT`-`MAX_HEIGHT` (nothing is clamped in flight)
 - **Uploads each drone's whole show as an on-board trajectory** (`Poly4D` pieces: a smooth 7th-order move and a 0.5 s pause per formation) before take-off, takes off, and starts all trajectories. A drone that loses the radio after the start keeps flying its show and then holds above its final slot. Verify on your firmware that a started high-level-commander trajectory keeps running, and the last setpoint is held, without radio traffic.
+- **Lights the formations as pictures**: each slot of a formation has its own colour, and a drone switches to the colour of the slot it flew to as the formation is reached (LED ring deck, solid-colour effect). The colours are set over the radio, so a drone that loses the radio flies on with its last colour. A formation without slot colours keeps each drone its own colour.
 - Handles emergency stop (Ctrl+C, also during take-off): every drone lands where it is; the landing is in a `finally`, so any way out of the show lands every drone
 - Lands all drones on their own start slots
 
@@ -186,6 +187,8 @@ The show is drawn in a vertical plane, but a room has a 2 m ceiling, and indoors
 ## MAVLink Export
 
 The `--mavlink` flag generates mission files compatible with ArduPilot and PX4 flight controllers, enabling outdoor drone swarm shows with standard drones (DJI, Pixhawk-based, etc.).
+
+The missions carry no lights: an ArduPilot mission has no light command. The formation colours are in the Crazyflie export.
 
 **Required parameters:**
 - `--home-lat` - Show origin latitude (decimal degrees)

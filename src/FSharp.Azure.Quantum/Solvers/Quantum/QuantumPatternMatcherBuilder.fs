@@ -127,8 +127,6 @@ module QuantumPatternMatcher =
 
         if searchSpaceSize < 1 then
             Error(QuantumError.ValidationError("SearchSpace", "must contain at least 1 item"))
-        elif searchSpaceSize > (1 <<< 16) then
-            Error(QuantumError.ValidationError("SearchSpace", $"size {searchSpaceSize} exceeds maximum (2^16 = 65536)"))
         elif problem.TopN < 1 then
             Error(QuantumError.ValidationError("TopN", "must be at least 1"))
         elif problem.TopN > searchSpaceSize then
@@ -141,13 +139,14 @@ module QuantumPatternMatcher =
         elif problem.Shots < 1 then
             Error(QuantumError.ValidationError("Shots", "must be at least 1"))
         else
+            // Items are Int32 oracle indices; the backend's own qubit limit is checked by solve.
             let qubitsNeeded = int (ceil (log (float searchSpaceSize) / log 2.0))
 
-            if qubitsNeeded > 16 then
+            if qubitsNeeded > GroverSearch.Oracle.MaxIndexQubits then
                 Error(
                     QuantumError.ValidationError(
                         "SearchSpace",
-                        $"requires {qubitsNeeded} qubits (size {searchSpaceSize}). Max: 16"
+                        $"size {searchSpaceSize} requires {qubitsNeeded} qubits; an oracle indexes at most {GroverSearch.Oracle.MaxIndexQubits}"
                     )
                 )
             else
@@ -380,6 +379,13 @@ module QuantumPatternMatcher =
 
                 // Create oracle and execute Grover search using new API
                 result {
+                    do!
+                        BackendAbstraction.UnifiedBackend.requireRunnableQubits
+                            "SearchSpace"
+                            $"pattern matching over {searchSpaceSize} items"
+                            qubitsNeeded
+                            actualBackend
+
                     let! oracle = GroverSearch.Oracle.fromPredicate oraclePredicate qubitsNeeded
 
                     // Create Grover config. Candidates are verified classically below, so the
@@ -531,7 +537,8 @@ module QuantumPatternMatcher =
             Shots = 1000
         }
 
-    /// Estimate resource requirements without executing
+    /// Estimate resource requirements without executing. Whether a given backend runs the
+    /// qubits required is its own limit (UnifiedBackend.getRunnableQubits), checked by solve.
     let estimateResources (searchSpaceSize: int) (topN: int) : string =
         let qubits = int (ceil (log (float searchSpaceSize) / log 2.0))
 
@@ -544,10 +551,10 @@ module QuantumPatternMatcher =
             searchSpaceSize
             topN
             qubits
-            (if qubits <= 16 then
-                 "✓ Feasible on NISQ devices"
+            (if qubits <= GroverSearch.Oracle.MaxIndexQubits then
+                 $"✓ Runs on any backend that supports {qubits} qubits"
              else
-                 "✗ Requires fault-tolerant quantum computer")
+                 $"✗ Exceeds the {GroverSearch.Oracle.MaxIndexQubits} qubits a Grover oracle indexes")
 
     /// Export solution to human-readable string
     let describeSolution (solution: PatternSolution<'T>) : string =

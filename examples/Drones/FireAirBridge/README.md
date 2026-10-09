@@ -265,7 +265,12 @@ flies 1.3 aircraft, and a plan nobody can follow is worth nothing. With
   out at the outbound altitude, the drop slot, the lane back at the return
   altitude, above the pad, repeated with `DO_JUMP`, then land on the pad. The
   lane legs command the ground speed the tracks were checked at, wind
-  included, since a copter's `DO_CHANGE_SPEED` is a ground speed. Each comes
+  included, since a copter's `DO_CHANGE_SPEED` is a ground speed. A fleet
+  with a payload opens its release on the drop slot: the copter comes to
+  rest, `DO_SET_SERVO` opens the release servo (`SERVO9` at 1900 µs by
+  default), it holds for the drop time and the servo closes (1100 µs) for
+  the next fill, the same stop the tracks time. A touch demand releases
+  nothing. Each comes
   as a QGroundControl `.plan`, a `.waypoints` file and a `.parm` file with
   ArduPilot 4.7's parameter names: speeds, `WP_RADIUS_M`, `DISARM_DELAY`,
   `FS_OPTIONS` = continue the mission on lost link, as the failsafe procedure
@@ -384,7 +389,7 @@ These files live in `examples/Drones/_data/`:
 |---|---|
 | `fire_water_sources.csv` | Lakes and reservoirs (latitude/longitude), with fill slots and fill time. |
 | `fire_sectors.csv` | Hotspot sectors: area, initial intensity, asset priority (cabins = 3), drop slots, neighbours. |
-| `fire_fleet.csv` | The drone class: payload, loaded and empty speed, endurance, lane spacing; lane geometry and separation minima are optional columns. |
+| `fire_fleet.csv` | The drone class: payload, loaded and empty speed, endurance, lane spacing; lane geometry and separation minima are optional columns, and so is the payload release: `release_servo` (default 9 with a payload, 0 for none), `release_open_pwm` (1900), `release_close_pwm` (1100). |
 | `fire_events.csv` | Timed events (`minute` or `tick`): wind direction and speed, source closed or reopened, spot fire or retouch, drones lost. |
 | `fire_vehicle_config.csv` | The operator's failsafe configuration baseline, checked by the evidence pack. |
 | `cans_pad.csv`, `cans_targets.csv`, `cans_fleet.csv`, `cans_events.csv` | The can demo (x_m/y_m), see above. Target rows need only an id, a name and a position; `touches` defaults to 1. |

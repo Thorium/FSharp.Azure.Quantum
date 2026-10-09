@@ -107,17 +107,17 @@ module QuantumPatternMatcherBuilderTests =
         Assert.Contains("must contain at least 1 item", ex.Message)
 
     [<Fact>]
-    let ``Builder should reject search space size > 2^16`` () =
-        // Arrange & Act & Assert
-        let ex =
-            Assert.Throws<Exception>(fun () ->
-                QuantumPatternMatcher.patternMatcher {
-                    searchSpaceSize 100000 // Too large
-                    matchPattern evenNumberPattern
-                }
-                |> ignore)
+    let ``Builder should accept search space size > 2^16`` () =
+        // 100000 items need 17 qubits; the backend's limit is checked by solve
+        let problem =
+            QuantumPatternMatcher.patternMatcher {
+                searchSpaceSize 100000
+                matchPattern evenNumberPattern
+            }
 
-        Assert.Contains("exceeds maximum", ex.Message)
+        match problem.SearchSpace with
+        | Choice2Of2 size -> Assert.Equal(100000, size)
+        | Choice1Of2 _ -> Assert.Fail("Expected an implicit index space")
 
     [<Fact>]
     let ``Builder should reject TopN < 1`` () =
@@ -148,17 +148,49 @@ module QuantumPatternMatcherBuilderTests =
         Assert.Contains("cannot exceed search space size", ex.Message)
 
     [<Fact>]
-    let ``Builder should reject problem requiring > 16 qubits`` () =
+    let ``Builder should reject a search space wider than an oracle indexes`` () =
         // Arrange & Act & Assert
         let ex =
             Assert.Throws<Exception>(fun () ->
                 QuantumPatternMatcher.patternMatcher {
-                    searchSpaceSize (1 <<< 17) // 2^17, needs 17 qubits
+                    searchSpaceSize ((1 <<< 30) + 1) // needs 31 qubits
                     matchPattern evenNumberPattern
                 }
                 |> ignore)
 
-        Assert.Contains("exceeds maximum", ex.Message)
+        Assert.Contains("requires 31 qubits", ex.Message)
+
+    // Width limits come from the backend (UnifiedBackend.getRunnableQubits). No test here
+    // simulates more than 16 qubits: wide searches go to a backend that simulates nothing.
+
+    [<Fact>]
+    let ``solve admits a 2^17 search space when the backend declares no limit`` () =
+        let problem =
+            QuantumPatternMatcher.patternMatcher {
+                searchSpaceSize (1 <<< 17)
+                matchPattern evenNumberPattern
+                backend (CapacityStubBackend("non-simulating", None) :> IQuantumBackend)
+            }
+
+        let result = QuantumPatternMatcher.solve problem
+
+        Assert.True(QubitLimitBackends.reachedBackend result, $"Expected the backend's own error, got {result}")
+
+    [<Fact>]
+    let ``solve refuses a search space wider than the backend runs, naming the backend`` () =
+        let limited = LimitedLocalBackend 8
+
+        let problem =
+            QuantumPatternMatcher.patternMatcher {
+                searchSpaceSize 1024 // 10 qubits
+                matchPattern evenNumberPattern
+                backend (limited :> IQuantumBackend)
+            }
+
+        let msg = QubitLimitBackends.validationMessage (QuantumPatternMatcher.solve problem)
+        Assert.Contains("limited-local-8", msg)
+        Assert.Contains("needs 10 qubits", msg)
+        Assert.Equal(0, limited.WidestRequested)
 
     [<Fact>]
     let ``Builder should accept valid problem`` () =
@@ -516,7 +548,7 @@ module QuantumPatternMatcherBuilderTests =
         // Arrange - Create problem with manual record (bypass builder validation for testing)
         let problem: QuantumPatternMatcher.PatternProblem<int> =
             {
-                SearchSpace = Choice2Of2(1 <<< 20) // 2^20, way too large
+                SearchSpace = Choice2Of2 Int32.MaxValue // 31 qubits, past what an oracle indexes
                 Pattern = evenNumberPattern
                 TopN = 5
                 Backend = None
@@ -530,7 +562,7 @@ module QuantumPatternMatcherBuilderTests =
         // Assert
         result
         |> Result.map (fun _ -> Assert.Fail("Expected solve to return error"))
-        |> Result.defaultWith (fun err -> Assert.Contains("exceeds maximum", err.Message))
+        |> Result.defaultWith (fun err -> Assert.Contains("an oracle indexes at most", err.Message))
 
     [<Fact>]
     let ``QuantumPatternMatcher.solve should handle pattern that never matches`` () =

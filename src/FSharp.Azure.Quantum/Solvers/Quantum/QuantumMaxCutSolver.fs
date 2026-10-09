@@ -24,7 +24,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// - Algorithm: QAOA (Quantum Approximate Optimization Algorithm)
 /// - Speed: Seconds to minutes (includes job queue wait for cloud backends)
 /// - Cost: ~$10-100 per run on real quantum hardware (IonQ, Rigetti)
-/// - LocalBackend: Free simulation (limited to ~16 qubits = 16 vertices)
+/// - LocalBackend: Free simulation, one qubit per vertex, up to the qubits it runs
 ///
 /// QUANTUM PIPELINE:
 /// 1. Graph → MaxCut QUBO Matrix (quadratic encoding)
@@ -413,7 +413,7 @@ module QuantumMaxCutSolver =
     ///
     /// Typical performance: 80-90% of optimal for random graphs
     let internal solveClassical (problem: MaxCutProblem) : MaxCutSolution =
-        let rng = Random()
+        let rng = Random.Shared
 
         // Start with random partition
         let initialPartitionS =

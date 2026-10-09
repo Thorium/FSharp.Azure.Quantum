@@ -137,16 +137,22 @@ module Oracle =
     // SAT SOLVER ORACLES - Boolean Satisfiability
     // ============================================================================
 
+    /// Widest search space an oracle addresses: basis states are Int32 indices, so 2^n must fit in an int.
+    [<Literal>]
+    let MaxIndexQubits = 30
+
     /// Compile oracle specification into executable oracle
     ///
     /// This is the main entry point for creating oracles.
     /// Returns CompiledOracle that works with both local and Azure backends.
+    /// numQubits must be in 1 .. MaxIndexQubits; whether a backend runs that many qubits
+    /// is checked by Grover.search against the backend's own limit.
     let compile (spec: OracleSpec) (numQubits: int) : QuantumResult<CompiledOracle> =
-        if numQubits < 1 || numQubits > Types.NisqPracticalQubits then
+        if numQubits < 1 || numQubits > MaxIndexQubits then
             Error(
                 QuantumError.ValidationError(
                     "NumQubits",
-                    $"must be between 1 and {Types.NisqPracticalQubits}, got {numQubits}"
+                    $"must be between 1 and {MaxIndexQubits} (basis states are Int32 indices), got {numQubits}"
                 )
             )
         else
@@ -434,11 +440,11 @@ module Oracle =
     let private validateFormula (formula: SatFormula) : QuantumResult<unit> =
         if formula.NumVariables < 1 then
             Error(QuantumError.ValidationError("NumVariables", $"must be at least 1, got {formula.NumVariables}"))
-        elif formula.NumVariables > Types.NisqPracticalQubits then
+        elif formula.NumVariables > MaxIndexQubits then
             Error(
                 QuantumError.ValidationError(
                     "NumVariables",
-                    $"too large ({formula.NumVariables}), maximum is {Types.NisqPracticalQubits}"
+                    $"too large ({formula.NumVariables}): one qubit per variable, and an oracle indexes at most {MaxIndexQubits} qubits"
                 )
             )
         elif formula.Clauses.IsEmpty then
@@ -669,17 +675,19 @@ module Oracle =
     let private validateGraphColoring (config: GraphColoringConfig) : QuantumResult<unit> =
         if config.Graph.NumVertices < 1 then
             Error(QuantumError.ValidationError("NumVertices", $"must be at least 1, got {config.Graph.NumVertices}"))
-        elif config.Graph.NumVertices > 10 then
-            Error(
-                QuantumError.ValidationError(
-                    "NumVertices",
-                    $"too large ({config.Graph.NumVertices}), maximum is 10 for Grover"
-                )
-            )
         elif config.NumColors < 2 then
             Error(QuantumError.ValidationError("NumColors", $"must be at least 2, got {config.NumColors}"))
-        elif config.NumColors > 8 then
-            Error(QuantumError.ValidationError("NumColors", $"too large ({config.NumColors}), maximum is 8"))
+        elif
+            int64 config.Graph.NumVertices * int64 (qubitsPerVertex config.NumColors) > int64 MaxIndexQubits
+        then
+            Error(
+                QuantumError.ValidationError(
+                    "NumQubits",
+                    $"{config.Graph.NumVertices} vertices with {config.NumColors} colors need "
+                    + $"{int64 config.Graph.NumVertices * int64 (qubitsPerVertex config.NumColors)} qubits, "
+                    + $"and an oracle indexes at most {MaxIndexQubits}"
+                )
+            )
         else
             // Validate edges reference valid vertices
             let invalidEdges =
@@ -720,25 +728,16 @@ module Oracle =
         match validateGraphColoring config with
         | Error err -> Error err
         | Ok() ->
-            // Calculate number of qubits needed
+            // Qubits needed (validated to fit an oracle index); the backend's own limit is
+            // checked by Grover.search.
             let qubitsPerVert = qubitsPerVertex config.NumColors
             let numQubits = config.Graph.NumVertices * qubitsPerVert
 
-            // Validate qubit count is reasonable for Grover
-            if numQubits > Types.NisqPracticalQubits then
-                Error(
-                    QuantumError.ValidationError(
-                        "NumQubits",
-                        $"resulting qubit count ({numQubits}) exceeds Grover limit ({Types.NisqPracticalQubits}). "
-                        + $"Try fewer vertices ({config.Graph.NumVertices}) or colors ({config.NumColors})"
-                    )
-                )
-            else
-                // Create predicate that checks valid colorings
-                let predicate = fun assignment -> isValidColoring config assignment
+            // Create predicate that checks valid colorings
+            let predicate = fun assignment -> isValidColoring config assignment
 
-                // Compile oracle with the predicate
-                fromPredicate predicate numQubits
+            // Compile oracle with the predicate
+            fromPredicate predicate numQubits
 
     // ============================================================================
     // CLIQUE DETECTION ORACLE - Find Fully Connected Subgraphs
@@ -822,11 +821,11 @@ module Oracle =
     let private validateCliqueConfig (config: CliqueConfig) : QuantumResult<unit> =
         if config.Graph.NumVertices < 1 then
             Error(QuantumError.ValidationError("NumVertices", $"must be at least 1, got {config.Graph.NumVertices}"))
-        elif config.Graph.NumVertices > Types.NisqPracticalQubits then
+        elif config.Graph.NumVertices > MaxIndexQubits then
             Error(
                 QuantumError.ValidationError(
                     "NumVertices",
-                    $"too large ({config.Graph.NumVertices}), maximum is {Types.NisqPracticalQubits} for Grover"
+                    $"too large ({config.Graph.NumVertices}): one qubit per vertex, and an oracle indexes at most {MaxIndexQubits} qubits"
                 )
             )
         elif config.CliqueSize < 2 then
@@ -1006,16 +1005,10 @@ module Oracle =
         match validateWeightedColoring config with
         | Error err -> Error err
         | Ok() ->
+            // Qubits needed (validated to fit an oracle index); the backend's own limit is
+            // checked by Grover.search.
             let qubitsPerVert = qubitsPerVertex config.NumColors
             let numQubits = config.Graph.NumVertices * qubitsPerVert
 
-            if numQubits > Types.NisqPracticalQubits then
-                Error(
-                    QuantumError.ValidationError(
-                        "NumQubits",
-                        $"resulting qubit count ({numQubits}) exceeds Grover limit ({Types.NisqPracticalQubits})"
-                    )
-                )
-            else
-                let predicate = fun assignment -> isValidWeightedColoring config assignment
-                fromPredicate predicate numQubits
+            let predicate = fun assignment -> isValidWeightedColoring config assignment
+            fromPredicate predicate numQubits

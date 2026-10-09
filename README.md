@@ -95,7 +95,7 @@ flowchart TD
 
 **Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with opt-in classical routing (via `HybridSolver` / `QuantumAdvisor`) for small problems where quantum offers no advantage. Quantum solvers never fall back to classical silently — see [Design Philosophy](#design-philosophy).
 
-**Current Version:** 1.5.2 (core) / 0.5.2 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
+**Current Version:** 1.6.0 (core) / 0.6.0 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
 
 **Current Features:**
 - Multiple Backends: LocalBackend (simulation), NoisyLocalBackend (density-matrix noise), Azure Quantum (IonQ, Rigetti, Quantinuum, Atom Computing, IQM), D-Wave quantum annealers (1200-5640 qubits), AWS Braket (separate plugin)
@@ -994,7 +994,7 @@ task {
 
 **How it works:**
 - Clique search is encoded as a Grover search over subsets of people (`useQaoa` switches to a QAOA formulation where supported)
-- Networks of up to 100 people are accepted; the qubit budget of the backend is the practical limit
+- The Grover search needs one qubit per person, up to what the backend runs; the QAOA formulations split wider networks where the settings allow
 
 **Features:**
 - F# computation expression: `socialNetwork { }`
@@ -2847,7 +2847,7 @@ match Oracle.fromPredicate predicate 3 with
 - Automatic optimal iteration calculation
 - Amplitude amplification for multiple solutions
 - Runs on any gate-based `IQuantumBackend` (local simulator or cloud): a cloud backend gets the whole circuit (preparation plus every oracle and diffusion step) as one job
-- Oracles limited to 20 qubits (`Types.NisqPracticalQubits`)
+- Oracles as wide as the backend runs (at most 30 qubits, the Int32 state index)
 - Educational/research tool (not production optimizer)
 
 **Location:** `src/FSharp.Azure.Quantum/Algorithms/`  

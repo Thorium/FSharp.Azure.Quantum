@@ -34,16 +34,46 @@ let ``Backend constraint should define Rigetti Aspen-M-3 with 79 qubits`` () =
     Assert.Contains("CZ", constraints.SupportedGates)
 
 [<Fact>]
-let ``Backend constraint should define local simulator with 16 qubits`` () =
+let ``Backend constraint should define local simulator with the simulator's own runnable limit`` () =
     // Arrange
     let constraints = BackendConstraints.localSimulator ()
 
+    let runnable =
+        FSharp.Azure.Quantum.Core.BackendAbstraction.UnifiedBackend.getRunnableQubits (
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend()
+            :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
+        )
+
     // Assert
-    Assert.Equal(16, constraints.MaxQubits)
+    Assert.Equal(FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits, constraints.MaxQubits)
+    Assert.Equal(Some constraints.MaxQubits, runnable)
     Assert.Equal("Local Simulator", constraints.Name)
     Assert.True(constraints.HasAllToAllConnectivity)
     Assert.Contains("RZZ", constraints.SupportedGates)
     Assert.Equal(None, constraints.MaxCircuitDepth) // No depth limit
+
+[<Fact>]
+let ``Local simulator constraints admit circuits up to the simulator's limit and refuse wider ones`` () =
+    // Validation only: nothing is simulated.
+    let constraints = BackendConstraints.localSimulator ()
+
+    let stats numQubits =
+        {
+            NumQubits = numQubits
+            GateCount = 1
+            Depth = None
+            UsedGates = Set.ofList [ "H" ]
+            TwoQubitGates = []
+        }
+
+    Assert.Equal(Ok(), validateQubitCount constraints (stats constraints.MaxQubits))
+
+    match validateQubitCount constraints (stats (constraints.MaxQubits + 1)) with
+    | Error(QubitCountExceeded(requested, limit, backend)) ->
+        Assert.Equal(constraints.MaxQubits + 1, requested)
+        Assert.Equal(constraints.MaxQubits, limit)
+        Assert.Equal("Local Simulator", backend)
+    | other -> Assert.Fail($"Expected QubitCountExceeded but got %A{other}")
 
 [<Fact>]
 let ``IonQ backends should support standard gate set`` () =

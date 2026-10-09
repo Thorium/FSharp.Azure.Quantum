@@ -150,7 +150,8 @@ module BernsteinVazirani =
     ///   shots - Number of measurement shots
     ///
     /// Returns:
-    ///   BernsteinVaziraniResult with the recovered secret
+    ///   BernsteinVaziraniResult with the recovered secret, or a ValidationError when
+    ///   numQubits exceeds what the backend runs (UnifiedBackend.getRunnableQubits).
     let run
         (oracle: Oracle)
         (numQubits: int)
@@ -158,15 +159,17 @@ module BernsteinVazirani =
         (shots: int)
         : Result<BernsteinVaziraniResult, QuantumError> =
 
+        let tooWide =
+            UnifiedBackend.runnableQubitsError
+                "numQubits"
+                $"Bernstein-Vazirani on a {numQubits}-bit secret"
+                numQubits
+                backend
+
         if numQubits < 1 then
             Error(QuantumError.ValidationError("numQubits", "Bernstein-Vazirani requires at least 1 qubit"))
-        elif numQubits > Types.NisqPracticalQubits then
-            Error(
-                QuantumError.ValidationError(
-                    "numQubits",
-                    $"Bernstein-Vazirani with >{Types.NisqPracticalQubits} qubits not practical on NISQ hardware"
-                )
-            )
+        elif tooWide.IsSome then
+            Error tooWide.Value
         elif shots < 1 then
             Error(QuantumError.ValidationError("shots", "Bernstein-Vazirani requires at least 1 shot"))
         else

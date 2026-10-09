@@ -14,6 +14,8 @@ module ModExpPhaseTests =
     module Shor = FSharp.Azure.Quantum.Algorithms.Shor
     module QPE = FSharp.Azure.Quantum.Algorithms.QPE
 
+    let private probeName = "width-probe"
+
     // ========================================================================
     // estimateModExpPhase VALIDATION TESTS
     // ========================================================================
@@ -73,35 +75,187 @@ module ModExpPhaseTests =
         | Ok _ -> Assert.Fail("Expected error for negative countingQubits")
 
     [<Fact>]
-    let ``estimateModExpPhase rejects countingQubits > 16`` () =
-        let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+    let ``estimateModExpPhase rejects countingQubits above QPE.MaxCountingQubits`` () =
+        let probe = CapacityStubBackend(probeName, None)
 
-        match Shor.estimateModExpPhase 2 7 17 bknd with
-        | Error(QuantumError.ValidationError("countingQubits", msg)) -> Assert.Contains("16", msg)
-        | Error err -> Assert.Fail($"Expected ValidationError for countingQubits > 16, got: {err}")
-        | Ok _ -> Assert.Fail("Expected error for countingQubits > 16")
+        match Shor.estimateModExpPhase 2 7 (QPE.MaxCountingQubits + 1) probe with
+        | Error(QuantumError.ValidationError("countingQubits", msg)) ->
+            Assert.Contains(string QPE.MaxCountingQubits, msg)
+        | Error err -> Assert.Fail($"Expected ValidationError for countingQubits, got: {err}")
+        | Ok _ -> Assert.Fail("Expected error for countingQubits above QPE.MaxCountingQubits")
+
+        Assert.Empty(probe.Widths)
 
     [<Fact>]
-    let ``estimateModExpPhase rejects exceeding the simulator qubit budget`` () =
+    let ``estimateModExpPhase passes 17 counting qubits to a backend that declares no limit`` () =
+        // 17 + 2·3 + 4 = 27 qubits for N=7. The probe runs nothing; reaching it shows
+        // validation did not refuse the width.
+        let probe = CapacityStubBackend(probeName, None)
+
+        match Shor.estimateModExpPhase 2 7 17 probe with
+        | Error(QuantumError.ValidationError(param, msg)) -> Assert.Fail($"Validation refused it: {param}: {msg}")
+        | Error _ -> ()
+        | Ok _ -> Assert.Fail("The probe backend runs nothing")
+
+        Assert.Equal<int list>([ 27 ], probe.Widths)
+
+    [<Fact>]
+    let ``estimateModExpPhase refuses a circuit wider than the backend runs, naming the backend`` () =
+        let probe = CapacityStubBackend(probeName, Some 26)
+
+        match Shor.estimateModExpPhase 2 7 17 probe with
+        | Error(QuantumError.ValidationError("totalQubits", msg)) ->
+            Assert.Contains("27", msg)
+            Assert.Contains("26", msg)
+            Assert.Contains(probeName, msg)
+        | Error err -> Assert.Fail($"Expected ValidationError for totalQubits, got: {err}")
+        | Ok _ -> Assert.Fail("Expected error when total qubits exceed the backend limit")
+
+        Assert.Empty(probe.Widths)
+
+    [<Fact>]
+    let ``estimateModExpPhase rejects exceeding the local simulator's runnable qubits`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
         let budget = StateVector.practicalCircuitQubits
 
-        // The circuit is countingQubits + 2n + 4 wide for an n-bit modulus. Counting
-        // is separately capped at 16, so to reach the totalQubits guard the REGISTER
-        // has to be what overruns the budget: pick the smallest n with
-        // 16 + 2n + 4 > budget. The budget is wall-clock, not capacity, so this is
-        // derived rather than hardcoded, and tracks FSAQ_MAX_CIRCUIT_QUBITS.
-        let countingQubits = 16
-        let registerBits = max 4 ((budget - 20) / 2 + 1)
+        // N=7 has a 3-bit register, so the circuit is counting + 10 wide: one counting qubit
+        // past budget - 10 overruns the local simulator's runnable qubits. The budget is
+        // wall-clock, not capacity, and tracks FSAQ_MAX_CIRCUIT_QUBITS.
+        let countingQubits = budget - 10 + 1
 
-        // 2^n - 1 is an odd n-bit number, so it is coprime to base 2.
-        let modulus = (1 <<< registerBits) - 1
-        Assert.True(countingQubits + 2 * registerBits + 4 > budget, "test setup must exceed the budget")
-
-        match Shor.estimateModExpPhase 2 modulus countingQubits bknd with
-        | Error(QuantumError.ValidationError("totalQubits", msg)) -> Assert.Contains(string budget, msg)
+        match Shor.estimateModExpPhase 2 7 countingQubits bknd with
+        | Error(QuantumError.ValidationError("totalQubits", msg)) ->
+            Assert.Contains(string budget, msg)
+            Assert.Contains(bknd.Name, msg)
+            Assert.Contains("FSAQ_MAX_CIRCUIT_QUBITS", msg)
         | Error err -> Assert.Fail($"Expected ValidationError for totalQubits, got: {err}")
         | Ok _ -> Assert.Fail($"Expected error when total qubits exceed {budget}")
+
+    // ========================================================================
+    // BACKEND-DECLARED LIMITS: Shor planning and QPE validation
+    // ========================================================================
+
+    // 1003 = 17 · 59, odd and composite, above the N ≤ 1000 bound Shor once had; its 10-bit
+    // register makes the circuit counting + 24 wide.
+    let private shorConfig1003 precision : ShorsTypes.ShorsConfig =
+        {
+            NumberToFactor = 1003
+            RandomBase = Some 2
+            PrecisionQubits = precision
+            MaxAttempts = 1
+        }
+
+    let private shorIntent config : Shor.ShorExecutionIntent =
+        {
+            Config = config
+            Exactness = QPE.Exactness.Exact
+        }
+
+    [<Fact>]
+    let ``Shor plans N above 1000 on a backend that declares no limit`` () =
+        let probe = CapacityStubBackend(probeName, None)
+
+        match Shor.plan probe (shorIntent (shorConfig1003 20)) with
+        | Ok(Shor.ShorPlan.ExecuteQuantum(baseNum, modulus, precision, _, _, _)) ->
+            Assert.Equal(2, baseNum)
+            Assert.Equal(1003, modulus)
+            Assert.Equal(20, precision)
+        | other -> Assert.Fail($"Expected a quantum plan, got: {other}")
+
+        Assert.Empty(probe.Widths)
+
+    [<Fact>]
+    let ``Shor refuses N whose circuit does not fit the backend, naming the backend`` () =
+        let probe = CapacityStubBackend(probeName, Some 30)
+
+        match Shor.plan probe (shorIntent (shorConfig1003 10)) with
+        | Error(QuantumError.ValidationError("n", msg)) ->
+            Assert.Contains("N=1003", msg)
+            Assert.Contains(probeName, msg)
+            Assert.Contains("30", msg)
+        | other -> Assert.Fail($"Expected the unfittable-circuit error, got: {other}")
+
+        match Shor.findPeriodQuantum 2 1003 10 probe with
+        | Error(QuantumError.ValidationError("n", msg)) -> Assert.Contains(probeName, msg)
+        | other -> Assert.Fail($"Expected the unfittable-circuit error, got: {other}")
+
+        Assert.Empty(probe.Widths)
+
+    [<Fact>]
+    let ``Shor plans PrecisionQubits above the backend limit when a register's worth of counting fits`` () =
+        // N = 15: 4 register bits, so the Beauregard circuit takes 2·4 + 4 = 12 qubits beside
+        // the counting register. 20 qubits leave 8 counting qubits for the 13 asked; 12 leave none.
+        let config =
+            { shorConfig1003 13 with
+                NumberToFactor = 15
+            }
+
+        let roomy = CapacityStubBackend(probeName, Some 20)
+
+        match Shor.plan roomy (shorIntent config) with
+        | Ok(Shor.ShorPlan.ExecuteQuantum(_, modulus, precision, _, _, _)) ->
+            Assert.Equal(15, modulus)
+            Assert.Equal(13, precision)
+        | other -> Assert.Fail($"Expected a quantum plan, got: {other}")
+
+        match Shor.plan (CapacityStubBackend(probeName, Some 12)) (shorIntent config) with
+        | Error(QuantumError.ValidationError("n", msg)) ->
+            Assert.Contains("12", msg)
+            Assert.Contains(probeName, msg)
+        | other -> Assert.Fail($"Expected the unfittable-circuit error, got: {other}")
+
+        Assert.Empty(roomy.Widths)
+
+    [<Fact>]
+    let ``Shor refuses N above MaxNumberToFactor whatever the backend`` () =
+        let config =
+            { shorConfig1003 8 with
+                NumberToFactor = Shor.MaxNumberToFactor + 1
+            }
+
+        match Shor.plan (CapacityStubBackend(probeName, None)) (shorIntent config) with
+        | Error(QuantumError.ValidationError("NumberToFactor", msg)) ->
+            Assert.Contains(string Shor.MaxNumberToFactor, msg)
+        | other -> Assert.Fail($"Expected a NumberToFactor error, got: {other}")
+
+    let private tGateConfig countingQubits : QPE.QPEConfig =
+        {
+            CountingQubits = countingQubits
+            TargetQubits = 1
+            UnitaryOperator = QPE.UnitaryOperator.TGate
+            EigenVector = None
+        }
+
+    [<Fact>]
+    let ``QPE passes 21 counting qubits to a backend that declares no limit`` () =
+        let probe = CapacityStubBackend(probeName, None)
+
+        match QPE.execute (tGateConfig 21) probe with
+        | Error(QuantumError.ValidationError(param, msg)) -> Assert.Fail($"Validation refused it: {param}: {msg}")
+        | Error _ -> ()
+        | Ok _ -> Assert.Fail("The probe backend runs nothing")
+
+        Assert.Equal<int list>([ 22 ], probe.Widths)
+
+    [<Fact>]
+    let ``QPE refuses a state wider than the backend runs, naming the backend`` () =
+        let probe = CapacityStubBackend(probeName, Some 12)
+
+        match QPE.execute (tGateConfig 12) probe with
+        | Error(QuantumError.ValidationError("CountingQubits", msg)) ->
+            Assert.Contains("13", msg)
+            Assert.Contains("12", msg)
+            Assert.Contains(probeName, msg)
+        | other -> Assert.Fail($"Expected a CountingQubits error, got: {other}")
+
+        Assert.Empty(probe.Widths)
+
+    [<Fact>]
+    let ``QPE refuses CountingQubits above QPE.MaxCountingQubits`` () =
+        match QPE.execute (tGateConfig (QPE.MaxCountingQubits + 1)) (CapacityStubBackend(probeName, None)) with
+        | Error(QuantumError.ValidationError("CountingQubits", msg)) ->
+            Assert.Contains(string QPE.MaxCountingQubits, msg)
+        | other -> Assert.Fail($"Expected a CountingQubits error, got: {other}")
 
     // ========================================================================
     // estimateModExpPhase EXECUTION TESTS

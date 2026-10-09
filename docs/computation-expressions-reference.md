@@ -185,7 +185,7 @@ match QuantumConstraintSolver.solve rowProblem with
 ```
 
 **Custom Operations**:
-- `searchSpace` - Number of variables; each takes one value from `domain`. numVariables × log2(domainSize) must be ≤ 16 qubits
+- `searchSpace` - Number of variables; each takes one value from `domain`. numVariables × log2(domainSize) qubits, up to what the backend runs
 - `domain` - Values each variable can take
 - `satisfies` - Add a constraint `Map<int, 'T> -> bool` (keys are variable indices 0..n-1); use it several times to add several constraints, all must hold
 - `backend` - Quantum backend (default: LocalBackend)
@@ -235,7 +235,7 @@ match QuantumPatternMatcher.solve search with
 - `maxIterations` - Grover iterations (default: calculated)
 - `shots` - Measurement shots (default: 1000)
 
-**Notes**: the search space may hold at most 2^16 items.
+**Notes**: the search space must fit the backend: log₂(items) qubits, up to what it runs.
 
 ---
 
@@ -261,9 +261,9 @@ match shorProblem |> Result.bind QuantumPeriodFinder.solve with
 ```
 
 **Custom Operations**:
-- `number` - Number to factor (4 to 10000; default 15)
+- `number` - Number to factor (4 to 46340; default 15; the circuit must fit the backend)
 - `chosenBase` - Base a with 2 ≤ a < N. If not set, a base is chosen automatically
-- `precision` - QPE precision qubits (1 to 20; default 8; recommended 2·log₂(N) + 3)
+- `precision` - QPE precision qubits (at least 1; default 8; recommended 2·log₂(N) + 3; the circuit must fit the backend)
 - `exactness` - `QPE.Exact` (default) or `QPE.Approximate epsilon`
 - `maxAttempts` - Maximum attempts (1 to 100; default 10)
 - `backend` - Quantum backend (default: LocalBackend)
@@ -300,7 +300,7 @@ match qpeProblem |> Result.bind estimate with
 
 **Custom Operations**:
 - `unitary` - Unitary operator: `TGate`, `SGate`, `PhaseGate theta`, `RotationZ theta` (default: `TGate`)
-- `precision` - Counting qubits, i.e. bits of φ (1 to 20; default 8)
+- `precision` - Counting qubits, i.e. bits of φ (1 to 30; default 8; the circuit must fit the backend)
 - `targetQubits` - Qubits for the eigenvector |ψ⟩ (1 to 10; default 1). Precision + target qubits must not exceed 25
 - `eigenstate` - Initial eigenvector |ψ⟩ as a `StateVector`. When it is not set, the target qubit is prepared in |1⟩ for the single-qubit gates `TGate`, `SGate`, `PhaseGate` and `RotationZ` (so `TGate` gives φ = 1/8, `PhaseGate θ` gives θ/2π and `RotationZ θ` gives θ/4π)
 - `applySwaps` / `swaps` - Apply the final bit-reversal SWAPs in the circuit (default: false, the bit order is fixed classically)
@@ -382,8 +382,8 @@ match QuantumTreeSearch.solve treeSearch with
 
 **Custom Operations**:
 - `initialState` - Starting state (required)
-- `maxDepth` - Depth to explore (1 to 8; default 3)
-- `branchingFactor` - Moves per position (2 to 256; default 16). The tree needs maxDepth × ⌈log₂(branchingFactor)⌉ qubits, at most 16
+- `maxDepth` - Depth to explore (at least 1; default 3)
+- `branchingFactor` - Moves per position (at least 2; default 16). The tree needs maxDepth × ⌈log₂(branchingFactor)⌉ qubits, up to what the backend runs
 - `evaluateWith` - Evaluation function `'T -> float` (higher = better)
 - `generateMovesWith` - Move generator `'T -> 'T list`
 - `topPercentile` - Fraction of best paths to amplify, in (0.0, 1.0] (default 0.2)

@@ -56,6 +56,9 @@ type Formation =
     {
         Name: string
         Positions: Position3D[]
+        /// Light colour of each position, shown by whichever drone is assigned to
+        /// it: the formation is a picture. None keeps each drone its own colour.
+        Colors: CrazyflieExport.LedColor[] option
     }
 
 /// Result of formation transition optimization
@@ -74,6 +77,8 @@ type TransitionResult =
 
 module Formations =
 
+    let private rgb r g b : CrazyflieExport.LedColor = { R = r; G = g; B = b }
+
     /// Ground formation: 4 drones in a line at the origin
     let ground: Formation =
         {
@@ -85,6 +90,8 @@ module Formations =
                     { X = 2.0; Y = 0.0; Z = 0.0 } // Drone 2: center-right
                     { X = 6.0; Y = 0.0; Z = 0.0 } // Drone 3: right
                 |]
+            // White for take-off and landing
+            Colors = Some(Array.create 4 (rgb 255 255 255))
         }
 
     /// Diamond formation (4 points)
@@ -101,6 +108,8 @@ module Formations =
                     { X = 8.0; Y = 0.0; Z = 15.0 } // Right
                     { X = 0.0; Y = 0.0; Z = 5.0 } // Bottom
                 |]
+            // A gem: white top, cyan sides, blue bottom
+            Colors = Some [| rgb 255 255 255; rgb 0 255 255; rgb 0 255 255; rgb 0 0 255 |]
         }
 
     /// Square formation (2x2 grid)
@@ -116,6 +125,8 @@ module Formations =
                     { X = -5.0; Y = 0.0; Z = 10.0 } // Bottom-left
                     { X = 5.0; Y = 0.0; Z = 10.0 } // Bottom-right
                 |]
+            // Yellow top row, green bottom row
+            Colors = Some [| rgb 255 255 0; rgb 255 255 0; rgb 0 255 0; rgb 0 255 0 |]
         }
 
     /// Vertical line formation (ascending)
@@ -133,6 +144,8 @@ module Formations =
                     { X = 0.0; Y = 0.0; Z = 14.0 }
                     { X = 0.0; Y = 0.0; Z = 6.0 } // Bottom
                 |]
+            // A rainbow, red at the top
+            Colors = Some [| rgb 255 0 0; rgb 255 128 0; rgb 0 255 0; rgb 0 0 255 |]
         }
 
 // =============================================================================
@@ -599,6 +612,11 @@ module Solver =
 
         let n = Array2D.length1 distanceMatrix
         let numVars = n * n
+
+        match UnifiedBackend.getRunnableQubits backend with
+        | Some limit when numVars > limit ->
+            Error $"%d{n} drones need %d{numVars} qubits (n²); backend '%s{backend.Name}' runs at most %d{limit}"
+        | _ ->
 
         // Calculate penalty weight (Lucas rule)
         let maxDistance =
@@ -2543,6 +2561,7 @@ This example is **RULE 1 compliant**:
                     {
                         Name = "weighted target"
                         Positions = targets
+                        Colors = None
                     }
 
                 let safe (candidate: Assignment[]) =
@@ -2590,6 +2609,7 @@ This example is **RULE 1 compliant**:
                              {|
                                  Name = f.Name
                                  Positions = f.Positions |> Array.map (fun p -> {| X = p.X; Y = p.Y; Z = p.Z |})
+                                 Colors = f.Colors
                              |}))
                         1.0 // already in metres
                         transitionDuration)
@@ -2729,6 +2749,9 @@ This example is **RULE 1 compliant**:
                         printfn "  Option 2 - the launcher (see examples/Drones/SITL.md):"
                         printfn "    1. Check without a network: dotnet fsi mavlink_show.fsx --dry-run"
                         printfn "    2. Fly: dotnet fsi mavlink_show.fsx"
+                        printfn ""
+                        printfn "  Lights: not in the missions (an ArduPilot mission has no light command);"
+                        printfn "  the formation colours are in the Crazyflie export (--export)."
                         Some swarm
 
             // 1:N permission evidence, on exactly what was exported: the MAVLink

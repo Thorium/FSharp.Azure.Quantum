@@ -37,15 +37,17 @@ module QuboSplitting =
             /// Widest piece, in qubits
             MaxPieceQubits: int
 
-            /// Most variables to fix, from 0 to MostFixedVariables; a piece coupled to b of the
-            /// fixed variables runs 2^b times
-            MaxFixedVariables: int
+            /// Most circuit runs: a piece coupled to b fixed variables runs 2^b times
+            MaxRuns: int
         }
 
-    /// Upper end of MaxFixedVariables: the assignments of the fixed variables are counted in a
-    /// 32-bit integer and compared one by one.
+    /// Most fixed variables one step of the join minimizes over: the step builds a table of
+    /// 2^MostJoinSpan energies (8 MB) and keeps one choice bit per entry (128 KB). QUBOs of bounded width (chains, trees, ladders, strips)
+    /// stay at a span of 6 or less however many variables are fixed. Square grids pass 20
+    /// just below 16 × 16 and random graphs of degree 3 between 64 and 128 variables, where
+    /// the runs already number in the hundreds or more.
     [<Literal>]
-    let MostFixedVariables = 20
+    let MostJoinSpan = 20
 
     /// A QUBO solved through pieces.
     type PiecewiseSolution =
@@ -104,25 +106,13 @@ module QuboSplitting =
         ]
 
     /// Variables to fix so that every connected component of the rest has at most
-    /// `maxPieceQubits` variables, or None when that takes more than `maxFixed` of them.
-    /// Greedy: while a component is too wide, fix the variable of it whose removal leaves the
-    /// smallest largest piece (the one with more neighbours, then the lower index, among
-    /// equals), so a chain is cut in the middle and a hub is taken out of a star.
-    let private fixedVariablesWithin (maxFixed: int) (maxPieceQubits: int) (qubo: float[,]) : int list option =
-        let adjacent = adjacency qubo
-        let alive = Array.create (Array2D.length1 qubo) true
+    /// `maxPieceQubits` variables, sorted. Greedy: while a component is too wide, fix the
+    /// variable of it whose removal leaves the smallest largest piece (the one with more
+    /// neighbours, then the lower index, among equals), so a chain is cut in the middle and a
+    /// hub is taken out of a star.
+    let private cutInto (adjacent: int[][]) (maxPieceQubits: int) : int list =
+        let alive = Array.create adjacent.Length true
         let widestPiece = max 1 maxPieceQubits
-
-        // A free variable keeps every neighbour in its own piece or among the fixed ones, so
-        // one with more neighbours than that has to be fixed itself. This refuses a dense
-        // QUBO before the search below, which costs a traversal per candidate.
-        let mustBeFixed =
-            adjacent
-            |> Array.sumBy (fun neighbours ->
-                if int64 neighbours.Length > int64 widestPiece - 1L + int64 maxFixed then
-                    1
-                else
-                    0)
 
         let rec fix (chosen: int list) =
             let widest =
@@ -130,38 +120,68 @@ module QuboSplitting =
 
             match widest with
             | Some part when part.Length > widestPiece ->
-                if chosen.Length >= maxFixed then
-                    None
-                else
-                    let inPart = Array.zeroCreate<bool> alive.Length
-                    part |> Array.iter (fun v -> inPart.[v] <- true)
+                let inPart = Array.zeroCreate<bool> alive.Length
+                part |> Array.iter (fun v -> inPart.[v] <- true)
 
-                    let largestWithout (v: int) =
-                        inPart.[v] <- false
+                let largestWithout (v: int) =
+                    inPart.[v] <- false
 
-                        let largest =
-                            components adjacent inPart
-                            |> List.fold (fun widestLeft piece -> max widestLeft piece.Length) 0
+                    let largest =
+                        components adjacent inPart
+                        |> List.fold (fun widestLeft piece -> max widestLeft piece.Length) 0
 
-                        inPart.[v] <- true
-                        largest
+                    inPart.[v] <- true
+                    largest
 
-                    let degreeInPart (v: int) =
-                        adjacent.[v] |> Array.sumBy (fun u -> if inPart.[u] then 1 else 0)
+                let degreeInPart (v: int) =
+                    adjacent.[v] |> Array.sumBy (fun u -> if inPart.[u] then 1 else 0)
 
-                    let cut = part |> Array.minBy (fun v -> largestWithout v, -(degreeInPart v), v)
-                    alive.[cut] <- false
-                    fix (cut :: chosen)
-            | _ -> Some(List.sort chosen)
+                let cut = part |> Array.minBy (fun v -> largestWithout v, -(degreeInPart v), v)
+                alive.[cut] <- false
+                fix (cut :: chosen)
+            | _ -> List.sort chosen
 
-        if mustBeFixed > maxFixed then None else fix []
+        fix []
 
     /// Variables to fix so that every connected component of the rest has at most
     /// `maxPieceQubits` variables: sorted, and empty when the QUBO already fits or falls apart
-    /// by itself. It is a heuristic (see fixedVariablesWithin): a smaller set may exist.
+    /// by itself. It is a heuristic (see cutInto): a smaller set may exist.
     let chooseFixedVariables (maxPieceQubits: int) (qubo: float[,]) : int list =
-        fixedVariablesWithin System.Int32.MaxValue maxPieceQubits qubo
-        |> Option.defaultValue []
+        cutInto (adjacency qubo) maxPieceQubits
+
+    /// Variables that every cut within the run limit fixes, and a lower bound on the span of
+    /// the join over them. A free variable keeps every neighbour in its own piece or among the
+    /// fixed variables its piece is coupled to, at most `boundary` of them, so one with more
+    /// neighbours than that is fixed. Their couplings stay terms of the join, and no
+    /// elimination order spans fewer variables than the degeneracy of those couplings (the
+    /// largest least degree met while peeling off a variable of least degree at a time). It
+    /// costs a pass per forced variable, so a dense QUBO is refused before the search for a
+    /// cut, which costs a traversal per candidate.
+    let private forcedJoin (adjacent: int[][]) (maxPieceQubits: int) (boundary: int) : int * int =
+        let n = adjacent.Length
+        let most = int64 (max 1 maxPieceQubits) - 1L + int64 boundary
+        let left = adjacent |> Array.map (fun neighbours -> int64 neighbours.Length > most)
+        let forced = left |> Array.sumBy (fun isForced -> if isForced then 1 else 0)
+
+        let degree =
+            Array.init n (fun v -> adjacent.[v] |> Array.sumBy (fun u -> if left.[u] then 1 else 0))
+
+        let mutable widest = 0
+
+        for _ in 1..forced do
+            let mutable least = -1
+
+            for v in 0 .. n - 1 do
+                if left.[v] && (least < 0 || degree.[v] < degree.[least]) then
+                    least <- v
+
+            widest <- max widest degree.[least]
+            left.[least] <- false
+
+            for u in adjacent.[least] do
+                degree.[u] <- degree.[u] - 1
+
+        forced, widest
 
     /// The QUBO over the free variables when `fixedValues` (variable → 0 or 1) are set: a
     /// fixed variable at 1 turns its couplings into linear terms of its neighbours. Returns
@@ -199,34 +219,246 @@ module QuboSplitting =
         |> Array.filter (fun (bit, _) -> (mask >>> bit) &&& 1 = 1)
         |> Array.map snd
 
-    /// Solve a QUBO that `fixedVariables` cut into pieces.
+    /// An energy term over a few of the fixed variables: Table.[mask] is its value when the
+    /// variables Scope.[b] are 1 for the bits b set in mask and 0 for the rest.
+    type private EnergyTerm = { Scope: int[]; Table: float[] }
+
+    /// Order in which the join eliminates `variables` variables coupled by terms over
+    /// `scopes`, each step with the variables it minimizes over (ascending): those that share
+    /// a term with it once the variables before it are gone. Each step takes the variable
+    /// that shares terms with the fewest others, the lower index among equals; eliminating it
+    /// couples all of those others to each other.
+    let private eliminationOrder (variables: int) (scopes: int[] seq) : (int * int[])[] =
+        let neighbours = Array.init variables (fun _ -> HashSet<int>())
+
+        for scope in scopes do
+            for a in scope do
+                for b in scope do
+                    if a <> b then
+                        neighbours.[a].Add b |> ignore
+
+        let eliminated = Array.zeroCreate<bool> variables
+
+        [|
+            for _ in 1..variables do
+                let mutable variable = -1
+
+                for v in 0 .. variables - 1 do
+                    if
+                        not eliminated.[v]
+                        && (variable < 0 || neighbours.[v].Count < neighbours.[variable].Count)
+                    then
+                        variable <- v
+
+                let others = neighbours.[variable] |> Seq.toArray |> Array.sort
+                eliminated.[variable] <- true
+
+                for a in others do
+                    neighbours.[a].Remove variable |> ignore
+
+                    for b in others do
+                        if a <> b then
+                            neighbours.[a].Add b |> ignore
+
+                yield variable, others
+        |]
+
+    /// Lowest-energy assignment (0 or 1 for each variable of `order`) of a sum of terms, by
+    /// min-sum variable elimination in that order: each step replaces the terms of its
+    /// variable by their minimum over it, a term over the others of the step, and remembers
+    /// the minimizing value for every assignment of those others. The cost is exponential in
+    /// the most others of a step, not in the number of variables. Ties keep a variable at 0.
+    let private minimizeTerms (order: (int * int[])[]) (terms: EnergyTerm seq) : int[] =
+        let variables = order.Length
+        let stepOf = Array.zeroCreate<int> variables
+        order |> Array.iteri (fun step (variable, _) -> stepOf.[variable] <- step)
+
+        // A term waits for the first step that eliminates one of its variables; by then the
+        // rest of its variables are among the others of that step.
+        let waiting = Array.init variables (fun _ -> ResizeArray<EnergyTerm>())
+
+        let place (term: EnergyTerm) =
+            if term.Scope.Length > 0 then
+                waiting.[term.Scope |> Array.map (fun v -> stepOf.[v]) |> Array.min].Add term
+
+        terms |> Seq.iter place
+        // Per step, the value its variable takes at each mask of its others, one bit per mask.
+        let choices = Array.zeroCreate<uint64[]> variables
+
+        for step in 0 .. variables - 1 do
+            let variable, others = order.[step]
+
+            // For each term of the step, the bit of each of its variables in a mask over
+            // `others` with `variable` as the extra top bit.
+            let top = others.Length
+
+            let placed =
+                waiting.[step]
+                |> Seq.map (fun term ->
+                    term.Table,
+                    term.Scope
+                    |> Array.map (fun v -> if v = variable then top else System.Array.BinarySearch(others, v)))
+                |> Seq.toArray
+
+            waiting.[step].Clear()
+
+            let valueAt (mask: int) =
+                placed
+                |> Array.sumBy (fun (table, bits) ->
+                    let mutable index = 0
+
+                    for b in 0 .. bits.Length - 1 do
+                        index <- index ||| (((mask >>> bits.[b]) &&& 1) <<< b)
+
+                    table.[index])
+
+            let size = 1 <<< others.Length
+            let minimum = Array.zeroCreate<float> size
+            let choice = Array.zeroCreate<uint64> ((size + 63) / 64)
+
+            for mask in 0 .. size - 1 do
+                let atZero = valueAt mask
+                let atOne = valueAt (mask ||| (1 <<< top))
+
+                if atOne < atZero then
+                    minimum.[mask] <- atOne
+                    choice.[mask >>> 6] <- choice.[mask >>> 6] ||| (1UL <<< (mask &&& 63))
+                else
+                    minimum.[mask] <- atZero
+
+            choices.[step] <- choice
+            place { Scope = others; Table = minimum }
+
+        // Walking back, each step depends only on variables eliminated after it.
+        let values = Array.zeroCreate<int> variables
+
+        for step in variables - 1 .. -1 .. 0 do
+            let variable, others = order.[step]
+
+            let mask =
+                others
+                |> Array.indexed
+                |> Array.sumBy (fun (bit, v) -> values.[v] <<< bit)
+
+            values.[variable] <- int ((choices.[step].[mask >>> 6] >>> (mask &&& 63)) &&& 1UL)
+
+        values
+
+    /// How a QUBO is cut, worked out before any piece runs.
+    type private ConditioningPlan =
+        {
+            /// Fixed variables, ascending
+            Fixed: int[]
+
+            /// Connected components of the free variables
+            Pieces: int[][]
+
+            /// For each piece, the positions in Fixed of the fixed variables coupled to it
+            Boundaries: int[][]
+
+            /// Steps of the join, over positions in Fixed (see eliminationOrder)
+            Order: (int * int[])[]
+
+            /// Circuit runs: 2^b for a piece with b fixed variables on its boundary
+            Runs: int64
+        }
+
+    /// The cut of a QUBO into pieces of at most `maxPieceQubits` variables within `maxRuns`
+    /// circuit runs and a join of at most MostJoinSpan, or why there is none: a phrase that
+    /// follows "cutting it into circuits of k qubits" and names the run limit as `runLimit`.
+    let private planWithin
+        (runLimit: string)
+        (maxRuns: int)
+        (maxPieceQubits: int)
+        (qubo: float[,])
+        : Result<ConditioningPlan, string> =
+        let adjacent = adjacency qubo
+
+        // Most fixed variables a piece can touch: 2^boundary runs fit in maxRuns.
+        let boundary = System.Numerics.BitOperations.Log2(uint32 (max 1 maxRuns))
+        let forced, forcedSpan = forcedJoin adjacent maxPieceQubits boundary
+
+        if maxRuns < 1 then
+            Error $"has no circuit runs to use: {runLimit} = {maxRuns}"
+        elif forcedSpan > MostJoinSpan then
+            Error(
+                $"fixes {forced} variables coupled to more than {max 1 maxPieceQubits - 1 + boundary} others "
+                + $"(left free, one would run its piece more than {runLimit} = {maxRuns} times), and joining "
+                + $"the pieces around them takes steps over {forcedSpan} or more fixed variables, more than "
+                + $"QuboSplitting.MostJoinSpan = {MostJoinSpan}"
+            )
+        else
+            let fixedArray = cutInto adjacent maxPieceQubits |> List.toArray
+            let alive = Array.create adjacent.Length true
+            fixedArray |> Array.iter (fun variable -> alive.[variable] <- false)
+            let pieces = components adjacent alive |> List.toArray
+
+            let boundaries =
+                pieces
+                |> Array.map (fun piece ->
+                    let inPiece = HashSet<int>(piece)
+
+                    [| 0 .. fixedArray.Length - 1 |]
+                    |> Array.filter (fun position ->
+                        adjacent.[fixedArray.[position]] |> Array.exists inPiece.Contains))
+
+            let runs =
+                boundaries
+                |> Array.fold
+                    (fun total b ->
+                        if b.Length >= 62 || total > System.Int64.MaxValue - (1L <<< b.Length) then
+                            System.Int64.MaxValue
+                        else
+                            total + (1L <<< b.Length))
+                    0L
+
+            if runs > int64 maxRuns then
+                Error $"needs {runs} circuit runs, more than {runLimit} = {maxRuns}"
+            else
+                let couplings =
+                    [|
+                        for p in 0 .. fixedArray.Length - 1 do
+                            for q in p + 1 .. fixedArray.Length - 1 do
+                                if coupling qubo fixedArray.[p] fixedArray.[q] <> 0.0 then
+                                    yield [| p; q |]
+                    |]
+
+                let order = eliminationOrder fixedArray.Length (Seq.append couplings boundaries)
+                let span = order |> Array.fold (fun widest (_, others) -> max widest others.Length) 0
+
+                if span > MostJoinSpan then
+                    Error(
+                        $"needs a join with steps over {span} fixed variables, more than "
+                        + $"QuboSplitting.MostJoinSpan = {MostJoinSpan}"
+                    )
+                else
+                    Ok
+                        {
+                            Fixed = fixedArray
+                            Pieces = pieces
+                            Boundaries = boundaries
+                            Order = order
+                            Runs = runs
+                        }
+
+    /// Solve a QUBO cut by `plan`.
     ///
     /// A piece is a connected component of the free variables. Its QUBO depends only on the
     /// fixed variables it is coupled to, so it is solved once per assignment of those, not
     /// once per assignment of all of them: a chain cut in seven places needs four runs per
     /// piece, not 128. The energy of the whole QUBO is the energy of the fixed variables
-    /// among themselves plus the pieces' energies, and the assignment with the lowest wins.
+    /// among themselves plus the pieces' energies; the join finds the assignment of the
+    /// fixed variables with the lowest (see minimizeTerms).
     let private solveConditionedAsync
         (qubo: float[,])
-        (fixedVariables: int list)
+        (plan: ConditioningPlan)
         (solvePiece: float[,] -> Task<Result<int[], QuantumError>>)
         (cancellationToken: CancellationToken)
         : Task<Result<PiecewiseSolution, QuantumError>> =
         let n = Array2D.length1 qubo
-        let adjacent = adjacency qubo
-        let fixedArray = List.toArray fixedVariables
-        let alive = Array.create n true
-        fixedArray |> Array.iter (fun variable -> alive.[variable] <- false)
-        let pieces = components adjacent alive |> List.toArray
-
-        // For each piece, the positions in fixedArray of the fixed variables coupled to it.
-        let boundaries =
-            pieces
-            |> Array.map (fun piece ->
-                let inPiece = HashSet<int>(piece)
-
-                [| 0 .. fixedArray.Length - 1 |]
-                |> Array.filter (fun position -> adjacent.[fixedArray.[position]] |> Array.exists inPiece.Contains))
+        let fixedArray = plan.Fixed
+        let pieces = plan.Pieces
+        let boundaries = plan.Boundaries
 
         // The piece's QUBO when the fixed variables at `local` (a mask over its boundary) are 1.
         let pieceQubo (piece: int[]) (boundary: int[]) (local: int) : float[,] =
@@ -241,11 +473,12 @@ module QuboSplitting =
                 else
                     direct)
 
-        // The mask over a piece's boundary that an assignment of all fixed variables gives it.
-        let localOf (boundary: int[]) (assignment: int) : int =
+        // The mask over a piece's boundary that values of all fixed variables (by position in
+        // fixedArray) give it.
+        let localOf (boundary: int[]) (values: int[]) : int =
             boundary
             |> Array.indexed
-            |> Array.sumBy (fun (bit, position) -> ((assignment >>> position) &&& 1) <<< bit)
+            |> Array.sumBy (fun (bit, position) -> values.[position] <<< bit)
 
         quantumResultTask {
             // solved.[piece].[local]: the piece's bits and energy under that boundary assignment
@@ -270,30 +503,43 @@ module QuboSplitting =
 
                     solved.[index].[local] <- bits, QaoaExecutionHelpers.evaluateQubo reduced bits
 
-            let energyOf (assignment: int) =
-                let ones = selected assignment fixedArray
+            // The energy of an assignment of the fixed variables, as terms over their positions
+            // in fixedArray: each one's linear term, each coupled pair's coupling, and each
+            // piece's energy at its boundary.
+            let terms =
+                [
+                    for p in 0 .. fixedArray.Length - 1 do
+                        let f = fixedArray.[p]
+                        yield { Scope = [| p |]; Table = [| 0.0; qubo.[f, f] |] }
 
-                let amongFixed =
-                    ones |> Array.sumBy (fun i -> ones |> Array.sumBy (fun j -> qubo.[i, j]))
+                        for q in p + 1 .. fixedArray.Length - 1 do
+                            let c = coupling qubo f fixedArray.[q]
 
-                amongFixed
-                + (Array.zip boundaries solved
-                   |> Array.sumBy (fun (boundary, answers) -> snd answers.[localOf boundary assignment]))
+                            if c <> 0.0 then
+                                yield { Scope = [| p; q |]; Table = [| 0.0; 0.0; 0.0; c |] }
 
-            let best = seq { 0 .. (1 <<< fixedArray.Length) - 1 } |> Seq.minBy energyOf
+                    for index in 0 .. pieces.Length - 1 do
+                        yield
+                            {
+                                Scope = boundaries.[index]
+                                Table = solved.[index] |> Array.map snd
+                            }
+                ]
+
+            let values = minimizeTerms plan.Order terms
             let bits = Array.zeroCreate n
-            selected best fixedArray |> Array.iter (fun variable -> bits.[variable] <- 1)
+            fixedArray |> Array.iteri (fun position variable -> bits.[variable] <- values.[position])
 
             pieces
             |> Array.iteri (fun index piece ->
-                let pieceBits, _ = solved.[index].[localOf boundaries.[index] best]
+                let pieceBits, _ = solved.[index].[localOf boundaries.[index] values]
                 piece |> Array.iteri (fun row variable -> bits.[variable] <- pieceBits.[row]))
 
             return
                 {
                     Bits = bits
                     Energy = QaoaExecutionHelpers.evaluateQubo qubo bits
-                    FixedVariables = fixedVariables
+                    FixedVariables = List.ofArray fixedArray
                     PiecesSolved = solved |> Array.sumBy Array.length
                 }
         }
@@ -308,8 +554,8 @@ module QuboSplitting =
     /// chooseFixedVariables): the rest falls into pieces, every piece is solved once for each
     /// assignment of the fixed variables it is coupled to, and the assignment of all fixed
     /// variables with the lowest energy of the whole QUBO wins. A QUBO that needs more than
-    /// limits.MaxFixedVariables fixed variables is a ValidationError, returned before any
-    /// piece runs.
+    /// limits.MaxRuns circuit runs, or a join wider than MostJoinSpan, is a ValidationError,
+    /// returned before any piece runs.
     let solvePiecewiseAsync
         (limits: ConditioningLimits)
         (qubo: float[,])
@@ -320,8 +566,8 @@ module QuboSplitting =
 
         if limits.MaxPieceQubits < 1 then
             invalid "MaxPieceQubits" "must be at least 1"
-        elif limits.MaxFixedVariables < 0 || limits.MaxFixedVariables > MostFixedVariables then
-            invalid "MaxFixedVariables" $"must be between 0 and {MostFixedVariables}, got {limits.MaxFixedVariables}"
+        elif limits.MaxRuns < 1 then
+            invalid "MaxRuns" $"must be at least 1, got {limits.MaxRuns}"
         elif n <= limits.MaxPieceQubits then
             quantumResultTask {
                 let! bits = solvePiece qubo
@@ -335,13 +581,12 @@ module QuboSplitting =
                     }
             }
         else
-            match fixedVariablesWithin limits.MaxFixedVariables limits.MaxPieceQubits qubo with
-            | Some fixedVariables -> solveConditionedAsync qubo fixedVariables solvePiece cancellationToken
-            | None ->
+            match planWithin "MaxRuns" limits.MaxRuns limits.MaxPieceQubits qubo with
+            | Ok plan -> solveConditionedAsync qubo plan solvePiece cancellationToken
+            | Error reason ->
                 invalid
                     "qubits"
-                    ($"the QUBO has {n} variables; cutting it into circuits of {limits.MaxPieceQubits} qubits "
-                     + $"needs more than {limits.MaxFixedVariables} fixed variables")
+                    $"the QUBO has {n} variables; cutting it into circuits of {limits.MaxPieceQubits} qubits {reason}"
 
     /// What became of a problem offered for splitting.
     [<RequireQualifiedAccess>]
@@ -359,9 +604,9 @@ module QuboSplitting =
     /// The QUBO is split when it is wider than the backend runs and settings.Policy allows a
     /// split on this backend (QaoaExecutionHelpers.splitPieceQubits). `solvePiece` then runs
     /// every piece and the report says what was done. When it would take more than
-    /// settings.MaxFixedVariables fixed variables, the QUBO is left to run as one circuit if
-    /// the backend can hold it (RunAsOneCircuit) and is a ValidationError naming the limit if
-    /// it cannot.
+    /// settings.MaxShareRuns circuit runs or a join wider than MostJoinSpan, the QUBO is left
+    /// to run as one circuit if the backend can hold it (RunAsOneCircuit) and is a
+    /// ValidationError naming the limit if it cannot.
     let trySolveByConditioningAsync
         (settings: QaoaExecutionHelpers.SplitSettings)
         (backend: BackendAbstraction.IQuantumBackend)
@@ -370,22 +615,20 @@ module QuboSplitting =
         (cancellationToken: CancellationToken)
         : Task<Result<SplitAttempt, QuantumError>> =
         let n = Array2D.length1 qubo
-        let maxFixed = max 0 (min settings.MaxFixedVariables MostFixedVariables)
 
         match QaoaExecutionHelpers.splitPieceQubits settings backend n with
         | ValueNone -> Task.FromResult(Ok SplitAttempt.RunAsOneCircuit)
         | ValueSome pieceQubits ->
-            match fixedVariablesWithin maxFixed pieceQubits qubo with
-            | None ->
+            match planWithin "SplitSettings.MaxShareRuns" settings.MaxShareRuns pieceQubits qubo with
+            | Error reason ->
                 match BackendAbstraction.UnifiedBackend.getMaxQubits backend with
                 | Some capacity when n > capacity ->
                     invalid
                         "qubits"
                         ($"the problem needs {n} qubits and the backend holds {capacity}; it was not split because "
-                         + $"cutting it into circuits of {pieceQubits} qubits needs more fixed variables than "
-                         + $"SplitSettings.MaxFixedVariables = {settings.MaxFixedVariables}")
+                         + $"cutting it into circuits of {pieceQubits} qubits {reason}")
                 | _ -> Task.FromResult(Ok SplitAttempt.RunAsOneCircuit)
-            | Some fixedVariables ->
+            | Ok plan ->
                 let widest = ref 0
 
                 let trackedPiece (piece: float[,]) =
@@ -393,8 +636,7 @@ module QuboSplitting =
                     solvePiece piece
 
                 quantumResultTask {
-                    let! solved =
-                        solveConditionedAsync qubo fixedVariables trackedPiece cancellationToken
+                    let! solved = solveConditionedAsync qubo plan trackedPiece cancellationToken
 
                     let report: QaoaExecutionHelpers.SplitReport =
                         {

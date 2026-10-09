@@ -4,7 +4,7 @@
 
 This guide covers builders for well-known quantum algorithms: Grover search (tree search, constraint solving, pattern matching), quantum arithmetic, Shor's period finding and quantum phase estimation. They are meant for research and teaching. The algorithms have theoretical advantages that need large, fault-tolerant quantum hardware; on today's hardware and on a simulator they only run toy-sized problems.
 
-**⚠️ Current Limitations**: The builders run on the local simulator by default. Its qubit limit is derived from available memory and capped at 30, and most builders here set tighter limits of their own (16 qubits for the Grover-based builders, 20 for phase estimation precision). A simulator evaluates your predicates and evaluation functions classically for every basis state, so it shows how the algorithms work but gives no speedup. Real RSA-size problems need thousands of error-corrected qubits.
+**⚠️ Current Limitations**: The builders run on the local simulator by default. Every builder refuses a problem wider than its backend runs (`UnifiedBackend.getRunnableQubits`); on the local simulator that is 20 qubits by default, and `FSAQ_MAX_CIRCUIT_QUBITS` raises it up to what memory holds (at most 30). A Grover oracle also indexes at most 30 qubits, since its states are 32-bit integers. A simulator evaluates your predicates and evaluation functions classically for every basis state, so it shows how the algorithms work but gives no speedup. Real RSA-size problems need thousands of error-corrected qubits.
 
 **Cloud backends**: every builder here also takes a gate-based cloud backend (`backend` operation). There the algorithm is built as one complete circuit and submitted as a whole-circuit job, transpiled to the provider's gates: one job per Grover search, per arithmetic operation, per phase estimation and per Shor base. Results come from the job's measured counts, and every job is billed.
 
@@ -46,7 +46,7 @@ let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
 ✅ **Good Fits**:
 - Game AI and decision trees, for research and teaching
 - Evaluation functions that are expensive to compute
-- Trees that fit the qubit limit: maxDepth × ⌈log₂(branchingFactor)⌉ ≤ 16
+- Trees that fit the backend: maxDepth × ⌈log₂(branchingFactor)⌉ qubits, up to what the backend runs
 
 ❌ **Not Suitable For**:
 - Games already solved classically (tic-tac-toe)
@@ -89,7 +89,7 @@ match QuantumTreeSearch.solve treeProblem with
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
 | `initialState` | `'T` | Starting game/decision state | *Required* |
-| `maxDepth` | `int` | Search depth (1-8) | 3 |
+| `maxDepth` | `int` | Search depth (at least 1) | 3 |
 | `branchingFactor` | `int` | Moves per position (2-256) | 16 |
 | `evaluateWith` | `'T -> float` | Position evaluation (higher = better) | Constant 0.0 |
 | `generateMovesWith` | `'T -> 'T list` | Successor states | No moves |
@@ -191,12 +191,12 @@ These are query counts for an ideal quantum computer with an efficient oracle. T
 
 ✅ **Good Fits**:
 - Small constraint satisfaction problems (Sudoku-style puzzles, N-Queens, assignments)
-- Search spaces up to 2^16 candidate assignments
+- Search spaces as wide as the backend runs (2^20 candidate assignments on the local simulator by default)
 - Finding **any** valid solution (not necessarily optimal)
 
 ❌ **Not Suitable For**:
 - Optimization problems (use QAOA/VQE instead)
-- Larger search spaces (the builder rejects more than 16 qubits)
+- Search spaces wider than the backend runs (the builder refuses them before any circuit)
 - Problems with efficient classical algorithms (e.g., 2-SAT)
 
 ### API Reference
@@ -229,7 +229,7 @@ match QuantumConstraintSolver.solve csp with
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `searchSpace` | `int` | Number of variables (numVariables × log2(domainSize) must be ≤ 16 qubits) | *Required* |
+| `searchSpace` | `int` | Number of variables (numVariables × log2(domainSize) qubits, up to what the backend runs) | *Required* |
 | `domain` | `'T list` | Possible values for each variable | *Required* |
 | `satisfies` | `Map<int,'T> -> bool` | Constraint; use it several times for several constraints | *At least one* |
 | `backend` | `IQuantumBackend` | Quantum backend | LocalBackend |
@@ -256,7 +256,7 @@ type ConstraintSolution<'T> = {
 
 **Problem**: Fill the empty cells of a 4×4 grid with numbers 1-4 satisfying row, column, and box constraints.
 
-**Note**: `searchSpace` is the number of variables, and the builder caps the register at 16 qubits — a full 9×9 grid (81 variables over 1..9 ≈ 257 qubits) is rejected. Use one variable per *empty* cell of a small grid instead. Classical Sudoku solvers with constraint propagation are much faster; this is a demonstration.
+**Note**: `searchSpace` is the number of variables, and the register must fit the backend — a full 9×9 grid (81 variables over 1..9 ≈ 257 qubits) is rejected. Use one variable per *empty* cell of a small grid instead. Classical Sudoku solvers with constraint propagation are much faster; this is a demonstration.
 
 ```fsharp
 // 0 marks an empty cell
@@ -367,7 +367,7 @@ On the local simulator the predicate is evaluated for every basis state, so the 
 ❌ **Not Suitable For**:
 - Cheap checks (a classical scan is faster)
 - Problems with structure (use the constraint solver)
-- Search spaces over 2^16 items (rejected)
+- Search spaces wider than the backend runs (refused before any circuit)
 
 ### API Reference
 
@@ -683,7 +683,7 @@ let testArithmeticCircuit (a: int) (b: int) (m: int) =
 
 ❌ **Not Suitable For**:
 - **Production cryptanalysis** (requires a fault-tolerant quantum computer)
-- **Anything beyond toy numbers**: the builder accepts N up to 10000
+- **Anything beyond toy numbers**: N above 46340 is refused (int32 modular arithmetic), and the circuit for any N must fit the backend (counting + 2·⌈log₂N⌉ + 4 qubits)
 - **Classical factorization** (use GNFS or other classical algorithms)
 
 **⚠️ Hardware Reality**: Estimates for factoring RSA-2048 are in the thousands of error-corrected (logical) qubits, and many more physical qubits. Today's devices are far from that.
@@ -726,8 +726,8 @@ let shor143 = factorInteger 143 8  // n=143, precision=8
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `number` | `int` | Integer to factor (4-10000) | 15 |
-| `precision` | `int` | QPE precision qubits (1-20) | 8 |
+| `number` | `int` | Integer to factor (4 to 46340; the circuit must fit the backend) | 15 |
+| `precision` | `int` | QPE precision qubits (at least 1; the circuit must fit the backend) | 8 |
 | `chosenBase` | `int` | Base a with 2 ≤ a < N | Chosen automatically |
 | `maxAttempts` | `int` | Maximum attempts (1-100) | 10 |
 | `exactness` | `QPE.Exactness` | `Exact` or `Approximate epsilon` | `Exact` |
@@ -857,7 +857,7 @@ The quantum advantage is exponential in theory, but it needs a fault-tolerant qu
 ❌ **Not Suitable For**:
 - **Classical eigenvalue problems** (use LAPACK/Eigen libraries)
 - **Molecular Hamiltonians**: this builder takes the built-in gate unitaries; see `quantumChemistry` in the [Computation Expressions Reference](computation-expressions-reference.md) for energies
-- **High precision**: precision is limited to 20 counting qubits
+- **High precision**: counting qubits plus target qubits must fit the backend (at most 30 counting qubits)
 
 ### API Reference
 
@@ -904,7 +904,7 @@ match qpe with
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
 | `unitary` | `UnitaryOperator` | Operator to analyze | `TGate` |
-| `precision` | `int` | Counting qubits, i.e. bits of φ (1-20) | 8 |
+| `precision` | `int` | Counting qubits, i.e. bits of φ (1 to 30; the circuit must fit the backend) | 8 |
 | `targetQubits` | `int` | Target qubits (1-10; precision + target ≤ 25) | 1 |
 | `eigenstate` | `StateVector` | Eigenvector to prepare | \|1⟩ for the single-qubit gates |
 | `applySwaps` / `swaps` | `bool` | Apply bit-reversal SWAPs in the circuit | false |
@@ -1025,26 +1025,26 @@ QPE with n counting qubits resolves φ to 1/2^n using n controlled-U^(2^k) appli
 
 | Builder | Best For | Theoretical speedup | Qubits | Runs locally? |
 |---------|----------|---------------------|--------|---------------|
-| **Tree Search** | Game AI, decision trees | Quadratic (query count) | depth × ⌈log₂ b⌉ ≤ 16 | ✅ Toy trees |
-| **Constraint Solver** | CSP (Sudoku, scheduling) | Quadratic (query count) | log₂(states) ≤ 16 | ✅ Toy problems |
-| **Pattern Matcher** | Config and hyperparameter search | Quadratic (query count) | log₂(items) ≤ 16 | ✅ Up to 2^16 items |
+| **Tree Search** | Game AI, decision trees | Quadratic (query count) | depth × ⌈log₂ b⌉ ≤ backend qubits | ✅ Toy trees |
+| **Constraint Solver** | CSP (Sudoku, scheduling) | Quadratic (query count) | log₂(states) ≤ backend qubits | ✅ Toy problems |
+| **Pattern Matcher** | Config and hyperparameter search | Quadratic (query count) | log₂(items) ≤ backend qubits | ✅ Up to 2^20 items locally |
 | **Quantum Arithmetic** | Crypto demos, research | None (slower than CPU) | up to 2n + 5 | ✅ Small registers |
 | **Period Finder** | Factorization, education | Exponential | counting + 2·register + 4 | ✅ N = 15 and N = 21 within the default 20-qubit circuit budget |
-| **Phase Estimator** | QPE research, education | Depends on U | precision + target | ✅ Up to 20 bits |
+| **Phase Estimator** | QPE research, education | Depends on U | precision + target | ✅ Up to the backend's qubits |
 
 ### Selection Criteria
 
 **Use Tree Search if**:
 - You are exploring game trees or decision trees
-- The tree fits in 16 qubits
+- The tree fits the backend's qubits
 
 **Use Constraint Solver if**:
 - You need any assignment that satisfies all constraints
-- The search space has at most 2^16 states
+- The search space fits the backend's qubits
 
 **Use Pattern Matcher if**:
 - You are searching configurations or hyperparameters
-- The search space has at most 2^16 items
+- The search space fits the backend's qubits
 - You want the top-k matches
 
 **Use Quantum Arithmetic if**:
@@ -1084,9 +1084,9 @@ For Shor's algorithm the advantage is exponential in theory, but it needs a faul
 
 ### Tree Search: Problem Rejected
 
-**Symptom**: The builder throws `requires N qubits (depth=..., branching=...). Max: 16`.
+**Symptom**: The builder returns `Tree search over depth ... needs N qubits, but backend '...' runs at most M qubits`.
 
-**Cause**: maxDepth × ⌈log₂(branchingFactor)⌉ is over 16.
+**Cause**: maxDepth × ⌈log₂(branchingFactor)⌉ is more than the backend runs.
 
 **Fix**: Reduce `maxDepth` or `branchingFactor`, or use `maxPaths`/`limitSearchSpace` to cap the number of paths searched.
 
@@ -1119,7 +1119,7 @@ let fits = quantumTreeSearch<int> {
    - *Fix*: Verify the constraints are satisfiable
 2. **Too few shots** (the search is probabilistic)
    - *Fix*: Increase `shots`
-3. **Search space too large** (over 16 qubits)
+3. **Search space too large** (wider than the backend runs)
    - *Fix*: Reduce the number of variables or the domain size
 
 **Example Fix**:
@@ -1148,7 +1148,7 @@ let moreShots = constraintSolver<int> {
 **Causes**:
 1. **Pattern too restrictive** (very few matches)
    - *Fix*: Relax the pattern
-2. **Search space too large** (over 2^16 items is rejected)
+2. **Search space too large** (wider than the backend runs is refused)
    - *Fix*: Reduce the search space
 
 **Example Fix**:

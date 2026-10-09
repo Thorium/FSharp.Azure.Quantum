@@ -52,7 +52,7 @@ module QuantumConstraintSolverBuilderTests =
     [<Fact>]
     let ``Builder should reject oversized variable count`` () =
         // Arrange & Act & Assert - 100000 variables over a 4-value domain needs
-        // 200000 qubits, far past the 16-qubit simulator limit
+        // 200000 qubits, far past the qubits an oracle indexes
         let ex =
             Assert.Throws<Exception>(fun () ->
                 QuantumConstraintSolver.constraintSolver {
@@ -62,7 +62,7 @@ module QuantumConstraintSolverBuilderTests =
                 }
                 |> ignore)
 
-        Assert.Contains("Max: 16", ex.Message)
+        Assert.Contains("an oracle indexes at most", ex.Message)
 
     [<Fact>]
     let ``Builder should reject empty domain`` () =
@@ -93,22 +93,58 @@ module QuantumConstraintSolverBuilderTests =
         Assert.Contains("at least one constraint is required", ex.Message)
 
     [<Fact>]
-    let ``Builder should reject problem requiring > 16 qubits`` () =
-        // Arrange & Act & Assert - 9 variables × 2 bits (4-value domain) = 18 qubits
+    let ``Builder should reject problem wider than an oracle indexes`` () =
+        // Arrange & Act & Assert - 16 variables × 2 bits (4-value domain) = 32 qubits
         let ex =
             Assert.Throws<Exception>(fun () ->
                 QuantumConstraintSolver.constraintSolver {
-                    searchSpace 9
+                    searchSpace 16
                     domain [ 1..4 ]
                     satisfies allEvenConstraint
                 }
                 |> ignore)
 
-        Assert.Contains("requires 18 qubits", ex.Message)
+        Assert.Contains("requires 32 qubits", ex.Message)
+
+    // Width limits come from the backend (UnifiedBackend.getRunnableQubits). No test here
+    // simulates more than 16 qubits: wide problems go to a backend that simulates nothing.
+
+    [<Fact>]
+    let ``solve admits an 18-qubit problem when the backend declares no limit`` () =
+        // 9 variables × 2 bits (4-value domain) = 18 qubits
+        let problem =
+            QuantumConstraintSolver.constraintSolver {
+                searchSpace 9
+                domain [ 1..4 ]
+                satisfies allEvenConstraint
+                backend (CapacityStubBackend("non-simulating", None) :> IQuantumBackend)
+            }
+
+        let result = QuantumConstraintSolver.solve problem
+
+        Assert.True(QubitLimitBackends.reachedBackend result, $"Expected the backend's own error, got {result}")
+
+    [<Fact>]
+    let ``solve refuses a problem wider than the backend runs, naming the backend`` () =
+        let limited = LimitedLocalBackend 8
+
+        // 5 variables × 2 bits = 10 qubits
+        let problem =
+            QuantumConstraintSolver.constraintSolver {
+                searchSpace 5
+                domain [ 1..4 ]
+                satisfies allEvenConstraint
+                backend (limited :> IQuantumBackend)
+            }
+
+        let msg = QubitLimitBackends.validationMessage (QuantumConstraintSolver.solve problem)
+        Assert.Contains("limited-local-8", msg)
+        Assert.Contains("needs 10 qubits", msg)
+        Assert.Equal(0, limited.WidestRequested)
 
     [<Fact>]
     let ``Builder should accept valid problem`` () =
-        // Arrange & Act - 8 variables × 2 bits = 16 qubits (at the limit)
+        // Arrange & Act - 8 variables × 2 bits = 16 qubits
         let problem =
             QuantumConstraintSolver.constraintSolver {
                 searchSpace 8
@@ -415,8 +451,8 @@ module QuantumConstraintSolverBuilderTests =
         // Assert
         match result with
         | Error err ->
-            // Oversized variable count is rejected by the 16-qubit guard
-            Assert.Contains("Max: 16", err.Message)
+            // Oversized variable count is rejected by the oracle's index range
+            Assert.Contains("an oracle indexes at most", err.Message)
         | Ok _ -> Assert.Fail("Expected solve to return error")
 
     [<Fact>]

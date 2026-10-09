@@ -177,10 +177,10 @@ module ShorsTests =
         |> Result.map (fun _ -> Assert.Fail("Should reject N < 4"))
         |> Result.defaultWith (fun msg -> Assert.Contains("4", msg))
 
-        // Too large
-        (factorWithBackend 100000 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000)
-        |> Result.map (fun _ -> Assert.Fail("Should reject N > 1000"))
-        |> Result.defaultWith (fun msg -> Assert.Contains("1000", msg))
+        // Outside the int32 domain of the modular arithmetic
+        (factorWithBackend (Shor.MaxNumberToFactor + 1) (LocalBackend.LocalBackend() :> IQuantumBackend) 1000)
+        |> Result.map (fun _ -> Assert.Fail($"Should reject N > {Shor.MaxNumberToFactor}"))
+        |> Result.defaultWith (fun msg -> Assert.Contains(string Shor.MaxNumberToFactor, msg))
 
     [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor with specific base`` () =
@@ -299,10 +299,21 @@ module ShorsTests =
         |> Result.map (fun _ -> Assert.Fail("Should reject N < 4"))
         |> Result.defaultWith (fun msg -> Assert.Contains("4", msg))
 
-        // Too large for backend
-        (factorWithBackend 10000 backend 100)
-        |> Result.map (fun _ -> Assert.Fail("Should reject N > 1000 for backend"))
-        |> Result.defaultWith (fun msg -> Assert.Contains("1000", msg))
+        // 1003 = 17 · 59 is above 1000; its circuit (counting + 2·10 + 4) does not fit the local
+        // simulator's runnable qubits, so it is refused by that limit, naming the backend.
+        let config =
+            {
+                NumberToFactor = 1003
+                RandomBase = Some 2
+                PrecisionQubits = 10
+                MaxAttempts = 1
+            }
+
+        match Shor.execute config backend with
+        | Error(FSharp.Azure.Quantum.Core.QuantumError.ValidationError("n", msg)) ->
+            Assert.Contains("N=1003", msg)
+            Assert.Contains(backend.Name, msg)
+        | other -> Assert.Fail($"Should refuse N=1003 on the local simulator by its qubit limit, got: %A{other}")
 
     [<Fact>]
     let ``Shor backend handles even numbers`` () =

@@ -67,24 +67,30 @@ module ChemistryIntegrals =
             let e = a.Element.ToUpperInvariant()
             e = "H" || e = "HE")
 
-    /// Integral provider reading `path`, refusing Hamiltonians wider than `maxQubits`.
-    let fcidumpProvider (maxQubits: int) (path: string) : IntegralProvider =
+    /// Why `qubits` do not fit `backend`, or None when they do (or it declares no limit).
+    let private tooWide (backend: IQuantumBackend) (qubits: int) : string option =
+        match UnifiedBackend.getRunnableQubits backend with
+        | Some limit when qubits > limit -> Some $"backend '{backend.Name}' runs at most {limit}"
+        | _ -> None
+
+    /// Integral provider reading `path`, refusing Hamiltonians wider than `backend` runs.
+    let fcidumpProvider (backend: IQuantumBackend) (path: string) : IntegralProvider =
         fun _ ->
             FciDumpIntegrals.readFile path
             |> Result.mapError (fun err -> err.Message)
             |> Result.bind (fun integrals ->
-                if 2 * integrals.NumOrbitals > maxQubits then
+                match tooWide backend (2 * integrals.NumOrbitals) with
+                | Some why ->
                     Error
-                        $"{Path.GetFileName path}: {integrals.NumOrbitals} orbitals need {2 * integrals.NumOrbitals} qubits; the example caps VQE at {maxQubits} (use a smaller active space)"
-                else
-                    Ok integrals)
+                        $"{Path.GetFileName path}: {integrals.NumOrbitals} orbitals need {2 * integrals.NumOrbitals} qubits; {why} (use a smaller active space)"
+                | None -> Ok integrals)
 
     /// Provider for the species' FCIDUMP in `directory`, when that file exists.
-    let tryFcidump (maxQubits: int) (directory: string option) (molecule: Molecule) : IntegralProvider option =
+    let tryFcidump (backend: IQuantumBackend) (directory: string option) (molecule: Molecule) : IntegralProvider option =
         directory
         |> Option.map (fun dir -> Path.Combine(dir, fcidumpFileName molecule))
         |> Option.filter File.Exists
-        |> Option.map (fcidumpProvider maxQubits)
+        |> Option.map (fcidumpProvider backend)
 
     /// Integral provider for a species: its FCIDUMP in `directory` when present; None for the
     /// library's STO-3G integrals (H/He species). Without a directory (the explicit empirical
@@ -92,13 +98,13 @@ module ChemistryIntegrals =
     /// the library refuses without integrals (H2O, LiH). With a directory, a missing file is
     /// an Error naming it, so one comparison never mixes integral-based and empirical energies.
     let providerFor
-        (maxQubits: int)
+        (backend: IQuantumBackend)
         (directory: string option)
         (molecule: Molecule)
         : Result<IntegralProvider option, string> =
         let file = fcidumpFileName molecule
 
-        match tryFcidump maxQubits directory molecule, directory with
+        match tryFcidump backend directory molecule, directory with
         | Some provider, _ -> Ok(Some provider)
         | None, _ when hasLibraryIntegrals molecule -> Ok None
         | None, Some dir -> Error $"needs {file} in {dir}"
@@ -152,8 +158,7 @@ module ChemistryIntegrals =
         }
 
     /// VQE per species name, computed once per run.
-    type EnergyCache
-        (backend: IQuantumBackend, maxIterations: int, tolerance: float, maxQubits: int, directory: string option) =
+    type EnergyCache(backend: IQuantumBackend, maxIterations: int, tolerance: float, directory: string option) =
         let cache = Dictionary<string, Result<SpeciesEnergy, string>>()
 
         member _.EnergyAsync(molecule: Molecule) : Task<Result<SpeciesEnergy, string>> =
@@ -164,17 +169,16 @@ module ChemistryIntegrals =
                     let started = DateTime.Now
 
                     let provider =
-                        providerFor maxQubits directory molecule
+                        providerFor backend directory molecule
                         |> Result.bind (fun provider ->
                             // Without a provider the library's own Hamiltonian (STO-3G for H/He,
                             // empirical otherwise) uses 2 qubits per atom.
                             let qubits = 2 * molecule.Atoms.Length
 
-                            if provider.IsNone && qubits > maxQubits then
-                                Error
-                                    $"{molecule.Name}: the library Hamiltonian needs {qubits} qubits; the example caps VQE at {maxQubits}"
-                            else
-                                Ok provider)
+                            match provider, tooWide backend qubits with
+                            | None, Some why ->
+                                Error $"{molecule.Name}: the library Hamiltonian needs {qubits} qubits; {why}"
+                            | _ -> Ok provider)
 
                     let! estimated =
                         task {

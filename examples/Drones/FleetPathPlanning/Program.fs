@@ -71,6 +71,15 @@ type GeoCoordinate =
         AltitudeMeters: float
     }
 
+/// What a drone does at a waypoint besides flying there.
+type WaypointAction =
+    /// One photo when the waypoint is reached
+    | Photo
+    /// Video from this waypoint to the next point of the flight
+    | Video
+    /// Release the payload carried for this waypoint
+    | Drop
+
 /// A waypoint in the drone mission
 type Waypoint =
     {
@@ -78,6 +87,7 @@ type Waypoint =
         Name: string
         Location: GeoCoordinate
         Priority: int
+        Action: WaypointAction option
     }
 
 /// A drone in the fleet
@@ -188,15 +198,26 @@ module Parse =
             |> List.mapi (fun i row ->
                 let rowNum = i + 2
 
+                // Optional column: photo, video or drop; empty or absent for none.
+                let action =
+                    match tryGet "action" row |> Option.map (fun s -> s.Trim().ToLowerInvariant()) with
+                    | None
+                    | Some "" -> Ok None
+                    | Some "photo" -> Ok(Some Photo)
+                    | Some "video" -> Ok(Some Video)
+                    | Some "drop" -> Ok(Some Drop)
+                    | Some other -> Error other
+
                 match
                     tryGet "waypoint_id" row,
                     tryGet "name" row,
                     tryFloat (tryGet "latitude" row),
                     tryFloat (tryGet "longitude" row),
                     tryFloat (tryGet "altitude_m" row),
-                    tryInt (tryGet "priority" row)
+                    tryInt (tryGet "priority" row),
+                    action
                 with
-                | Some id, Some name, Some lat, Some lon, Some alt, Some pri ->
+                | Some id, Some name, Some lat, Some lon, Some alt, Some pri, Ok act ->
                     Ok
                         {
                             Id = id
@@ -208,7 +229,10 @@ module Parse =
                                     AltitudeMeters = alt
                                 }
                             Priority = pri
+                            Action = act
                         }
+                | _, _, _, _, _, _, Error other ->
+                    Error $"row=%d{rowNum} unknown action '%s{other}' (photo, video or drop)"
                 | _ -> Error $"row=%d{rowNum} missing or invalid waypoint fields")
             |> List.fold
                 (fun (oks, errs) r ->
@@ -438,6 +462,7 @@ module FleetPlanner =
             Name = z.Name
             Location = z.Location
             Priority = 0
+            Action = None
         }
 
     /// The termination zone nearest a point.
@@ -2404,8 +2429,9 @@ module Evidence =
 /// at its launch time by the generated launcher (mavlink_show.fsx).
 module Export =
 
-    /// Each repeater hangs on its own release servo: SERVO9 for the first site
-    /// the carrier visits, SERVO10 for the next, and so on. PWM that opens it.
+    /// Each repeater, and each parcel of a delivery sortie, hangs on its own
+    /// release servo: SERVO9 for the first site or drop point the flight
+    /// visits, SERVO10 for the next, and so on. PWM that opens it.
     [<Literal>]
     let firstReleaseServo = 9
 
@@ -2423,7 +2449,9 @@ module Export =
     /// Evidence times them: take off over the pad to the first point's
     /// altitude, the legs, then back over the pad and down onto it, or down
     /// where the last point is when the flight does not come back. A point
-    /// in `releases` (by index) opens that servo on arrival, then holds.
+    /// in `releases` (by index) opens that servo as its hover ends; a point in
+    /// `cameras` takes a photo there, or records video from there to the next
+    /// point of the flight (to the start of the landing after the last one).
     let private items
         (vehicle: Mav.Vehicle)
         (cruiseMs: float)
@@ -2432,8 +2460,16 @@ module Export =
         (landsAtPad: bool)
         (points: (GeoCoordinate * float) list)
         (releases: Map<int, int>)
+        (cameras: Map<int, WaypointAction>)
         =
         let items = ResizeArray<Mav.MissionItem>()
+        let recording = ref false
+
+        // DO commands run once the waypoint before them is done.
+        let stopRecording () =
+            if recording.Value then
+                items.Add(Mav.videoStop items.Count)
+                recording.Value <- false
         let first, _ = List.head points
         let last, _ = List.last points
         let padOnGround = toMav { pad with AltitudeMeters = 0.0 }
@@ -2461,15 +2497,29 @@ module Export =
             let pos = toMav g
 
             match releases.TryFind k, vehicle with
-            | Some channel, _ ->
+            | Some channel, Mav.ArduCopter ->
                 // The servo opens as the hover ends (a DO command runs once
-                // the waypoint before it is done): the repeater is set down
-                // as the carrier climbs away.
+                // the waypoint before it is done): the payload is set down
+                // as the copter climbs away.
                 Mav.stopAt acceptM pos holdS items
+                items.Add(Mav.doSetServo channel releasePwm items.Count)
+            // A fixed-wing drops as it passes the waypoint.
+            | Some channel, Mav.ArduQuadPlane ->
+                items.Add(Mav.waypoint 0.0 acceptM pos items.Count)
                 items.Add(Mav.doSetServo channel releasePwm items.Count)
             | None, Mav.ArduCopter -> Mav.stopAt acceptM pos holdS items
             // A fixed-wing does not hold at a waypoint.
             | None, Mav.ArduQuadPlane -> items.Add(Mav.waypoint 0.0 acceptM pos items.Count)
+
+            stopRecording ()
+
+            match cameras.TryFind k with
+            | Some Photo -> items.Add(Mav.imageCapture items.Count)
+            | Some Video ->
+                items.Add(Mav.videoStart items.Count)
+                recording.Value <- true
+            | Some Drop
+            | None -> ()
 
         match landsAtPad, vehicle with
         | true, Mav.ArduCopter ->
@@ -2481,12 +2531,19 @@ module Export =
                 0.0
                 items
 
+            stopRecording ()
             items.Add(Mav.landAt padOnGround items.Count)
         // A QuadPlane flies to the pad as a fixed-wing, transitions and
         // descends onto it.
-        | true, Mav.ArduQuadPlane -> items.Add(Mav.vtolLand padOnGround items.Count)
-        | false, Mav.ArduCopter -> items.Add(Mav.landAt (toMav last) items.Count)
-        | false, Mav.ArduQuadPlane -> items.Add(Mav.vtolLand (toMav last) items.Count)
+        | true, Mav.ArduQuadPlane ->
+            stopRecording ()
+            items.Add(Mav.vtolLand padOnGround items.Count)
+        | false, Mav.ArduCopter ->
+            stopRecording ()
+            items.Add(Mav.landAt (toMav last) items.Count)
+        | false, Mav.ArduQuadPlane ->
+            stopRecording ()
+            items.Add(Mav.vtolLand (toMav last) items.Count)
 
         List.ofSeq items
 
@@ -2511,6 +2568,7 @@ module Export =
             landsAtPad
             points
             releases
+            cameras
             =
             let vehicle = Evidence.vehicleOf d
 
@@ -2537,7 +2595,7 @@ module Export =
                             { toMav (padOf d) with
                                 Altitude = homeAltM
                             }
-                        Items = items vehicle d.CruiseSpeedMs acceptM (padOf d) landsAtPad points releases
+                        Items = items vehicle d.CruiseSpeedMs acceptM (padOf d) landsAtPad points releases cameras
                         Parameters =
                             Mav.Params.forProfile
                                 {
@@ -2571,19 +2629,41 @@ module Export =
                     sites
                     |> List.mapi (fun i _ -> (sprintf "SERVO%d_FUNCTION" (firstReleaseServo + i), 0.0))
 
-                mission c (Evidence.carrierTransitM st sites) servos 0.0 true (Evidence.carrierRoute st sites) releases)
+                mission
+                    c
+                    (Evidence.carrierTransitM st sites)
+                    servos
+                    0.0
+                    true
+                    (Evidence.carrierRoute st sites)
+                    releases
+                    Map.empty)
 
         let flights =
             sorties
             |> List.mapi (fun i s ->
+                // Route point k + 1 is the sortie's waypoint k (point 0 is the base).
+                let acted =
+                    s.Waypoints
+                    |> List.indexed
+                    |> List.choose (fun (k, w) -> w.Action |> Option.map (fun a -> (k + 1, a)))
+
+                // Each drop releases its own payload: SERVO9 for the first drop
+                // point of the sortie, SERVO10 for the next, and so on.
+                let drops =
+                    acted
+                    |> List.filter (fun (_, a) -> a = Drop)
+                    |> List.mapi (fun j (k, _) -> (k, firstReleaseServo + j))
+
                 mission
                     droneById.[s.DroneId]
                     (Evidence.rtlAltitude st sorties i)
-                    []
+                    (drops |> List.map (fun (_, servo) -> (sprintf "SERVO%d_FUNCTION" servo, 0.0)))
                     (Evidence.sortieLaunchS st i)
                     s.Returns
                     (Evidence.sortieRoute st s)
-                    Map.empty)
+                    (Map.ofList drops)
+                    (acted |> List.filter (fun (_, a) -> a <> Drop) |> Map.ofList))
 
         let missions = (carrier |> Option.toList) @ flights
         let dir = Path.Combine(outDir, "mavlink")

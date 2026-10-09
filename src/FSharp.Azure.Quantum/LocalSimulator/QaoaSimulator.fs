@@ -54,13 +54,21 @@ module QaoaSimulator =
     // 1. INITIALIZATION (Depends on StateVector and Gates)
     // ============================================================================
 
+    /// Reported for a qubit count outside 1 .. StateVector.practicalCircuitQubits.
+    let private qubitRangeMessage (numQubits: int) : string =
+        $"Number of qubits must be between 1 and {StateVector.practicalCircuitQubits} "
+        + $"(the local simulator's circuit limit; raise FSAQ_MAX_CIRCUIT_QUBITS), got {numQubits}"
+
     /// Initialize QAOA state to uniform superposition over all basis states
     ///
     /// For n qubits, creates state |+⟩^⊗n = (1/√(2^n)) Σ|i⟩
     /// This is achieved by applying Hadamard gates to all qubits starting from |0⟩^⊗n
+    ///
+    /// numQubits must be between 1 and StateVector.practicalCircuitQubits, the local
+    /// simulator's own limit (FSAQ_MAX_CIRCUIT_QUBITS, clamped to available memory).
     let initializeUniformSuperposition (numQubits: int) : StateVector.StateVector =
-        if numQubits < 1 || numQubits > 16 then
-            failwith $"Number of qubits must be between 1 and 16, got {numQubits}"
+        if numQubits < 1 || numQubits > StateVector.practicalCircuitQubits then
+            failwith (qubitRangeMessage numQubits)
 
         // Apply Hadamard to each qubit to create uniform superposition
         [ 0 .. numQubits - 1 ]
@@ -260,8 +268,8 @@ module QaoaSimulator =
     let simulate (circuit: QaoaCircuit) (numShots: int) : Result<QaoaResult, string> =
         try
             // Validation
-            if circuit.NumQubits < 1 || circuit.NumQubits > 16 then
-                Error $"Number of qubits must be between 1 and 16, got {circuit.NumQubits}"
+            if circuit.NumQubits < 1 || circuit.NumQubits > StateVector.practicalCircuitQubits then
+                Error(qubitRangeMessage circuit.NumQubits)
             elif numShots < 1 then
                 Error $"Number of shots must be positive, got {numShots}"
             elif circuit.Depth < 1 then

@@ -306,19 +306,28 @@ module PredictiveModel =
             Ok()
 
     // ========================================================================
-    // FEATURE TRUNCATION (VQC qubit cap)
+    // VQC CIRCUIT WIDTH
     // ========================================================================
 
     /// VQC builds circuits with one qubit per feature dimension (see
-    /// VQC.buildVQCCircuit). The builders cap the qubit count for simulation
-    /// tractability, so samples are truncated to the first numQubits dimensions —
-    /// consistently at training and prediction time — so the circuit matches the
-    /// sized parameter vector.
-    let private truncateFeatures (numQubits: int) (sample: float array) : float array =
-        if sample.Length > numQubits then
-            Array.sub sample 0 numQubits
-        else
-            sample
+    /// VQC.buildVQCCircuit), so the width is the feature count. The only width
+    /// limit is the backend's own runnable limit (UnifiedBackend.getRunnableQubits);
+    /// a backend that declares none is not refused. Features are never truncated.
+    let private vqcWidthError (backend: IQuantumBackend) (taskName: string) (numFeatures: int) : QuantumError option =
+        UnifiedBackend.runnableQubitsReason
+            $"{taskName} with {numFeatures} features (one qubit per feature)"
+            numFeatures
+            backend
+        |> Option.map (fun reason ->
+            QuantumError.ValidationError("features", $"{reason}. Reduce dimensionality first (feature selection or PCA)."))
+
+    /// A prediction sample must have the width the VQC model was trained on: the
+    /// trained parameters size the circuit, so another width is refused.
+    let private sampleWidthError (numQubits: int) (sample: float array) : QuantumError =
+        QuantumError.ValidationError(
+            "features",
+            $"Model was trained on {numQubits} features, but the sample has {sample.Length}"
+        )
 
     // ========================================================================
     // PERSISTENCE - Save/Load models (defined before train for forward reference)
@@ -797,22 +806,18 @@ module PredictiveModel =
                             let featureMap = FeatureMapType.ZZFeatureMap 2
                             let varFormDepth = 3
                             let varForm = RealAmplitudes varFormDepth
-                            // VQC uses one qubit per feature dimension; refuse feature counts
-                            // above the simulation cap rather than silently truncating — a
-                            // model trained on a fraction of its inputs while reporting
-                            // success is worse than a clear, actionable error.
+                            // VQC uses one qubit per feature dimension; every feature is
+                            // encoded, and a width the backend cannot run is refused.
                             let numFeatureDims = problem.TrainFeatures.[0].Length
-                            let maxQubits = 5 // simulation-tractability cap
 
-                            if numFeatureDims > maxQubits then
-                                return
-                                    Error(
-                                        QuantumError.ValidationError(
-                                            "features",
-                                            $"HHL linear regression fit poorly and VQC non-linear regression supports at most {maxQubits} features (one qubit per feature; {numFeatureDims} supplied). Reduce dimensionality first (e.g. feature selection or PCA)."
-                                        )
-                                    )
-                            else
+                            match
+                                vqcWidthError
+                                    backend
+                                    "HHL linear regression fit poorly; VQC non-linear regression"
+                                    numFeatureDims
+                            with
+                            | Some error -> return Error error
+                            | None ->
 
                                 let numQubits = numFeatureDims
                                 let vqcFeatures = problem.TrainFeatures
@@ -886,22 +891,13 @@ module PredictiveModel =
                         let featureMap = FeatureMapType.ZZFeatureMap 2
                         let varFormDepth = 3
                         let varForm = RealAmplitudes varFormDepth
-                        // VQC uses one qubit per feature dimension; refuse feature counts
-                        // above the simulation cap rather than silently truncating — a
-                        // model trained on a fraction of its inputs while reporting
-                        // success is worse than a clear, actionable error.
+                        // VQC uses one qubit per feature dimension; every feature is
+                        // encoded, and a width the backend cannot run is refused.
                         let numFeatureDims = problem.TrainFeatures.[0].Length
-                        let maxQubits = 5 // simulation-tractability cap
 
-                        if numFeatureDims > maxQubits then
-                            return
-                                Error(
-                                    QuantumError.ValidationError(
-                                        "features",
-                                        $"VQC multi-class classification supports at most {maxQubits} features (one qubit per feature; {numFeatureDims} supplied). Reduce dimensionality first (e.g. feature selection or PCA)."
-                                    )
-                                )
-                        else
+                        match vqcWidthError backend "VQC multi-class classification" numFeatureDims with
+                        | Some error -> return Error error
+                        | None ->
 
                             let numQubits = numFeatureDims
                             let vqcFeatures = problem.TrainFeatures
@@ -1074,16 +1070,18 @@ module PredictiveModel =
             | Regression ->
                 try
                     match model.InternalModel with
-                    | RegressionVQC(vqcResult, featureMap, varForm, numQubits) ->
+                    | RegressionVQC(_, _, _, numQubits) when features.Length <> numQubits ->
+                        return Error(sampleWidthError numQubits features)
+
+                    | RegressionVQC(vqcResult, featureMap, varForm, _) ->
                         // VQC-based non-linear regression.
-                        // Apply the same feature truncation used at training time (qubit cap).
                         match!
                             VQC.predictRegressionAsync
                                 actualBackend
                                 featureMap
                                 varForm
                                 vqcResult.Parameters
-                                (truncateFeatures numQubits features)
+                                features
                                 actualShots
                                 vqcResult.ValueRange
                                 cancellationToken
@@ -1176,16 +1174,18 @@ module PredictiveModel =
             | MultiClass _ ->
                 try
                     match model.InternalModel with
-                    | MultiClassVQC(multiClassResult, featureMap, varForm, numQubits) ->
+                    | MultiClassVQC(_, _, _, numQubits) when features.Length <> numQubits ->
+                        return Error(sampleWidthError numQubits features)
+
+                    | MultiClassVQC(multiClassResult, featureMap, varForm, _) ->
                         // VQC multi-class using one-vs-rest strategy.
-                        // Apply the same feature truncation used at training time (qubit cap).
                         match!
                             VQC.predictMultiClassAsync
                                 actualBackend
                                 featureMap
                                 varForm
                                 multiClassResult
-                                (truncateFeatures numQubits features)
+                                features
                                 actualShots
                                 cancellationToken
                         with

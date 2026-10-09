@@ -173,16 +173,14 @@ let private run
 let private meanEnergy qubo (samples: int[][]) =
     samples |> Array.averageBy (QaoaExecutionHelpers.evaluateQuboSparse qubo)
 
-/// Run QAOA over the candidate corridors. `warm` carries the previous round's
-/// angles; None forces a cold grid search.
-let solve
+let private runQaoa
     (backend: IQuantumBackend)
     (settings: QaoaSettings)
     (warm: (float * float)[] option)
     (ctx: EvalContext)
+    (qubo: PlannerQubo)
+    (sw: Stopwatch)
     : Result<QuantumOutcome, QuantumError> =
-    let sw = Stopwatch.StartNew()
-    let qubo = buildQubo ctx
     let n = qubo.Qubits
     let layered (g, b) = Array.create settings.Layers (g, b)
 
@@ -244,3 +242,25 @@ let solve
                 DistinctSamples = distinct.Length
                 ElapsedMs = sw.ElapsedMilliseconds
             })
+
+/// Run QAOA over the candidate corridors. `warm` carries the previous round's
+/// angles; None forces a cold grid search. A QUBO wider than the backend runs
+/// is a ValidationError naming both, before any circuit.
+let solve
+    (backend: IQuantumBackend)
+    (settings: QaoaSettings)
+    (warm: (float * float)[] option)
+    (ctx: EvalContext)
+    : Result<QuantumOutcome, QuantumError> =
+    let sw = Stopwatch.StartNew()
+    let qubo = buildQubo ctx
+
+    match UnifiedBackend.getRunnableQubits backend with
+    | Some limit when qubo.Qubits > limit ->
+        Error(
+            QuantumError.ValidationError(
+                "qubits",
+                $"{qubo.CorridorQubits} candidate corridors need {qubo.Qubits} qubits; backend '{backend.Name}' runs at most {limit}"
+            )
+        )
+    | _ -> runQaoa backend settings warm ctx qubo sw

@@ -693,6 +693,48 @@ module BackendAbstraction =
             | None, Some w -> Some w
             | None, None -> None
 
+        /// None when `backend` runs `qubitsNeeded` qubits (getRunnableQubits); otherwise why
+        /// not: "{problem} needs {qubitsNeeded} qubits, but backend '{Name}' runs at most
+        /// {limit} qubits", saying how to raise the limit when it is the wall-clock one. A
+        /// backend that declares no limit runs any width.
+        let runnableQubitsReason (problem: string) (qubitsNeeded: int) (backend: IQuantumBackend) : string option =
+            match getRunnableQubits backend with
+            | Some limit when qubitsNeeded > limit ->
+                let wallClockBinds =
+                    match backend with
+                    | :? IWallClockLimitedBackend as wb -> wb.PracticalQubits = limit
+                    | _ -> false
+
+                let hint =
+                    if wallClockBinds then
+                        " (its wall-clock limit; FSAQ_MAX_CIRCUIT_QUBITS raises it when memory and time allow)"
+                    else
+                        ""
+
+                Some $"{problem} needs {qubitsNeeded} qubits, but backend '{backend.Name}' runs at most {limit} qubits{hint}"
+            | _ -> None
+
+        /// runnableQubitsReason as a ValidationError on `parameter`.
+        let runnableQubitsError
+            (parameter: string)
+            (problem: string)
+            (qubitsNeeded: int)
+            (backend: IQuantumBackend)
+            : QuantumError option =
+            runnableQubitsReason problem qubitsNeeded backend
+            |> Option.map (fun reason -> QuantumError.ValidationError(parameter, reason))
+
+        /// Ok when `backend` runs `qubitsNeeded` qubits, else runnableQubitsError's error.
+        let requireRunnableQubits
+            (parameter: string)
+            (problem: string)
+            (qubitsNeeded: int)
+            (backend: IQuantumBackend)
+            : Result<unit, QuantumError> =
+            match runnableQubitsError parameter problem qubitsNeeded backend with
+            | Some error -> Error error
+            | None -> Ok()
+
         /// Execute operation with automatic state conversion if needed
         ///
         /// Handles conversion between state types transparently.

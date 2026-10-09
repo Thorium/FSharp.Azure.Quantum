@@ -173,7 +173,7 @@ module TreeSearch =
 
         try
             // Sample random paths
-            let random = Random()
+            let random = Random.Shared
             let searchSpaceSize = 1 <<< (config.MaxDepth * bitsNeeded config.BranchingFactor)
             let samplesToTake = min sampleSize searchSpaceSize
 
@@ -217,7 +217,7 @@ module TreeSearch =
     /// - rootState: Initial game position
     /// - config: Tree search configuration
     /// - scoreThreshold: Minimum score for a path to be marked as solution
-    /// - maxPaths: Optional limit on search space (None = use full tree up to 2^16)
+    /// - maxPaths: Optional limit on search space (None = the full tree)
     let private createTreeSearchOracleLazy<'T>
         (rootState: 'T)
         (config: TreeSearchConfig<'T>)
@@ -226,18 +226,19 @@ module TreeSearch =
         : Result<CompiledOracle, QuantumError> =
 
         result {
-            // Calculate search space
-            let numQubits = config.MaxDepth * bitsNeeded config.BranchingFactor
+            // Calculate search space (int64: an absurd depth must not overflow into a small count)
+            let qubitsNeeded = int64 config.MaxDepth * int64 (bitsNeeded config.BranchingFactor)
 
-            if numQubits > 16 then
+            if qubitsNeeded > int64 MaxIndexQubits then
                 return!
                     Error(
                         QuantumError.ValidationError(
                             "TreeSearch",
-                            $"requires {numQubits} qubits (depth={config.MaxDepth}, branching={config.BranchingFactor}). Max: 16"
+                            $"requires {qubitsNeeded} qubits (depth={config.MaxDepth}, branching={config.BranchingFactor}); an oracle indexes at most {MaxIndexQubits}"
                         )
                     )
             else
+                let numQubits = int qubitsNeeded
                 let searchSpaceSize = 1 <<< numQubits
 
                 // Apply user-specified search space limit if provided
@@ -273,7 +274,7 @@ module TreeSearch =
     // ========================================================================
 
     /// Largest explicit Grover iteration count accepted. The optimum is π/4·√(N/M), about 200
-    /// for the widest (16-qubit) search.
+    /// for a 16-qubit search with one marked path.
     [<Literal>]
     let MaxGroverIterations = 1000
 
@@ -299,11 +300,13 @@ module TreeSearch =
     /// - numShots: Optional number of measurement shots (None = DefaultShots)
     /// - solutionThreshold: Optional threshold for solution detection (None = DefaultSolutionThreshold)
     /// - successThreshold: Optional threshold for success probability (None = Grover.defaultConfig)
-    /// - maxPaths: Optional limit on search space size (None = use full tree up to 2^16)
+    /// - maxPaths: Optional limit on search space size (None = the full tree)
     /// - groverIterations: Grover iterations to run (None = Grover's unknown-M schedule, from 1);
     ///   Some k outside 1..MaxGroverIterations is an Error
     ///
-    /// Returns: TreeSearchResult with best move
+    /// Returns: TreeSearchResult with best move, or a ValidationError, before any circuit
+    /// runs, when the tree needs more qubits than the backend runs
+    /// (UnifiedBackend.getRunnableQubits).
     let searchGameTreeWithIterations<'T>
         (rootState: 'T)
         (config: TreeSearchConfig<'T>)
@@ -329,6 +332,13 @@ module TreeSearch =
                         )
                     )
                 | _ -> Ok()
+
+            do!
+                UnifiedBackend.requireRunnableQubits
+                    "TreeSearch"
+                    $"tree search with depth {config.MaxDepth} and branching {config.BranchingFactor}"
+                    (int (min (int64 config.MaxDepth * int64 (bitsNeeded config.BranchingFactor)) (int64 Int32.MaxValue)))
+                    backend
 
             // Step 1: Calculate score threshold from top percentile
             let sampledThreshold = calculateScoreThreshold rootState config topPercentile 100

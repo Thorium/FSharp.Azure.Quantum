@@ -80,7 +80,7 @@ Cli.exitIfHelp
         }
         {
             Name = "counting"
-            Description = "Counting qubits for the h2 scenario (3 to 12; 4 system qubits + counting <= 16)"
+            Description = "Counting qubits for the h2 scenario (at least 3; 4 system qubits + counting, up to what the backend runs)"
             Default = Some "8"
         }
         {
@@ -385,7 +385,11 @@ if shouldRun "h2" then
                 let pauli = QPE.toPauliHamiltonian h
 
                 let m =
-                    h2Counting |> Option.defaultValue (min 8 (QPE.MaxTotalQubits - pauli.NumQubits))
+                    h2Counting
+                    |> Option.defaultWith (fun () ->
+                        match UnifiedBackend.getRunnableQubits quantumBackend with
+                        | Some limit -> min QPE.DefaultCountingQubits (limit - pauli.NumQubits)
+                        | None -> QPE.DefaultCountingQubits)
 
                 QPE.evolutionPlan pauli m settings.TrotterOrder trotterSteps))
 

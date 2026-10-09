@@ -1885,7 +1885,7 @@ module Program =
         printfn "  --crews <n>            ground crews; each source in use needs one (default 2)"
         printfn "  --coordinators <n>     drop coordinators; each open corridor needs one (default 5)"
         printfn "  --crew-move <n>        ticks for a crew to relocate to another source (default 6)"
-        printfn "  --max-corridors <n>    candidate corridors per round; QAOA adds one qubit per source (default 12)"
+        printfn "  --max-corridors <n>    candidate corridors per round; QAOA adds one qubit per source (default 12; a round wider than the backend is refused)"
         printfn "  --exact-limit <n>      brute-force oracle up to this many candidates (default 20)"
         printfn "  --latency <n>          ticks of queueing before a QAOA answer is usable (default 1);"
         printfn "                         the measured compute time is always added as a floor"
@@ -2055,7 +2055,7 @@ module Program =
                             Ticks = max 1 ticks
                             ReplanEvery = max 1 (Cli.getIntOr "replan-every" 10 args)
                             HorizonTicks = float (max 1 (Cli.getIntOr "horizon" 20 args))
-                            MaxCorridors = Math.Clamp(Cli.getIntOr "max-corridors" 12 args, 1, 20)
+                            MaxCorridors = max 1 (Cli.getIntOr "max-corridors" 12 args)
                             ExactLimit = Math.Clamp(Cli.getIntOr "exact-limit" 20 args, 0, 24)
                             LatencyTicks = max 0 (Cli.getIntOr "latency" 1 args)
                             CrossPenalty = 200.0

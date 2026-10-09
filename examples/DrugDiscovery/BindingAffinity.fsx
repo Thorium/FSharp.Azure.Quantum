@@ -132,10 +132,6 @@ let integralDirectory =
          |> Option.map (Data.resolveRelative __SOURCE_DIRECTORY__))
         (Cli.hasFlag "empirical" args)
 
-/// Widest VQE this example runs: 2 qubits per active spatial orbital.
-[<Literal>]
-let maxVqeQubits = 16
-
 [<Literal>]
 let hartreeToKcalMol = 627.509
 
@@ -243,7 +239,7 @@ if not quiet then
     printfn ""
 
 let energies =
-    ChemistryIntegrals.EnergyCache(backend, maxIterations, tolerance, maxVqeQubits, integralDirectory)
+    ChemistryIntegrals.EnergyCache(backend, maxIterations, tolerance, integralDirectory)
 
 /// Interpret an interaction energy.
 let private interpretBinding (dEKcal: float) : string =

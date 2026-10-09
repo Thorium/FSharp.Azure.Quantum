@@ -359,7 +359,7 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 | **Shor's Factoring** | IonQ | counting + 2n + 4, n = ⌈log₂N⌉ (N = 15, 8 counting: 20) | One whole circuit per base; far deeper than today's hardware keeps coherent, so hardware runs demonstrate the route rather than factor reliably |
 | **QFT** | IonQ | 3-11 | Deep circuit, needs fidelity |
 | **QPE** | IonQ | 5-11 | High precision critical |
-| **VQE (chemistry)** | IonQ (<4 atoms), Rigetti (4-8 atoms) | 4-20 | Shallow circuits, noise-resilient; the library's chemistry path caps molecules at 20 qubits |
+| **VQE (chemistry)** | IonQ (<4 atoms), Rigetti (4-8 atoms) | 4-20 | Shallow circuits, noise-resilient; the library's chemistry path refuses molecules wider than the backend runs |
 | **QAOA** | Rigetti (medium), D-Wave (large) | 10-5000 | Optimization-focused |
 
 ### Optimization Problems

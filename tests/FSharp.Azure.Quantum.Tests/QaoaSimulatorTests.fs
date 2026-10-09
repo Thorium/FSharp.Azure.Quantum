@@ -31,8 +31,32 @@ module QaoaSimulatorTests =
         Assert.Throws<Exception>(fun () -> QaoaSimulator.initializeUniformSuperposition 0 |> ignore)
         |> ignore
 
-        Assert.Throws<Exception>(fun () -> QaoaSimulator.initializeUniformSuperposition 17 |> ignore)
-        |> ignore
+        // The limit is the local simulator's own (practicalCircuitQubits), not a fixed count.
+        let budget = StateVector.practicalCircuitQubits
+
+        let tooWide =
+            Assert.Throws<Exception>(fun () -> QaoaSimulator.initializeUniformSuperposition (budget + 1) |> ignore)
+
+        Assert.Contains(string budget, tooWide.Message)
+        Assert.Contains("FSAQ_MAX_CIRCUIT_QUBITS", tooWide.Message)
+
+    [<Fact>]
+    let ``Simulate - rejects circuits wider than the local simulator's circuit limit`` () =
+        let budget = StateVector.practicalCircuitQubits
+
+        let circuit: QaoaSimulator.QaoaCircuit =
+            {
+                NumQubits = budget + 1
+                Parameters = [| 0.1; 0.2 |]
+                CostTerms = [||]
+                Depth = 1
+            }
+
+        match QaoaSimulator.simulate circuit 10 with
+        | Error msg ->
+            Assert.Contains(string budget, msg)
+            Assert.Contains("FSAQ_MAX_CIRCUIT_QUBITS", msg)
+        | Ok _ -> Assert.Fail("A circuit wider than practicalCircuitQubits must be refused")
 
     [<Fact>]
     let ``Apply cost layer - should apply Rz rotations`` () =

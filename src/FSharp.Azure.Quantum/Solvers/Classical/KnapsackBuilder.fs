@@ -207,7 +207,7 @@ module Knapsack =
     /// EXAMPLE:
     ///   let problem = Knapsack.randomInstance 10 100.0 500.0 0.5
     let randomInstance (numItems: int) (maxWeight: float) (maxValue: float) (capacityRatio: float) : Problem =
-        let rng = Random()
+        let rng = Random.Shared
 
         let items =
             [ 1..numItems ]

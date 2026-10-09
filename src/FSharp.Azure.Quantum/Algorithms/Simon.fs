@@ -249,15 +249,17 @@ module Simon =
         (shots: int)
         : Result<SimonResult, QuantumError> =
 
+        let tooWide =
+            UnifiedBackend.runnableQubitsError
+                "numInputQubits"
+                $"Simon's algorithm on {numInputQubits} input qubits"
+                (2 * numInputQubits)
+                backend
+
         if numInputQubits < 1 then
             Error(QuantumError.ValidationError("numInputQubits", "Simon's algorithm requires at least 1 input qubit"))
-        elif numInputQubits > 10 then
-            Error(
-                QuantumError.ValidationError(
-                    "numInputQubits",
-                    "Simon's algorithm uses 2n qubits; >10 input qubits not practical on NISQ hardware"
-                )
-            )
+        elif tooWide.IsSome then
+            Error tooWide.Value
         elif shots < 1 then
             Error(QuantumError.ValidationError("shots", "Simon's algorithm requires at least 1 shot"))
         else

@@ -222,15 +222,24 @@ module BinaryClassifier =
     // TRAINING
     // ========================================================================
 
-    /// VQC builds circuits with one qubit per feature dimension (see
-    /// VQC.buildVQCCircuit). When the feature count exceeds the qubit cap, samples
-    /// are truncated to the first numQubits dimensions — consistently at training
-    /// and prediction time — so the circuit matches the sized parameter vector.
-    let private truncateFeatures (numQubits: int) (sample: float array) : float array =
-        if sample.Length > numQubits then
-            Array.sub sample 0 numQubits
-        else
-            sample
+    /// Both quantum architectures encode one qubit per feature: VQC through
+    /// VQC.buildVQCCircuit, Hybrid through the kernel circuits of QuantumKernel.
+    /// The only width limit is the backend's own runnable limit
+    /// (UnifiedBackend.getRunnableQubits); a backend that declares none is not refused.
+    let private backendWidthError
+        (backend: IQuantumBackend)
+        (architecture: string)
+        (numFeatures: int)
+        : QuantumError option =
+        UnifiedBackend.runnableQubitsReason
+            $"{architecture} classification with {numFeatures} features (one qubit per feature)"
+            numFeatures
+            backend
+        |> Option.map (fun reason ->
+            QuantumError.ValidationError(
+                "features",
+                $"{reason}. Reduce dimensionality first (feature selection or PCA), or use the Classical architecture."
+            ))
 
     /// Train quantum VQC classifier
     let private trainQuantumAsync
@@ -245,25 +254,15 @@ module BinaryClassifier =
         let numFeatures = features.[0].Length
 
         // Smart defaults for quantum architecture
-        let maxQubits = 8 // Cap for reasonable local simulation time
-        let numQubits = min numFeatures maxQubits
+        let numQubits = numFeatures // VQC: one qubit per feature dimension
         let featureMap = FeatureMapType.ZZFeatureMap 2
         let variationalForm = VariationalForm.RealAmplitudes 2
 
-        // VQC uses one qubit per feature dimension. Refuse feature counts above
-        // the qubit cap rather than silently truncating: a classifier that
-        // ignores most of its input features while reporting success is worse
-        // than a clear error the user can act on.
-        if numFeatures > maxQubits then
-            Task.FromResult(
-                Error(
-                    QuantumError.ValidationError(
-                        "features",
-                        $"Quantum classification supports at most {maxQubits} features (one qubit per feature; {numFeatures} supplied). Reduce dimensionality first (e.g. feature selection or PCA), or use the Classical architecture."
-                    )
-                )
-            )
-        else
+        // Every feature is encoded; a width the backend cannot run is refused,
+        // never truncated.
+        match backendWidthError backend "Quantum" numFeatures with
+        | Some error -> Task.FromResult(Error error)
+        | None ->
 
             let trainFeatures = features
 
@@ -289,7 +288,7 @@ module BinaryClassifier =
 
             // Train VQC (initialize parameters randomly)
             let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
-            let rng = Random()
+            let rng = Random.Shared
             let initialParams = Array.init numParams (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
 
             quantumResultTask {
@@ -370,8 +369,8 @@ module BinaryClassifier =
         let startTime = DateTime.UtcNow
         let numFeatures = features.[0].Length
 
-        // Use quantum kernel SVM
-        let numQubits = min numFeatures 8
+        // Use quantum kernel SVM: the kernel circuits encode every feature, one qubit each
+        let numQubits = numFeatures
         let featureMap = FeatureMapType.ZZFeatureMap 2
 
         let svmConfig: QuantumKernelSVM.SVMConfig =
@@ -384,6 +383,11 @@ module BinaryClassifier =
             }
 
         quantumResultTask {
+            do!
+                match backendWidthError backend "Hybrid" numFeatures with
+                | Some error -> Error error
+                | None -> Ok()
+
             let! model =
                 QuantumKernelSVM.trainAsync backend featureMap features labels svmConfig config.Shots cancellationToken
                 |> mapErrorAsync (fun e -> QuantumError.ValidationError("Input", $"Hybrid training failed: {e}"))
@@ -475,18 +479,22 @@ module BinaryClassifier =
         let backend = classifier.Backend
 
         match classifier.Model with
-        | VQCModel(result, featureMap, varForm, numQubits) ->
-            // Apply the same feature truncation used at training time (qubit cap)
+        | VQCModel(_, _, _, numQubits) when sample.Length <> numQubits ->
+            // The circuit width is the feature count; a sample of another width does
+            // not fit the trained parameters and is refused, never truncated or padded.
+            Task.FromResult(
+                Error(
+                    QuantumError.ValidationError(
+                        "sample",
+                        $"Classifier was trained on {numQubits} features, but the sample has {sample.Length}"
+                    )
+                )
+            )
+
+        | VQCModel(result, featureMap, varForm, _) ->
             task {
                 let! prediction =
-                    VQC.predictAsync
-                        backend
-                        featureMap
-                        varForm
-                        result.Parameters
-                        (truncateFeatures numQubits sample)
-                        1000
-                        cancellationToken
+                    VQC.predictAsync backend featureMap varForm result.Parameters sample 1000 cancellationToken
 
                 return
                     prediction

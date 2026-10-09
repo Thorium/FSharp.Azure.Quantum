@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <Compile Include="TestCollections.fs" />
+    <Compile Include="QubitLimitBackends.fs" />
     <Compile Include="StateVectorTests.fs" />
     <Compile Include="QuantumStateTests.fs" />
     <Compile Include="GatesTests.fs" />
@@ -151,6 +152,7 @@
     <Compile Include="ModExpPhaseTests.fs" />
 
     <Compile Include="HHLUnifiedTests.fs" />
+    <Compile Include="QuantumLinearSystemSolverBuilderTests.fs" />
 
     <!-- Route selection for backends that run complete circuits only -->
     <Compile Include="WholeCircuitRouteTests.fs" />

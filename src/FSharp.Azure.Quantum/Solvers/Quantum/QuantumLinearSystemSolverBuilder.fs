@@ -35,6 +35,7 @@ open FSharp.Azure.Quantum.Algorithms.HHL
 /// - Research: quantum algorithm benchmarking, linear algebra speedup
 ///
 /// IMPORTANT LIMITATIONS:
+/// - Eigenvalue + solution + ancilla qubits must fit the backend's runnable qubits
 /// - Matrix must be Hermitian (A = A†) - non-Hermitian can be embedded
 /// - Solution is quantum state |x⟩ - full readout requires tomography
 /// - Best for sparse, well-conditioned matrices (small κ = λ_max/λ_min)
@@ -169,22 +170,23 @@ module QuantumLinearSystemSolver =
     // VALIDATION HELPERS
     // ============================================================================
 
+    /// Most qubits an HHL circuit here can have: basis indices and the prepared input state
+    /// are Int32-indexed arrays of 2^n entries.
+    [<Literal>]
+    let MaxIndexedQubits = 30
+
     /// <summary>
     /// Validates a linear system problem specification.
-    /// Checks matrix properties, vector compatibility, and qubit limits.
+    /// Checks matrix properties, vector compatibility, and that the circuit fits the backend.
     /// </summary>
     let private validate (problem: LinearSystemProblem) : Result<unit, QuantumError> =
         // Check eigenvalue qubits
         if problem.EigenvalueQubits < 2 then
             Error(QuantumError.ValidationError("EigenvalueQubits", "must be at least 2 (4 eigenvalue bins minimum)"))
-        elif problem.EigenvalueQubits > 12 then
-            Error(QuantumError.ValidationError("EigenvalueQubits", "exceeds practical limit (12 qubits = 4096 bins)"))
 
         // Check matrix dimension
         elif problem.Matrix.Dimension < 2 then
             Error(QuantumError.ValidationError("MatrixDimension", "must be at least 2×2"))
-        elif problem.Matrix.Dimension > 16 then
-            Error(QuantumError.ValidationError("MatrixDimension", "exceeds simulation limit (16×16)"))
 
         // Check matrix is power of 2
         elif (problem.Matrix.Dimension &&& (problem.Matrix.Dimension - 1)) <> 0 then
@@ -209,15 +211,23 @@ module QuantumLinearSystemSolver =
 
             let totalQubits = problem.EigenvalueQubits + solutionQubits + 1 // +1 for ancilla
 
-            if totalQubits > Types.NisqPracticalQubits then
+            let problemText =
+                $"HHL on a {problem.Matrix.Dimension}×{problem.Matrix.Dimension} system "
+                + $"({problem.EigenvalueQubits} eigenvalue + {solutionQubits} solution + 1 ancilla)"
+
+            if totalQubits > MaxIndexedQubits then
                 Error(
                     QuantumError.ValidationError(
                         "TotalQubits",
-                        $"({totalQubits}) exceeds practical limit ({Types.NisqPracticalQubits} qubits)"
+                        $"{problemText} needs {totalQubits} qubits; at most {MaxIndexedQubits} fit the Int32 basis index"
                     )
                 )
             else
-                Ok()
+                UnifiedBackend.requireRunnableQubits
+                    "TotalQubits"
+                    problemText
+                    totalQubits
+                    (LocalBackendFactory.orLocal problem.Backend)
 
     // ============================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -344,10 +354,12 @@ module QuantumLinearSystemSolver =
         /// <returns>Validated problem or error message</returns>
         /// <remarks>
         /// Validation checks:
-        /// - Eigenvalue qubits: 2-12 (practical range)
-        /// - Matrix dimension: 2-16 (power of 2)
+        /// - Eigenvalue qubits: at least 2
+        /// - Matrix dimension: at least 2, a power of 2
         /// - Vector dimension matches matrix
-        /// - Total qubits ≤ Types.NisqPracticalQubits (eigenvalue + solution + ancilla)
+        /// - Total qubits (eigenvalue + solution + ancilla) within the backend's runnable
+        ///   qubits (UnifiedBackend.getRunnableQubits; LocalBackend when none is set) and
+        ///   within MaxIndexedQubits
         ///
         /// This method enables early error detection before executing the algorithm.
         /// </remarks>
@@ -394,10 +406,7 @@ module QuantumLinearSystemSolver =
                 }
 
             // Determine backend
-            let backend =
-                match problem.Backend with
-                | Some b -> b
-                | None -> LocalBackend.LocalBackend() :> IQuantumBackend
+            let backend = LocalBackendFactory.orLocal problem.Backend
 
             let backendName =
                 match problem.Backend with

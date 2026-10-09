@@ -407,9 +407,22 @@ module AnomalyDetector =
                 | None -> LocalBackend.LocalBackend() :> IQuantumBackend
 
 
-            // Smart defaults for quantum architecture
-            let numQubits = min numFeatures 8
+            // The kernel circuits encode every feature, one qubit each
+            let numQubits = numFeatures
             let featureMap = FeatureMapType.ZZFeatureMap 2
+
+            // The only width limit is the backend's own runnable limit; a backend
+            // that declares none is not refused.
+            let widthError =
+                UnifiedBackend.runnableQubitsReason
+                    $"Anomaly detection with {numFeatures} features (one qubit per feature)"
+                    numQubits
+                    backend
+                |> Option.map (fun reason ->
+                    QuantumError.ValidationError(
+                        "features",
+                        $"{reason}. Reduce dimensionality first (feature selection or PCA)."
+                    ))
 
             // One-class configuration: nu = expected fraction of training points
             // lying outside the learned boundary of normal behaviour
@@ -516,20 +529,23 @@ module AnomalyDetector =
 
                 detector
 
-            task {
-                let! kernelMatrixResult =
-                    QuantumKernels.computeKernelMatrixAsync
-                        backend
-                        featureMap
-                        problem.NormalData
-                        problem.Shots
-                        cancellationToken
+            match widthError with
+            | Some error -> Task.FromResult(Error error)
+            | None ->
+                task {
+                    let! kernelMatrixResult =
+                        QuantumKernels.computeKernelMatrixAsync
+                            backend
+                            featureMap
+                            problem.NormalData
+                            problem.Shots
+                            cancellationToken
 
-                return
-                    kernelMatrixResult
-                    |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Training failed: {e}"))
-                    |> Result.map buildDetector
-            }
+                    return
+                        kernelMatrixResult
+                        |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Training failed: {e}"))
+                        |> Result.map buildDetector
+                }
 
     // ========================================================================
     // DETECTION

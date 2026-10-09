@@ -653,3 +653,7 @@ module LocalBackendFactory =
 
     /// Create and cast to IQuantumBackend (for backward compatibility)
     let createStandard () : IQuantumBackend = create () :> IQuantumBackend
+
+    /// `backend`, or a new local simulator when there is none.
+    let orLocal (backend: IQuantumBackend option) : IQuantumBackend =
+        backend |> Option.defaultWith createUnified

@@ -117,6 +117,19 @@ the track the evidence checked:
   from that moment.
 - A fixed-wing flies as a QuadPlane: vertical take-off and landing on its pad,
   fixed-wing flight in between.
+- **Waypoint actions**, from the optional `action` column of the waypoints
+  file:
+  - `photo` takes one picture (`IMAGE_START_CAPTURE`) as the waypoint is done.
+  - `video` records (`VIDEO_START_CAPTURE` / `VIDEO_STOP_CAPTURE`) from that
+    waypoint to the next point of the flight.
+  - `drop` releases the parcel carried for that waypoint. Each drop of a
+    sortie has its own release servo, `SERVO9` for the first, then `SERVO10`.
+    A copter opens it as its hover ends; a fixed-wing as it passes.
+
+  The sample marks the delivery points `drop`, the inspection sites `photo`
+  and the emergency zone `video`. Which camera fires, and how, is the
+  autopilot's camera setup (`CAM1_TYPE` and the rest), and a parcel's mass is
+  not checked against the payload limit.
 
 The flight model is the one ArduPilot flies. Every copter waypoint holds at
 least 1 s, so the copter comes to rest there instead of carrying its speed
@@ -131,7 +144,7 @@ and the dropout check flies it that way.
 |---|---|
 | `<drone>_mission.plan` | The mission for QGroundControl. |
 | `<drone>.waypoints` | The same as a MAVLink waypoint file. |
-| `<drone>.parm` | ArduPilot 4.7 parameters the mission relies on: speeds, waypoint radius, RTL at the sortie's own layer, lost link returns home, the carrier's release servos. |
+| `<drone>.parm` | ArduPilot 4.7 parameters the mission relies on: speeds, waypoint radius, RTL at the sortie's own layer, lost link returns home, the release servos of the carrier and of the drops. |
 | `mavlink_show.fsx` | The launcher shared by all four drone examples. |
 | `plan.csv`, `plan_tracks.csv` | When each mission starts and ends, and where it is planned to be, second by second. |
 

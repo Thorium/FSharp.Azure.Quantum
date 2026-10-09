@@ -128,7 +128,7 @@ The `quantumChemistry` computation expression takes a provider through its `inte
 - Molecular-orbital (MO) basis, not atomic-orbital — transform first (`h_MO = Cᵀ h_AO C`, use `ao2mo` in PySCF).
 - Two-electron integrals in **chemist notation** `(pq|rs)`. PySCF uses this by default; Psi4 returns physicist notation `<pr|qs>` and needs conversion.
 - Energies in Hartree; `Molecule` positions are in Angstroms.
-- ≤ 10 spatial orbitals (the spin-orbital expansion doubles this to 20 qubits). `buildFromIntegrals` returns an `Error` for anything larger, whatever the backend. Larger molecules need an active-space selection in your external package before handing over the integrals.
+- Two qubits per spatial orbital, up to what the backend runs (`UnifiedBackend.getRunnableQubits`; 20 qubits, i.e. 10 orbitals, on the local simulator by default). VQE and QPE refuse a wider Hamiltonian before any circuit, naming the backend. Larger molecules need an active-space selection in your external package before handing over the integrals.
 
 **Working example**: [examples/DrugDiscovery/PySCFIntegration.fsx](../examples/DrugDiscovery/PySCFIntegration.fsx) implements a PySCF-backed provider via pythonnet, including basis-set selection and validation against the Hartree-Fock reference energy. [examples/Chemistry/H2_UCCSD_VQE_Example.fsx](../examples/Chemistry/H2_UCCSD_VQE_Example.fsx) runs the UCCSD VQE shown above.
 
@@ -320,7 +320,7 @@ let mol' = Molecule.fromXyzFileAsync "conformer42.xyz" CancellationToken.None  /
 
 ## Scale honestly
 
-The built-in VQE path is validated against exact STO-3G energies for H₂ (the result's `Source` says which Hamiltonian ran), and the chemistry Hamiltonian builders refuse anything wider than 20 qubits (`Types.NisqPracticalQubits`). That is a fixed limit on every backend, not the local simulator's memory limit. "Bring your own Hamiltonian" does not remove that ceiling — it removes the *accuracy* ceiling (empirical vs research-grade integrals) and lets your external package do what it is good at (integrals, active-space selection, orbital localization) while this library does what it is good at (typed circuit construction, backend routing, error mitigation, Azure Quantum execution). For molecules beyond the qubit budget, reduce to an active space externally before handing over. A Pauli Hamiltonian passed straight to `AdaptVqe.run` or `Primitives.observe` is limited by the backend instead.
+The built-in VQE path is validated against exact STO-3G energies for H₂ (the result's `Source` says which Hamiltonian ran), and VQE and QPE refuse a Hamiltonian wider than the backend runs (`UnifiedBackend.getRunnableQubits`), before any circuit. "Bring your own Hamiltonian" does not remove that ceiling — it removes the *accuracy* ceiling (empirical vs research-grade integrals) and lets your external package do what it is good at (integrals, active-space selection, orbital localization) while this library does what it is good at (typed circuit construction, backend routing, error mitigation, Azure Quantum execution). For molecules beyond the qubit budget, reduce to an active space externally before handing over. A Pauli Hamiltonian passed straight to `AdaptVqe.run` or `Primitives.observe` is limited by the backend instead.
 
 ## See also
 

@@ -67,9 +67,12 @@ module GroverOracleTests =
         result |> Result.iter (fun _ -> failwith "Expected Error for numQubits = 0")
 
     [<Fact>]
-    let ``compile rejects numQubits = 21`` () =
-        let result = Oracle.compile (Oracle.OracleSpec.SingleTarget 0) 21
-        result |> Result.iter (fun _ -> failwith "Expected Error for numQubits = 21")
+    let ``compile rejects numQubits beyond the Int32 index range`` () =
+        let result =
+            Oracle.compile (Oracle.OracleSpec.SingleTarget 0) (Oracle.MaxIndexQubits + 1)
+
+        result
+        |> Result.iter (fun _ -> failwith $"Expected Error for numQubits = {Oracle.MaxIndexQubits + 1}")
 
     [<Fact>]
     let ``compile succeeds for numQubits = 1`` () =
@@ -79,12 +82,14 @@ module GroverOracleTests =
         |> Result.map (fun oracle -> Assert.Equal(1, oracle.NumQubits))
         |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
-    [<Fact>]
-    let ``compile succeeds for numQubits = 20`` () =
-        let result = Oracle.compile (Oracle.OracleSpec.SingleTarget 0) 20
+    // Compiling allocates no state, so widths past any simulator are safe to compile here;
+    // the backend's limit is Grover.search's to check.
+    [<Theory; InlineData(20); InlineData(21); InlineData(30)>]
+    let ``compile succeeds for any width up to MaxIndexQubits`` (numQubits: int) =
+        let result = Oracle.compile (Oracle.OracleSpec.SingleTarget 0) numQubits
 
         result
-        |> Result.map (fun oracle -> Assert.Equal(20, oracle.NumQubits))
+        |> Result.map (fun oracle -> Assert.Equal(numQubits, oracle.NumQubits))
         |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     // ========================================================================
@@ -249,15 +254,27 @@ module GroverOracleTests =
         |> Result.iter (fun _ -> failwith "Expected Error for empty clauses")
 
     [<Fact>]
-    let ``satOracle rejects too many variables`` () =
+    let ``satOracle rejects more variables than an oracle indexes`` () =
+        let formula: Oracle.SatFormula =
+            {
+                NumVariables = Oracle.MaxIndexQubits + 1
+                Clauses = [ Oracle.clause [ Oracle.var 0 ] ]
+            }
+
+        (Oracle.satOracle formula)
+        |> Result.iter (fun _ -> failwith "Expected Error for NumVariables > MaxIndexQubits")
+
+    [<Fact>]
+    let ``satOracle accepts 21 variables`` () =
         let formula: Oracle.SatFormula =
             {
                 NumVariables = 21
                 Clauses = [ Oracle.clause [ Oracle.var 0 ] ]
             }
 
-        (Oracle.satOracle formula)
-        |> Result.iter (fun _ -> failwith "Expected Error for NumVariables > 20")
+        match Oracle.satOracle formula with
+        | Ok oracle -> Assert.Equal(21, oracle.NumQubits)
+        | Error e -> failwith $"Expected Ok, got Error: {e}"
 
     [<Fact>]
     let ``satOracle works for simple formula`` () =
@@ -301,6 +318,40 @@ module GroverOracleTests =
         |> Result.iter (fun _ -> failwith "Expected Error for NumColors < 2")
 
     [<Fact>]
+    let ``graphColoringOracle accepts over 10 vertices and over 8 colors when the qubits fit an index`` () =
+        // 12 vertices x 1 qubit and 6 vertices x 4 qubits (9 colors): 12 and 24 qubits
+        let wide: Oracle.GraphColoringConfig =
+            {
+                Graph = Oracle.graph 12 [ (0, 1) ]
+                NumColors = 2
+            }
+
+        let manyColors: Oracle.GraphColoringConfig =
+            {
+                Graph = Oracle.graph 6 [ (0, 1) ]
+                NumColors = 9
+            }
+
+        match Oracle.graphColoringOracle wide, Oracle.graphColoringOracle manyColors with
+        | Ok a, Ok b ->
+            Assert.Equal(12, a.NumQubits)
+            Assert.Equal(24, b.NumQubits)
+        | a, b -> failwith $"Expected Ok for both, got {a} and {b}"
+
+    [<Fact>]
+    let ``graphColoringOracle rejects more qubits than an oracle indexes`` () =
+        // 16 vertices x 2 qubits (3 colors) = 32 qubits
+        let config: Oracle.GraphColoringConfig =
+            {
+                Graph = Oracle.graph 16 [ (0, 1) ]
+                NumColors = 3
+            }
+
+        match Oracle.graphColoringOracle config with
+        | Error(QuantumError.ValidationError("NumQubits", msg)) -> Assert.Contains("32 qubits", msg)
+        | other -> failwith $"Expected a NumQubits ValidationError, got {other}"
+
+    [<Fact>]
     let ``graphColoringOracle succeeds for valid config`` () =
         let config: Oracle.GraphColoringConfig =
             {
@@ -339,3 +390,18 @@ module GroverOracleTests =
 
         (Oracle.cliqueOracle config)
         |> Result.iter (fun _ -> failwith "Expected Error for CliqueSize > numVertices")
+
+    [<Fact>]
+    let ``cliqueOracle accepts 25 vertices and rejects more than an oracle indexes`` () =
+        let config (n: int) : Oracle.CliqueConfig =
+            {
+                Graph = Oracle.graph n [ (0, 1) ]
+                CliqueSize = 2
+            }
+
+        match Oracle.cliqueOracle (config 25) with
+        | Ok oracle -> Assert.Equal(25, oracle.NumQubits)
+        | Error e -> failwith $"Expected Ok for 25 vertices, got {e}"
+
+        (Oracle.cliqueOracle (config (Oracle.MaxIndexQubits + 1)))
+        |> Result.iter (fun _ -> failwith "Expected Error for NumVertices > MaxIndexQubits")

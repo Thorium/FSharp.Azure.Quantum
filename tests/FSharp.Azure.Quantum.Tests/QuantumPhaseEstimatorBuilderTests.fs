@@ -28,16 +28,52 @@ module QuantumPhaseEstimatorBuilderTests =
         |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
 
     [<Fact>]
-    let ``phaseEstimator builder rejects excessive precision`` () =
+    let ``phaseEstimator builder admits 25 precision qubits when the backend declares no limit`` () =
+        let stub = CapacityStubBackend("unlimited-stub", None)
+
         let result =
             phaseEstimator {
                 unitary TGate
-                precision 25 // Exceeds NISQ limit
+                precision 25
+                backend stub
+            }
+
+        match result with
+        | Ok problem ->
+            Assert.Equal(25, problem.Precision)
+            Assert.Equal(0, stub.Requests)
+        | Error err -> Assert.Fail($"the backend declares no limit, got %s{err.Message}")
+
+    [<Fact>]
+    let ``phaseEstimator builder refuses precision the backend cannot run, naming the backend`` () =
+        let stub = CapacityStubBackend("stub-20", Some 20)
+
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision 25
+                backend stub
+            }
+
+        match result with
+        | Ok _ -> Assert.Fail("25 + 1 qubits on a 20-qubit backend must be refused")
+        | Error err ->
+            Assert.Contains("needs 26 qubits", err.Message)
+            Assert.Contains("'stub-20'", err.Message)
+            Assert.Contains("runs at most 20", err.Message)
+
+    [<Fact>]
+    let ``phaseEstimator builder refuses precision beyond an Int32 outcome`` () =
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision (MaxPrecision + 1)
+                backend (CapacityStubBackend("unlimited-stub", None))
             }
 
         result
-        |> Result.map (fun _ -> Assert.True(false, "Should have rejected precision > 20"))
-        |> Result.defaultWith (fun err -> Assert.Contains("20 qubits", err.Message))
+        |> Result.map (fun _ -> Assert.Fail($"precision above {MaxPrecision} must be refused"))
+        |> Result.defaultWith (fun err -> Assert.Contains($"at most {MaxPrecision}", err.Message))
 
     [<Fact>]
     let ``phaseEstimator builder rejects insufficient target qubits`` () =
@@ -53,30 +89,56 @@ module QuantumPhaseEstimatorBuilderTests =
         |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
 
     [<Fact>]
-    let ``phaseEstimator builder rejects excessive target qubits`` () =
+    let ``phaseEstimator builder admits 15 target qubits when the backend runs them`` () =
+        let stub = CapacityStubBackend("stub-23", Some 23)
+
         let result =
             phaseEstimator {
                 unitary TGate
                 precision 8
-                targetQubits 15 // Exceeds simulation limit
+                targetQubits 15
+                backend stub
             }
 
-        result
-        |> Result.map (fun _ -> Assert.True(false, "Should have rejected targetQubits > 10"))
-        |> Result.defaultWith (fun err -> Assert.Contains("10 qubits", err.Message))
+        match result with
+        | Ok problem -> Assert.Equal(15, problem.TargetQubits)
+        | Error err -> Assert.Fail($"8 + 15 qubits fit a 23-qubit backend, got %s{err.Message}")
 
     [<Fact>]
-    let ``phaseEstimator builder rejects excessive total qubits`` () =
+    let ``phaseEstimator builder refuses total qubits wider than the backend`` () =
+        let stub = CapacityStubBackend("stub-25", Some 25)
+
         let result =
             phaseEstimator {
                 unitary TGate
                 precision 20
-                targetQubits 10 // Total = 30 > 25 limit
+                targetQubits 10
+                backend stub
             }
 
-        result
-        |> Result.map (fun _ -> Assert.True(false, "Should have rejected total > 25 qubits"))
-        |> Result.defaultWith (fun err -> Assert.Contains("25 qubits", err.Message))
+        match result with
+        | Ok _ -> Assert.Fail("20 + 10 qubits on a 25-qubit backend must be refused")
+        | Error err ->
+            Assert.Contains("needs 30 qubits", err.Message)
+            Assert.Contains("'stub-25'", err.Message)
+            Assert.Contains("runs at most 25", err.Message)
+
+    [<Fact>]
+    let ``phaseEstimator builder counts the modular-exponentiation workspace against the backend`` () =
+        // Mod 15: 4 counting + 2·4 register + 4 workspace = 16 qubits, not 4 + 4.
+        let stub = CapacityStubBackend("stub-12", Some 12)
+
+        let result =
+            phaseEstimator {
+                unitary (ModularExponentiation(7, 15))
+                precision 4
+                targetQubits 4
+                backend stub
+            }
+
+        match result with
+        | Ok _ -> Assert.Fail("the 16-qubit modular-exponentiation circuit must be refused on 12 qubits")
+        | Error err -> Assert.Contains("needs 16 qubits", err.Message)
 
     [<Fact>]
     let ``phaseEstimator builder accepts valid minimal configuration`` () =

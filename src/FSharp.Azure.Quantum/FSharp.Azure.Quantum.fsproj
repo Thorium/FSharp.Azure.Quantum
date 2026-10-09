@@ -6,12 +6,32 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.5.2</Version>
+    <Version>1.6.0</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification, QPE, Shor, HHL) and quantum chemistry (VQE, QPE) with cloud backend execution as whole-circuit jobs. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.5.2: BB84 and E91 draw their secrets from the OS cryptographic generator; BB84 checks its parameters
+    <PackageReleaseNotes>v1.6.0: qubit limits come from the backend; QUBO splitting joins by variable elimination within a run budget
+- BREAKING: Types.NisqPracticalQubits and the fixed qubit caps are removed; every width check uses UnifiedBackend.getRunnableQubits (local simulator: 20 by default, FSAQ_MAX_CIRCUIT_QUBITS), and a backend with no declared limit is not refused
+- BREAKING: SplitSettings.MaxFixedVariables removed; MaxShareRuns bounds the circuit runs of either split, counted before any run (conditioning: 2^boundary per piece; shares: block runs)
+- BREAKING: QuboSplitting.ConditioningLimits.MaxRuns replaces MaxFixedVariables; MostFixedVariables removed, MostJoinSpan (20) added
+- CHANGED: conditioning joins its pieces by min-sum variable elimination (cost 2^join width, not 2^fixed variables) and fixes any number of variables; a split wider than MostJoinSpan is refused before any run
+- CHANGED: QuboSplitting refuses a dense QUBO before the separator search (degeneracy of the variables the run budget forces to be fixed)
+- CHANGED (Grover): Grover.search refuses an oracle wider than the backend runs, before any circuit; oracles index up to 30 qubits (Oracle.MaxIndexQubits; SAT, clique and colouring caps of 20, 10 vertices and 8 colours removed)
+- ADDED: UnifiedBackend.requireRunnableQubits, runnableQubitsError and runnableQubitsReason (one width check and message for every algorithm and builder); LocalBackendFactory.orLocal
+- CHANGED: Deutsch-Jozsa, Bernstein-Vazirani and Simon refuse only inputs wider than the backend runs (were 20, 20 and 2·10 qubits)
+- CHANGED: tree search, constraint solver and pattern matcher builders check width against the backend in solve (were 16 qubits, depth 8, branching 256, 2^16 items); estimateResources no longer judges feasibility against 16 qubits
+- CHANGED (chemistry): VQE and QPE refuse a Hamiltonian wider than the backend runs (was 20 qubits on every backend)
+- BREAKING (chemistry): QPE.MaxTotalQubits removed; default counting qubits follow the backend (8 with no limit); DefaultCountingQubits, MinCountingQubits and MaxCountingQubits added
+- CHANGED: linear system, period finder and phase estimator builders check circuit width against the backend (removed the 12 eigenvalue-qubit, 16×16, 20-qubit, N ≤ 10000, precision ≤ 20, target ≤ 10 and total ≤ 25 caps); phase estimator precision ≤ 30
+- CHANGED (QPE, Shor): circuits are budgeted against the backend's runnable qubits, not the local simulator's; QPE counting qubits ≤ 30 (QPE.MaxCountingQubits); Shor accepts N ≤ 46340 (Shor.MaxNumberToFactor, int32 arithmetic; was 1000) and an explicit precision below the register width when it fits; a precision wider than the backend leaves room for is reduced, not refused
+- CHANGED: the period finder builder sizes a native-QPE backend by counting and register qubits only (Shor.narrowestPeriodFindingQubits)
+- CHANGED: QaoaSimulator runs up to StateVector.practicalCircuitQubits (was 16); CircuitValidator's local-simulator preset follows it (was 16)
+- CHANGED (ML): binary classification (VQC and hybrid), predictive models and anomaly detection use one qubit per feature, refused only above the backend's runnable qubits (were 8, 5 and 8 features); anomaly detection reports its real NumQubits
+- FIXED: VQC prediction refuses a sample whose width differs from the trained features (was silently truncated)
+- CHANGED: ConstraintScheduler accepts more than 50 tasks and SocialNetworkAnalyzer more than 100 people; the SocialNetworkAnalyzer Grover path refuses a network wider than the backend runs
+
+v1.5.2: BB84 and E91 draw their secrets from the OS cryptographic generator; BB84 checks its parameters
 - CHANGED: BB84 and E91 without a seed draw bits, bases and the eavesdropping-check sample from the OS cryptographic generator (new Core.CryptographicRandom, a System.Random); BB84's check sample is a uniform shuffle, so a seeded run picks different positions than before
 - CHANGED: BB84 returns a validation error for a sample ratio outside (0, 1) or too close to 1 for one run, for a check sample that comes out empty and for a key length below 1 (was a key reported secure with no check, or an exception)
 

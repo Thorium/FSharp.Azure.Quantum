@@ -180,7 +180,8 @@ module DeutschJozsa =
     ///   shots - Number of measurement shots
     ///
     /// Returns:
-    ///   DeutschJozsaResult with oracle type determination
+    ///   DeutschJozsaResult with oracle type determination, or a ValidationError when
+    ///   numQubits exceeds what the backend runs (UnifiedBackend.getRunnableQubits).
     let run
         (oracle: Oracle)
         (numQubits: int)
@@ -188,16 +189,18 @@ module DeutschJozsa =
         (shots: int)
         : Result<DeutschJozsaResult, QuantumError> =
 
+        let tooWide =
+            UnifiedBackend.runnableQubitsError
+                "numQubits"
+                $"Deutsch-Jozsa on {numQubits} input bits"
+                numQubits
+                backend
+
         // Validate inputs
         if numQubits < 1 then
             Error(QuantumError.ValidationError("numQubits", "Deutsch-Jozsa requires at least 1 qubit"))
-        elif numQubits > Types.NisqPracticalQubits then
-            Error(
-                QuantumError.ValidationError(
-                    "numQubits",
-                    $"Deutsch-Jozsa with >{Types.NisqPracticalQubits} qubits not practical on NISQ hardware"
-                )
-            )
+        elif tooWide.IsSome then
+            Error tooWide.Value
         elif shots < 1 then
             Error(QuantumError.ValidationError("shots", "Deutsch-Jozsa requires at least 1 shot"))
         else

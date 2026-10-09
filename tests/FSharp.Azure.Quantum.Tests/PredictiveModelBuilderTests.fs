@@ -102,6 +102,88 @@ module PredictiveModelBuilderTests =
             CancellationToken = None
         }
 
+    /// Four samples of numFeatures features with targets alternating 0/1
+    let private wideProblem (problemType: ProblemType) (numFeatures: int) (backend: IQuantumBackend) =
+        { defaultRegressionProblem with
+            TrainFeatures = Array.init 4 (fun i -> Array.init numFeatures (fun j -> float ((i + j) % 5) / 5.0))
+            TrainTargets = Array.init 4 (fun i -> float (i % 2))
+            ProblemType = problemType
+            MaxEpochs = 1
+            Shots = 10
+            Backend = Some backend
+        }
+
+    // ========================================================================
+    // VQC CIRCUIT WIDTH (one qubit per feature, limited only by the backend)
+    // ========================================================================
+
+    [<Fact>]
+    let ``VQC multi-class encodes every feature when the backend's limit allows it`` () =
+        task {
+            // 8 features: beyond any fixed cap, within the backend's declared 8.
+            let probe = CapacityStubBackend("Width probe", Some 8)
+
+            match! trainAsync (wideProblem (MultiClass 2) 8 probe) CancellationToken.None with
+            | Error(QuantumError.ValidationError("features", msg)) -> failwith $"Should not be refused: {msg}"
+            | Ok _ -> failwith "The width probe executes nothing, so training cannot succeed"
+            | Error _ ->
+                Assert.NotEmpty(probe.Widths)
+                Assert.All(probe.Widths, (fun width -> Assert.Equal(8, width)))
+        }
+        :> Task
+
+    [<Fact>]
+    let ``VQC regression encodes every feature when the backend's limit allows it`` () =
+        task {
+            let probe = CapacityStubBackend("Width probe", Some 8)
+
+            match! trainAsync (wideProblem Regression 8 probe) CancellationToken.None with
+            | Error(QuantumError.ValidationError("features", msg)) -> failwith $"Should not be refused: {msg}"
+            | Ok _ -> failwith "The width probe executes nothing, so training cannot succeed"
+            | Error _ ->
+                // HHL is tried first; the VQC fallback then builds 8-qubit circuits.
+                Assert.Contains(8, probe.Widths)
+                Assert.All(probe.Widths, (fun width -> Assert.InRange(width, 1, 8)))
+        }
+        :> Task
+
+    [<Theory; InlineData(true); InlineData(false)>]
+    let ``VQC training refuses more features than the backend's runnable limit, naming the backend``
+        (multiClass: bool)
+        =
+        task {
+            let probe = CapacityStubBackend("Width probe", Some 3)
+            let problemType = if multiClass then MultiClass 2 else Regression
+
+            match! trainAsync (wideProblem problemType 4 probe) CancellationToken.None with
+            | Error(QuantumError.ValidationError("features", msg)) ->
+                Assert.Contains("4 features needs 4 qubits", msg)
+                Assert.Contains("'Width probe'", msg)
+                Assert.Contains("at most 3 qubits", msg)
+                Assert.Contains("Reduce dimensionality", msg)
+            | other -> failwith $"Expected a features ValidationError, got {other}"
+        }
+        :> Task
+
+    [<Fact>]
+    let ``predictCategory refuses a VQC sample whose width differs from the trained feature count`` () =
+        task {
+            let problem =
+                { wideProblem (MultiClass 2) 2 (LocalBackend.LocalBackend() :> IQuantumBackend) with
+                    Shots = 50
+                }
+
+            match! trainAsync problem CancellationToken.None with
+            | Ok model ->
+                for sample in [ [| 0.1 |]; [| 0.1; 0.2; 0.3 |] ] do
+                    match! predictCategoryAsync sample model None (Some 50) CancellationToken.None with
+                    | Error(QuantumError.ValidationError("features", msg)) ->
+                        Assert.Contains("trained on 2 features", msg)
+                    | other -> failwith $"Expected a features ValidationError, got {other}"
+            | Error e -> failwith $"train should succeed, got error: {e}"
+        }
+        :> Task
+
     // ========================================================================
     // VALIDATION TESTS
     // ========================================================================

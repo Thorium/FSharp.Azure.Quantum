@@ -31,8 +31,9 @@ open FSharp.Azure.Quantum.Backends
 /// `searchSpace` is the NUMBER OF VARIABLES in the problem. Each variable takes
 /// one value from `domain`, so the solver explores domainSize ^ numVariables
 /// candidate assignments; constraint functions receive an assignment Map with
-/// keys 0 .. numVariables-1. The total state count is limited to 2^16 (16 qubits)
-/// by the local simulator, so numVariables × log2(domainSize) must be ≤ 16.
+/// keys 0 .. numVariables-1. The qubits needed, ⌈numVariables × log2(domainSize)⌉, must
+/// fit an oracle index (GroverSearch.Oracle.MaxIndexQubits) and the backend's own qubit
+/// limit (UnifiedBackend.getRunnableQubits), which solve checks before any circuit runs.
 ///
 /// EXAMPLE USAGE:
 ///   // Simple: 4 variables over values 1..9 (9^4 = 6561 candidate assignments)
@@ -133,11 +134,13 @@ module QuantumConstraintSolver =
                 else
                     max 1 (int (ceil (float problem.SearchSpaceSize * log (float domainSize) / log 2.0 - 1e-9)))
 
-            if qubitsNeeded > 16 then
+            // Assignments are Int32 oracle indices (and decoded with Int32 pown); the
+            // backend's own qubit limit is checked by solve.
+            if qubitsNeeded > GroverSearch.Oracle.MaxIndexQubits then
                 Error(
                     QuantumError.ValidationError(
                         "SearchSpaceSize",
-                        $"{problem.SearchSpaceSize} variables over a domain of {domainSize} values requires {qubitsNeeded} qubits. Max: 16 (2^16 states)"
+                        $"{problem.SearchSpaceSize} variables over a domain of {domainSize} values requires {qubitsNeeded} qubits; an oracle indexes at most {GroverSearch.Oracle.MaxIndexQubits}"
                     )
                 )
             else
@@ -364,8 +367,6 @@ module QuantumConstraintSolver =
                     else
                         max 1 (int (ceil (float numVariables * log (float domainSize) / log 2.0 - 1e-9)))
 
-                let maxQubits = 16
-
                 // Decode a search-space index into a variable assignment using
                 // mixed-radix (base domainSize) positional decoding.
                 let decodeAssignment (idx: int) : Map<int, 'T> =
@@ -391,19 +392,15 @@ module QuantumConstraintSolver =
 
                 // Create oracle for Grover search using new API
                 result {
-                    // Refuse search spaces the simulator cannot address, aligning with the
-                    // validate() guard (max 2^16 states / 16 qubits). This also protects the
-                    // Int32 `pown domainSize varIdx` in decodeAssignment from overflowing.
+                    // Refuse search spaces wider than the backend runs, before any circuit.
+                    // validate() has already bounded qubitsNeeded by the oracle's Int32 index
+                    // range, which keeps `pown domainSize varIdx` in decodeAssignment in range.
                     do!
-                        if qubitsNeeded <= maxQubits then
-                            Ok()
-                        else
-                            Error(
-                                QuantumError.ValidationError(
-                                    "SearchSpaceSize",
-                                    $"searching {numVariables} variables over a domain of {domainSize} values requires {qubitsNeeded} qubits. Max: {maxQubits} (2^16 states)"
-                                )
-                            )
+                        BackendAbstraction.UnifiedBackend.requireRunnableQubits
+                            "SearchSpaceSize"
+                            $"searching {numVariables} variables over a domain of {domainSize} values"
+                            qubitsNeeded
+                            actualBackend
 
                     let! oracle = GroverSearch.Oracle.fromPredicate combinedPredicate qubitsNeeded
 
@@ -536,7 +533,8 @@ module QuantumConstraintSolver =
             ProgressReporter = None
         }
 
-    /// Estimate resource requirements without executing
+    /// Estimate resource requirements without executing. Whether a given backend runs the
+    /// qubits required is its own limit (UnifiedBackend.getRunnableQubits), checked by solve.
     let estimateResources (searchSpaceSize: int) : string =
         let qubits = int (ceil (log (float searchSpaceSize) / log 2.0))
 
@@ -547,10 +545,10 @@ module QuantumConstraintSolver =
   Feasibility: %s"""
             searchSpaceSize
             qubits
-            (if qubits <= 16 then
-                 "✓ Feasible on NISQ devices"
+            (if qubits <= GroverSearch.Oracle.MaxIndexQubits then
+                 $"✓ Runs on any backend that supports {qubits} qubits"
              else
-                 "✗ Requires fault-tolerant quantum computer")
+                 $"✗ Exceeds the {GroverSearch.Oracle.MaxIndexQubits} qubits a Grover oracle indexes")
 
     /// Export solution to human-readable string
     let describeSolution (solution: ConstraintSolution<'T>) : string =

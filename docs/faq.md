@@ -19,7 +19,7 @@ Common questions about FSharp.Azure.Quantum.
 | Error has no `.Contains` / `%s` rejects it | Errors are `QuantumError` values, not strings: use `err.Message` |
 | Very slow first run | Normal - .NET JIT compilation. Second run will be fast. |
 | Suboptimal solutions | Raise the QAOA shot counts in the solver config, or run several times and keep the best (see [below](#solutions-seem-suboptimal)) |
-| "needs N qubits ... supports at most M" | The encoding is too wide for the backend; shrink the problem or use a larger backend (see [problem sizes](#what-problem-sizes-can-i-solve)) |
+| "needs N qubits ... at most M qubits" | The encoding is too wide for the backend; shrink the problem or use a larger backend (see [problem sizes](#what-problem-sizes-can-i-solve)) |
 | Type inference error | Add explicit type annotations: `list<string * float * float>` |
 | "MinHolding ... cannot exceed MaxHolding" | Check constraint values: `MinHolding ≤ MaxHolding ≤ Budget` |
 
@@ -43,7 +43,7 @@ FSharp.Azure.Quantum is a **quantum-first F# library** for solving combinatorial
 
 ### Is this production-ready?
 
-The current package version is **1.5.2**. It is suitable for:
+The current package version is **1.6.0**. It is suitable for:
 - ✅ Development and prototyping
 - ✅ Academic research and learning
 - ✅ Quantum algorithm experimentation
@@ -207,7 +207,7 @@ Often, by trading qubits for circuit runs. `QuboSplitting` cuts a problem into p
 
 | Split | Works when | Cost | Used by |
 |---|---|---|---|
-| **Conditioning** | the QUBO is sparse: fixing a few variables breaks it into pieces that fit | a piece runs once per assignment of the fixed variables it touches: 2^b runs for b of them (at most 8 fixed by default) | MaxCut, vertex cover, clique, matching, set cover, MAX-SAT, binary ILP and the drug-discovery solvers |
+| **Conditioning** | the QUBO is sparse: fixing variables breaks it into pieces that fit, and the fixed variables couple narrowly enough to join (chains, trees, ladders, strips) | a piece runs once per assignment of the fixed variables it touches: 2^b runs for b of them (at most 256 runs by default) | MaxCut, vertex cover, clique, matching, set cover, MAX-SAT, binary ILP and the drug-discovery solvers |
 | **Blocks** | a linear objective under one additive integer limit (a knapsack) | one run per block and share of the capacity (at most 256 by default) | Knapsack (`solveAsync`, or `solveInBlocksAsync` to ask for it) |
 | **Halves** | every subset that sums to a target is wanted (subset-sum) | one search per half and partial sum (at most 256 by default) | `QuantumKnapsackSolver.findAllExactCombinationsAsync` and the `Knapsack.findAll…Async` functions with a backend |
 
@@ -228,8 +228,7 @@ let splitting: QaoaExecutionHelpers.SplitSettings =
     { QaoaExecutionHelpers.defaultSplitSettings with
         Policy = QaoaExecutionHelpers.SplitPolicy.Always // also on billed hardware
         MaxPieceQubits = ValueSome 12 // widest circuit: wider problems are split even if the backend could run them
-        MaxFixedVariables = 6      // at most 2^6 = 64 runs per piece
-        MaxShareRuns = 100         // at most 100 block runs
+        MaxShareRuns = 100         // at most 100 circuit runs per split
         MaxBlockItems = 10 }       // at most 10 items per block
 
 let config =
@@ -253,7 +252,7 @@ let describe (split: QaoaExecutionHelpers.SplitReport option) =
 What to expect:
 
 - **Runs multiply.** On a simulator that is time; on hardware every run is billed, so `Always` belongs together with a `JobBudget` on the backend.
-- **A problem that cannot be split runs as one circuit** while the backend can hold it, and otherwise returns an error that names the limit it hit (`MaxFixedVariables` or `MaxShareRuns`). The subset-sum search counts its searches as it goes, so it returns that error once it passes `MaxShareRuns`.
+- **A problem that cannot be split runs as one circuit** while the backend can hold it, and otherwise returns an error that names the limit it hit (`MaxShareRuns`, or `QuboSplitting.MostJoinSpan` when a QUBO is too densely coupled to join its pieces). The subset-sum search counts its searches as it goes, so it returns that error once it passes `MaxShareRuns`.
 - **Pieces stay separate.** Every piece is a circuit of its own, never packed with another: a narrow circuit is faster to simulate and its best sample is not diluted by the other piece. A chain of 100 vertices in pieces of 12 takes 7 fixed vertices and 28 runs.
 - **A graph of several components adds its reports up.** `Split` then counts the runs, fixed variables and blocks of all components.
 - **The join is exact; the pieces are not.** If every piece returned its true optimum the joined answer would be the optimum of the whole problem. Each piece is sampled, so a missed piece optimum carries into the answer.

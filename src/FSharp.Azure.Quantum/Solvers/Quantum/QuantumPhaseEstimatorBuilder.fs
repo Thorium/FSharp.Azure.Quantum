@@ -145,42 +145,47 @@ module QuantumPhaseEstimator =
     // VALIDATION HELPERS
     // ============================================================================
 
+    /// Most precision qubits: the measurement outcome is an Int32 with one bit per counting qubit.
+    [<Literal>]
+    let MaxPrecision = 30
+
+    /// Width of the QPE circuit: counting + target qubits, plus the arithmetic workspace
+    /// when the unitary is modular exponentiation.
+    let private circuitQubits (problem: PhaseEstimatorProblem) : int =
+        match problem.Unitary with
+        | ModularExponentiation(_, modulus) -> ModularExponentiationCircuit.totalQubitsFor modulus problem.Precision
+        | _ -> problem.Precision + problem.TargetQubits
+
     /// <summary>
     /// Validates a phase estimation problem specification.
-    /// Checks precision bounds, target qubits, and configuration validity.
+    /// Checks precision bounds, target qubits, configuration validity, and that the circuit
+    /// fits the backend's runnable qubits.
     /// </summary>
     let private validate (problem: PhaseEstimatorProblem) : Result<unit, QuantumError> =
         // Check precision
         if problem.Precision < 1 then
             Error(QuantumError.ValidationError("Precision", "must be at least 1 qubit"))
-        elif problem.Precision > Types.NisqPracticalQubits then
+        elif problem.Precision > MaxPrecision then
             Error(
                 QuantumError.ValidationError(
                     "Precision",
-                    $"exceeds practical limit ({Types.NisqPracticalQubits} qubits) for NISQ devices"
+                    $"must be at most {MaxPrecision}: the measurement outcome is an Int32 with one bit per counting qubit"
                 )
             )
 
         // Check target qubits
         elif problem.TargetQubits < 1 then
             Error(QuantumError.ValidationError("TargetQubits", "must be at least 1"))
-        elif problem.TargetQubits > 10 then
-            Error(QuantumError.ValidationError("TargetQubits", "exceeds simulation limit (10 qubits)"))
-
-        // Check total qubits
-        elif problem.Precision + problem.TargetQubits > 25 then
-            Error(
-                QuantumError.ValidationError(
-                    "TotalQubits",
-                    $"({problem.Precision + problem.TargetQubits}) exceeds limit (25 qubits)"
-                )
-            )
 
         elif problem.Shots |> Option.exists (fun shots -> shots < 1) then
             Error(QuantumError.ValidationError("Shots", "must be at least 1"))
 
         else
-            Ok()
+            BackendAbstraction.UnifiedBackend.requireRunnableQubits
+                "TotalQubits"
+                $"Phase estimation with {problem.Precision} precision and {problem.TargetQubits} target qubits"
+                (circuitQubits problem)
+                (LocalBackendFactory.orLocal problem.Backend)
 
     // ============================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -331,9 +336,7 @@ module QuantumPhaseEstimator =
                     }
 
                 // Get backend (default to LocalBackend)
-                let backend =
-                    problem.Backend
-                    |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+                let backend = LocalBackendFactory.orLocal problem.Backend
 
                 let shots =
                     match problem.Shots, backend with
