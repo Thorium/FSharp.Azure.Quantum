@@ -1453,7 +1453,7 @@ let ``quboNeighbourhoods keeps the energy of the bits it writes`` () =
             block |> Array.iteri (fun row v -> Assert.Equal(sampled.[row], written.Bits.[v]))
 
             for v in 0..9 do
-                if not (Array.contains v block) then
+                if not (System.Linq.Enumerable.Contains(block, v)) then
                     Assert.Equal(bits.[v], written.Bits.[v])
 
             Assert.Equal(energy qubo written.Bits, written.Energy, 9)

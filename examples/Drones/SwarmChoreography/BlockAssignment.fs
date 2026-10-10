@@ -19,6 +19,13 @@
 /// and the safety gate are the caller's, scored on the whole assignment, so the block
 /// QUBO's approximation never decides alone. The search keeps the best sample it sees; it
 /// is a heuristic, not an exact split.
+///
+/// The objective is a quadratic assignment: the cost of a drone in a slot, plus the cost
+/// of two drones in two slots together (`pairCost`, zero when the problem has none). A
+/// block's QUBO carries the pair costs of its own drones on its off-diagonal, and the pair
+/// costs against every drone outside the block, in the slot that drone holds, on its
+/// diagonal, so the block's energy differences are the whole objective's differences. The
+/// pair costs make the block QUBO's bookkeeping k² × n per block instead of k².
 module FSharp.Azure.Quantum.Examples.Drones.SwarmChoreography.BlockAssignment
 
 open System
@@ -64,11 +71,31 @@ let mortonOrder (points: Point[]) : int[] =
     Array.init points.Length id
     |> Array.sortBy (fun i -> spread xs.[i] ||| (spread ys.[i] <<< 1) ||| (spread zs.[i] <<< 2), i)
 
-/// The assignment (drone → slot) that pairs the drones and the slots in Morton order.
-let startAssignment (drones: Point[]) (slots: Point[]) : int[] =
-    let assignment = Array.zeroCreate drones.Length
-    Array.iter2 (fun drone slot -> assignment.[drone] <- slot) (mortonOrder drones) (mortonOrder slots)
-    assignment
+/// The assignment (drone → slot) that pairs the drones and the slots in Morton order, or
+/// `held`, the slots the drones hold now, when that has the lower sum of squared distances
+/// (the CAPT objective): the slots of a deformation or a turn are the drones' own slots
+/// moved a little, and keeping them is the pairing with no crossing. Both are bookkeeping,
+/// not a solver.
+let startAssignment (held: int[] voption) (drones: Point[]) (slots: Point[]) : int[] =
+    let morton = Array.zeroCreate drones.Length
+    Array.iter2 (fun drone slot -> morton.[drone] <- slot) (mortonOrder drones) (mortonOrder slots)
+
+    let squared (assignment: int[]) =
+        assignment
+        |> Array.mapi (fun drone slot ->
+            let d, s = drones.[drone], slots.[slot]
+            (d.X - s.X) ** 2.0 + (d.Y - s.Y) ** 2.0 + (d.Z - s.Z) ** 2.0)
+        |> Array.sum
+
+    match held with
+    | ValueSome kept when
+        kept.Length = drones.Length
+        && kept |> Array.forall (fun slot -> slot >= 0 && slot < slots.Length)
+        && (Array.distinct kept).Length = kept.Length
+        && squared kept < squared morton
+        ->
+        Array.copy kept
+    | _ -> morton
 
 /// The blocks of a sweep: `order` from `sweep` × ⌈k/2⌉ places on, wrapping around, in runs
 /// of `blockDrones` (the last block shorter when they do not divide).
@@ -155,12 +182,17 @@ let decodePermutation (k: int) (bits: int[]) : int[] voption =
 /// Morton order, worst pair first, at most as many as the partition has blocks), then the
 /// blocks of drones consecutive in Morton order (blocksOf). A block's QUBO is the
 /// assignment of its drones to the slots they hold (assignmentQubo, the penalty 2 × k ×
-/// the largest cost in the block, the Lucas rule the one-circuit solver uses); a sample
-/// that is a permutation moves the block's drones among those slots; the score is the
-/// total cost; `accept` is the caller's gate.
+/// the largest cost in the block, the Lucas rule the one-circuit solver uses), with the
+/// pair costs of its drones among those slots on the off-diagonal and the pair costs
+/// against the drones outside the block, where they are, on the diagonal; a sample that
+/// is a permutation moves the block's drones among those slots; the score is the total
+/// cost, `cost` of every drone in its slot plus `pairCost` of every pair of drones in
+/// theirs (`pairCost i a j b`: drone i in slot a with drone j in slot b, symmetric);
+/// `accept` is the caller's gate.
 let neighbourhoods
     (blockDrones: int)
     (cost: int -> int -> float)
+    (pairCost: int -> int -> int -> int -> float)
     (drones: Point[])
     (accept: int[] -> bool)
     (steer: int[] -> (int * int)[])
@@ -197,10 +229,46 @@ let neighbourhoods
         Qubo =
             fun assignment block ->
                 let k = block.Length
-                let costs = Array2D.init k k (fun a b -> cost block.[a] assignment.[block.[b]])
-                let largest = costs |> Seq.cast<float> |> Seq.max
+                let slots = block |> Array.map (fun drone -> assignment.[drone])
+                let inBlock = Array.zeroCreate<bool> n
+                block |> Array.iter (fun drone -> inBlock.[drone] <- true)
+
+                // Diagonal: the drone's cost in the slot, plus its pair cost against every
+                // drone outside the block in the slot that drone holds
+                let costs =
+                    Array2D.init k k (fun a b ->
+                        let drone, slot = block.[a], slots.[b]
+                        let mutable total = cost drone slot
+
+                        for other in 0 .. n - 1 do
+                            if not inBlock.[other] then
+                                total <- total + pairCost drone slot other assignment.[other]
+
+                        total)
+
+                // Off-diagonal: two of the block's drones in two of its slots, once per pair
+                // (the Hamiltonian sums Q[p, r] and Q[r, p])
+                let pairs = Array2D.zeroCreate<float> (k * k) (k * k)
+
+                for a1 in 0 .. k - 1 do
+                    for a2 in a1 + 1 .. k - 1 do
+                        for b1 in 0 .. k - 1 do
+                            for b2 in 0 .. k - 1 do
+                                if b1 <> b2 then
+                                    pairs.[a1 * k + b1, a2 * k + b2] <- pairCost block.[a1] slots.[b1] block.[a2] slots.[b2]
+
+                let largestOf (m: float[,]) =
+                    m |> Seq.cast<float> |> Seq.map abs |> Seq.fold max 0.0
+
+                let largest = max (largestOf costs) (largestOf pairs)
                 let penalty = if largest > 0.0 then largest * float k * 2.0 else 1.0
-                assignmentQubo penalty costs
+                let q = assignmentQubo penalty costs
+
+                for p in 0 .. k * k - 1 do
+                    for r in 0 .. k * k - 1 do
+                        q.[p, r] <- q.[p, r] + pairs.[p, r]
+
+                q
         Apply =
             fun assignment block bits ->
                 match decodePermutation block.Length bits with
@@ -209,7 +277,17 @@ let neighbourhoods
                     let moved = Array.copy assignment
                     permutation |> Array.iteri (fun a b -> moved.[block.[a]] <- assignment.[block.[b]])
                     ValueSome moved
-        Score = fun assignment -> assignment |> Array.mapi cost |> Array.sum
+        Score =
+            fun assignment ->
+                let mutable total = 0.0
+
+                for i in 0 .. n - 1 do
+                    total <- total + cost i assignment.[i]
+
+                    for j in i + 1 .. n - 1 do
+                        total <- total + pairCost i assignment.[i] j assignment.[j]
+
+                total
         Accept = accept
     }
 
@@ -252,21 +330,32 @@ let sampleBlock
 
     Task.FromResult(go (QaoaAttempts.schedule shots angles) (Ok [||]))
 
+/// Searches `solve` runs at most while none ends with an accepted assignment. Measured on
+/// the 100-drone light show (blocks of 4, 24 sweeps): before the retry, 32 of 33
+/// transitions were accepted in each of two runs, the doughnut's landing ending both times
+/// on a sweep that improved nothing with one pair inside the bound; in two runs after it,
+/// every transition was accepted by its first search.
+[<Literal>]
+let Searches = 3
+
 /// The most drones a block may hold on the backend, one k² qubit circuit each, or None when
 /// the backend reports no limit.
 let widestBlock (backend: IQuantumBackend) : int option =
     UnifiedBackend.getRunnableQubits backend
     |> Option.map (fun limit -> int (floor (sqrt (float limit))))
 
-/// Assign `drones` to as many `slots` by a block search: from the Morton-order pairing,
+/// Assign `drones` to as many `slots` by a block search: from the Morton-order pairing or
+/// the slots the drones hold, `held` (startAssignment),
 /// `maxSweeps` sweeps at most over blocks of `blockDrones` drones (the partition of a sweep
 /// and, before it, a block around each pair `steer` names for the assignment so far, so
 /// the search can reach `accept`), every block a QAOA circuit of blockDrones² qubits on
-/// the backend (sampleBlock), lowering the total `cost` and taking only assignments
-/// `accept` takes once it holds one. The assignment (drone → slot) and how it was found:
-/// drones, blocks, sweeps, runs, circuits with retries, improvements, and the cost of the
-/// start pairing against the result. An Error names a backend failure, or that no accepted
-/// assignment was found; no classical solver stands in.
+/// the backend (sampleBlock), lowering the total cost (`cost` of every drone in its slot
+/// plus `pairCost` of every pair of drones in theirs, see neighbourhoods) and taking only
+/// assignments `accept` takes once it holds one. The assignment (drone → slot) and how it
+/// was found: drones, blocks, sweeps, runs, circuits with retries, improvements, and the
+/// cost of the start pairing against the result. A search that ends without an accepted
+/// assignment is run again, up to `Searches` times. An Error names a backend failure, or
+/// that no search found an accepted assignment; no classical solver stands in.
 let solve
     (backend: IQuantumBackend)
     (shots: int)
@@ -275,6 +364,8 @@ let solve
     (accept: int[] -> bool)
     (steer: int[] -> (int * int)[])
     (cost: int -> int -> float)
+    (pairCost: int -> int -> int -> int -> float)
+    (held: int[] voption)
     (drones: Point[])
     (slots: Point[])
     : Result<int[] * string, string> =
@@ -299,8 +390,8 @@ let solve
     else
         let blocks = (n + k - 1) / k
         let sweeps = max 1 maxSweeps
-        let start = startAssignment drones slots
-        let problem = neighbourhoods k cost drones accept steer
+        let start = startAssignment held drones slots
+        let problem = neighbourhoods k cost pairCost drones accept steer
         let circuits = ref 0
 
         // A sweep: the partition and up to as many steered blocks
@@ -311,29 +402,40 @@ let solve
                 MaxRuns = 2 * blocks * sweeps
             }
 
-        let search =
-            QuboSplitting.searchNeighbourhoodsAsync
-                limits
-                problem
-                start
-                (sampleBlock backend shots circuits)
-                CancellationToken.None
+        // A search that stops itself without an accepted assignment followed one path of
+        // unseeded shots; another search is another path (the one-circuit solver's retry
+        // schedule, QaoaAttempts, does the same). A backend error or a refused plan is not
+        // retried.
+        let rec search (attempt: int) =
+            let result =
+                QuboSplitting.searchNeighbourhoodsAsync
+                    limits
+                    problem
+                    start
+                    (sampleBlock backend shots circuits)
+                    CancellationToken.None
 
-        match search.GetAwaiter().GetResult() with
-        | Error err -> Error err.Message
-        | Ok found ->
-            Ok(
-                found.Solution,
-                sprintf
-                    "block search: %d drones in %d blocks of %d (%d qubits) plus steered blocks, %d sweeps, %d runs (%d circuits with retries), %d improvements, cost %.2f at the start pairing, %.2f found"
-                    n
-                    blocks
-                    k
-                    (k * k)
-                    found.Sweeps
-                    found.Runs
-                    circuits.Value
-                    found.Improvements
-                    (problem.Score start)
-                    found.Score
-            )
+            match result.GetAwaiter().GetResult() with
+            | Error(QuantumError.OperationError(_, context)) when attempt < Searches ->
+                eprintfn "  search %d of %d: %s; searching again" attempt Searches context
+                search (attempt + 1)
+            | Error err -> Error err.Message
+            | Ok found ->
+                Ok(
+                    found.Solution,
+                    sprintf
+                        "block search: %d drones in %d blocks of %d (%d qubits) plus steered blocks, %d sweeps, %d runs (%d circuits with retries), %d improvements, cost %.2f at the start pairing, %.2f found%s"
+                        n
+                        blocks
+                        k
+                        (k * k)
+                        found.Sweeps
+                        found.Runs
+                        circuits.Value
+                        found.Improvements
+                        (problem.Score start)
+                        found.Score
+                        (if attempt > 1 then sprintf " at search %d of %d" attempt Searches else "")
+                )
+
+        search 1

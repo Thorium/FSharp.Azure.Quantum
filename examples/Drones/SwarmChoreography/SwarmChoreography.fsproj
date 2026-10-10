@@ -15,6 +15,7 @@
     <Compile Include="QaoaAttempts.fs" />
     <Compile Include="BlockAssignment.fs" />
     <Compile Include="LightShowPicture.fs" />
+    <Compile Include="ShowController.fs" />
     <Compile Include="DynamicBehavior.fs" />
     <Compile Include="CollisionAvoidance.fs" />
     <Compile Include="CrazyflieExport.fs" />

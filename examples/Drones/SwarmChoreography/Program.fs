@@ -59,6 +59,8 @@ type Formation =
         /// Light colour of each position, shown by whichever drone is assigned to
         /// it: the formation is a picture. None keeps each drone its own colour.
         Colors: CrazyflieExport.LedColor[] option
+        /// The drones fly through it without holding: a step of one continuous move
+        Flow: bool
     }
 
 /// Result of formation transition optimization
@@ -92,6 +94,7 @@ module Formations =
                 |]
             // White for take-off and landing
             Colors = Some(Array.create 4 (rgb 255 255 255))
+            Flow = false
         }
 
     /// Diamond formation (4 points)
@@ -110,6 +113,7 @@ module Formations =
                 |]
             // A gem: white top, cyan sides, blue bottom
             Colors = Some [| rgb 255 255 255; rgb 0 255 255; rgb 0 255 255; rgb 0 0 255 |]
+            Flow = false
         }
 
     /// Square formation (2x2 grid)
@@ -127,6 +131,7 @@ module Formations =
                 |]
             // Yellow top row, green bottom row
             Colors = Some [| rgb 255 255 0; rgb 255 255 0; rgb 0 255 0; rgb 0 255 0 |]
+            Flow = false
         }
 
     /// Vertical line formation (ascending)
@@ -146,6 +151,7 @@ module Formations =
                 |]
             // A rainbow, red at the top
             Colors = Some [| rgb 255 0 0; rgb 255 128 0; rgb 0 255 0; rgb 0 0 255 |]
+            Flow = false
         }
 
 // =============================================================================
@@ -230,19 +236,11 @@ module QapQubo =
 /// drone sent from the bottom of a column to its top flies through the others.
 module TransitionSafety =
 
-    /// Closest drones i and j come, both moving in straight lines from `starts` to `ends`
-    /// in the same time (exact: the relative motion is linear).
-    let private pairSeparation (starts: Position3D[]) (ends: Position3D[]) (i: int) (j: int) : float =
-        let a =
-            [|
-                starts.[i].X - starts.[j].X
-                starts.[i].Y - starts.[j].Y
-                starts.[i].Z - starts.[j].Z
-            |]
-
-        let b =
-            [| ends.[i].X - ends.[j].X; ends.[i].Y - ends.[j].Y; ends.[i].Z - ends.[j].Z |]
-
+    /// Closest two drones come, one moving in a straight line from `si` to `ei` and the
+    /// other from `sj` to `ej` in the same time (exact: the relative motion is linear).
+    let separationOf (si: Position3D) (ei: Position3D) (sj: Position3D) (ej: Position3D) : float =
+        let a = [| si.X - sj.X; si.Y - sj.Y; si.Z - sj.Z |]
+        let b = [| ei.X - ej.X; ei.Y - ej.Y; ei.Z - ej.Z |]
         let w = Array.map2 (-) b a
         let ww = Array.sumBy (fun x -> x * x) w
 
@@ -253,6 +251,11 @@ module TransitionSafety =
                 -(Array.map2 (*) a w |> Array.sum) / ww |> max 0.0 |> min 1.0
 
         Array.map2 (fun ai wi -> ai + t * wi) a w |> Array.sumBy (fun x -> x * x) |> sqrt
+
+    /// Closest drones i and j come, both moving in straight lines from `starts` to `ends`
+    /// in the same time.
+    let private pairSeparation (starts: Position3D[]) (ends: Position3D[]) (i: int) (j: int) : float =
+        separationOf starts.[i] ends.[i] starts.[j] ends.[j]
 
     /// Closest two drones come, all moving in straight lines from `starts` to
     /// `ends` in the same time.
@@ -293,6 +296,47 @@ module TransitionSafety =
     /// checked against it.
     let bound (starts: Position3D[]) (ends: Position3D[]) =
         min (spacing starts) (spacing ends) / sqrt 2.0
+
+    /// The cost of one head-on pair in the block search's objective: `multiple` × the
+    /// largest squared distance from any drone to any slot, the largest single term of the
+    /// sum of squared distances, so at multiple 1 no saving of one drone's distance buys a
+    /// conflict; 0 leaves the conflicts to the gate alone.
+    let conflictWeight (multiple: float) (starts: Position3D[]) (targets: Position3D[]) : float =
+        if multiple = 0.0 then
+            0.0
+        else
+            multiple
+            * ([|
+                   for s in starts do
+                       for t in targets do
+                           Geometry.distance s t ** 2.0
+               |]
+               |> Array.max)
+
+    /// The quadratic term of the assignment (BlockAssignment.neighbourhoods): what drones
+    /// i and j flying to slots a and b in the same transition cost when they would come
+    /// closer than `bound`: `weight` × the shortfall as a share of the bound, so a head-on
+    /// pair costs the full weight and a pair just inside the bound almost nothing, which
+    /// gives the block search a slope toward the gate; zero for a pair that keeps the bound.
+    let conflictCost
+        (starts: Position3D[])
+        (targets: Position3D[])
+        (bound: float)
+        (weight: float)
+        (i: int)
+        (a: int)
+        (j: int)
+        (b: int)
+        : float =
+        if weight = 0.0 then
+            0.0
+        else
+            let separation = separationOf starts.[i] targets.[a] starts.[j] targets.[b]
+
+            if separation < bound then
+                weight * (1.0 - separation / bound)
+            else
+                0.0
 
     let ends (target: Formation) (assignments: Assignment[]) (n: int) =
         Array.init n (fun d ->
@@ -574,23 +618,29 @@ module Solver =
 
     /// Most sweeps of a block search over a swarm wider than one circuit. The search ends
     /// itself after a sweep that improves nothing; this bounds one that keeps improving.
-    /// Measured on the local simulator with blocks of 4: scale runs through a ground grid,
-    /// a grid aloft and a ring passed the gate and converged in 4-6 sweeps with 50 drones
-    /// and 1-8 sweeps with 100 drones; at 3 sweeps one of three 50-drone transitions
-    /// had not reached the gate.
+    /// Measured on the local simulator with blocks of 4 and 100 drones through a ground
+    /// grid, a grid aloft, a ring and a sphere, three runs each: at a cap of 12 the gate
+    /// passed 10 of 12 transitions, the failures at the cap with one pair still inside the
+    /// bound; at 24 it passed 11 of 12, the ring to the sphere in 12-17 sweeps, and the one
+    /// failure stopped itself on a sweep that improved nothing. 50 drones converged in 4-6
+    /// sweeps.
     [<Literal>]
-    let BlockSweeps = 12
+    let BlockSweeps = 24
 
     /// Assign the drones in blocks (BlockAssignment.solve): from the pairing of `starts`
     /// and `targets` in Morton order, blocks of `blockDrones` drones, each a QAOA circuit
     /// of blockDrones² qubits, through the same gate. The blocks lower the sum of SQUARED
     /// distances, the objective under which an assignment meeting the gate's bound exists
-    /// (CAPT, see TransitionSafety.bound), and the pairs the gate names are put in a block
-    /// first; the plain distance is what the show reports.
+    /// (CAPT, see TransitionSafety.bound), plus the path-conflict cost of every pair of
+    /// drones that would come closer than the gate's bound (TransitionSafety.conflictCost,
+    /// weighted by `conflict` × the largest squared distance; 0 leaves conflicts to the gate
+    /// alone), and the pairs the gate names are put in a block first; the plain distance is
+    /// what the show reports.
     let solveInBlocks
         (backend: IQuantumBackend)
         (shots: int)
         (blockDrones: int)
+        (conflict: float)
         (accept: Assignment[] -> bool)
         (starts: Position3D[])
         (targets: Position3D[])
@@ -614,6 +664,8 @@ module Solver =
             (toAssignments >> accept)
             unsafePairs
             (fun drone slot -> distanceMatrix.[drone, slot] ** 2.0)
+            (TransitionSafety.conflictCost starts targets bound (TransitionSafety.conflictWeight conflict starts targets))
+            ValueNone
             (Array.map toPoint starts)
             (Array.map toPoint targets)
         |> Result.map (fun (assignment, how) -> toAssignments assignment, how)
@@ -631,6 +683,7 @@ module Solver =
         (backend: IQuantumBackend)
         (shots: int)
         (blockDrones: int option)
+        (conflict: float)
         (accept: Assignment[] -> bool)
         (starts: Position3D[])
         (targets: Position3D[])
@@ -641,10 +694,10 @@ module Solver =
         let numVars = n * n
 
         match blockDrones, UnifiedBackend.getRunnableQubits backend with
-        | Some k, _ -> solveInBlocks backend shots k accept starts targets distanceMatrix
+        | Some k, _ -> solveInBlocks backend shots k conflict accept starts targets distanceMatrix
         | None, Some limit when numVars > limit ->
             match BlockAssignment.widestBlock backend with
-            | Some k when k >= 2 -> solveInBlocks backend shots k accept starts targets distanceMatrix
+            | Some k when k >= 2 -> solveInBlocks backend shots k conflict accept starts targets distanceMatrix
             | _ ->
                 Error
                     $"%d{n} drones need %d{numVars} qubits (n²); backend '%s{backend.Name}' runs at most %d{limit}, under the 4 a block of 2 drones needs"
@@ -710,30 +763,41 @@ module Solver =
 /// and the drones hold where they are for the next one. No classical solver stands in.
 module ScaleShow =
 
-    /// Slot spacing, as in the 4-drone show.
+    /// Closest two slots come in a flown formation: 3 m, the upper end of the 2-3 m
+    /// commercial drone shows fly at (operators' published venue guides, 2025-2026).
     [<Literal>]
-    let SpacingM = 4.0
+    let SpacingM = 3.0
+
+    /// Spacing of the launch grid: 2.5 m, above the 1.5-2.2 m the same guides give for a
+    /// launch site, because the climb off the grid is the show's closest moment: its gate
+    /// bound is the spacing / √2, and flown in ArduPilot SITL in GUIDED mode two drones'
+    /// tracking errors (95th percentile 0.33 m each) come off it; at 2 m the 100-drone show
+    /// came to 0.80 m against 1.43 m planned.
+    [<Literal>]
+    let LaunchSpacingM = 2.5
 
     /// Formations of n slots at least SpacingM apart: a ground grid, then a grid aloft, a
     /// ring and a sphere (Fibonacci) in turn until `count` formations, closing on the
     /// ground grid again.
     let formations (n: int) (count: int) : Formation[] =
         let side = int (ceil (sqrt (float n)))
-        let half = float (side - 1) * SpacingM / 2.0
 
-        let grid (name: string) (z: float) (turned: bool) : Formation =
+        let grid (name: string) (spacing: float) (z: float) (turned: bool) : Formation =
+            let half = float (side - 1) * spacing / 2.0
+
             {
                 Name = name
                 Positions =
                     Array.init n (fun i ->
-                        let row = float (i / side) * SpacingM - half
-                        let column = float (i % side) * SpacingM - half
+                        let row = float (i / side) * spacing - half
+                        let column = float (i % side) * spacing - half
 
                         if turned then
                             { X = row; Y = column; Z = z }
                         else
                             { X = column; Y = row; Z = z })
                 Colors = None
+                Flow = false
             }
 
         let ring: Formation =
@@ -751,6 +815,7 @@ module ScaleShow =
                             Z = 20.0
                         })
                 Colors = None
+                Flow = false
             }
 
         let sphere: Formation =
@@ -772,10 +837,11 @@ module ScaleShow =
                             Z = radius + 5.0 + radius * y
                         })
                 Colors = None
+                Flow = false
             }
 
-        let middle = [| grid "Grid aloft" 25.0 true; ring; sphere |]
-        let ground = grid "Ground grid" 0.0 false
+        let middle = [| grid "Grid aloft" SpacingM 25.0 true; ring; sphere |]
+        let ground = grid "Ground grid" LaunchSpacingM 0.0 false
 
         [|
             yield ground
@@ -792,13 +858,34 @@ module ScaleShow =
     [<Literal>]
     let GlobeSteps = 24
 
+    /// Steps the cube turns through a full turn about a body diagonal, flown through: 10°
+    /// each, so a step moves the farthest drone about 5 m, near the slot spacing, and
+    /// following its own slot is each drone's shortest way.
+    [<Literal>]
+    let CubeSteps = 36
+
+    /// Steps the mug turns through a full turn about the vertical, flown through: 15°
+    /// each, about 5 m for the handle's farthest drone, for the same reason.
+    [<Literal>]
+    let MugSteps = 24
+
+    /// Height of the lowest slot of every lit shape, so the show is clearly flown above
+    /// the ground grid rather than brushing it.
+    [<Literal>]
+    let LowestM = 10.0
+
     /// Lit formations of n slots, the pictures of a light show: a globe (sea, land, ice)
     /// shown GlobeSteps times with its lands turning a step further each time while the
-    /// drones hold, a diamond and a cube drawn along their edges, and a star (a gold
-    /// outline around a dark inner star), between the ground grid in white. Every
-    /// formation is scaled so its closest slots are SpacingM apart (the globe 2.5 × that,
-    /// so it fills the picture) and flown at least 5 m up. `count` formations are flown,
-    /// in this order.
+    /// drones hold, a diamond drawn along its edges, a star (a gold outline around a dark
+    /// inner star), a mug turning a full turn about the vertical in MugSteps steps, a
+    /// doughnut, and a cube drawn along its edges turning a full turn about a body diagonal
+    /// in CubeSteps steps, the turns flown through without a hold, between the ground grid
+    /// in white. (The mug and the doughnut share a parametrisation, but the straight
+    /// deformation between them brought slots to 0.29 m, so they are two formations and the
+    /// move between them a planned transition.) Every formation is scaled so its closest
+    /// slots are SpacingM apart (the globe 2.5 × that, so it fills the picture; the mug and
+    /// the doughnut 1.25 ×, 10 m higher) and flown at least LowestM up. `count` formations are
+    /// flown, in this order.
     let litFormations (n: int) (count: int) : Formation[] =
         let rgb r g b : CrazyflieExport.LedColor = { R = r; G = g; B = b }
         let white = rgb 255 255 255
@@ -814,7 +901,7 @@ module ScaleShow =
                 let angle = golden * float i
                 r * cos angle, r * sin angle, z)
 
-        // A shape scaled so its closest two points are `closest` × SpacingM apart, lifted to 5 m
+        // A shape scaled so its closest two points are `closest` × SpacingM apart, lifted to LowestM
         let spaced
             (name: string)
             (closest: float)
@@ -846,9 +933,10 @@ module ScaleShow =
                         {
                             X = x * scale
                             Y = y * scale
-                            Z = z * scale - lowest + 5.0
+                            Z = z * scale - lowest + LowestM
                         })
                 Colors = Some(points |> Array.map light)
+                Flow = false
             }
 
         // Land where a few smooth waves add up; ice near the poles
@@ -950,9 +1038,117 @@ module ScaleShow =
         let starLight (p: float * float * float) =
             if starLit.[Array.findIndex ((=) p) starPoints] then rgb 255 190 0 else black
 
+        // A mug and a doughnut on one parametrisation, slot i = column i / rows, row
+        // i % rows: on the doughnut the column goes round the ring and the row round the
+        // tube; on the mug the first columns go round the body (the row its height) and
+        // the last along the handle (the row round its tube), so the same slot is the same
+        // place on the surface in both and the morph between them is a deformation, not a
+        // jump. Rows are 5 at 20 slots or more.
+        let rows = max 1 (min 5 (n / 4))
+        let cols = (n + rows - 1) / rows
+        let handleCols = if cols >= 2 then max 1 (min (cols - 1) (cols * 3 / 10)) else 0
+        let bodyCols = cols - handleCols
+
+        let torusPoints =
+            Array.init n (fun i ->
+                let u = 2.0 * Math.PI * float (i / rows) / float cols
+                let v = 2.0 * Math.PI * float (i % rows) / float rows
+                (1.0 + 0.35 * cos v) * cos u, (1.0 + 0.35 * cos v) * sin u, 0.35 * sin v)
+
+        let mugPoints =
+            let height = 1.6
+            let arm = 0.72
+            let tube = 0.35
+
+            Array.init n (fun i ->
+                let c, r = i / rows, i % rows
+
+                if c < bodyCols then
+                    let angle = 2.0 * Math.PI * (float c + 0.5) / float bodyCols
+                    let z = if rows > 1 then height * (float r / float (rows - 1) - 0.5) else 0.0
+                    cos angle, sin angle, z
+                else
+                    // The handle: a half ring from the top of the body wall to its bottom,
+                    // bulging east, with a tube round it
+                    let s = float (c - bodyCols + 1) / float (handleCols + 1)
+                    let phi = Math.PI / 2.0 - Math.PI * s
+                    let psi = 2.0 * Math.PI * float r / float rows
+                    let nx, nz = cos phi, sin phi
+                    1.0 + arm * nx + tube * cos psi * nx, tube * sin psi, arm * nz + tube * cos psi * nz)
+
+        // Cream china, coffee along the rim
+        let mugLight (p: float * float * float) =
+            let i = Array.findIndex ((=) p) mugPoints
+            if i / rows < bodyCols && i % rows = rows - 1 then rgb 90 50 20 else rgb 255 235 190
+
+        // Pink icing on top with sprinkles, dough below
+        let doughnutLight (p: float * float * float) =
+            let i = Array.findIndex ((=) p) torusPoints
+            let (_, _, z) = p
+
+            if z > 0.1 then
+                match i % 7 with
+                | 0 -> rgb 255 255 0
+                | 3 -> rgb 0 230 255
+                | _ -> rgb 255 105 180
+            else
+                rgb 170 100 40
+
+        // Lifted `metres` above where `spaced` puts it
+        let raised (metres: float) (f: Formation) =
+            { f with
+                Positions = f.Positions |> Array.map (fun p -> { p with Z = p.Z + metres })
+            }
+
+        let mug = spaced "Mug" 1.25 mugPoints mugLight |> raised 10.0
+        let doughnut = spaced "Doughnut" 1.25 torusPoints doughnutLight |> raised 10.0
+
+        // A formation turning a full turn about `axis` through its centre in `steps` steps
+        // flown through (Rodrigues' rotation), all lifted alike so the lowest slot of any
+        // step clears LowestM: the shape, then the steps, then the shape again. A turn is
+        // rigid, so every step keeps the slots' spacing.
+        let turning (steps: int) (axis: float * float * float) (shape: Formation) : Formation[] =
+            let centre (axisOf: Position3D -> float) = shape.Positions |> Array.averageBy axisOf
+            let cx, cy, cz = centre (fun p -> p.X), centre (fun p -> p.Y), centre (fun p -> p.Z)
+
+            let ax, ay, az =
+                let x, y, z = axis
+                let l = sqrt (x * x + y * y + z * z)
+                x / l, y / l, z / l
+
+            let turned (angle: float) (p: Position3D) =
+                let vx, vy, vz = p.X - cx, p.Y - cy, p.Z - cz
+                let c, s = cos angle, sin angle
+                let along = (ax * vx + ay * vy + az * vz) * (1.0 - c)
+                let kx, ky, kz = ay * vz - az * vy, az * vx - ax * vz, ax * vy - ay * vx
+
+                {
+                    X = cx + vx * c + kx * s + ax * along
+                    Y = cy + vy * c + ky * s + ay * along
+                    Z = cz + vz * c + kz * s + az * along
+                }
+
+            let steps' =
+                Array.init (steps + 1) (fun k ->
+                    shape.Positions |> Array.map (turned (2.0 * Math.PI * float k / float steps)))
+
+            let lift =
+                max 0.0 (LowestM - (steps' |> Array.collect id |> Array.map (fun p -> p.Z) |> Array.min))
+
+            Array.init (steps + 1) (fun k ->
+                { shape with
+                    Name =
+                        if k = 0 then shape.Name
+                        elif k = steps then shape.Name + ", turned round"
+                        else $"{shape.Name}, turned %d{k}/%d{steps}"
+                    Positions = steps'.[k] |> Array.map (fun p -> { p with Z = p.Z + lift })
+                    Flow = k > 0 && k < steps
+                })
+
         let ground =
             { (formations n 1).[0] with
                 Colors = Some(Array.create n white)
+                Flow = false
             }
 
         let step = 2.0 * Math.PI / float GlobeSteps
@@ -966,8 +1162,10 @@ module ScaleShow =
                     spaced $"Globe, turned %d{k}/%d{GlobeSteps}" 2.5 sphere (day (float k * step))
 
                 spaced "Diamond" 1.0 octahedron diamondLight
-                spaced "Cube" 1.0 cube cubeLight
                 spaced "Star" 1.0 starPoints starLight
+                yield! turning MugSteps (0.0, 0.0, 1.0) mug
+                doughnut
+                yield! turning CubeSteps (1.0, 1.0, 1.0) (spaced "Cube" 1.0 cube cubeLight)
                 ground
             |]
 
@@ -983,6 +1181,10 @@ module ScaleShow =
             StartDistance: float
             /// Total distance of the assignment found; the start distance when none was
             Distance: float
+            /// Pairs of drones the start pairing flies closer than the gate's bound
+            StartUnsafePairs: int
+            /// Fewest such pairs in any assignment the gate checked; 0 when one passed
+            FewestUnsafePairs: int
             /// How it was found, or why it was not
             Method: string
             Solved: bool
@@ -1005,16 +1207,19 @@ module ScaleShow =
                     match formation.Colors with
                     | Some colours -> colours.[slot].R, colours.[slot].G, colours.[slot].B
                     | None -> 255, 255, 255)
+            Flow = formation.Flow
         }
 
     /// Fly `formations` with `n` drones: every transition through the gate, in blocks of
-    /// `blockDrones` drones with `sweeps` sweeps at most (Solver.BlockSweeps when 0). The
-    /// transitions, and every formation as flown (a failed transition holds the drones in
-    /// the formation before it).
+    /// `blockDrones` drones with `sweeps` sweeps at most (Solver.BlockSweeps when 0), the
+    /// path conflicts weighted by `conflict` (Solver.solveInBlocks). The transitions, and
+    /// every formation as flown (a failed transition holds the drones in the formation
+    /// before it).
     let run
         (backend: IQuantumBackend)
         (shots: int)
         (blockDrones: int)
+        (conflict: float)
         (sweeps: int)
         (formations: Formation[])
         : Transition[] * LightShowPicture.Frame[] =
@@ -1022,31 +1227,47 @@ module ScaleShow =
         let n = formations.[0].Positions.Length
         let first = frame formations.[0] (Array.init n id)
 
-        let _, transitions, frames =
-            ((formations.[0].Positions, [], [ first ]), Array.pairwise formations)
-            ||> Array.fold (fun (current, flown, frames) (fromFormation, toFormation) ->
+        // The fold carries the drones' positions and the slots they hold, which is the start
+        // pairing of a step of a deformation or a turn (BlockAssignment.startAssignment)
+        let _, _, transitions, frames =
+            ((formations.[0].Positions, Array.init n id, [], [ first ]), Array.pairwise formations)
+            ||> Array.fold (fun (current, held, flown, frames) (fromFormation, toFormation) ->
                 let sw = Stopwatch.StartNew()
                 let targets = toFormation.Positions
                 let distance (drone: int) (slot: int) = Geometry.distance current.[drone] targets.[slot]
                 let bound = TransitionSafety.bound current targets
                 let ends (assignment: int[]) = assignment |> Array.map (fun j -> targets.[j])
 
-                let safe (assignment: int[]) =
-                    TransitionSafety.minSeparation current (ends assignment) >= bound - 1e-9
-
                 let unsafePairs (assignment: int[]) =
                     TransitionSafety.unsafePairs current (ends assignment) bound
+
+                // The gate, counting how close the search came for the report of a failure
+                let mutable fewest = Int32.MaxValue
+
+                let safe (assignment: int[]) =
+                    let inside = (unsafePairs assignment).Length
+                    fewest <- min fewest inside
+                    inside = 0
 
                 let total (assignment: int[]) = assignment |> Array.mapi distance |> Array.sum
 
                 let start =
-                    BlockAssignment.startAssignment (Array.map toPoint current) (Array.map toPoint targets)
+                    BlockAssignment.startAssignment (ValueSome held) (Array.map toPoint current) (Array.map toPoint targets)
+
+                let startUnsafe = (unsafePairs start).Length
+                let weight = TransitionSafety.conflictWeight conflict current targets
 
                 printfn "═══════════════════════════════════════════════════"
                 printfn "TRANSITION %d: %s → %s" (List.length flown + 1) fromFormation.Name toFormation.Name
-                printfn "  start pairing: %.2f m in all, gate %.2f m" (total start) bound
 
-                // Squared distances, the CAPT objective (Solver.solveInBlocks)
+                printfn
+                    "  start pairing: %.2f m in all, %d pairs inside the gate's %.2f m; a head-on pair costs %.0f"
+                    (total start)
+                    startUnsafe
+                    bound
+                    weight
+
+                // Squared distances plus path conflicts, the objective of Solver.solveInBlocks
                 let found =
                     BlockAssignment.solve
                         backend
@@ -1056,45 +1277,482 @@ module ScaleShow =
                         safe
                         unsafePairs
                         (fun drone slot -> distance drone slot ** 2.0)
+                        (TransitionSafety.conflictCost current targets bound weight)
+                        (ValueSome held)
                         (Array.map toPoint current)
                         (Array.map toPoint targets)
 
                 sw.Stop()
 
-                let next, flownFrame, transition =
+                let next, nextHeld, flownFrame, transition =
                     match found with
                     | Ok(assignment, how) ->
                         printfn "  QAOA %s (%d ms)" how sw.ElapsedMilliseconds
 
                         assignment |> Array.map (fun j -> targets.[j]),
+                        assignment,
                         frame toFormation assignment,
                         {
                             From = fromFormation.Name
                             To = toFormation.Name
                             StartDistance = total start
                             Distance = total assignment
+                            StartUnsafePairs = startUnsafe
+                            FewestUnsafePairs = 0
                             Method = how
                             Solved = true
                             ElapsedMs = sw.ElapsedMilliseconds
                         }
                     | Error msg ->
-                        eprintfn "  FAILED: %s (%d ms); the drones hold" msg sw.ElapsedMilliseconds
+                        let closest = if fewest = Int32.MaxValue then startUnsafe else fewest
+
+                        eprintfn
+                            "  FAILED: %s; the closest assignment the gate checked had %d pairs inside the bound (%d ms); the drones hold"
+                            msg
+                            closest
+                            sw.ElapsedMilliseconds
 
                         current,
+                        held,
                         { List.head frames with Name = fromFormation.Name + " (held)" },
                         {
                             From = fromFormation.Name
                             To = toFormation.Name
                             StartDistance = total start
                             Distance = total start
+                            StartUnsafePairs = startUnsafe
+                            FewestUnsafePairs = closest
                             Method = msg
                             Solved = false
                             ElapsedMs = sw.ElapsedMilliseconds
                         }
 
-                next, transition :: flown, flownFrame :: frames)
+                next, nextHeld, transition :: flown, flownFrame :: frames)
 
         transitions |> List.rev |> List.toArray, frames |> List.rev |> List.toArray
+
+// =============================================================================
+// SCALE RUN MISSIONS (the show as every drone flies it)
+// =============================================================================
+
+/// The MAVLink missions of a scale run, written by the 4-drone show's exporter
+/// (MAVLinkExport.exportShow): every drone's own mission through the formations as flown,
+/// at the outdoor scale that keeps the plan as flown at least Margin × the minimum
+/// separation apart (the show's rule), its light at every formation as a CSV beside it, a
+/// README, and the lot zipped for download. Nothing here plans; the assignments are the
+/// scale run's.
+module ScaleMissions =
+
+    /// Margin over the minimum separation the flown plan keeps, the 4-drone show's.
+    [<Literal>]
+    let Margin = 1.2
+
+    /// Cruise speed of the missions, m/s, the 4-drone show's.
+    [<Literal>]
+    let CruiseMs = 3.0
+
+    /// Name of the zip a scale run writes.
+    [<Literal>]
+    let ZipName = "swarm-light-show-missions.zip"
+
+    /// The formations as flown, by drone, from the picture's frames
+    let private flownFormations (frames: LightShowPicture.Frame[]) =
+        frames
+        |> Array.map (fun f ->
+            {|
+                Name = f.Name
+                Positions = f.Positions |> Array.map (fun (x, y, z) -> {| X = x; Y = y; Z = z |})
+            |})
+
+    /// The scale at which the plan as flown (take-off and every transition with S-curve
+    /// timing) keeps Margin × the minimum separation, grown from the scale at which the
+    /// closest slots and straight-line transits do, and the closest approach as flown at
+    /// it
+    let private outdoorScale
+        (formations: {| Name: string; Positions: {| X: float; Y: float; Z: float |}[] |}[])
+        (n: int)
+        : float * float =
+        let positionsOf k =
+            formations.[k].Positions |> Array.map (fun p -> { X = p.X; Y = p.Y; Z = p.Z }: Position3D)
+
+        let closestSlots =
+            [
+                for k in 0 .. formations.Length - 1 do
+                    let ps = positionsOf k
+
+                    for i in 0 .. n - 1 do
+                        for j in i + 1 .. n - 1 do
+                            Geometry.distance ps.[i] ps.[j]
+            ]
+            |> List.fold min Double.PositiveInfinity
+
+        let closestTransit =
+            [
+                for k in 0 .. formations.Length - 2 do
+                    if formations.[k + 1].Positions |> Array.exists (fun p -> p.Z > 0.0) then
+                        TransitionSafety.minSeparation (positionsOf k) (positionsOf (k + 1))
+            ]
+            |> List.fold min Double.PositiveInfinity
+
+        let target = Safety.minSwarmSeparationMeters * Margin
+        let flownAt s = MAVLinkExport.showSeparation s CruiseMs formations n
+
+        if min closestSlots closestTransit <= 1e-9 then
+            invalidArg "frames" "two drones share a slot or their straight paths meet; no scale separates them"
+
+        // No scale separates paths that meet: a closest approach of 0 ends the search
+        let rec grow s round =
+            let flown = flownAt s
+
+            if flown >= target || round >= 8 || flown <= 1e-9 then
+                (s, flown)
+            else
+                grow (s * max 1.01 (target / flown)) (round + 1)
+
+        grow (Geometry.scaleFor Safety.minSwarmSeparationMeters Margin (min closestSlots closestTransit)) 0
+
+    let private readme
+        (title: string)
+        (drones: int)
+        (formations: int)
+        (scale: float)
+        (flownSpacing: float)
+        (home: MavlinkMission.GeoCoordinate)
+        =
+        String.Join(
+            "\n",
+            [
+                $"# {title}: the flight instructions"
+                ""
+                $"Every drone's own ArduPilot mission through the show, {drones} drones and {formations} formations, as planned by the SwarmChoreography example of FSharp.Azure.Quantum (https://github.com/thorium/fsharp.azure.quantum): every change of formation was assigned to the drones by the QAOA block search on 16-qubit circuits and passed the in-flight separation gate, and these files are that plan as flown."
+                ""
+                "## Files"
+                ""
+                "- `DroneN_mission.plan`: the mission of drone N for QGroundControl."
+                "- `DroneN.waypoints`: the same mission as a MAVLink waypoint file (Mission Planner, MAVProxy)."
+                "- `DroneN.param`: the ArduPilot 4.7 parameters the mission assumes; load them before flight."
+                "- `lights/DroneN.csv`: the light drone N shows at every formation, in show order (formation index, name, colour). MAVLink missions have no light command: a show controller or an onboard script sets the light when the drone reaches the formation."
+                "- `mavlink_show.fsx`: starts every mission together (`dotnet fsi mavlink_show.fsx --dry-run` lists what it would do). The missions are synchronised, so they are flown together or not at all."
+                ""
+                "## Figures"
+                ""
+                $"- Home: {home.Latitude:F6}, {home.Longitude:F6}, {home.Altitude:F1} m. It is the site the plan was written for; each drone arms on its own slot of the ground grid around it. Plan your own site by running the example with `--home-lat` and `--home-lon`."
+                $"- Scale: the planned positions × {scale:F2}, the scale at which the plan as flown keeps at least {Margin} × the {Safety.minSwarmSeparationMeters:F0} m minimum separation; closest approach as flown {flownSpacing:F1} m."
+                $"- Cruise speed {CruiseMs:F1} m/s; every drone holds {MAVLinkExport.Autopilot.formationHoldS:F0} s at a formation, longer where it waits for the slowest. A formation whose only change is the lights is a hold at the same waypoint."
+                "- Each drone lands on the slot it took off from."
+                ""
+                "## Before anything flies"
+                ""
+                "A plan is not a permission. The missions were checked in ArduPilot's own simulator, not on aircraft; the operator's authorisation, the airspace, the weather limits and the separation the aircraft can actually hold are the operator's to establish. Nothing in these files replaces that."
+                ""
+                "MIT licence, as the repository."
+                ""
+            ]
+        )
+
+    /// Writes the missions of `frames` under `outDir/missions` and zips them to
+    /// `outDir/ZipName`: the zip's path, the scale flown and the closest approach as flown.
+    let write
+        (outDir: string)
+        (title: string)
+        (home: MavlinkMission.GeoCoordinate)
+        (frames: LightShowPicture.Frame[])
+        : string * float * float =
+        let formations = flownFormations frames
+        let n = frames.[0].Positions.Length
+        let scale, flownSpacing = outdoorScale formations n
+        let dir = Path.Combine(outDir, "missions")
+
+        if Directory.Exists dir then
+            Directory.Delete(dir, true)
+
+        let swarm =
+            MAVLinkExport.exportShow
+                dir
+                title
+                home
+                scale
+                CruiseMs
+                formations
+                n
+                (Safety.minSwarmSeparationMeters * Margin)
+                "Quantum (QAOA block search)"
+
+        let lightsDir = Path.Combine(dir, "lights")
+        Directory.CreateDirectory lightsDir |> ignore
+
+        for d in 0 .. n - 1 do
+            let name =
+                (swarm.Missions |> List.find (fun m -> m.Drone.SystemId = d + 1)).Drone.Name
+
+            File.WriteAllLines(
+                Path.Combine(lightsDir, name + ".csv"),
+                Array.append
+                    [| "formation,name,light" |]
+                    (frames
+                     |> Array.mapi (fun k f ->
+                         let r, g, b = f.Lights.[d]
+                         sprintf "%d,\"%s\",#%02x%02x%02x" k f.Name r g b))
+            )
+
+        File.WriteAllText(
+            Path.Combine(dir, "README.md"),
+            readme title n frames.Length scale flownSpacing home
+        )
+
+        let zip = Path.Combine(outDir, ZipName)
+
+        if File.Exists zip then
+            File.Delete zip
+
+        System.IO.Compression.ZipFile.CreateFromDirectory(dir, zip)
+        zip, scale, flownSpacing
+
+// =============================================================================
+// SCALE RUN TRAJECTORIES (the show as a show controller flies it)
+// =============================================================================
+
+/// The show of a scale run as timed trajectories: for every drone, when it leaves each
+/// formation, when it arrives at the next, its position there and its light. Between two
+/// keyframes every drone moves in a straight line with the same progress law (a smoothstep
+/// in time), so at every moment the drones' relative positions are those of the straight
+/// synchronised lines the separation gate checked: the planned closest approach is the
+/// flown one. A show controller streams these as position setpoints (MAVLink guided mode,
+/// a Crazyflie's high-level commander). They are not waypoint missions, which fly legs of
+/// different lengths apart in time and cannot keep a plan like this (see ScaleMissions).
+/// Written as one zip.
+module ScaleTrajectories =
+
+    /// Seconds a formation is held, as a show holds a picture.
+    [<Literal>]
+    let HoldS = 3.0
+
+    /// Seconds between two steps that change only the lights.
+    [<Literal>]
+    let LightStepS = 0.5
+
+    /// Horizontal cruise speed, m/s, the MAVLink missions' as well.
+    [<Literal>]
+    let CruiseMs = 3.0
+
+    /// Name of the zip a scale run writes.
+    [<Literal>]
+    let ZipName = "swarm-light-show-trajectories.zip"
+
+    /// Progress through a transition at share `f` of its time: the smoothstep 3f² − 2f³,
+    /// at rest at both ends; its peak speed is 1.5 × the average and its peak
+    /// acceleration 6 × the leg / T².
+    let progress (f: float) : float = f * f * (3.0 - 2.0 * f)
+
+    /// A transition's seconds, the same for every drone so they move together: long
+    /// enough that the longest leg's peak speed stays within the autopilot's cruise,
+    /// climb and descent speeds and its peak acceleration within the autopilot's
+    /// acceleration limit (MAVLinkExport.Autopilot).
+    let transitionSeconds (fromP: (float * float * float)[]) (toP: (float * float * float)[]) : float =
+        let mutable bySpeed = 0.0
+        let mutable longest = 0.0
+
+        for d in 0 .. fromP.Length - 1 do
+            let (ax, ay, az), (bx, by, bz) = fromP.[d], toP.[d]
+            let h = sqrt ((bx - ax) ** 2.0 + (by - ay) ** 2.0)
+            let dz = bz - az
+            longest <- max longest (sqrt (h * h + dz * dz))
+
+            let vertical =
+                if dz >= 0.0 then
+                    dz / MAVLinkExport.Autopilot.climbSpeedMs
+                else
+                    -dz / MAVLinkExport.Autopilot.descentSpeedMs
+
+            bySpeed <- max bySpeed (max (h / CruiseMs) vertical)
+
+        let accel = min MAVLinkExport.Autopilot.accelMss MAVLinkExport.Autopilot.accelZMss
+        max (1.5 * bySpeed) (sqrt (6.0 * longest / accel))
+
+    /// When every frame is arrived at and left: frame 0 at 0; a frame with the previous
+    /// frame's positions is a light step; a flown frame is arrived at transitionSeconds
+    /// after the previous one is left and held HoldS, nothing when flown through, a light
+    /// step when the next frame only changes the lights; the last is held HoldS.
+    let timeline (frames: LightShowPicture.Frame[]) : (float * float)[] =
+        let n = frames.Length
+        let times = Array.zeroCreate<float * float> n
+        let mutable t = 0.0
+
+        for k in 0 .. n - 1 do
+            let flown = k > 0 && frames.[k].Positions <> frames.[k - 1].Positions
+            let nextFlown = k < n - 1 && frames.[k + 1].Positions <> frames.[k].Positions
+
+            let arrive =
+                if flown then
+                    t + transitionSeconds frames.[k - 1].Positions frames.[k].Positions
+                else
+                    t
+
+            let hold =
+                if k = n - 1 then HoldS
+                elif frames.[k].Flow && nextFlown then 0.0
+                elif nextFlown && (k = 0 || flown) then HoldS
+                else LightStepS
+
+            times.[k] <- (arrive, arrive + hold)
+            t <- arrive + hold
+
+        times
+
+    /// Closest two drones come in the whole show on the straight synchronised lines (the
+    /// gate's figure, exact under the common progress law), and in which transition.
+    let closestApproach (frames: LightShowPicture.Frame[]) : float * string =
+        let toP (x, y, z) : Position3D = { X = x; Y = y; Z = z }
+
+        [
+            for k in 1 .. frames.Length - 1 do
+                if frames.[k].Positions <> frames.[k - 1].Positions then
+                    TransitionSafety.minSeparation
+                        (Array.map toP frames.[k - 1].Positions)
+                        (Array.map toP frames.[k].Positions),
+                    sprintf "%s → %s" frames.[k - 1].Name frames.[k].Name
+        ]
+        |> List.minBy fst
+
+    let private hex (r: int, g: int, b: int) = sprintf "#%02x%02x%02x" r g b
+
+    let private readme
+        (title: string)
+        (drones: int)
+        (frames: int)
+        (durationS: float)
+        (closest: float)
+        (closestIn: string)
+        (home: MavlinkMission.GeoCoordinate option)
+        =
+        String.Join(
+            "\n",
+            [
+                $"# {title}: the flight plan"
+                ""
+                $"Timed trajectories for {drones} drones through {frames} formations, {durationS:F0} s of show, as planned by the SwarmChoreography example of FSharp.Azure.Quantum (https://github.com/thorium/fsharp.azure.quantum): every change of formation was assigned to the drones by the QAOA block search on 16-qubit circuits and passed the in-flight separation gate."
+                ""
+                "## Files"
+                ""
+                "- `trajectories/DroneN.csv`: drone N's keyframes, one row when it arrives at a formation and one when it leaves: `t_s,x_m,y_m,z_m,light,formation`. x is east, y north, z up, in metres from the show's origin on the ground. The light is the colour the drone shows from that moment: at a departure it is already the light of the formation it flies to, as the drones set it."
+                "- `show.json`: the formations with their arrival and departure times, the progress law, the speed limits and the origin."
+                ""
+                "## How the drones move"
+                ""
+                "Between a departure at t0 and the next arrival at t1, every drone moves in a straight line from its departure point to its arrival point, at the same share of its own leg as every other drone: share = 3f² − 2f³ with f = (t − t0) / (t1 − t0). The share is what keeps the plan's separation: the gate checked the straight lines flown together, and under a common law the drones' relative positions at any moment are those lines at that share. A show controller streams these positions at 10 Hz or more (MAVLink: SET_POSITION_TARGET_LOCAL_NED in GUIDED, north = y, east = x, down = −z) and sets the light at each departure."
+                ""
+                $"Each transition takes long enough that the longest leg peaks at {CruiseMs:F1} m/s horizontally, {MAVLinkExport.Autopilot.climbSpeedMs:F1} m/s climbing, {MAVLinkExport.Autopilot.descentSpeedMs:F1} m/s descending, and at {min MAVLinkExport.Autopilot.accelMss MAVLinkExport.Autopilot.accelZMss:F1} m/s² of acceleration; shorter legs are slower in proportion. A formation is held {HoldS:F0} s, a step that only changes the lights {LightStepS:F1} s, a step of a deformation or a turn is flown through."
+                ""
+                "## Figures"
+                ""
+                $"- Closest two drones come: {closest:F2} m, in {closestIn}; the gate's bound is the closest slot spacing / √2 of each transition."
+                (match home with
+                 | Some h -> $"- Origin: {h.Latitude:F6}, {h.Longitude:F6}, {h.Altitude:F1} m, the site the plan was given; the launch grid stands around it."
+                 | None -> "- Origin: not fixed; run the example with `--home-lat` and `--home-lon` to put the show on a site.")
+                ""
+                "## What this is not"
+                ""
+                "These are not waypoint missions. A waypoint mission flies each leg at its own speed, at least 0.5 m/s, and holds the time a short leg saves, so drones with legs of different lengths come apart in time and the plan's separation is lost; the example measured 0.25 m where the plan keeps 2.9 m. A plan is not a permission either: the operator's authorisation, the airspace, the weather limits and the separation the aircraft can hold are the operator's to establish."
+                ""
+                "MIT licence, as the repository."
+                ""
+            ]
+        )
+
+    /// Writes the trajectories of `frames` under `outDir/trajectories` and zips them to
+    /// `outDir/ZipName`: the zip's path, the show's seconds, and the closest approach with
+    /// the transition it is in.
+    let write
+        (outDir: string)
+        (title: string)
+        (home: MavlinkMission.GeoCoordinate option)
+        (frames: LightShowPicture.Frame[])
+        : string * float * float * string =
+        let n = frames.[0].Positions.Length
+        let times = timeline frames
+        let durationS = snd times.[times.Length - 1]
+        let closest, closestIn = closestApproach frames
+        let dir = Path.Combine(outDir, "trajectories")
+
+        if Directory.Exists dir then
+            Directory.Delete(dir, true)
+
+        let perDrone = Path.Combine(dir, "trajectories")
+        Directory.CreateDirectory perDrone |> ignore
+        let num (v: float) = v.ToString("0.###", Globalization.CultureInfo.InvariantCulture)
+
+        for d in 0 .. n - 1 do
+            let rows =
+                [|
+                    yield "t_s,x_m,y_m,z_m,light,formation"
+
+                    for k in 0 .. frames.Length - 1 do
+                        let arrive, depart = times.[k]
+                        let x, y, z = frames.[k].Positions.[d]
+                        let place = sprintf "%s,%s,%s" (num x) (num y) (num z)
+                        yield sprintf "%s,%s,%s,\"%s\"" (num arrive) place (hex frames.[k].Lights.[d]) frames.[k].Name
+
+                        if depart > arrive then
+                            let next = if k < frames.Length - 1 then frames.[k + 1].Lights.[d] else frames.[k].Lights.[d]
+                            yield sprintf "%s,%s,%s,\"%s\"" (num depart) place (hex next) frames.[k].Name
+                |]
+
+            File.WriteAllLines(Path.Combine(perDrone, sprintf "Drone%d.csv" d), rows)
+
+        Reporting.writeJson
+            (Path.Combine(dir, "show.json"))
+            {|
+                title = title
+                drones = n
+                duration_s = durationS
+                closest_approach_m = closest
+                closest_approach_in = closestIn
+                progress_law = "share = 3f^2 - 2f^3 of each drone's straight leg, f = (t - depart) / (arrive - depart), all drones together"
+                limits =
+                    {|
+                        cruise_ms = CruiseMs
+                        climb_ms = MAVLinkExport.Autopilot.climbSpeedMs
+                        descent_ms = MAVLinkExport.Autopilot.descentSpeedMs
+                        acceleration_mss = min MAVLinkExport.Autopilot.accelMss MAVLinkExport.Autopilot.accelZMss
+                        hold_s = HoldS
+                        light_step_s = LightStepS
+                    |}
+                axes = "x east, y north, z up, metres from the origin on the ground"
+                origin =
+                    match home with
+                    | Some h -> [| h.Latitude; h.Longitude; h.Altitude |]
+                    | None -> [||]
+                formations =
+                    frames
+                    |> Array.mapi (fun k f ->
+                        {|
+                            name = f.Name
+                            flow = f.Flow
+                            arrive_s = fst times.[k]
+                            depart_s = snd times.[k]
+                        |})
+            |}
+
+        File.WriteAllText(Path.Combine(dir, "README.md"), readme title n frames.Length durationS closest closestIn home)
+        ShowController.write dir
+
+        // One simulator per drone at its slot, when the show has a site
+        home
+        |> Option.iter (fun site ->
+            ShowController.writeSitlStart
+                dir
+                (frames.[0].Positions
+                 |> Array.map (fun (x, y, _) ->
+                     let g = MAVLinkExport.position3DToMissionPoint site x y 0.0 1.0
+                     g.Latitude, g.Longitude, site.Altitude)))
+
+        let zip = Path.Combine(outDir, ZipName)
+
+        if File.Exists zip then
+            File.Delete zip
+
+        System.IO.Compression.ZipFile.CreateFromDirectory(dir, zip)
+        zip, durationS, closest, closestIn
 
 // =============================================================================
 // VISUALIZATION
@@ -2610,6 +3268,22 @@ module Program =
             eprintfn "%s" msg
             exit 2
 
+    /// --conflict: the weight of the path-conflict cost in a block search, as a multiple of
+    /// the largest squared distance (TransitionSafety.conflictWeight). 0 unless given,
+    /// leaving the conflicts to the gate and the CAPT objective: measured on 100 drones
+    /// through 5 formations, three runs each, the gate passed 10 of 12 transitions at 0,
+    /// 8 at 0.1, 7 at 0.3 and 6 at 1 and at 3, so the term is an experiment, not a default.
+    let private conflictOption (args: Cli.ParsedArgs) : float =
+        match Cli.tryFloat "conflict" args with
+        | Ok(Some weight) when weight >= 0.0 -> weight
+        | Ok(Some weight) ->
+            eprintfn "--conflict: %g is below 0; the weight is 0 or more" weight
+            exit 2
+        | Ok None -> 0.0
+        | Error msg ->
+            eprintfn "%s" msg
+            exit 2
+
     /// The scale run (--drones n, n other than 4): see ScaleShow. Exit code 1 when a
     /// transition found no accepted assignment.
     let private scaleMain (args: Cli.ParsedArgs) : int =
@@ -2619,9 +3293,16 @@ module Program =
         let droneCount = Cli.getOr "drones" "4" args |> int
         let lights = Cli.hasFlag "lights" args
         let formationCount =
-            Cli.getOr "formations" (if lights then string (ScaleShow.GlobeSteps + 5) else "5") args
+            Cli.getOr
+                "formations"
+                (if lights then
+                     string (ScaleShow.GlobeSteps + ScaleShow.MugSteps + ScaleShow.CubeSteps + 7)
+                 else
+                     "5")
+                args
             |> int
         let sweeps = Cli.getOr "sweeps" "0" args |> int
+        let conflict = conflictOption args
 
         printfn ""
         printfn "╔══════════════════════════════════════════════════╗"
@@ -2650,7 +3331,7 @@ module Program =
                 ScaleShow.formations droneCount formationCount
 
         printfn
-            "%d drones, %d formations%s, blocks of %d drones (%d qubits a circuit), %s sweeps, %d shots"
+            "%d drones, %d formations%s, blocks of %d drones (%d qubits a circuit), %s sweeps, %d shots, path conflicts weighted %g"
             droneCount
             formations.Length
             (if lights then " (a light show)" else "")
@@ -2658,11 +3339,41 @@ module Program =
             (blockDrones * blockDrones)
             (if sweeps > 0 then string sweeps else $"up to {Solver.BlockSweeps}")
             shots
+            conflict
 
-        printfn "No missions are exported from a scale run; it measures the block search and draws the show."
+        // --home-lat/--home-lon: the site, the origin of the trajectories and of the
+        // simulators; --mavlink (every drone's waypoint mission, zipped) needs it
+        let home: MavlinkMission.GeoCoordinate option =
+            match Cli.tryFloat "home-lat" args, Cli.tryFloat "home-lon" args with
+            | Ok(Some lat), Ok(Some lon) ->
+                Some
+                    {
+                        Latitude = lat
+                        Longitude = lon
+                        Altitude = Cli.getFloatOr "home-alt" 0.0 args
+                    }
+            | Error msg, _
+            | _, Error msg ->
+                eprintfn "%s" msg
+                exit 2
+            | _ when Cli.hasFlag "mavlink" args ->
+                eprintfn "--mavlink needs --home-lat <deg> and --home-lon <deg>, the site the show is flown at"
+                exit 2
+            | _ -> None
+
+        let mavlink = Cli.hasFlag "mavlink" args
+
+        printfn
+            "A scale run measures the block search, draws the show and writes every drone's trajectory%s."
+            (if mavlink then
+                 "; with --mavlink also every drone's waypoint mission"
+             else
+                 "")
+
         printfn ""
 
-        let transitions, frames = ScaleShow.run backend shots blockDrones sweeps formations
+        let transitions, frames =
+            ScaleShow.run backend shots blockDrones conflict sweeps formations
         sw.Stop()
 
         Data.ensureDirectory outDir
@@ -2672,6 +3383,57 @@ module Program =
             (sprintf "%d drones, %d formations: the lights the drones have on" droneCount formations.Length)
             3.0
             frames
+
+        // The show as flown, by drone: every formation's positions and lights
+        Reporting.writeJson
+            (Path.Combine(outDir, "show-frames.json"))
+            (frames
+             |> Array.map (fun f ->
+                 {|
+                     name = f.Name
+                     flow = f.Flow
+                     positions = f.Positions |> Array.map (fun (x, y, z) -> [| x; y; z |])
+                     lights = f.Lights |> Array.map (fun (r, g, b) -> [| r; g; b |])
+                 |}))
+
+        // The show as a show controller flies it: every drone's timed keyframes, one zip
+        let trajectories, showSeconds, closest, closestIn =
+            ScaleTrajectories.write
+                outDir
+                (sprintf "%d drones, %d formations" droneCount formations.Length)
+                home
+                frames
+
+        printfn ""
+
+        printfn
+            "Trajectories: %s (%d KB; %.0f s of show; closest approach %.2f m in %s)"
+            trajectories
+            (FileInfo(trajectories).Length / 1024L)
+            showSeconds
+            closest
+            closestIn
+
+        let missions =
+            (if mavlink then home else None)
+            |> Option.map (fun site ->
+                let zip, scale, flownSpacing =
+                    ScaleMissions.write
+                        outDir
+                        (sprintf "%d drones, %d formations" droneCount formations.Length)
+                        site
+                        frames
+
+                printfn ""
+
+                printfn
+                    "Missions: %s (%d KB; positions × %.2f, closest approach as flown %.1f m)"
+                    zip
+                    (FileInfo(zip).Length / 1024L)
+                    scale
+                    flownSpacing
+
+                zip)
 
         let solved = transitions |> Array.filter (fun t -> t.Solved) |> Array.length
         let startDistance = transitions |> Array.sumBy (fun t -> t.StartDistance)
@@ -2696,6 +3458,11 @@ module Program =
                 block_drones = blockDrones
                 block_qubits = blockDrones * blockDrones
                 shots = shots
+                conflict_weight = conflict
+                trajectories_zip = Path.GetFileName trajectories
+                show_seconds = showSeconds
+                closest_approach_m = closest
+                missions_zip = (missions |> Option.map Path.GetFileName |> Option.defaultValue "")
                 backend = backend.Name
                 transitions_solved = solved
                 start_pairing_distance = startDistance
@@ -2709,6 +3476,8 @@ module Program =
                             to_formation = t.To
                             start_pairing_distance = t.StartDistance
                             distance = t.Distance
+                            start_unsafe_pairs = t.StartUnsafePairs
+                            fewest_unsafe_pairs = t.FewestUnsafePairs
                             solved = t.Solved
                             method = t.Method
                             elapsed_ms = t.ElapsedMs
@@ -2752,9 +3521,10 @@ module Program =
             printfn "║    --room-y <m>      Room north-south (default 4)║"
             printfn "║    --block <k>       Assign in blocks of k drones║"
             printfn "║    --drones <n>      Scale run with n drones     ║"
-            printfn "║    --formations <m>  Scale run formations (5, 29)║"
+            printfn "║    --formations <m>  Scale run formations (5, 91)║"
             printfn "║    --lights          Scale run as a light show   ║"
-            printfn "║    --sweeps <s>      Scale run sweeps (up to 12) ║"
+            printfn "║    --sweeps <s>      Scale run sweeps (up to 24) ║"
+            printfn "║    --conflict <w>    Path-conflict weight (0)    ║"
             printfn "║    --help            Show this help              ║"
             printfn "╚══════════════════════════════════════════════════╝"
             printfn ""
@@ -2785,10 +3555,18 @@ module Program =
             printfn "  A swarm whose n² qubits exceed the backend is assigned in blocks of"
             printfn "  ⌊√limit⌋ drones (BlockAssignment): --block <k> asks for blocks of k."
             printfn "  Scale run: dotnet run -- --drones 200 --formations 5 [--sweeps 12]"
+            printfn "  Blocks lower squared distances plus a cost for every pair of paths"
+            printfn "  inside the gate's bound: --conflict <w> weights it (0 unless given)."
             printfn "  (generated formations, every transition in blocks; no missions exported,"
             printfn "  show.svg animates the drones in the colours of their lights). With"
-            printfn "  --lights the formations are a globe whose lands turn, a diamond, a cube"
-            printfn "  and a star with its inner lights off: dotnet run -- --drones 100 --lights"
+            printfn "  --lights the formations are a globe whose lands turn, a diamond, a star"
+            printfn "  with its inner lights off, a turning mug, a doughnut and a turning cube:"
+            printfn "  dotnet run -- --drones 100 --lights"
+            printfn "  A scale run writes every drone's timed keyframes for a show controller,"
+            printfn "  zipped as swarm-light-show-trajectories.zip (--home-lat/--home-lon put"
+            printfn "  the origin on a site). With --mavlink and the site it also writes"
+            printfn "  ArduPilot waypoint missions, which cannot fly legs of different lengths"
+            printfn "  together: see the README before using them."
             0
         elif (Cli.getOr "drones" "4" args |> int) <> 4 then
             scaleMain args
@@ -2798,6 +3576,7 @@ module Program =
             let outDir = Cli.getOr "out" (Path.Combine("runs", "drone", "swarm")) args
             let shots = Cli.getOr "shots" "2000" args |> int
             let blockDrones = blockOption args
+            let conflict = conflictOption args
 
             Data.ensureDirectory outDir
             let runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
@@ -2872,7 +3651,7 @@ module Program =
                         TransitionSafety.minSeparation currentPositions (TransitionSafety.ends toFormation candidate n)
                         >= bound - 1e-9
 
-                    match Solver.solve backend shots blockDrones safe currentPositions toFormation.Positions distMatrix with
+                    match Solver.solve backend shots blockDrones conflict safe currentPositions toFormation.Positions distMatrix with
                     | Ok(a, how) ->
                         printfn "  QAOA %s" how
                         (a, "Quantum (QAOA)")
@@ -3093,10 +3872,11 @@ This example is **RULE 1 compliant**:
                 match explicitScale with
                 | Some s -> (s, flownAt s)
                 | None ->
+                    // No scale separates paths that meet: a closest approach of 0 ends it
                     let rec grow s round =
                         let flown = flownAt s
 
-                        if flown >= target || round >= 8 then
+                        if flown >= target || round >= 8 || flown <= 1e-9 then
                             (s, flown)
                         else
                             grow (s * max 1.01 (target / flown)) (round + 1)
@@ -3126,6 +3906,7 @@ This example is **RULE 1 compliant**:
                         Name = "weighted target"
                         Positions = targets
                         Colors = None
+                        Flow = false
                     }
 
                 let safe (candidate: Assignment[]) =
@@ -3134,7 +3915,7 @@ This example is **RULE 1 compliant**:
 
                 printfn "Indoor downwash gate: re-solving a transition by QAOA on weighted distances..."
 
-                Solver.solve backend shots blockDrones safe starts targets distances
+                Solver.solve backend shots blockDrones conflict safe starts targets distances
                 |> Result.map (fun (a, how) ->
                     printfn "  QAOA %s" how
                     (a, how))

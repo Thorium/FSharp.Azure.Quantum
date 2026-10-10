@@ -21,6 +21,8 @@ type Frame =
         Name: string
         Positions: (float * float * float)[]
         Lights: (int * int * int)[]
+        /// The drones pass through without holding: a step of one continuous move
+        Flow: bool
     }
 
 let private inv = CultureInfo.InvariantCulture
@@ -36,8 +38,15 @@ let Hold = 0.55
 [<Literal>]
 let LightStepS = 0.15
 
+/// Seconds of flight into or out of a frame the drones flow through, so a deformation or
+/// a turn in many small steps plays as one move.
+[<Literal>]
+let FlowStepS = 0.3
+
 /// Writes `frames` to `path`: `secondsPerFrame` for each formation the drones fly to (held
-/// for Hold of it, then the flight to the next), LightStepS for one they hold through.
+/// for Hold of it, then the flight to the next), LightStepS for one they hold through, and
+/// no hold at a frame the drones flow through (the flight to the next starts on arrival
+/// and takes FlowStepS, as does the flight into it).
 let write (path: string) (title: string) (secondsPerFrame: float) (frames: Frame[]) : unit =
     if frames.Length = 0 then
         invalidArg "frames" "a picture needs at least one formation"
@@ -82,8 +91,13 @@ let write (path: string) (title: string) (secondsPerFrame: float) (frames: Frame
     // Whether the drones fly to frame k, or only change their lights there
     let flown (k: int) = k > 0 && frames.[k].Positions <> frames.[k - 1].Positions
 
-    // The timeline: a frame holds for Hold of its seconds and then flies, when the next
-    // frame is flown to, else holds a light step
+    // Whether the drones leave frame k the moment they arrive
+    let flows (k: int) = k > 0 && k < n - 1 && frames.[k].Flow && flown (k + 1)
+
+    // The timeline: a frame the drones fly to holds for Hold of its seconds when the next
+    // is flown to (or it is the last), else a light step; a frame reached by a light step
+    // holds one light step whatever follows, so a turn of the lights ends and the flight
+    // begins without a pause; a frame flown through holds nothing
     let arriveS = Array.zeroCreate<float> n
     let departS = Array.zeroCreate<float> n
 
@@ -92,27 +106,41 @@ let write (path: string) (title: string) (secondsPerFrame: float) (frames: Frame
 
         departS.[k] <-
             arriveS.[k]
-            + (if nextFlown || k = n - 1 then secondsPerFrame * Hold else LightStepS)
+            + (if flows k then 0.0
+               elif k = n - 1 then secondsPerFrame * Hold
+               elif nextFlown && (k = 0 || flown k) then secondsPerFrame * Hold
+               else LightStepS)
 
         if k < n - 1 then
-            arriveS.[k + 1] <- departS.[k] + (if nextFlown then secondsPerFrame * (1.0 - Hold) else 0.0)
+            arriveS.[k + 1] <-
+                departS.[k]
+                + (if not nextFlown then 0.0
+                   elif flows k || flows (k + 1) then FlowStepS
+                   else secondsPerFrame * (1.0 - Hold))
 
     let duration = departS.[n - 1]
-    let key (t: float) = (t / duration).ToString("0.####", inv)
+    let key (t: float) = (t / duration).ToString("0.###", inv)
     let arrive (k: int) = key arriveS.[k]
     let depart (k: int) = key departS.[k]
 
     // Motion needs a key only where a frame is flown to or from; between them the drones
-    // hold through any number of light steps
+    // hold through any number of light steps. A frame flown through is one key, not a
+    // held pair.
     let motionFrames =
         [ 0 .. n - 1 ]
         |> List.filter (fun k -> k = 0 || k = n - 1 || flown k || flown (k + 1))
 
     let motionKeys =
-        String.Join(";", [ for k in motionFrames do yield arrive k; yield depart k ])
+        String.Join(
+            ";",
+            [
+                for k in motionFrames do
+                    yield arrive k
 
-    let lightKeys =
-        String.Join(";", "0" :: [ for k in 0 .. n - 2 -> depart k ])
+                    if not (flows k) then
+                        yield depart k
+            ]
+        )
 
     let svg = StringBuilder()
     let line (s: string) = svg.Append(s).Append('\n') |> ignore
@@ -168,6 +196,8 @@ let write (path: string) (title: string) (secondsPerFrame: float) (frames: Frame
             label name "0" None
         elif k = n - 1 then
             label (sprintf "%d / %d: %s" (k + 1) n name) (arrive k) None
+        elif flows k then
+            label (sprintf "%s → %s" name frames.[k + 1].Name) (arrive k) (Some(arrive (k + 1)))
         elif flown (k + 1) then
             label (sprintf "%d / %d: %s" (k + 1) n name) (arrive k) (Some(depart k))
             label (sprintf "%s → %s" name frames.[k + 1].Name) (depart k) (Some(arrive (k + 1)))
@@ -199,17 +229,37 @@ let write (path: string) (title: string) (secondsPerFrame: float) (frames: Frame
                         "<animateTransform attributeName=\"transform\" type=\"translate\" dur=\"%ss\" repeatCount=\"indefinite\" calcMode=\"linear\" keyTimes=\"%s\" values=\"%s\"/>"
                         (num duration)
                         motionKeys
-                        (String.Join(";", [ for k in motionFrames do yield at where.[k]; yield at where.[k] ]))
+                        (String.Join(
+                            ";",
+                            [
+                                for k in motionFrames do
+                                    yield at where.[k]
+
+                                    if not (flows k) then
+                                        yield at where.[k]
+                            ]
+                        ))
+
+            // The light changes when the drone leaves for a frame lit otherwise; only those
+            // changes are keyed, so a drone lit the same through many frames costs nothing
+            let changes =
+                [
+                    yield "0", lights.[0]
+
+                    for k in 1 .. n - 1 do
+                        if lights.[k] <> lights.[k - 1] then
+                            yield depart (k - 1), lights.[k]
+                ]
 
             let light =
-                if n = 1 || lights |> Array.forall ((=) lights.[0]) then
+                if changes.Length = 1 then
                     ""
                 else
                     sprintf
                         "<animate attributeName=\"fill\" dur=\"%ss\" repeatCount=\"indefinite\" calcMode=\"discrete\" keyTimes=\"%s\" values=\"%s\"/>"
                         (num duration)
-                        lightKeys
-                        (String.Join(";", lights))
+                        (String.Join(";", changes |> List.map fst))
+                        (String.Join(";", changes |> List.map snd))
 
             line (
                 sprintf

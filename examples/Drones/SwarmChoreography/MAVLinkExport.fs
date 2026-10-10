@@ -301,7 +301,16 @@ let legSamples (stepS: float) (speedMs: float) (a: LocalPoint) (b: LocalPoint) :
                 Z = a.Z + f * (b.Z - a.Z)
             }
 
-        let n = max 1 (int (Math.Ceiling(total / stepS)))
+        let steps = Math.Ceiling(total / stepS)
+
+        // A leg whose time is not a number, or past what an array can hold, is a plan
+        // error (a scale or a speed that is not finite), named rather than overflowed
+        if not (Double.IsFinite steps) || steps > 1e8 then
+            invalidArg
+                "speedMs"
+                $"a leg of %g{length} m at %g{speedMs} m/s takes %g{total} s; the plan's scale or speed is not finite"
+
+        let n = max 1 (int steps)
         Array.init (n + 1) (fun i -> let t = min total (float i * total / float n) in (t, (if i = n then b else at t)))
 
 /// One transition flown by all drones together: T is the slowest drone's leg
@@ -573,37 +582,46 @@ let showSeparation
 
     let tracks = Array.init numDrones track
 
-    let at (samples: (float * LocalPoint)[]) (t: float) =
-        match samples |> Array.tryFindIndex (fun (ti, _) -> ti >= t) with
-        | None -> snd (Array.last samples)
-        | Some 0 -> snd samples.[0]
-        | Some i ->
-            let t0, p0 = samples.[i - 1]
-            let t1, p1 = samples.[i]
-            let f = if t1 > t0 then (t - t0) / (t1 - t0) else 1.0
-
-            {
-                X = p0.X + f * (p1.X - p0.X)
-                Y = p0.Y + f * (p1.Y - p0.Y)
-                Z = p0.Z + f * (p1.Z - p0.Z)
-            }
-
     let tEnd = tracks |> Array.map (Array.last >> fst) |> Array.max
 
-    [ 0.0 .. 0.05 .. tEnd ]
-    |> List.map (fun t ->
-        let here = tracks |> Array.map (fun s -> at s t)
+    // The time grid rises, so each drone's place at t is its first sample at or after t,
+    // interpolated from the one before, found by a cursor that only moves forward (a
+    // search from the start at every step is quadratic in the show's length)
+    let cursors = Array.zeroCreate<int> numDrones
+    let here = Array.zeroCreate<LocalPoint> numDrones
+    let mutable closest = Double.PositiveInfinity
 
-        [
-            for i in 0 .. numDrones - 1 do
-                for j in i + 1 .. numDrones - 1 do
-                    let a, b = here.[i], here.[j]
+    for t in 0.0 .. 0.05 .. tEnd do
+        for d in 0 .. numDrones - 1 do
+            let samples = tracks.[d]
 
-                    if a.Z >= 0.1 || b.Z >= 0.1 then
-                        Math.Sqrt((a.X - b.X) ** 2.0 + (a.Y - b.Y) ** 2.0 + (a.Z - b.Z) ** 2.0)
-        ]
-        |> List.fold min Double.PositiveInfinity)
-    |> List.fold min Double.PositiveInfinity
+            while cursors.[d] < samples.Length && fst samples.[cursors.[d]] < t do
+                cursors.[d] <- cursors.[d] + 1
+
+            here.[d] <-
+                if cursors.[d] >= samples.Length then
+                    snd (Array.last samples)
+                elif cursors.[d] = 0 then
+                    snd samples.[0]
+                else
+                    let t0, p0 = samples.[cursors.[d] - 1]
+                    let t1, p1 = samples.[cursors.[d]]
+                    let f = if t1 > t0 then (t - t0) / (t1 - t0) else 1.0
+
+                    {
+                        X = p0.X + f * (p1.X - p0.X)
+                        Y = p0.Y + f * (p1.Y - p0.Y)
+                        Z = p0.Z + f * (p1.Z - p0.Z)
+                    }
+
+        for i in 0 .. numDrones - 1 do
+            for j in i + 1 .. numDrones - 1 do
+                let a, b = here.[i], here.[j]
+
+                if a.Z >= 0.1 || b.Z >= 0.1 then
+                    closest <- min closest (Math.Sqrt((a.X - b.X) ** 2.0 + (a.Y - b.Y) ** 2.0 + (a.Z - b.Z) ** 2.0))
+
+    closest
 
 /// Create a complete swarm mission from show data
 let createSwarmMission

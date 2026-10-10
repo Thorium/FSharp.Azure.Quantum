@@ -881,9 +881,10 @@ module SwarmAdaptation =
 
     /// Most sweeps of a block search (BlockAssignment) when the swarm is wider than one
     /// circuit; the search ends itself after a sweep that improves nothing. The show's
-    /// measured bound (Solver.BlockSweeps: 50 and 100 drones converged in at most 8).
+    /// measured bound (Solver.BlockSweeps: 100 drones needed up to 17 sweeps to pass the
+    /// gate, 50 drones 4-6).
     [<Literal>]
-    let BlockSweeps = 12
+    let BlockSweeps = 24
 
     /// Run QAOA to find an assignment: the most frequent sampled bitstring that decodes to a
     /// valid assignment `accept` takes (local position indices), retried by QaoaAttempts.
@@ -912,7 +913,8 @@ module SwarmAdaptation =
                 droneIds |> List.mapi (fun i droneId -> droneId, assignment.[i]) |> Map.ofList
 
             // Squared distances, the objective under which a gated assignment exists (CAPT);
-            // the gate is the caller's closure, so no pair steers the blocks here
+            // the gate is the caller's closure, so no pair steers the blocks here and no
+            // pair cost is known
             BlockAssignment.solve
                 backend
                 shots
@@ -921,6 +923,8 @@ module SwarmAdaptation =
                 (toMap >> accept)
                 (fun _ -> [||])
                 (fun drone slot -> distanceMatrix.[drone, slot] ** 2.0)
+                (fun _ _ _ _ -> 0.0)
+                ValueNone
                 starts
                 targets
             |> Result.map (fun (assignment, how) -> toMap assignment, how)
