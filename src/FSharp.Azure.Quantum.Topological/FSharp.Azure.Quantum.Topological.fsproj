@@ -42,7 +42,7 @@ v0.4.14: magic-state T injection applies T; rejected distillation batches stay r
 
     <!-- Author & License -->
     <Authors>Tuomas Hietanen</Authors>
-    <PackageTags>F#;FSharp;Quantum;Topological;Anyon;Majorana;Fibonacci;Ising;TQFT;Braiding;Azure</PackageTags>
+    <PackageTags>F#;FSharp;dotnet;Quantum;QuantumComputing;Topological;Anyon;Majorana;Fibonacci;Ising;TQFT;Braiding;Simulator;Azure</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
     <Copyright>Unlicense - Public Domain</Copyright>

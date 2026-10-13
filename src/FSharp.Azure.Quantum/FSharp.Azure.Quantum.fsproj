@@ -76,7 +76,7 @@ v1.5.1: QUBO encoding fixes; QAOA solutions report how often they were sampled
 
     <!-- Author & License -->
     <Authors>Tuomas Hietanen</Authors>
-    <PackageTags>F#;FSharp;Quantum;Azure;Computing;Optimization;TSP;Portfolio;QAOA;Circuit</PackageTags>
+    <PackageTags>F#;FSharp;dotnet;Quantum;QuantumComputing;Azure;AzureQuantum;Optimization;QuantumOptimization;QAOA;QUBO;Simulator;TSP;Portfolio;Circuit</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
     <Copyright>Unlicense - Public Domain</Copyright>

@@ -13,7 +13,7 @@
     <Summary>AWS Braket plugin — gate QPUs (IonQ/Rigetti/IQM/OQC/Infleqtion) via OpenQASM 3.0 and QuEra neutral-atom analog via AHS, isolating the AWS SDK dependency from the core package.</Summary>
 
     <Authors>Tuomas Hietanen</Authors>
-    <PackageTags>F#;FSharp;Quantum;AWS;Braket;QuEra;OQC;Infleqtion;NeutralAtom</PackageTags>
+    <PackageTags>F#;FSharp;dotnet;Quantum;QuantumComputing;AWS;Braket;QuEra;OQC;Infleqtion;NeutralAtom;QAOA;QUBO</PackageTags>
     <PackageReleaseNotes>v0.6.2: Rebuilt against FSharp.Azure.Quantum v1.6.2
 
 v0.6.1: Rebuilt against FSharp.Azure.Quantum v1.6.1
