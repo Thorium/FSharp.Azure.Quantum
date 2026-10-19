@@ -7,11 +7,9 @@
 
   <ItemGroup>
     <Compile Include="Board.fs" />
-    <Compile Include="AI/ThreatDetection.fs" />
+    <Compile Include="AI/Evaluation.fs" />
     <Compile Include="AI/Classical.fs" />
     <Compile Include="AI/Quantum.fs" />
-    <Compile Include="AI/Hybrid.fs" />
-    <Compile Include="AI/QuantumTreeSearch.fs" />
     <Compile Include="UI/ConsoleRenderer.fs" />
     <Compile Include="UI/InputHandler.fs" />
     <Compile Include="Program.fs" />

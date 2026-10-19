@@ -33,12 +33,19 @@ module InputHandler =
             let mutable confirmed = false
             let mutable useTyping = false
 
-            // Initial render with cursor
-            renderBoard (Some { Row = cursorRow; Col = cursorCol })
+            // One whole frame: the board with the cursor, the controls and the cursor position.
+            // The position line is padded so a shorter one covers a longer one drawn before it.
+            let redraw () =
+                renderBoard (Some { Row = cursorRow; Col = cursorCol })
 
-            AnsiConsole.MarkupLine(
-                "[cyan]Controls:[/] ↑↓←→ Move | [green]Enter[/] Place | [green]T[/] Type coords | [red]Esc/Q[/] Quit"
-            )
+                AnsiConsole.MarkupLine(
+                    "[cyan]Controls:[/] ↑↓←→ Move | [green]Enter[/] Place | [green]T[/] Type coords | [red]Esc/Q[/] Quit"
+                )
+
+                AnsiConsole.MarkupLine($"[yellow]→[/] Row {cursorRow}, Col {cursorCol}    ")
+                ConsoleRenderer.endFrame ()
+
+            redraw ()
 
             while not ((quit || confirmed) || useTyping) do
                 let key = Console.ReadKey(true)
@@ -46,20 +53,16 @@ module InputHandler =
                 match key.Key with
                 | ConsoleKey.UpArrow ->
                     cursorRow <- max 0 (cursorRow - 1)
-                    renderBoard (Some { Row = cursorRow; Col = cursorCol })
-                    AnsiConsole.MarkupLine($"[yellow]→[/] Row {cursorRow}, Col {cursorCol}")
+                    redraw ()
                 | ConsoleKey.DownArrow ->
                     cursorRow <- min (board.Config.Size - 1) (cursorRow + 1)
-                    renderBoard (Some { Row = cursorRow; Col = cursorCol })
-                    AnsiConsole.MarkupLine($"[yellow]→[/] Row {cursorRow}, Col {cursorCol}")
+                    redraw ()
                 | ConsoleKey.LeftArrow ->
                     cursorCol <- max 0 (cursorCol - 1)
-                    renderBoard (Some { Row = cursorRow; Col = cursorCol })
-                    AnsiConsole.MarkupLine($"[yellow]→[/] Row {cursorRow}, Col {cursorCol}")
+                    redraw ()
                 | ConsoleKey.RightArrow ->
                     cursorCol <- min (board.Config.Size - 1) (cursorCol + 1)
-                    renderBoard (Some { Row = cursorRow; Col = cursorCol })
-                    AnsiConsole.MarkupLine($"[yellow]→[/] Row {cursorRow}, Col {cursorCol}")
+                    redraw ()
                 | ConsoleKey.Enter -> confirmed <- true
                 | ConsoleKey.Escape
                 | ConsoleKey.Q -> quit <- true
@@ -166,6 +169,54 @@ module InputHandler =
                 ConsoleRenderer.displayError "Invalid input! Using standard 15x15."
                 BoardConfig.standard15x15
         | _ -> BoardConfig.standard15x15
+
+    /// Run `think` (an AI choosing its move) behind a "Thinking..." spinner, letting Esc quit
+    /// the game after a confirmation. Some result, or None when the player quits.
+    /// On a quit the search is not abandoned midway but left to finish first (it takes about
+    /// a second at most), so two searches never share the AIs' random number generators.
+    let thinkUnlessQuit (think: unit -> 'T) : 'T option =
+        let search = Threading.Tasks.Task.Run(fun () -> think ())
+
+        // Console.KeyAvailable throws when input is redirected; then there is no Esc to see
+        let keyAvailable () =
+            try
+                Console.KeyAvailable
+            with :? InvalidOperationException ->
+                false
+
+        // Spin until the search finishes (false) or Esc is pressed (true); other keys are
+        // dropped so they do not carry over into the player's next move
+        let spin label =
+            AnsiConsole
+                .Status()
+                .Spinner(Spinner.Known.Dots)
+                .Start(
+                    label,
+                    fun _ ->
+                        let mutable escape = false
+
+                        while not search.IsCompleted && not escape do
+                            if keyAvailable () then
+                                escape <- Console.ReadKey(true).Key = ConsoleKey.Escape
+                            else
+                                Threading.Thread.Sleep 30
+
+                        escape
+                )
+
+        let rec wait () =
+            if spin "Thinking... [grey](Esc to quit)[/]" then
+                if AnsiConsole.Confirm("[yellow]Quit this game?[/]", false) then
+                    spin "Stopping..." |> ignore
+                    search.Wait()
+                    None
+                else
+                    wait ()
+            else
+                // GetResult rethrows a search failure as itself, not wrapped
+                Some(search.GetAwaiter().GetResult())
+
+        wait ()
 
     /// Wait for player to press any key
     let waitForKey () : unit =

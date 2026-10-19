@@ -9,138 +9,146 @@ module Program =
 
     /// AI player type
     type AIPlayer =
-        | ClassicalAI
+        | ClassicalAI of Evaluation.Style
+        /// Classical exhaustive two-move look-ahead: the reference for the quantum search
+        | ClassicalDeepAI
         | LocalQuantumAI
         | LocalHybridAI
         | TopologicalQuantumAI
+
+    [<RequireQualifiedAccess>]
+    type Source =
+        | Threat
+        | Grover
+        | Classical
+        | ClassicalDeep
+        | HybridClassical
+        | HybridQuantum
+
+        override this.ToString() =
+            match this with
+            | Source.Threat -> "threat"
+            | Source.Grover -> "grover"
+            | Source.Classical -> "classical"
+            | Source.ClassicalDeep -> "classical-deep"
+            | Source.HybridClassical -> "hybrid-classical"
+            | Source.HybridQuantum -> "hybrid-quantum"
+
+    /// How an AI chose its move, and what a quantum search cost
+    type MoveReport =
+        {
+            Source: Source
+            Quantum: QuantumSearch.Metrics option
+        }
 
     /// Game result
     type GameResult =
         {
             Winner: Cell option
             TotalMoves: int
-            AIMetrics: LocalHybrid.MoveMetrics list
+            Reports: MoveReport list
             FinalBoard: Board // Added to preserve final board state
         }
 
-    /// Calculate adaptive candidate count for quantum AIs based on game phase
-    let private getQuantumCandidateCount (board: Board) : int =
-        let moveNumber = board.MoveHistory.Length
-        let boardSize = board.Config.Size
-        let totalCells = boardSize * boardSize
-        let occupancy = float moveNumber / float totalCells
+    // Each backend is created once and kept for every move: setting one up is the costly
+    // part to repeat, while a quantum state cannot be kept between searches.
+    let private localBackend =
+        lazy (FSharp.Azure.Quantum.Backends.LocalBackendFactory.createUnified ())
 
-        // Scale candidates: start small (15), grow in midgame (up to 50), shrink in endgame
-        if moveNumber < 6 then 15 // Early game: few relevant positions
-        elif occupancy < 0.15 then 25 // Early-mid: standard
-        elif occupancy < 0.30 then 40 // Midgame: more nuance needed
-        elif occupancy < 0.50 then 50 // Late-mid: peak complexity
-        else 35 // Endgame: fewer open positions
+    // Ising encoding, 20 anyons → 9 logical qubits, so shallower forcing searches
+    let private topologicalBackend =
+        lazy (FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 20)
 
     /// Play one turn (either player or AI)
-    /// Returns (new board option, quit flag, optional hybrid metrics)
+    /// Returns (new board option, quit flag, how an AI chose its move)
     let playTurn
         (board: Board)
         (isAI: bool)
         (aiPlayer: AIPlayer option)
         (debug: bool)
-        : (Board option * bool * LocalHybrid.MoveMetrics option) =
+        : (Board option * bool * MoveReport option) =
         if isAI then
-            let pos, hybridMetrics =
+            let quantumMove label backend =
+                let move, metrics = QuantumSearch.selectMove board backend
+
+                if debug then
+                    ConsoleRenderer.displayInfo label
+
+                    metrics |> Option.iter (QuantumSearch.describe >> ConsoleRenderer.displayInfo)
+
+                (move,
+                 Some
+                     {
+                         Source = Source.Grover
+                         Quantum = metrics
+                     })
+
+            let pos, report =
                 match aiPlayer with
-                | Some ClassicalAI ->
-                    // Delegate fully to Classical.selectBestMove (includes threat check + randomness)
-                    let move = Classical.selectBestMove board
+                | Some(ClassicalAI style) ->
+                    let source =
+                        match Classical.forcedMove board with
+                        | Some _ -> Source.Threat
+                        | None -> Source.Classical
 
                     if debug then
-                        let label =
-                            match ThreatDetection.getImmediateThreat board with
-                            | Some _ -> "Classical Heuristic (threat)"
-                            | None -> "Classical Heuristic"
+                        ConsoleRenderer.displayInfo $"Classical pattern scan ({style}, {source})"
 
-                        ConsoleRenderer.displayAIThinking label 1 None
-                        AnsiConsole.WriteLine()
+                    (Classical.selectBestMoveWith style board, Some { Source = source; Quantum = None })
 
-                    (move, None)
-
-                | Some LocalQuantumAI ->
-                    // Create local backend for quantum simulation
-                    let backend = FSharp.Azure.Quantum.Backends.LocalBackendFactory.createUnified ()
-                    let candidateCount = getQuantumCandidateCount board
-                    let candidates = Classical.getTopCandidates board candidateCount
-                    let (move, iterations) = LocalQuantum.selectBestMove board backend (Some candidates)
+                | Some ClassicalDeepAI ->
+                    // The same forcing sequences the quantum AI searches on the local simulator
+                    let move, evaluations =
+                        Classical.selectForcingMove
+                            QuantumSearch.ForcingCandidateLimit
+                            (QuantumSearch.depthFor QuantumSearch.MaxSequenceQubits)
+                            board
 
                     if debug then
-                        let usedThreat = iterations = 0 && move.IsSome
-                        let count = if usedThreat then 1 else candidates.Length
+                        ConsoleRenderer.displayInfo $"Classical forcing-sequence search: {evaluations} evaluations"
 
-                        let label =
-                            if usedThreat then
-                                "Local Quantum (threat)"
-                            else
-                                "Local Quantum (Grover's Search)"
+                    (move,
+                     Some
+                         {
+                             Source = Source.ClassicalDeep
+                             Quantum = None
+                         })
 
-                        ConsoleRenderer.displayAIThinking label count None
-                        ConsoleRenderer.displayInfo $"Grover iterations: {iterations}"
-                        AnsiConsole.WriteLine()
+                | Some LocalQuantumAI -> quantumMove "Local quantum simulator" localBackend.Value
 
-                    (move, None)
+                | Some TopologicalQuantumAI -> quantumMove "Topological quantum (Ising anyons)" topologicalBackend.Value
 
                 | Some LocalHybridAI ->
-                    let metrics = LocalHybrid.selectBestMove board
+                    let metrics = LocalHybrid.selectBestMove board localBackend.Value
 
                     if debug then
-                        let strategyName =
-                            match metrics.Strategy with
-                            | LocalHybrid.Classical _ -> "Classical"
-                            | LocalHybrid.Quantum _ -> "Quantum"
+                        ConsoleRenderer.displayInfo (LocalHybrid.explainStrategy metrics)
 
-                        ConsoleRenderer.displayAIThinking strategyName metrics.CandidatesEvaluated None
-                        AnsiConsole.WriteLine()
+                    let source =
+                        match metrics.Strategy with
+                        | LocalHybrid.Classical _ -> Source.HybridClassical
+                        | LocalHybrid.Quantum _ -> Source.HybridQuantum
 
-                        // Show strategy explanation
-                        AnsiConsole.MarkupLine("[grey]{0}[/]", LocalHybrid.explainStrategy metrics)
-                        AnsiConsole.WriteLine()
-
-                    (metrics.Move, Some metrics)
-
-                | Some TopologicalQuantumAI ->
-                    // Create topological backend (Ising encoding, 20 anyons → 9 logical qubits)
-                    let backend =
-                        FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 20
-
-                    let candidateCount = getQuantumCandidateCount board
-                    let candidates = Classical.getTopCandidates board candidateCount
-                    let (move, iterations) = LocalQuantum.selectBestMove board backend (Some candidates)
-
-                    if debug then
-                        let usedThreat = iterations = 0 && move.IsSome
-                        let count = if usedThreat then 1 else candidates.Length
-
-                        let label =
-                            if usedThreat then
-                                "Topological Quantum (threat)"
-                            else
-                                "Topological Quantum (Grover's Search)"
-
-                        ConsoleRenderer.displayAIThinking label count None
-                        ConsoleRenderer.displayInfo $"Grover iterations (topological): {iterations}"
-                        AnsiConsole.WriteLine()
-
-                    (move, None)
+                    (metrics.Move,
+                     Some
+                         {
+                             Source = source
+                             Quantum = metrics.Quantum
+                         })
 
                 | None -> (None, None)
 
             match pos with
             | Some p ->
                 (Board.makeMove board p)
-                |> Result.map (fun newBoard -> Some newBoard, false, hybridMetrics)
+                |> Result.map (fun newBoard -> Some newBoard, false, report)
                 |> Result.defaultWith (fun _ -> None, false, None)
             | None -> (None, false, None)
         else
             // Human player
+            // InputHandler finishes the frame (endFrame) once it has drawn the controls below
             let renderBoardWithCursor cursorPos =
-                ConsoleRenderer.clear ()
+                ConsoleRenderer.beginFrame board.Config.Size
                 ConsoleRenderer.displayTitle ()
                 ConsoleRenderer.renderBoard board cursorPos
                 AnsiConsole.WriteLine()
@@ -163,7 +171,7 @@ module Program =
                 {
                     Winner = Some winner
                     TotalMoves = board.MoveHistory.Length
-                    AIMetrics = []
+                    Reports = []
                     FinalBoard = board
                 }
 
@@ -172,7 +180,7 @@ module Program =
                 {
                     Winner = None
                     TotalMoves = board.MoveHistory.Length
-                    AIMetrics = []
+                    Reports = []
                     FinalBoard = board
                 }
 
@@ -183,13 +191,25 @@ module Program =
                 || (board.CurrentPlayer = White && playerIsBlack)
 
             if isAITurn then
-                ConsoleRenderer.clear ()
+                ConsoleRenderer.beginFrame board.Config.Size
                 ConsoleRenderer.displayTitle ()
                 ConsoleRenderer.renderBoard board None
                 AnsiConsole.WriteLine()
                 ConsoleRenderer.displayTurn board.CurrentPlayer
+                ConsoleRenderer.endFrame ()
 
-            match playTurn board isAITurn (Some aiPlayer) false with
+            let turn () =
+                playTurn board isAITurn (Some aiPlayer) false
+
+            // A spinner under the board while the AI searches, where Esc quits; the human's own
+            // turn has the cursor controls instead
+            let result =
+                if isAITurn then
+                    InputHandler.thinkUnlessQuit turn |> Option.defaultValue (None, true, None)
+                else
+                    turn ()
+
+            match result with
             | (Some newBoard, false, _) -> gameLoop newBoard aiPlayer playerIsBlack
             | (None, true, _) ->
                 // Player quit
@@ -203,31 +223,13 @@ module Program =
                 // Shouldn't happen but handle it
                 None
 
-    [<RequireQualifiedAccess>]
-    type Source =
-        | Threat
-        | Grover
-        | Classical
-        | HybridClassical
-        | HybridQuantum
-        | Hybrid
-
-        override this.ToString() =
-            match this with
-            | Source.Threat -> "threat"
-            | Source.Grover -> "grover"
-            | Source.Classical -> "classical"
-            | Source.HybridClassical -> "hybrid-classical"
-            | Source.HybridQuantum -> "hybrid-quantum"
-            | Source.Hybrid -> "hybrid"
-
     /// Move log entry for debugging
     type MoveLogEntry =
         {
             MoveNumber: int
             Player: Cell
             Position: Position
-            Source: Source // "threat", "grover", "classical", "hybrid-classical", "hybrid-quantum"
+            Source: Source
         }
 
     /// AI vs AI game for benchmarking
@@ -236,30 +238,23 @@ module Program =
         (board: Board)
         (ai1: AIPlayer)
         (ai2: AIPlayer)
-        (metrics: LocalHybrid.MoveMetrics list)
+        (reports: MoveReport list)
         (moveLog: MoveLogEntry list)
         (debug: bool)
         : GameResult * MoveLogEntry list =
+        let finished winner =
+            ({
+                Winner = winner
+                TotalMoves = board.MoveHistory.Length
+                Reports = List.rev reports
+                FinalBoard = board
+             },
+             List.rev moveLog)
+
         // Check game status FIRST (before printing next move)
         match Board.getGameStatus board with
-        | Board.Won winner ->
-            ({
-                Winner = Some winner
-                TotalMoves = board.MoveHistory.Length
-                AIMetrics = metrics
-                FinalBoard = board
-             },
-             List.rev moveLog)
-
-        | Board.Draw ->
-            ({
-                Winner = None
-                TotalMoves = board.MoveHistory.Length
-                AIMetrics = metrics
-                FinalBoard = board
-             },
-             List.rev moveLog)
-
+        | Board.Won winner -> finished (Some winner)
+        | Board.Draw -> finished None
         | Board.InProgress ->
             let moveNum = board.MoveHistory.Length + 1
             let player = board.CurrentPlayer
@@ -270,54 +265,38 @@ module Program =
 
             let currentAI = if player = Black then ai1 else ai2
 
-            // Check if threat detection will fire (to log move source)
-            let threatMove = ThreatDetection.getImmediateThreat board
-
             match playTurn board true (Some currentAI) debug with
-            | (Some newBoard, _, hybridMetrics) ->
-                // Determine the move that was played (head of new board's history)
-                let playedPos = newBoard.MoveHistory.Head
-
-                // Determine move source
-                let source =
-                    match threatMove with
-                    | Some _ -> Source.Threat
-                    | None ->
-                        match currentAI with
-                        | ClassicalAI -> Source.Classical
-                        | LocalQuantumAI
-                        | TopologicalQuantumAI -> Source.Grover
-                        | LocalHybridAI ->
-                            match hybridMetrics with
-                            | Some m ->
-                                match m.Strategy with
-                                | LocalHybrid.Classical _ -> Source.HybridClassical
-                                | LocalHybrid.Quantum _ -> Source.HybridQuantum
-                            | None -> Source.Hybrid
-
+            | (Some newBoard, _, Some report) ->
                 let entry =
                     {
                         MoveNumber = moveNum
                         Player = player
-                        Position = playedPos
-                        Source = source
+                        Position = newBoard.MoveHistory.Head
+                        Source = report.Source
                     }
 
-                // Collect metrics from the actual move (no redundant re-evaluation)
-                let newMetrics =
-                    match hybridMetrics with
-                    | Some m -> m :: metrics
-                    | None -> metrics
+                aiVsAiLoop newBoard ai1 ai2 (report :: reports) (entry :: moveLog) debug
+            | _ -> finished None
 
-                aiVsAiLoop newBoard ai1 ai2 newMetrics (entry :: moveLog) debug
-            | (None, _, _) ->
-                ({
-                    Winner = None
-                    TotalMoves = board.MoveHistory.Length
-                    AIMetrics = metrics
-                    FinalBoard = board
-                 },
-                 List.rev moveLog)
+    /// What the quantum searches of a game cost, against the classical search at the same depth
+    let private quantumSummary (reports: MoveReport list) : (string * string) list =
+        match reports |> List.choose (fun r -> r.Quantum) with
+        | [] -> []
+        | searches ->
+            let total f = searches |> List.sumBy f
+            let queries = total (fun m -> m.OracleQueries)
+            let classical = total (fun m -> m.ClassicalEvaluations)
+
+            [
+                "Quantum searches", $"{searches.Length}"
+                "Avg candidates", $"{searches |> List.averageBy (fun m -> float m.Candidates):F1}"
+                "Max qubits", $"{searches |> List.map (fun m -> m.Qubits) |> List.max}"
+                "Grover circuits", $"{total (fun m -> m.GroverRuns)}"
+                "Oracle queries", $"{queries}"
+                "Exhaustive enumeration, same search", $"{classical}"
+                "Queries / enumeration", $"{float queries / float classical:F2}"
+                "Simulator time", $"{(searches |> List.sumBy (fun m -> m.ElapsedMs)) / 1000.0:F1} s"
+            ]
 
     /// Run player vs AI game
     let runPlayerVsAI (aiPlayer: AIPlayer) : unit =
@@ -370,73 +349,89 @@ module Program =
             // Player quit
             ConsoleRenderer.displayInfo "Game was quit."
 
-    /// Run AI vs AI benchmark
-    let runBenchmark () : unit =
+    /// The AIs to pick from in the menu, with their --ai-vs-ai names
+    let private watchablePlayers =
+        [
+            "Classical (pattern scan)", "classical", ClassicalAI Evaluation.defaultStyle
+            "Classical (forcing-sequence search)", "classical2", ClassicalDeepAI
+            "Quantum (Grover, local simulator)", "quantum", LocalQuantumAI
+            "Hybrid (classical opening, then quantum)", "hybrid", LocalHybridAI
+            "Topological quantum (Ising anyons)", "topological", TopologicalQuantumAI
+        ]
+
+    /// Watch two AIs play each other on the board. The numbers behind each move are in the
+    /// command-line mode (--ai-vs-ai), which this mode names at the end.
+    let runWatchAiVsAi () : unit =
         ConsoleRenderer.clear ()
         ConsoleRenderer.displayTitle ()
-        AnsiConsole.MarkupLine("[bold yellow]Benchmark Mode: Classical vs Local Quantum AI[/]")
+
+        let pick (side: string) =
+            let label =
+                AnsiConsole.Prompt(
+                    SelectionPrompt<string>()
+                        .Title($"[cyan]Who plays {side}?[/]")
+                        .AddChoices(watchablePlayers |> List.map (fun (label, _, _) -> label))
+                )
+
+            watchablePlayers |> List.find (fun (l, _, _) -> l = label)
+
+        let blackLabel, blackName, blackAI = pick "Black (X, moves first)"
+        let whiteLabel, whiteName, whiteAI = pick "White (O)"
+        let board = Board.create (InputHandler.getBoardSize ())
+
+        let render (board: Board) =
+            ConsoleRenderer.beginFrame board.Config.Size
+            ConsoleRenderer.displayTitle ()
+
+            AnsiConsole.MarkupLine(
+                $"[mediumpurple1]X[/] {Markup.Escape blackLabel}  vs  [lime]O[/] {Markup.Escape whiteLabel}"
+            )
+
+            ConsoleRenderer.renderBoard board None
+            AnsiConsole.WriteLine()
+
+        // Each move stays on screen at least this long, so fast AIs can be followed
+        let minimumMoveMs = 400
+
+        let rec watch (board: Board) =
+            match Board.getGameStatus board with
+            | Board.InProgress ->
+                render board
+                ConsoleRenderer.displayTurn board.CurrentPlayer
+                ConsoleRenderer.endFrame ()
+
+                let ai = if board.CurrentPlayer = Black then blackAI else whiteAI
+                let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+
+                match InputHandler.thinkUnlessQuit (fun () -> playTurn board true (Some ai) false) with
+                | None -> (board, Error "Game quit.")
+                | Some(next, _, _) ->
+                    let wait = minimumMoveMs - int stopwatch.ElapsedMilliseconds
+
+                    if wait > 0 then
+                        System.Threading.Thread.Sleep wait
+
+                    match next with
+                    | Some next -> watch next
+                    | None -> (board, Error "The AI found no move.")
+            | finished -> (board, Ok finished)
+
+        let final, outcome = watch board
+        render final
+        ConsoleRenderer.endFrame ()
+
+        match outcome with
+        | Ok status -> ConsoleRenderer.displayGameStatus status
+        | Error message -> ConsoleRenderer.displayInfo message
+
+        AnsiConsole.MarkupLine($"[cyan]Total moves:[/] {final.MoveHistory.Length}")
         AnsiConsole.WriteLine()
 
-        let config = BoardConfig.standard15x15
-        let board = Board.create config
-
-        AnsiConsole.MarkupLine("[cyan]Running benchmark game...[/]")
-        AnsiConsole.WriteLine()
-
-        let startTime = System.Diagnostics.Stopwatch.StartNew()
-        let (result, _moveLog) = aiVsAiLoop board ClassicalAI LocalQuantumAI [] [] true // true = debug mode for interactive
-        startTime.Stop()
-
-        // Display results
-        AnsiConsole.WriteLine()
-        AnsiConsole.MarkupLine("[bold green]Benchmark Complete![/]")
-        AnsiConsole.WriteLine()
-
-        let table = Table(Border = TableBorder.Rounded)
-        table.AddColumn("[bold]Metric[/]") |> ignore
-        table.AddColumn("[bold]Value[/]") |> ignore
-
-        table.AddRow("Total Moves", $"{result.TotalMoves}") |> ignore
-
-        table.AddRow("Game Time", $"{startTime.Elapsed.TotalSeconds:F2} seconds")
-        |> ignore
-
-        table.AddRow(
-            "Winner",
-            match result.Winner with
-            | Some w -> $"{w}"
-            | None -> "Draw"
+        AnsiConsole.MarkupLine(
+            $"[grey]Search costs and the move log for this pairing: Gomoku --ai-vs-ai {blackName} {whiteName}[/]"
         )
-        |> ignore
 
-        // Calculate average metrics from hybrid moves
-        if not result.AIMetrics.IsEmpty then
-            let quantumMoves =
-                result.AIMetrics
-                |> List.filter (fun m ->
-                    match m.Strategy with
-                    | LocalHybrid.Quantum _ -> true
-                    | LocalHybrid.Classical _ -> false)
-
-            let avgCandidates =
-                result.AIMetrics |> List.averageBy (fun m -> float m.CandidatesEvaluated)
-
-            table.AddRow("Avg Candidates per Move", $"{avgCandidates:F1}") |> ignore
-
-            table.AddRow("Quantum Strategy Used", $"{quantumMoves.Length} / {result.AIMetrics.Length} moves")
-            |> ignore
-
-        AnsiConsole.Write(table)
-        AnsiConsole.WriteLine()
-
-        // Show quantum advantage explanation
-        let avgSearchSpace =
-            if result.AIMetrics.IsEmpty then
-                20
-            else
-                int (result.AIMetrics |> List.averageBy (fun m -> float m.CandidatesEvaluated))
-
-        AnsiConsole.WriteLine(LocalQuantum.explainQuantumAdvantage avgSearchSpace (avgSearchSpace / 3))
+        InputHandler.waitForKey ()
 
     /// Main entry point
     [<EntryPoint>]
@@ -451,7 +446,13 @@ module Program =
                 // Parse AI player types
                 let parseAI (name: string) =
                     match name.ToLower() with
-                    | "classical" -> Some ClassicalAI
+                    | "classical" -> Some(ClassicalAI Evaluation.defaultStyle)
+                    | "attacker" -> Some(ClassicalAI Evaluation.Attacker)
+                    | "defender" -> Some(ClassicalAI Evaluation.Defender)
+                    | "pressure" -> Some(ClassicalAI Evaluation.Pressure)
+                    | "builder" -> Some(ClassicalAI Evaluation.Builder)
+                    | "classical2"
+                    | "deep" -> Some ClassicalDeepAI
                     | "quantum"
                     | "localquantum" -> Some LocalQuantumAI
                     | "hybrid"
@@ -514,6 +515,9 @@ module Program =
                             $"[cyan]Avg move time:[/] {startTime.Elapsed.TotalMilliseconds / float result.TotalMoves:F0} ms"
                         )
 
+                    for (name, value) in quantumSummary result.Reports do
+                        AnsiConsole.MarkupLine($"[cyan]{name}:[/] {value}")
+
                     // Always print move coordinate log
                     AnsiConsole.WriteLine()
                     AnsiConsole.MarkupLine("[bold cyan]Move Log (row,col):[/]")
@@ -536,7 +540,7 @@ module Program =
 
                 | _ ->
                     ConsoleRenderer.displayError
-                        "Invalid AI player names. Use: classical, quantum, hybrid, or topological"
+                        "Invalid AI player names. Use: classical, classical2, attacker, defender, pressure, builder, quantum, hybrid, or topological"
 
                     AnsiConsole.WriteLine()
                     AnsiConsole.MarkupLine("[cyan]Usage:[/] Gomoku --ai-vs-ai <ai1> <ai2> [--debug]")
@@ -561,18 +565,24 @@ module Program =
                 AnsiConsole.MarkupLine("  [yellow]Gomoku --help[/]                          - Show this help")
                 AnsiConsole.WriteLine()
                 AnsiConsole.MarkupLine("[bold cyan]AI Players:[/]")
-                AnsiConsole.MarkupLine("  [green]classical[/]     - Classical heuristic AI")
+                AnsiConsole.MarkupLine("  [green]classical[/]     - Classical pattern-table AI (builder style)")
 
                 AnsiConsole.MarkupLine(
-                    "  [green]quantum[/]       - Local Quantum AI (Grover's algorithm with gate-based simulator)"
+                    "  [green]attacker[/], [green]defender[/], [green]pressure[/], [green]builder[/] - Classical AI in a given style"
                 )
 
                 AnsiConsole.MarkupLine(
-                    "  [green]hybrid[/]        - Local Hybrid AI (switches between classical and quantum)"
+                    "  [green]classical2[/]    - Classical forcing-sequence search (the quantum AI's steps, searched classically)"
                 )
 
                 AnsiConsole.MarkupLine(
-                    "  [green]topological[/]   - Topological Quantum AI (Grover's via Ising anyon braiding)"
+                    "  [green]quantum[/]       - Quantum forcing-sequence search by Grover (local simulator, up to 16 qubits)"
+                )
+
+                AnsiConsole.MarkupLine("  [green]hybrid[/]        - Classical for the opening, then the quantum search")
+
+                AnsiConsole.MarkupLine(
+                    "  [green]topological[/]   - Quantum search by Grover via Ising anyon braiding (9 qubits)"
                 )
 
                 AnsiConsole.WriteLine()
@@ -593,10 +603,10 @@ module Program =
                     let mode = InputHandler.getValidGameMode ()
 
                     match mode with
-                    | 1 -> runPlayerVsAI ClassicalAI
+                    | 1 -> runPlayerVsAI (ClassicalAI Evaluation.defaultStyle)
                     | 2 -> runPlayerVsAI LocalQuantumAI
                     | 3 -> runPlayerVsAI LocalHybridAI
-                    | 4 -> runBenchmark ()
+                    | 4 -> runWatchAiVsAi ()
                     | 5 ->
                         running <- false
                         ConsoleRenderer.displaySuccess "Thanks for playing!"

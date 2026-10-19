@@ -227,9 +227,37 @@ module ConsoleRenderer =
     /// Clear the console
     let clear () : unit = AnsiConsole.Clear()
 
+    let private writeEscape (sequence: string) =
+        AnsiConsole.Profile.Out.Writer.Write(sequence)
+        AnsiConsole.Profile.Out.Writer.Flush()
+
+    /// Start a game screen that replaces the previous one. Clearing first would blank the
+    /// window between frames, which shows as flicker on every cursor move; instead the cursor
+    /// goes back to the top-left corner and the new frame is drawn over the old one. Where
+    /// the terminal has no ANSI support, or the window is too short for a frame of a board
+    /// with this many rows (the frame would scroll, and the next one would land out of step),
+    /// this falls back to clearing.
+    let beginFrame (boardRows: int) : unit =
+        let fits =
+            try
+                Console.WindowHeight > boardRows + 10
+            with _ ->
+                false
+
+        if AnsiConsole.Profile.Capabilities.Ansi && fits then
+            writeEscape "\u001b[?25l\u001b[H" // hide the cursor, move it home
+        else
+            clear ()
+
+    /// Finish a frame started by beginFrame: erase what is left of the previous frame below it.
+    let endFrame () : unit =
+        if AnsiConsole.Profile.Capabilities.Ansi then
+            writeEscape "\u001b[J\u001b[?25h" // erase to the end of the screen, show the cursor
+
     /// Display a message with color
     let displayMessage (message: string) (color: string) : unit =
-        AnsiConsole.MarkupLine($"[{color}]{message}[/]")
+        // Escape the text: messages can carry brackets (an exception's stack trace has "String[]")
+        AnsiConsole.MarkupLine($"[{color}]{Markup.Escape message}[/]")
         AnsiConsole.WriteLine()
 
     /// Display error message
@@ -249,7 +277,7 @@ module ConsoleRenderer =
     let displayMenu () : unit =
         let panel =
             Panel(
-                "[cyan]1.[/] Player vs Classical AI\n[cyan]2.[/] Player vs Local Quantum Grover AI\n[cyan]3.[/] Player vs Local Hybrid Grover AI (Recommended)\n[cyan]4.[/] AI vs AI (Benchmark)\n[cyan]5.[/] Exit",
+                "[cyan]1.[/] Player vs Classical AI\n[cyan]2.[/] Player vs Local Quantum Grover AI\n[cyan]3.[/] Player vs Local Hybrid Grover AI (Recommended)\n[cyan]4.[/] Watch AI vs AI\n[cyan]5.[/] Exit",
                 Header = (PanelHeader "Game Modes"),
                 Border = BoxBorder.Rounded,
                 BorderStyle = (Style(foreground = Color.Cyan1))
@@ -262,7 +290,7 @@ module ConsoleRenderer =
     let displayRules () : unit =
         let panel =
             Panel(
-                "[bold yellow]Gomoku Rules:[/]\n\n• Two players: Black (X) and White (O)\n• Black moves first\n• Players alternate placing stones on the intersections of the grid\n• First to get [bold]5 in a row[/] (horizontal, vertical, or diagonal) wins\n• If the board fills up, the game is a draw\n\n[bold cyan]Board Coordinates:[/]\n• Rows and columns are numbered 0-14\n• Enter your move as: row, column (e.g., \"7, 7\" for center)\n\n[bold green]Local Quantum AI Features:[/]\n• Uses real Grover's algorithm with local quantum simulator\n• Demonstrates √N speedup over classical search\n• Switches between classical and quantum based on complexity",
+                "[bold yellow]Gomoku Rules:[/]\n\n• Two players: Black (X) and White (O)\n• Black moves first\n• Players alternate placing stones on the intersections of the grid\n• First to get [bold]5 in a row[/] (horizontal, vertical, or diagonal) wins\n• If the board fills up, the game is a draw\n\n[bold cyan]Board Coordinates:[/]\n• Rows and columns are numbered 0-14\n• Enter your move as: row, column (e.g., \"7, 7\" for center)\n\n[bold green]Local Quantum AI Features:[/]\n• Finds forcing wins (chains of fours) with Grover's algorithm on a local simulator\n• Same game knowledge as the classical AI; only the search differs\n• About √N oracle queries where enumerating the sequences takes N",
                 Header = (PanelHeader "How to Play"),
                 Border = BoxBorder.Double,
                 BorderStyle = (Style(foreground = Color.Yellow))
