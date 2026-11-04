@@ -322,14 +322,18 @@ module RealDWaveBackend =
     // D-WAVE SAPI CLIENT
     // ============================================================================
 
+    /// An HttpClient for SAPI. It doesn't follow redirects: .NET would carry the X-Auth-Token header to wherever one points.
+    let internal createSapiHttpClient (apiToken: string) =
+        let httpClient = new HttpClient(new SocketsHttpHandler(AllowAutoRedirect = false))
+        httpClient.DefaultRequestHeaders.Add("X-Auth-Token", apiToken)
+        httpClient
+
     /// D-Wave SAPI client
     type private DWaveClient(config: DWaveConfig) =
 
-        let httpClient = new HttpClient()
+        let httpClient = createSapiHttpClient config.ApiToken
 
         do
-            httpClient.DefaultRequestHeaders.Add("X-Auth-Token", config.ApiToken)
-
             config.TimeoutMs
             |> Option.iter (fun ms -> httpClient.Timeout <- TimeSpan.FromMilliseconds(float ms))
 
