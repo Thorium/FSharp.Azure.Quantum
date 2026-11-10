@@ -609,12 +609,28 @@ module AnomalyDetector =
 
             let isAnomaly = score > detector.Threshold
 
+            // How far the score is from the threshold, as a share of the room the score
+            // has on its side of it: (score - T) / (1 - T) for an anomaly, (T - score) / T
+            // for a normal sample. Dividing both sides by 1 - T leaves [0, 1] for a normal
+            // sample whenever T is above 0.5.
+            let room =
+                if isAnomaly then
+                    1.0 - detector.Threshold
+                else
+                    detector.Threshold
+
+            let confidence =
+                if room > 0.0 then
+                    min 1.0 (max 0.0 (abs (score - detector.Threshold) / room))
+                else
+                    0.0
+
             return
                 {
                     IsAnomaly = isAnomaly
                     IsNormal = not isAnomaly
                     AnomalyScore = score
-                    Confidence = abs (score - detector.Threshold) / (1.0 - detector.Threshold)
+                    Confidence = confidence
                 }
         }
 

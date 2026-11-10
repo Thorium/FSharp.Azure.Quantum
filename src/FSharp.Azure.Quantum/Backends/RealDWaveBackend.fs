@@ -117,6 +117,9 @@ module RealDWaveBackend =
             QubitSet: Set<int>
             /// Couplers normalized to (min, max), for validation
             CouplerSet: Set<int * int>
+            /// Most reads one submission takes: the upper end of properties.num_reads_range,
+            /// or DWaveTypes.maxReadsPerExecution when the solver reports no range
+            MaxReads: int
         }
 
     /// Encode a float array as base64 little-endian 64-bit doubles (SAPI "qp" encoding)
@@ -378,6 +381,16 @@ module RealDWaveBackend =
                                         |> Seq.map (fun c -> (c.[0].GetInt32(), c.[1].GetInt32()))
                                         |> Seq.toArray
 
+                                    let maxReads =
+                                        match properties.TryGetProperty "num_reads_range" with
+                                        | true, range when
+                                            range.ValueKind = JsonValueKind.Array
+                                            && range.GetArrayLength() = 2
+                                            && range.[1].ValueKind = JsonValueKind.Number
+                                            ->
+                                            max 1 (range.[1].GetInt32())
+                                        | _ -> maxReadsPerExecution
+
                                     let topology =
                                         {
                                             Qubits = qubits
@@ -385,6 +398,7 @@ module RealDWaveBackend =
                                             QubitSet = Set.ofArray qubits
                                             CouplerSet =
                                                 couplers |> Array.map (fun (a, b) -> (min a b, max a b)) |> Set.ofArray
+                                            MaxReads = maxReads
                                         }
 
                                     topologyCache <- Some topology
@@ -404,6 +418,9 @@ module RealDWaveBackend =
         ///   [{ "solver": ..., "type": "ising",
         ///      "data": { "format": "qp", "lin": <b64>, "quad": <b64>, "offset": ... },
         ///      "params": { "num_reads": ... } }]
+        /// `numReads` above the solver's num_reads limit is cut down to the limit (SAPI
+        /// rejects a problem that asks for more); the answer's occurrence counts say how
+        /// many reads were taken.
         member this.SubmitProblemAsync
             (ising: IsingProblem, numReads: int, cancellationToken: CancellationToken)
             : Task<Result<string, string>> =
@@ -432,7 +449,7 @@ module RealDWaveBackend =
                                             // exactly once in PollJobAsync.
                                             offset = 0.0
                                         |}
-                                    ``params`` = {| num_reads = numReads |}
+                                    ``params`` = {| num_reads = min numReads topology.MaxReads |}
                                 |}
 
                             // SAPI expects an array of problem messages
@@ -551,9 +568,21 @@ module RealDWaveBackend =
     // ============================================================================
 
     /// Real D-Wave backend using Leap Cloud API
-    type RealDWaveBackend(config: DWaveConfig) =
+    ///
+    /// Reads: ExecuteToState submits `defaultReads` anneals (default 1, SAPI's own default);
+    /// IAnnealingBackend.ExecuteWithReadsAsync submits the caller's count, cut down to the
+    /// solver's num_reads limit. The returned state holds one sample per read taken. Every
+    /// submission is billed QPU time, so the backend counts as billed
+    /// (IShotSamplingBackend, Shots = `defaultReads`).
+    type RealDWaveBackend(config: DWaveConfig, ?defaultReads: int) =
 
         let client = new DWaveClient(config)
+
+        let defaultReads =
+            match defaultReads with
+            | Some reads when reads < 1 -> invalidArg (nameof defaultReads) $"must be at least 1, got {reads}"
+            | Some reads -> reads
+            | None -> 1
 
         /// Convert a raw SAPI solution (Ising spins) to a DWaveSolution domain type.
         /// D-Wave SAPI returns Ising solutions as {-1, +1} natively.
@@ -576,6 +605,63 @@ module RealDWaveBackend =
             elif solverName.Contains "2000q" then 2048
             else 5000 // Default
 
+        /// Submit `ising` for `reads` anneals and wait for the answer. The state holds the
+        /// reads the solver took (its occurrence counts), which is fewer than `reads` when
+        /// the solver's num_reads limit is lower.
+        let annealAsync
+            (ising: IsingProblem)
+            (reads: int)
+            (ct: CancellationToken)
+            : Task<Result<QuantumState, QuantumError>> =
+            task {
+                match! client.SubmitProblemAsync(ising, reads, ct) with
+                | Error e -> return Error(QuantumError.BackendError("D-Wave Submit", e))
+                | Ok jobId ->
+                    match! client.PollJobAsync(jobId, ising.Offset, ct) with
+                    | Error e -> return Error(QuantumError.BackendError("D-Wave Poll", e))
+                    | Ok solution ->
+                        let dwaveSolutions =
+                            Array.zip3 solution.solutions solution.energies solution.num_occurrences
+                            |> Array.map (fun (spins, energy, occurrences) ->
+                                convertSapiSolution spins energy occurrences)
+                            |> Array.toList
+
+                        return Ok(QuantumState.IsingSamples(box ising, box dwaveSolutions))
+            }
+
+        /// Anneal the problem of a QAOA circuit `reads` times.
+        let annealCircuitAsync
+            (circuit: ICircuit)
+            (reads: int)
+            (ct: CancellationToken)
+            : Task<Result<QuantumState, QuantumError>> =
+            if reads < 1 then
+                Task.FromResult(Error(QuantumError.ValidationError("reads", $"must be > 0, got {reads}")))
+            else
+                match extractFromICircuit circuit with
+                | Error e ->
+                    Task.FromResult(
+                        Error(
+                            QuantumError.ValidationError("QUBO extraction", $"Failed to extract QUBO from circuit: {e}")
+                        )
+                    )
+                | Ok qubo ->
+                    let ising = quboToIsing qubo
+                    let numQubits = getNumVariables qubo
+                    let maxQubits = getMaxQubits config.Solver
+
+                    if numQubits > maxQubits then
+                        Task.FromResult(
+                            Error(
+                                QuantumError.ValidationError(
+                                    "qubit count",
+                                    $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"
+                                )
+                            )
+                        )
+                    else
+                        annealAsync ising reads ct
+
         // ================================================================
         // IQuantumBackend IMPLEMENTATION
         // D-Wave annealing backends extract QUBO from circuits, convert
@@ -587,47 +673,11 @@ module RealDWaveBackend =
 
             member _.NativeStateType = QuantumStateType.Annealing
 
+            /// Anneal the circuit's problem `defaultReads` times and wait for the answer. This
+            /// member has no CancellationToken to pass on; ExecuteToStateAsync and
+            /// ExecuteWithReadsAsync take one.
             member _.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                match extractFromICircuit circuit with
-                | Error e ->
-                    Error(QuantumError.ValidationError("QUBO extraction", $"Failed to extract QUBO from circuit: {e}"))
-                | Ok qubo ->
-                    let ising = quboToIsing qubo
-                    let numQubits = getNumVariables qubo
-                    let maxQubits = getMaxQubits config.Solver
-
-                    if numQubits > maxQubits then
-                        Error(
-                            QuantumError.ValidationError(
-                                "qubit count",
-                                $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"
-                            )
-                        )
-                    else
-                        // Submit to D-Wave and poll for result synchronously
-                        let submitResult =
-                            client.SubmitProblemAsync(ising, 1, CancellationToken.None).GetAwaiter().GetResult()
-
-                        match submitResult with
-                        | Error e -> Error(QuantumError.BackendError("D-Wave Submit", e))
-                        | Ok jobId ->
-                            let pollResult =
-                                client
-                                    .PollJobAsync(jobId, ising.Offset, CancellationToken.None)
-                                    .GetAwaiter()
-                                    .GetResult()
-
-                            match pollResult with
-                            | Error e -> Error(QuantumError.BackendError("D-Wave Poll", e))
-                            | Ok solution ->
-                                // Convert D-Wave SAPI solutions to DWaveSolution format
-                                let dwaveSolutions =
-                                    Array.zip3 solution.solutions solution.energies solution.num_occurrences
-                                    |> Array.map (fun (spins, energy, occurrences) ->
-                                        convertSapiSolution spins energy occurrences)
-                                    |> Array.toList
-
-                                Ok(QuantumState.IsingSamples(box ising, box dwaveSolutions))
+                (annealCircuitAsync circuit defaultReads CancellationToken.None).GetAwaiter().GetResult()
 
             member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
                 let emptyIsing: IsingProblem =
@@ -720,43 +770,7 @@ module RealDWaveBackend =
                 : Task<Result<QuantumState, QuantumError>> =
                 // RealDWaveBackend has true async I/O (client.SubmitProblemAsync / client.PollJobAsync).
                 // ExecuteToState blocks on the same Task pipeline; here it is awaited without blocking.
-                match extractFromICircuit circuit with
-                | Error e ->
-                    Task.FromResult(
-                        Error(
-                            QuantumError.ValidationError("QUBO extraction", $"Failed to extract QUBO from circuit: {e}")
-                        )
-                    )
-                | Ok qubo ->
-                    let ising = quboToIsing qubo
-                    let numQubits = getNumVariables qubo
-                    let maxQubits = getMaxQubits config.Solver
-
-                    if numQubits > maxQubits then
-                        Task.FromResult(
-                            Error(
-                                QuantumError.ValidationError(
-                                    "qubit count",
-                                    $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"
-                                )
-                            )
-                        )
-                    else
-                        task {
-                            match! client.SubmitProblemAsync(ising, 1, ct) with
-                            | Error e -> return Error(QuantumError.BackendError("D-Wave Submit", e))
-                            | Ok jobId ->
-                                match! client.PollJobAsync(jobId, ising.Offset, ct) with
-                                | Error e -> return Error(QuantumError.BackendError("D-Wave Poll", e))
-                                | Ok solution ->
-                                    let dwaveSolutions =
-                                        Array.zip3 solution.solutions solution.energies solution.num_occurrences
-                                        |> Array.map (fun (spins, energy, occurrences) ->
-                                            convertSapiSolution spins energy occurrences)
-                                        |> Array.toList
-
-                                    return Ok(QuantumState.IsingSamples(box ising, box dwaveSolutions))
-                        }
+                annealCircuitAsync circuit defaultReads ct
 
             member this.ApplyOperationAsync
                 (operation: BackendAbstraction.QuantumOperation)
@@ -830,6 +844,17 @@ module RealDWaveBackend =
                             )
                         )
                     )
+
+        interface BackendAbstraction.IAnnealingBackend with
+            member _.ExecuteWithReadsAsync
+                (circuit: ICircuit)
+                (reads: int)
+                (ct: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
+                annealCircuitAsync circuit reads ct
+
+        interface BackendAbstraction.IShotSamplingBackend with
+            member _.Shots = defaultReads
 
         interface IDisposable with
             member _.Dispose() = (client :> IDisposable).Dispose()

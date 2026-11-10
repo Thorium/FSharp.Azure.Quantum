@@ -43,7 +43,7 @@ FSharp.Azure.Quantum is a **quantum-first F# library** for solving combinatorial
 
 ### Is this production-ready?
 
-The current package version is **1.6.2**. It is suitable for:
+The current package version is **1.7.0**. It is suitable for:
 - ✅ Development and prototyping
 - ✅ Academic research and learning
 - ✅ Quantum algorithm experimentation
@@ -209,7 +209,7 @@ Often, by trading qubits for circuit runs. `QuboSplitting` cuts a problem into p
 |---|---|---|---|
 | **Conditioning** | the QUBO is sparse: fixing variables breaks it into pieces that fit, and the fixed variables couple narrowly enough to join (chains, trees, ladders, strips) | a piece runs once per assignment of the fixed variables it touches: 2^b runs for b of them (at most 256 runs by default) | MaxCut, vertex cover, clique, matching, set cover, MAX-SAT, binary ILP and the drug-discovery solvers |
 | **Blocks** | a linear objective under one additive integer limit (a knapsack) | one run per block and share of the capacity (at most 256 by default) | Knapsack (`solveAsync`, or `solveInBlocksAsync` to ask for it) |
-| **Halves** | every subset that sums to a target is wanted (subset-sum) | one search per half and partial sum (at most 256 by default) | `QuantumKnapsackSolver.findAllExactCombinationsAsync` and the `Knapsack.findAll…Async` functions with a backend |
+| **Halves** | every subset that sums to a target is wanted (subset-sum) | one search per half and partial sum (at most 256 by default) | `QuantumKnapsackSolver.findAllExactCombinationsAsync` and the `Knapsack.findAll…Async` functions (on the given backend, or the local simulator when it is `None`) |
 | **Neighbourhood search** (heuristic, off by default) | any QUBO, dense ones included: conditioning does not cut it and the backend cannot hold it | linear in the problem: one run per block of the backend's width per sweep, `MaxSweeps` sweeps at most, all within `MaxShareRuns` | the conditioning solvers above, when `MaxSweeps` is above 0; any problem through `QuboSplitting.searchNeighbourhoodsAsync` |
 
 The neighbourhood search keeps a best assignment so far (the all-zero one to start), samples one block of variables at a time with the rest fixed, and takes a sample of lower energy; a sweep samples every block once, and the search ends after a sweep that improved nothing. Nothing is joined exactly, so the answer is the best sample seen, not a proven optimum. `searchNeighbourhoodsAsync` takes any problem whose blocks you can write as QUBOs (its `Neighbourhoods` record: the blocks of a sweep, a block's QUBO, how a sample is written back, the score, and an `Accept` gate for the problem's own constraints, which the search moves into before it starts demanding it), so a 5000-drone assignment can be improved a block of drones at a time without a 5000²-variable QUBO ever existing (see the SwarmChoreography example's `BlockAssignment`).

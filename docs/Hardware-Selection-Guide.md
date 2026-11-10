@@ -22,8 +22,8 @@ START: What are you trying to do?
 ├─ Medium problem (12-80 qubits) + Can tolerate some noise
 │  └─→ Rigetti (superconducting, fast gates)
 │
-├─ Large optimization problem (100-5000 variables)
-│  └─→ D-Wave Advantage (quantum annealer, QUBO/Ising only)
+├─ Large QUBO/Ising problem laid out on the annealer's working graph
+│  └─→ D-Wave Advantage (quantum annealer; the backend does no minor-embedding)
 │
 └─ Very large problem (>80 qubits gate-based)
    └─→ Wait for future hardware OR use HybridSolver (classical fallback)
@@ -298,15 +298,14 @@ For QPUs with limited connectivity, `CloudBackendFactory.createRigettiRouted` ta
 - **Coherence:** Not applicable (adiabatic evolution, not gates)
 
 **✅ Best For:**
-- **Large-scale optimization** (100-5000 variables)
-  - Portfolio optimization
-  - Job shop scheduling
-  - MaxCut on large graphs
-  - Small routing problems (TSP needs N² binary variables, so even 50 cities is 2,500 variables before embedding)
-- **QUBO problems** (Quadratic Unconstrained Binary Optimization)
-- **Ising model simulations**
-- **Combinatorial optimization** at scale
-- **Fast sampling** once the problem is embedded
+- **QUBO/Ising problems on the solver's working graph**: every variable a working qubit, every coupling one of the solver's couplers
+  - MaxCut and Ising models on hardware-native (sparse) graphs, up to the solver's qubit count
+- **Fast sampling** of such a problem: one submission returns up to 10,000 reads
+
+**What this library's backend does not do:**
+- **Minor-embedding.** `RealDWaveBackend` submits a problem only as it is; one that uses a variable or coupling the solver does not have returns an `Error` and nothing is submitted. Densely coupled problems (portfolio, job-shop scheduling, TSP — N² binary variables, all coupled through penalties) must be embedded onto the working graph by the caller first, which costs several physical qubits per variable. The 5000+ qubits are the hardware graph, not the size of an arbitrary QUBO that runs.
+
+**Reads:** a solver submits the problem once and asks for as many reads as its shots (`NumShots` / `FinalShots`), at most the solver's `num_reads` limit. The samples it works with are those reads.
 
 **❌ NOT Good For:**
 - **General quantum algorithms** (Shor's, Grover, QFT, QPE) - annealer can't run these
@@ -324,6 +323,8 @@ open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 // Reads DWAVE_API_TOKEN (required), DWAVE_ENDPOINT and DWAVE_SOLVER (default "Advantage_system6.1")
+// The ring below runs only if qubits 0-19 and the couplers between neighbours exist on the solver;
+// otherwise the backend returns an Error (no minor-embedding).
 task {
     match RealDWaveBackend.createFromEnv () with
     | Error err -> printfn "D-Wave not configured: %s" err.Message
@@ -345,7 +346,7 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 
 **Cost:** ~$2 per minute of QPU time (cost-effective for large problems)
 
-**When to Choose D-Wave:** You have a **large optimization problem** (>100 variables) expressible as QUBO.
+**When to Choose D-Wave:** You have a QUBO/Ising problem that is already laid out on the solver's working graph, or you embed it yourself before submitting.
 
 ---
 
@@ -360,7 +361,7 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 | **QFT** | IonQ | 3-11 | Deep circuit, needs fidelity |
 | **QPE** | IonQ | 5-11 | High precision critical |
 | **VQE (chemistry)** | IonQ (<4 atoms), Rigetti (4-8 atoms) | 4-20 | Shallow circuits, noise-resilient; the library's chemistry path refuses molecules wider than the backend runs |
-| **QAOA** | Rigetti (medium), D-Wave (large) | 10-5000 | Optimization-focused |
+| **QAOA** | Rigetti (medium); D-Wave anneals the QUBO instead when it lies on the solver's working graph | 10-84 gate-based | Optimization-focused |
 
 ### Optimization Problems
 
@@ -368,16 +369,16 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 |--------------|-----------|-------------------|-----|
 | **Graph Coloring** | <10 | LocalBackend or IonQ | Small, test locally first |
 | | 10-50 | Rigetti | Medium scale |
-| | 50+ | D-Wave | Annealer excels here |
+| | 50+ | Classical (HybridSolver) | The colouring penalties couple every colour of a vertex: not a hardware-native graph, and the D-Wave backend does not embed |
 | **MaxCut** | <10 | LocalBackend or IonQ | Small, test locally |
 | | 10-80 | Rigetti | Gate-based QAOA |
-| | 80+ | D-Wave | Annealer optimal |
+| | 80+ | D-Wave | Only for a graph whose vertices and edges are qubits and couplers of the solver (no embedding in the backend) |
 | **TSP** (N² qubits) | ≤4 cities | LocalBackend | Proof of concept; 3 cities also fit an 11-qubit device |
 | | 5-8 cities | Rigetti | 25-64 qubits |
-| | 9+ cities | D-Wave or classical | 81+ variables; annealer or HybridSolver |
+| | 9+ cities | Classical (HybridSolver) | 81+ densely coupled variables; the D-Wave backend refuses them without an embedding |
 | **Portfolio Opt.** | <10 assets | LocalBackend | Test first |
 | | 10-50 assets | Rigetti | Medium portfolios |
-| | 50+ assets | D-Wave | Large institutional |
+| | 50+ assets | Classical (HybridSolver) | A covariance couples every pair of assets; the D-Wave backend refuses it without an embedding |
 
 ### Quantum Machine Learning
 
@@ -411,7 +412,7 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 | Backend | Cost | When Worth It |
 |---------|------|---------------|
 | LocalBackend | $0 | Always test here first |
-| D-Wave | ~$20-50 | Large optimization (>100 vars) |
+| D-Wave | ~$20-50 | Large QUBOs on the solver's working graph |
 | Rigetti | ~$100-200 | Medium NISQ (20-80 qubits) |
 | IonQ | ~$300-500 | High precision required |
 
@@ -517,7 +518,7 @@ Mitigation is applied to results, not to a backend: ZNE and PEC run your circuit
 | Test small problem (≤20 qubits) | LocalBackend (free) |
 | Solve high-precision chemistry (H2, LiH) | IonQ (UCCSD-VQE; LiH with integrals from an `IntegralProvider` or FCIDUMP) |
 | Solve medium NISQ problem (20-80 qubits) | Rigetti |
-| Solve large optimization (100-5000 vars) | D-Wave Advantage |
+| Sample a large QUBO that lies on the annealer's working graph | D-Wave Advantage |
 | Minimize cost | LocalBackend → Rigetti → IonQ |
 | Maximize accuracy | IonQ → Rigetti → D-Wave |
 | Maximize scale | D-Wave (QUBO only) |

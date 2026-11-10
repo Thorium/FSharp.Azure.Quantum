@@ -193,9 +193,11 @@ module IonQBackend =
         {
             JobId = jobId
             Target = target
+            ProviderId = Some "ionq"
             Name = Some $"IonQ-%s{target}"
             InputData = circuitJson :> obj
             InputDataFormat = CircuitFormat.IonQ_V1
+            OutputDataFormat = Some "ionq.quantum-results.v1"
             InputParams = Map [ ("shots", shots :> obj) ]
             Tags = Map.empty
         }
@@ -393,7 +395,8 @@ module IonQBackend =
                 | Ok(job: QuantumJob) ->
                     // Check job status
                     match job.Status with
-                    | JobStatus.Succeeded ->
+                    | JobStatus.Succeeded
+                    | JobStatus.Completed ->
                         // Step 4: Get results from blob storage
                         match job.OutputDataUri with
                         | None ->
@@ -442,7 +445,10 @@ module IonQBackend =
                         return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
 
                     | JobStatus.Waiting
-                    | JobStatus.Executing ->
+                    | JobStatus.Executing
+                    | JobStatus.Finishing
+                    | JobStatus.Cancelling
+                    | JobStatus.Unknown _ ->
                         return
                             Error(
                                 QuantumError.AzureError(

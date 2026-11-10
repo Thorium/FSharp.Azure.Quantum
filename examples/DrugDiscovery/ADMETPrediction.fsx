@@ -374,7 +374,7 @@ let drugCandidates =
 
             rows
             |> List.map (fun row ->
-                let id =
+                let pid =
                     row.Values
                     |> Map.tryFind "compound_id"
                     |> Option.orElse (row.Values |> Map.tryFind "name")
@@ -386,7 +386,7 @@ let drugCandidates =
                     |> Option.orElse (row.Values |> Map.tryFind "SMILES")
                     |> Option.defaultValue ""
 
-                (id, smiles))
+                (pid, smiles))
             |> List.filter (fun (_, s) -> s <> "")
         | ".smi"
         | ".smiles" ->
@@ -395,9 +395,9 @@ let drugCandidates =
         | ".json" ->
             Data.readJsonRows resolved
             |> List.map (fun row ->
-                let id = row.Values |> Map.tryFind "CompoundId" |> Option.defaultValue "unknown"
+                let pid = row.Values |> Map.tryFind "CompoundId" |> Option.defaultValue "unknown"
                 let smiles = row.Values |> Map.tryFind "Smiles" |> Option.defaultValue ""
-                (id, smiles))
+                (pid, smiles))
             |> List.filter (fun (_, s) -> s <> "")
         | _ ->
             // Treat as plain text SMILES, one per line
@@ -898,7 +898,7 @@ let bbbKernelScores =
 
 let predictions =
     drugCandidates
-    |> List.mapi (fun i (id, smiles) -> predictADMET id smiles bbbKernelScores.[i, 0])
+    |> List.mapi (fun i (pid, smiles) -> predictADMET pid smiles bbbKernelScores.[i, 0])
     |> List.sortByDescending (fun p -> p.OverallADMETScore)
 
 let displayPredictions =

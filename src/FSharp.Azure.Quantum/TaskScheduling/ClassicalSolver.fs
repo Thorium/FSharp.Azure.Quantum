@@ -45,7 +45,7 @@ module ClassicalSolver =
                     // If there are remaining tasks with dependencies, it's a cycle
                     // For now, just append them (this shouldn't happen with valid DAG)
                     List.rev result
-                    @ (remaining |> Map.toList |> List.map (fun (id, _) -> Map.find id taskMap))
+                    @ (remaining |> Map.toList |> List.map (fun (pid, _) -> Map.find pid taskMap))
             | taskId :: rest ->
                 let task = Map.find taskId taskMap
 
@@ -61,7 +61,7 @@ module ClassicalSolver =
 
                 // Remove newly ready tasks from remaining
                 let newRemaining2 =
-                    newRemaining |> Map.filter (fun id _ -> not (List.contains id newReady))
+                    newRemaining |> Map.filter (fun pid _ -> not (List.contains pid newReady))
 
                 sort (rest @ newReady) newRemaining2 (task :: result)
 
@@ -70,7 +70,7 @@ module ClassicalSolver =
             tasks
             |> List.filter (fun t -> not (Map.containsKey t.Id depMap))
             |> List.map (fun t -> t.Id)
-            |> List.sortByDescending (fun id -> (Map.find id taskMap).Priority)
+            |> List.sortByDescending (fun pid -> (Map.find pid taskMap).Priority)
 
         sort initialReady depMap []
 

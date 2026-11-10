@@ -474,6 +474,8 @@ let iqm = CloudBackendFactory.createIqm httpClient workspaceUrl "iqm.sim" 1000
 
 Hardware targets follow the same pattern, for example `"ionq.qpu.aria-1"`, `"rigetti.qpu.ankaa-3"`, `"quantinuum.qpu.h1-1"`, `"atom-computing.qpu.phoenix"` or `"iqm.qpu.garnet"`; check your workspace for the targets it offers. `CloudBackendFactory.createRigettiRouted` additionally takes a device coupling map and inserts SWAP gates so two-qubit gates respect the hardware connectivity.
 
+A cloud backend waits for a job for 5 minutes (Atom Computing: 10). Hardware queues can take longer: each factory function has a `...WithTimeout` form that takes the wait as a last argument, for example `CloudBackendFactory.createIonQWithTimeout httpClient workspaceUrl "ionq.qpu.aria-1" 1000 (TimeSpan.FromHours 2.0)`. When the wait ends, when the caller cancels, or when the job's status cannot be read, the backend asks Azure Quantum to cancel the job and returns an `Error` that names the job id and says whether the cancellation request was accepted.
+
 All cloud backends implement the same `IQuantumBackend` interface (sync and async), so they are interchangeable with `LocalBackend`.
 
 What differs on cloud backends:

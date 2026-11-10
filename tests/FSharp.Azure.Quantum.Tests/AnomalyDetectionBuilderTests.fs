@@ -368,8 +368,17 @@ module AnomalyDetectionBuilderTests =
                         $"AnomalyScore should be in [0,1], got {result.AnomalyScore}"
                     )
 
-                    Assert.True(result.Confidence >= 0.0, $"Confidence should be non-negative, got {result.Confidence}")
+                    Assert.InRange(result.Confidence, 0.0, 1.0)
                     Assert.Equal(not result.IsAnomaly, result.IsNormal)
+
+                    // A threshold near 1 leaves a normal sample far below it: the
+                    // confidence is the share of the room below the threshold, at most 1
+                    match! checkAsync sample { detector with Threshold = 0.99 } CancellationToken.None with
+                    | Ok strict ->
+                        Assert.True(strict.IsNormal)
+                        Assert.InRange(strict.Confidence, 0.0, 1.0)
+                        Assert.Equal((0.99 - strict.AnomalyScore) / 0.99, strict.Confidence, 9)
+                    | Error e -> failwith $"check should succeed, got error: {e}"
                 | Error e -> failwith $"check should succeed, got error: {e}"
             | Error e -> failwith $"train should succeed, got error: {e}"
         }

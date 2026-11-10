@@ -28,7 +28,8 @@ module Rules =
     /// With a backend this is QuantumKnapsackSolver.findAllExactCombinationsAsync: iterative
     /// QAOA that leaves out the cards worth more than the target and splits a table of more
     /// than maxQuantumCards cards into halves joined over their partial sums. Without a
-    /// backend the subsets are enumerated classically. A backend error ends the search with
+    /// backend the subsets are enumerated classically
+    /// (Knapsack.findAllExactCombinationsClassical). A backend error ends the search with
     /// an exception.
     let findCaptures
         (backend: BackendAbstraction.IQuantumBackend option)
@@ -49,7 +50,8 @@ module Rules =
 
             let search =
                 match backend with
-                | None -> Knapsack.findAllExactCombinationsAsync problem None CancellationToken.None
+                | None ->
+                    System.Threading.Tasks.Task.FromResult(Ok(Knapsack.findAllExactCombinationsClassical problem))
                 | Some quantum ->
                     let config =
                         { Quantum.QuantumKnapsackSolver.defaultSubsetSumConfig with

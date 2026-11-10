@@ -246,7 +246,7 @@ type CSharpBuilders private () =
     /// <param name="capacity">Maximum total weight allowed</param>
     static member KnapsackProblem(items: struct (string * float * float)[], capacity: float) =
         let itemList =
-            items |> Array.map (fun struct (id, w, v) -> (id, w, v)) |> Array.toList
+            items |> Array.map (fun struct (pid, w, v) -> (pid, w, v)) |> Array.toList
 
         Knapsack.createProblem itemList capacity
 
@@ -957,10 +957,11 @@ type CSharpBuilders private () =
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
     /// <param name="shots">Number of measurement shots (default: 1000)</param>
     /// <param name="cancellationToken">Token that cancels the optimization</param>
-    /// <returns>Task with optimal pairings or error</returns>
+    /// <returns>Task with the best sampled pairings or error</returns>
     /// <remarks>
-    /// Uses QAOA-based quantum maximum weight matching to find optimal 1:1 pairings
-    /// that maximize total compatibility.
+    /// Uses QAOA-based quantum maximum weight matching to sample 1:1 pairings of high total
+    /// compatibility; PairingResult.WasRepaired and PairingResult.Sampling say whether
+    /// classical repair changed the sample and how it stood among the shots.
     ///
     /// **Business Use Cases:** Recruiting, mentoring, trading, healthcare, ride-sharing.
     /// </remarks>

@@ -80,10 +80,10 @@ open FSharp.Azure.Quantum.Topological
 let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
 let program = topological backend {
-    let! state = initialize AnyonSpecies.AnyonType.Ising 4  // Create 4 sigma anyons
-    do! braid 0                                              // Braid anyons 0 and 1
-    do! braid 2                                              // Braid anyons 2 and 3
-    let! outcome = measure 0                                 // Measure fusion of pair 0
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 2  // 2 logical qubits (6 sigma anyons)
+    do! TopologicalBuilder.braid 0                                     // Braid anyons 0 and 1
+    do! TopologicalBuilder.braid 2                                     // Braid anyons 2 and 3
+    let! outcome = TopologicalBuilder.measure 0                        // Measure fusion of pair 0
     return outcome
 }
 ```
@@ -91,16 +91,18 @@ let program = topological backend {
 ### Running gate-based algorithms on topological backends
 
 ```fsharp
+open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.Topological
 
 // The topological backend implements IQuantumBackend, so standard algorithms work directly
 let backend = TopologicalUnifiedBackendFactory.createIsing 20
 
 // Grover search on topological backend (gate-to-braid compilation happens automatically)
-let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
+let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend Grover.defaultConfig
 
 // QFT on topological backend
-let qftResult = AlgorithmExtensions.qftWithTopology 4 backend qftConfig
+let qftResult = AlgorithmExtensions.qftWithTopology 4 backend QFT.defaultConfig
 
 // Shor's factoring on topological backend
 let shorResult = AlgorithmExtensions.factor15WithTopology backend
@@ -109,6 +111,8 @@ let shorResult = AlgorithmExtensions.factor15WithTopology backend
 ### Railway-oriented composition
 
 ```fsharp
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+
 let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // Sequential operations using Result.bind

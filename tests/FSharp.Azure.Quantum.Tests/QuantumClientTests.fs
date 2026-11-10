@@ -32,6 +32,26 @@ type MockHttpMessageHandler(responseFunc: HttpRequestMessage -> Task<HttpRespons
 
     override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) = responseFunc request
 
+/// The requests a submission makes before it creates the job: the storage/sasUri requests
+/// and the input upload. Some response for those, None for any other request.
+let private uploadPlumbing (request: HttpRequestMessage) : HttpResponseMessage option =
+    let url = request.RequestUri.ToString()
+
+    if url.Contains "/storage/sasUri" then
+        Some(
+            new HttpResponseMessage(
+                HttpStatusCode.OK,
+                Content = new StringContent("""{"sasUri":"https://storage.example/container/inputData?sig=signature"}""")
+            )
+        )
+    elif url.StartsWith "https://storage.example/" then
+        Some(new HttpResponseMessage(HttpStatusCode.Created))
+    else
+        None
+
+[<Literal>]
+let private jobGuid = "11111111-2222-3333-4444-555555555555"
+
 [<Fact>]
 let ``SubmitJobAsync should send PUT request to correct endpoint`` () : Task =
     task {
@@ -39,20 +59,23 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () : Task =
 
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
-                capturedRequest <- Some request
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
+                match uploadPlumbing request with
+                | Some response -> Task.FromResult response
+                | None ->
+                    capturedRequest <- Some request
+                    let response = new HttpResponseMessage(HttpStatusCode.OK)
 
-                response.Content <-
-                    new StringContent(
-                        """{
-            "id": "job-123",
+                    response.Content <-
+                        new StringContent(
+                            $"""{{
+            "id": "{jobGuid}",
             "status": "Waiting",
             "creationTime": "2025-11-22T00:00:00Z",
-            "uri": "https://example.com/jobs/job-123"
-        }"""
-                    )
+            "uri": "https://example.com/jobs/{jobGuid}"
+        }}"""
+                        )
 
-                Task.FromResult(response))
+                    Task.FromResult(response))
 
         let httpClient = new HttpClient(mockHandler)
         let config = makeConfig httpClient
@@ -61,11 +84,13 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () : Task =
 
         let submission =
             {
-                JobId = "job-123"
+                JobId = jobGuid
                 Target = "ionq.simulator"
+                ProviderId = None
                 Name = Some "Test Job"
                 InputData = box "circuit-data"
                 InputDataFormat = CircuitFormat.QIR_V1
+                OutputDataFormat = None
                 InputParams = Map.empty
                 Tags = Map.empty
             }
@@ -73,7 +98,7 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () : Task =
 
         match! client.SubmitJobAsync submission with
         | Ok response ->
-            Assert.Equal("job-123", response.JobId)
+            Assert.Equal(jobGuid, response.JobId)
             Assert.Equal(JobStatus.Waiting, response.Status)
 
             // Verify request details
@@ -81,8 +106,8 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () : Task =
             | Some req ->
                 Assert.Equal(HttpMethod.Put, req.Method)
                 Assert.Contains("/subscriptions/sub-123/resourceGroups/rg-test", req.RequestUri.ToString())
-                Assert.Contains("/providers/Microsoft.Quantum/Workspaces/ws-test", req.RequestUri.ToString())
-                Assert.Contains("/jobs/job-123", req.RequestUri.ToString())
+                Assert.Contains("/providers/Microsoft.Quantum/workspaces/ws-test", req.RequestUri.ToString())
+                Assert.Contains($"/jobs/{jobGuid}?api-version={JobLifecycle.ApiVersion}", req.RequestUri.ToString())
             | None -> Assert.True(false, "Request was not captured")
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
@@ -174,7 +199,7 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () : Task =
             match capturedRequest with
             | Some req ->
                 Assert.Equal(HttpMethod.Post, req.Method)
-                Assert.Contains("/jobs/job-789/cancel", req.RequestUri.ToString())
+                Assert.Contains($"/jobs/job-789:cancel?api-version={JobLifecycle.ApiVersion}", req.RequestUri.ToString())
             | None -> Assert.True(false, "Request was not captured")
         | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
@@ -304,32 +329,36 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () : Task =
 
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
-                attemptCount <- attemptCount + 1
+                match uploadPlumbing request with
+                | Some response -> Task.FromResult response
+                | None ->
+                    // One job-creation request per attempt
+                    attemptCount <- attemptCount + 1
 
-                // First 2 attempts fail with 503, 3rd succeeds
-                if attemptCount < 3 then
-                    let response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                    // First 2 attempts fail with 503, 3rd succeeds
+                    if attemptCount < 3 then
+                        let response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
 
-                    response.Content <-
-                        new StringContent(
-                            """{"error": {"code": "ServiceUnavailable", "message": "Service temporarily unavailable"}}"""
-                        )
+                        response.Content <-
+                            new StringContent(
+                                """{"error": {"code": "ServiceUnavailable", "message": "Service temporarily unavailable"}}"""
+                            )
 
-                    Task.FromResult(response)
-                else
-                    let response = new HttpResponseMessage(HttpStatusCode.OK)
+                        Task.FromResult(response)
+                    else
+                        let response = new HttpResponseMessage(HttpStatusCode.OK)
 
-                    response.Content <-
-                        new StringContent(
-                            """{
-                "id": "job-retry-success",
+                        response.Content <-
+                            new StringContent(
+                                $"""{{
+                "id": "{jobGuid}",
                 "status": "Waiting",
                 "creationTime": "2025-11-22T00:00:00Z",
-                "uri": "https://example.com/jobs/job-retry-success"
-            }"""
-                        )
+                "uri": "https://example.com/jobs/{jobGuid}"
+            }}"""
+                            )
 
-                    Task.FromResult(response))
+                        Task.FromResult(response))
 
         let httpClient = new HttpClient(mockHandler)
 
@@ -359,11 +388,13 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () : Task =
 
         let submission =
             {
-                JobId = "job-retry-success"
+                JobId = jobGuid
                 Target = "ionq.simulator"
+                ProviderId = None
                 Name = Some "Retry Test"
                 InputData = box "circuit-data"
                 InputDataFormat = CircuitFormat.QIR_V1
+                OutputDataFormat = None
                 InputParams = Map.empty
                 Tags = Map.empty
             }
@@ -371,7 +402,7 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () : Task =
 
         match! client.SubmitJobAsync submission with
         | Ok response ->
-            Assert.Equal("job-retry-success", response.JobId)
+            Assert.Equal(jobGuid, response.JobId)
             Assert.Equal(JobStatus.Waiting, response.Status)
             Assert.True((attemptCount = 3), $"Expected 3 attempts, got %d{attemptCount}")
         | Error err -> Assert.True(false, $"Expected success after retries but got error: %A{err}")
@@ -424,11 +455,13 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () : Task =
 
         let submission =
             {
-                JobId = "job-max-retries"
+                JobId = jobGuid
                 Target = "ionq.simulator"
+                ProviderId = None
                 Name = Some "Max Retry Test"
                 InputData = box "circuit-data"
                 InputDataFormat = CircuitFormat.QIR_V1
+                OutputDataFormat = None
                 InputParams = Map.empty
                 Tags = Map.empty
             }
@@ -490,11 +523,13 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () : Task =
 
         let submission =
             {
-                JobId = "job-no-retry"
+                JobId = jobGuid
                 Target = "ionq.simulator"
+                ProviderId = None
                 Name = Some "No Retry Test"
                 InputData = box "invalid-data"
                 InputDataFormat = CircuitFormat.QIR_V1
+                OutputDataFormat = None
                 InputParams = Map.empty
                 Tags = Map.empty
             }
@@ -687,7 +722,7 @@ let ``ListJobsAsync hits the workspace jobs endpoint`` () : Task =
         | Error err -> Assert.True(false, $"Expected empty job list, got error: %A{err}")
         | Ok jobs ->
             Assert.Empty(jobs)
-            Assert.Contains("/providers/Microsoft.Quantum/Workspaces/ws-test/jobs", capturedUrl)
+            Assert.Contains("/providers/Microsoft.Quantum/workspaces/ws-test/jobs", capturedUrl)
             Assert.Contains("api-version=", capturedUrl)
     }
     :> Task

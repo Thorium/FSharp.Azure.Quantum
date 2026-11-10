@@ -335,6 +335,14 @@ else
 
 The generic `GraphOptimization` module (`GraphOptimizationBuilder`) describes graph problems and encodes them as QUBO matrices (`toQubo`, `decodeSolution`), but it does not solve them; use `GraphColoring.solveAsync` to get a coloring.
 
+What its encodings hold:
+
+- **`MinimizeColors`**: one-hot colour bits per node, plus the `NoAdjacentEqual` penalty when that constraint is listed. The QUBO has no term for the number of colours, so its minima are the proper colourings with `NumColors` colours.
+- **`MaximizeCut`**: edge (i, j, w) contributes w·(2·xᵢxⱼ − xᵢ − xⱼ), so the energy is minus the weight of the cut.
+- **`MaximizeEdges` / `MinimizeEdges`**: one bit per edge; the problem's constraints are not in the QUBO.
+
+`decodeSolution` reads the bits as they are. `ObjectiveValue` is the objective of the problem type (`objectiveValue problem solution`: colours used, weight of the cut, total weight of the tour, number of selected edges). `Violations` lists the encoding rules the bits break (a node without exactly one colour or without a side is left out of `NodeAssignments` and reported as `OneValuePerNode`; bits that are no tour) and every constraint of the problem that `validateConstraints` finds broken; `IsFeasible` is true only when there is none. `calculateObjectiveValue`, which guesses the objective from the shape of a solution, is obsolete.
+
 ---
 
 ## Real-World Examples

@@ -96,7 +96,9 @@ module Braket =
 
     /// Parse a Braket gate-model task result JSON into a measurement histogram
     /// (`bitstring -> count`). Handles both the per-shot `measurements` array and the
-    /// `measurementProbabilities` map that some devices/simulators return.
+    /// `measurementProbabilities` map that some devices/simulators return. Throws on malformed
+    /// JSON and on a result that holds neither (FormatException) — the caller wraps. A result
+    /// of an unknown shape is never an empty histogram: that would read as a successful run.
     let parseGateResult (json: string) : Map<string, int> =
         use doc = JsonDocument.Parse(json)
         let root = doc.RootElement
@@ -114,9 +116,13 @@ module Braket =
                 |> Map.change bits (fun existing -> Some(Option.defaultValue 0 existing + 1)))
         | _ ->
             match root.TryGetProperty "measurementProbabilities" with
-            | true, probabilities ->
+            | true, probabilities when probabilities.ValueKind = JsonValueKind.Object ->
                 // Approximate integer counts (scaled) so downstream sees the distribution shape.
                 probabilities.EnumerateObject()
                 |> Seq.map (fun p -> p.Name, int (System.Math.Round(p.Value.GetDouble() * 10000.0)))
                 |> Map.ofSeq
-            | _ -> Map.empty
+            | _ ->
+                raise (
+                    System.FormatException
+                        "The Braket result holds neither a 'measurements' array nor a 'measurementProbabilities' object"
+                )

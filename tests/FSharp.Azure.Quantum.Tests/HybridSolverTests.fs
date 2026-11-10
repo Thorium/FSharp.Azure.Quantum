@@ -174,7 +174,133 @@ module HybridSolverTests =
         let backend =
             FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
 
-        Assert.Equal(0.0, HybridSolver.estimateBackendCostUSD backend 25)
+        let plan = QuantumTspSolver.jobPlan backend QuantumTspSolver.defaultConfig
+        Assert.Equal(0.0, HybridSolver.estimateBackendCostUSD backend 25 2 plan)
+
+    /// A cloud backend class for `target`; it is only asked for its name and shot count.
+    let private cloudBackend (target: string) (shots: int) : IQuantumBackend =
+        let http = new System.Net.Http.HttpClient()
+        let url = "https://example.invalid"
+
+        if target.StartsWith "ionq" then
+            Backends.CloudBackends.IonQCloudBackend(http, url, target, shots) :> IQuantumBackend
+        elif target.StartsWith "rigetti" then
+            Backends.CloudBackends.RigettiCloudBackend(http, url, target, shots) :> IQuantumBackend
+        elif target.StartsWith "quantinuum" then
+            Backends.CloudBackends.QuantinuumCloudBackend(http, url, target, shots) :> IQuantumBackend
+        elif target.StartsWith "iqm" then
+            Backends.CloudBackends.IqmCloudBackend(http, url, target, shots) :> IQuantumBackend
+        else
+            Backends.CloudBackends.AtomComputingCloudBackend(http, url, target, shots) :> IQuantumBackend
+
+    [<Fact>]
+    let ``the TSP estimate prices every job of the configured solve, not one circuit`` () =
+        let backend = cloudBackend "ionq.qpu.aria-1" 100
+        let config = QuantumTspSolver.defaultConfig
+        let plan = QuantumTspSolver.jobPlan backend config
+
+        // Up to 1000 optimizer iterations, each at least one job, and the final sampling.
+        Assert.True(plan.OptimizationJobs >= config.MaxOptimizationIterations, $"%A{plan}")
+        Assert.Equal(1, plan.FinalJobs)
+        // A sampling backend takes its own shots per job, whatever the config asks for.
+        Assert.Equal(100, plan.OptimizationShots)
+        Assert.Equal(100, plan.FinalShots)
+
+        let oneJob = Core.QaoaExecutionHelpers.singleRunPlan backend config.FinalShots
+        let whole = HybridSolver.estimateBackendCostUSD backend 9 config.NumLayers plan
+        let single = HybridSolver.estimateBackendCostUSD backend 9 config.NumLayers oneJob
+
+        Assert.True(single > 0.0)
+        Assert.Equal(float plan.Jobs * single, whole, 6)
+
+    [<Fact>]
+    let ``the TSP estimate follows the configuration passed down`` () =
+        let backend = cloudBackend "rigetti.qpu.ankaa-3" 200
+
+        let cost (config: QuantumTspSolver.QuantumTspConfig) =
+            HybridSolver.estimateBackendCostUSD backend 9 config.NumLayers (QuantumTspSolver.jobPlan backend config)
+
+        let full = cost QuantumTspSolver.defaultConfig
+
+        let short =
+            cost
+                { QuantumTspSolver.defaultConfig with
+                    MaxOptimizationIterations = 20
+                }
+
+        // fastConfig runs one circuit at fixed angles.
+        let fixedAngles = cost QuantumTspSolver.fastConfig
+
+        Assert.Equal(1, (QuantumTspSolver.jobPlan backend QuantumTspSolver.fastConfig).Jobs)
+        Assert.True(full > short && short > fixedAngles && fixedAngles > 0.0, $"{full} > {short} > {fixedAngles}")
+
+    [<Fact>]
+    let ``a billed backend without a price model estimates to infinity`` () =
+        // Quantinuum is charged against a subscription's HQC quota: no per-job USD price.
+        for target in
+            [
+                "iqm.qpu.garnet"
+                "atom-computing.qpu.phoenix"
+                "quantinuum.qpu.h1-1"
+            ] do
+            let backend = cloudBackend target 100
+            let plan = Core.QaoaExecutionHelpers.singleRunPlan backend 1000
+            let cost = HybridSolver.estimateBackendCostUSD backend 10 1 plan
+            Assert.True(System.Double.IsPositiveInfinity cost, $"{target}: {cost}")
+            // No finite budget covers it.
+            Assert.True(cost > System.Double.MaxValue)
+
+    [<Fact>]
+    let ``a provider's free simulator target estimates to zero`` () =
+        for target in [ "ionq.simulator"; "rigetti.sim.qvm"; "iqm.sim"; "atom-computing.sim"; "quantinuum.sim.h1-1sc" ] do
+            let backend = cloudBackend target 100
+            let plan = QuantumTspSolver.jobPlan backend QuantumTspSolver.defaultConfig
+            Assert.Equal(0.0, HybridSolver.estimateBackendCostUSD backend 9 2 plan)
+
+    [<Fact>]
+    let ``a Quantinuum emulator is billed, not a free simulator`` () =
+        let backend = cloudBackend "quantinuum.sim.h1-1e" 100
+        let plan = Core.QaoaExecutionHelpers.singleRunPlan backend 100
+        Assert.True(System.Double.IsPositiveInfinity(HybridSolver.estimateBackendCostUSD backend 9 1 plan))
+
+    [<Fact>]
+    let ``the D-Wave mock is free and the real annealer has no price model`` () =
+        let mock =
+            Backends.DWaveBackend.createMockDWaveBackend Backends.DWaveTypes.Advantage_System6_1 (Some 1)
+            :> IQuantumBackend
+
+        // An annealer is submitted once, for the final shots.
+        let mockPlan = QuantumTspSolver.jobPlan mock QuantumTspSolver.defaultConfig
+        Assert.Equal(1, mockPlan.Jobs)
+        Assert.Equal(QuantumTspSolver.defaultConfig.FinalShots, mockPlan.FinalShots)
+        Assert.Equal(0.0, HybridSolver.estimateBackendCostUSD mock 9 2 mockPlan)
+
+        use real =
+            Backends.RealDWaveBackend.create
+                {
+                    Backends.RealDWaveBackend.ApiToken = "not-a-token"
+                    Endpoint = "https://example.invalid/sapi/v2/"
+                    Solver = "Advantage_system6.1"
+                    TimeoutMs = None
+                }
+
+        let realPlan = QuantumTspSolver.jobPlan real QuantumTspSolver.defaultConfig
+        Assert.Equal(1, realPlan.Jobs)
+        Assert.True(System.Double.IsPositiveInfinity(HybridSolver.estimateBackendCostUSD real 9 2 realPlan))
+
+    [<Fact>]
+    let ``the portfolio estimate counts the angle grid and the final sampling`` () =
+        let backend = cloudBackend "ionq.qpu.aria-1" 100
+        let plan = QuantumPortfolioSolver.jobPlan backend QuantumPortfolioSolver.defaultConfig
+
+        Assert.Equal(
+            1
+            + QuantumPortfolioSolver.angleGridGammas.Length
+              * QuantumPortfolioSolver.angleGridBetas.Length,
+            plan.OptimizationJobs
+        )
+
+        Assert.Equal(1, plan.FinalJobs)
 
     [<Fact>]
     let ``estimateQuantumConfigCostUSD scales with problem size`` () =

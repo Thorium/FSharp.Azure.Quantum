@@ -466,6 +466,10 @@ module QuantumState =
     /// shots, drawn without replacement, so every outcome returned is one the device measured.
     /// When `shots` exceeds the recorded count, all recorded shots are returned — FEWER than
     /// requested. Callers must size statistics by the returned length, not by `shots`.
+    ///
+    /// Annealing samples (IsingSamples) follow the same rule: the result is `shots` of the
+    /// reads the annealer took, drawn without replacement, and all of them when `shots`
+    /// exceeds the reads taken. A state with no reads yields no samples.
     let measure (state: QuantumState) (shots: int) : int[][] =
         let sampleFresh () =
             match state with
@@ -520,11 +524,11 @@ module QuantumState =
 
                 Array.init shots (fun _ -> sampleOnce ())
 
-            | QuantumState.IsingSamples(problem, solutions) ->
-                // Sample from D-Wave annealing solutions using reflection
-                let solutionsArr = objToSeq solutions |> Array.ofSeq
+            | QuantumState.IsingSamples(_, solutions) ->
+                // Annealing reads are recorded samples, not a distribution to draw from: the
+                // result is the reads themselves (solutions read by reflection). Drawing with
+                // replacement would turn one read into any number of identical "samples".
                 let n = numQubits state
-                let rng = Random.Shared
 
                 let spinToBit =
                     function
@@ -534,22 +538,30 @@ module QuantumState =
                 let spinsToBitstring (spins: Map<int, int>) =
                     Array.init n (fun i -> spins |> Map.tryFind i |> Option.map spinToBit |> Option.defaultValue 0)
 
-                if Array.isEmpty solutionsArr then
-                    // Array.init (not replicate): independent arrays per shot, safe to mutate
-                    Array.init shots (fun _ -> Array.zeroCreate n)
-                else
-                    // Build weighted sample pool based on NumOccurrences
-                    let samplePool =
-                        solutionsArr
-                        |> Seq.collect (fun sol ->
-                            let solType = sol.GetType()
-                            let spins = solType.GetProperty("Spins").GetValue sol :?> Map<int, int>
-                            let occurrences = solType.GetProperty("NumOccurrences").GetValue sol :?> int
-                            Seq.replicate occurrences spins)
-                        |> Array.ofSeq
+                // One independent array per read (callers may mutate them).
+                let reads =
+                    objToSeq solutions
+                    |> Seq.collect (fun sol ->
+                        let solType = sol.GetType()
+                        let spins = solType.GetProperty("Spins").GetValue sol :?> Map<int, int>
+                        let occurrences = solType.GetProperty("NumOccurrences").GetValue sol :?> int
+                        let bits = spinsToBitstring spins
+                        Seq.init (max 0 occurrences) (fun _ -> Array.copy bits))
+                    |> Array.ofSeq
 
-                    // Sample with replacement from solution pool
-                    Array.init shots (fun _ -> samplePool.[rng.Next(samplePool.Length)] |> spinsToBitstring)
+                // An annealer reports its reads lowest energy first, so a prefix would be the
+                // best reads rather than a sample of them. The shuffle is seeded from the reads:
+                // one result always yields its reads in the same order.
+                let seed =
+                    reads
+                    |> Array.fold (fun acc read -> read |> Array.fold (fun h bit -> h * 31 + bit) (acc * 17 + 1)) 0
+
+                Random(seed).Shuffle reads
+
+                if shots >= reads.Length then
+                    reads
+                else
+                    Array.sub reads 0 (max 0 shots)
 
             | QuantumState.MeasurementHistogram(_, n) ->
                 // Recorded shots are returned above; only an empty histogram reaches here.

@@ -717,3 +717,128 @@ let write (outDir: string) (pack: Pack) =
                     |})
             assumptions = pack.Assumptions
         |}
+
+// =============================================================================
+// EXPORT GATE
+// =============================================================================
+
+/// Command-line flag (`--export-on-fail`) that writes the flight files of a plan
+/// whose evidence pack failed. The files are then marked as failed.
+[<Literal>]
+let exportOnFailFlag = "export-on-fail"
+
+/// Exit code of a run that was asked for flight files and refused to write them.
+[<Literal>]
+let refusedExitCode = 3
+
+/// Whether flight files (MAVLink missions, launchers, Crazyflie scripts) may be
+/// written for the plan a pack was built from. A plan that failed one of its own
+/// checks is not handed to an aircraft unless the caller says so explicitly.
+type ExportGate =
+    /// PASS: write the files.
+    | Cleared
+    /// INCOMPLETE: write the files; the claims listed are not evidenced.
+    | ClearedIncomplete of notEvidenced: string list
+    /// FAIL with the override flag: write the files, marked as failed.
+    | Overridden of failed: Check list
+    /// FAIL: write no flight file.
+    | Refused of failed: Check list
+
+let gate (overrideOnFail: bool) (pack: Pack) : ExportGate =
+    let failed = pack.Checks |> List.filter (fun c -> c.Status = Fail)
+
+    match verdict pack with
+    | "FAIL" when overrideOnFail -> Overridden failed
+    | "FAIL" -> Refused failed
+    | "INCOMPLETE" ->
+        let missing =
+            allAreas
+            |> List.filter (fun area -> pack.Checks |> List.forall (fun c -> c.Area <> area))
+            |> List.map (fun area -> sprintf "%s: no check" (areaName area))
+
+        let unevidenced =
+            pack.Checks
+            |> List.filter (fun c -> c.Status = NotEvidenced)
+            |> List.map (fun c -> sprintf "%s: %s" (areaName c.Area) c.Claim)
+
+        ClearedIncomplete(unevidenced @ missing)
+    | _ -> Cleared
+
+/// True when the gate lets the flight files be written.
+let exports (gate: ExportGate) =
+    match gate with
+    | Refused _ -> false
+    | Cleared
+    | ClearedIncomplete _
+    | Overridden _ -> true
+
+let private failedLines (failed: Check list) =
+    failed
+    |> List.map (fun c -> sprintf "%s: %s (measured %s, limit %s)" (areaName c.Area) c.Claim c.Measured c.Limit)
+
+/// Says what the gate decided for `what` (e.g. "MAVLink export"): nothing for a
+/// pass, a warning for an incomplete pack, the failed checks for a failed one.
+let printGate (what: string) (gate: ExportGate) =
+    match gate with
+    | Cleared -> ()
+    | ClearedIncomplete notEvidenced ->
+        printfn ""
+        printfn "⚠ %s: the evidence pack is INCOMPLETE; the files are written, but these are not evidenced:" what
+
+        for line in notEvidenced do
+            printfn "    - %s" line
+    | Overridden failed ->
+        printfn ""
+        printfn "⚠ %s: the plan FAILED its own checks and is exported because of --%s:" what exportOnFailFlag
+
+        for line in failedLines failed do
+            printfn "    - %s" line
+
+        printfn "  The exported files are marked as failed. Do not fly them."
+    | Refused failed ->
+        printfn ""
+        printfn "✗ %s REFUSED: the plan failed its own checks, so no flight file is written:" what
+
+        for line in failedLines failed do
+            printfn "    - %s" line
+
+        printfn "  Fix the plan, or pass --%s to write the files anyway, marked as failed." exportOnFailFlag
+
+/// Marks the flight files of an export made by override: FAILED-CHECKS.md in
+/// `dir` lists the failed checks, and the same notice is put at the head of
+/// every launcher (as comments, after a `#!` line) and README given that exists.
+/// Does nothing for any other gate.
+let markOverridden (dir: string) (launchers: string list) (readmes: string list) (gate: ExportGate) =
+    match gate with
+    | Overridden failed ->
+        let notice =
+            [
+                sprintf "THIS PLAN FAILED ITS OWN SAFETY CHECKS. It was exported with --%s." exportOnFailFlag
+                "Do not fly it. Failed checks (see permission-evidence.md):"
+            ]
+            @ (failedLines failed |> List.map (fun line -> "  - " + line))
+
+        Reporting.writeTextFile
+            (Path.Combine(dir, "FAILED-CHECKS.md"))
+            (String.concat "\n" ("# " + notice.Head :: "" :: notice.Tail) + "\n")
+
+        for path in launchers |> List.filter File.Exists do
+            let mark =
+                if Path.GetExtension(path).ToLowerInvariant() = ".py" then
+                    "# "
+                else
+                    "// "
+
+            let header = notice |> List.map (fun line -> mark + line)
+
+            match File.ReadAllLines path |> List.ofArray with
+            | shebang :: rest when shebang.StartsWith "#!" ->
+                File.WriteAllLines(path, shebang :: header @ "" :: rest)
+            | lines -> File.WriteAllLines(path, header @ "" :: lines)
+
+        for path in readmes |> List.filter File.Exists do
+            let header = notice |> List.map (fun line -> "> " + line)
+            File.WriteAllLines(path, header @ "" :: List.ofArray (File.ReadAllLines path))
+    | Cleared
+    | ClearedIncomplete _
+    | Refused _ -> ()

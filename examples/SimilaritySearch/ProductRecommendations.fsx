@@ -291,7 +291,7 @@ let private loadCatalogFromCsv (path: string) : Product array =
         let get key = row.Values |> Map.tryFind key
 
         match get "id", get "name", get "category" with
-        | Some id, Some name, Some cat ->
+        | Some pid, Some name, Some cat ->
             let tryFloat key def =
                 get key
                 |> Option.bind (fun s ->
@@ -310,7 +310,7 @@ let private loadCatalogFromCsv (path: string) : Product array =
 
             Some
                 {
-                    Id = id
+                    Id = pid
                     Name = name
                     Category = cat
                     Price = tryFloat "price" 0.0

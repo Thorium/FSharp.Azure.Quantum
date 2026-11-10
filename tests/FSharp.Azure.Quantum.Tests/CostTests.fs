@@ -108,6 +108,56 @@ let ``estimateCost should add warning for high-cost jobs`` () =
         Assert.Contains("$200", estimate.Warnings.[0])
     | Error err -> Assert.True(false, $"Expected success but got error: %s{err.Message}")
 
+[<Theory>]
+[<InlineData("ionq.simulator")>]
+[<InlineData("rigetti.sim.qvm")>]
+[<InlineData("iqm.sim")>]
+[<InlineData("atom-computing.sim")>]
+[<InlineData("quantinuum.sim.h1-1sc")>]
+[<InlineData("pasqal.sim.emu-tn")>]
+[<InlineData("Rigetti Cloud (rigetti.sim.qvm)")>]
+[<InlineData("IonQ Cloud (ionq.simulator)")>]
+let ``isSimulatorTarget recognises the providers' free simulator targets`` (target: string) =
+    Assert.True(isSimulatorTarget target)
+
+    // The simple estimate and the predicate agree: a simulator target costs nothing.
+    match estimateCostSimple target 1000 with
+    | Ok estimate -> Assert.Equal(0.0M<USD>, estimate.ExpectedCost)
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
+
+[<Theory>]
+[<InlineData("ionq.qpu.aria-1")>]
+[<InlineData("rigetti.qpu.ankaa-3")>]
+[<InlineData("iqm.qpu.garnet")>]
+[<InlineData("quantinuum.qpu.h1-1")>]
+// Quantinuum's emulators are billed in emulator credits.
+[<InlineData("quantinuum.sim.h1-1e")>]
+[<InlineData("quantinuum.sim.h2-1e")>]
+[<InlineData("Quantinuum Cloud (quantinuum.sim.h1-1e)")>]
+// "simulator" inside another word is not a simulator target.
+[<InlineData("arn:aws:braket:::device/quantum-simulator/amazon/sv1")>]
+[<InlineData("simulation.qpu")>]
+let ``isSimulatorTarget is false for hardware and billed emulators`` (target: string) =
+    Assert.False(isSimulatorTarget target)
+
+    match estimateCostSimple target 1000 with
+    | Ok estimate -> Assert.True(estimate.ExpectedCost > 0.0M<USD>)
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
+
+[<Fact>]
+let ``the cost guard lets a provider simulator through and stops hardware above the limit`` () =
+    let guard target =
+        FSharp.Azure.Quantum.Backends.CloudBackendHelpers.checkCostGuard target 1000 (Some 1.0M)
+
+    for target in [ "ionq.simulator"; "rigetti.sim.qvm"; "iqm.sim"; "atom-computing.sim" ] do
+        match guard target with
+        | Ok() -> ()
+        | Error err -> Assert.Fail($"%s{target} should pass the guard, got %s{err.Message}")
+
+    match guard "rigetti.qpu.ankaa-3" with
+    | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) -> ()
+    | other -> Assert.Fail($"expected QuotaExceeded, got %A{other}")
+
 [<Fact>]
 let ``parseCostFromMetadata should return None for null input`` () =
     // Arrange

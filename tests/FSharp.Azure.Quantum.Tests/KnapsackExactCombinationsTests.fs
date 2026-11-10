@@ -1,7 +1,8 @@
 module FSharp.Azure.Quantum.Tests.KnapsackExactCombinationsTests
 
-// Knapsack.findAll…Async: classical enumeration only when no backend is given; with a
-// backend the answer is the quantum result or its error.
+// Knapsack.findAll…Async: the answer is the quantum result or its error, on the given
+// backend or on the local simulator when none is given. The classical enumeration is a
+// separate, explicitly named function.
 
 open System.Threading
 open System.Threading.Tasks
@@ -38,17 +39,32 @@ let private ids (combinations: Knapsack.Item list list) =
     |> List.sort
 
 [<Fact>]
-let ``without a backend the combinations are enumerated classically`` () : Task =
+let ``the classical enumeration is an explicit function`` () =
+    Assert.Equal<string list list>([ [ "A"; "B" ]; [ "C"; "D" ] ], ids (Knapsack.findAllExactCombinationsClassical problem))
+
+    let combinations, union, count = Knapsack.findAllValidCombinationsClassical problem
+    Assert.Equal(2, count)
+    Assert.Equal(2, combinations.Length)
+    Assert.Equal(4, union.Length)
+    Assert.Equal(4, (Knapsack.findAllCapturedItemsClassical problem).Length)
+
+[<Fact>]
+let ``without a backend the search runs on the local simulator, not as a classical enumeration`` () : Task =
     task {
+        // The quantum search samples: what it returns is exact, and it may miss a combination
         match! Knapsack.findAllExactCombinationsAsync problem None CancellationToken.None with
-        | Ok combinations -> Assert.Equal<string list list>([ [ "A"; "B" ]; [ "C"; "D" ] ], ids combinations)
+        | Ok combinations ->
+            for combination in combinations do
+                Assert.Equal(7.0, combination |> List.sumBy (fun item -> item.Weight))
+
+            Assert.Equal(combinations.Length, (ids combinations |> List.distinct).Length)
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
-        match! Knapsack.findAllValidCombinationsAsync problem None CancellationToken.None with
-        | Ok(combinations, union, count) ->
-            Assert.Equal(2, count)
-            Assert.Equal(2, combinations.Length)
-            Assert.Equal(4, union.Length)
+        match! Knapsack.solveWithModeAsync problem None true CancellationToken.None with
+        | Ok solution ->
+            Assert.True(solution.IsQuantum)
+            Assert.StartsWith("Quantum QAOA Subset-Sum", solution.BackendName)
+            Assert.DoesNotContain("Classical", solution.BackendName)
         | Error err -> Assert.Fail($"Unexpected error: {err}")
     }
 

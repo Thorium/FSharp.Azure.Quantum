@@ -190,9 +190,9 @@ module QuantumSearch =
 
         match searcher.Find (q * depth) wins with
         | [] -> None
-        | found ->
+        | foundHead :: _ ->
             // The moves up to the winning one; picks after it are arbitrary
-            let index = List.head found
+            let index = foundHead
 
             [ for i in 0 .. depth - 1 -> (index >>> (q * i)) &&& mask ]
             |> List.takeWhile (fun pick -> pick < candidates.Length)

@@ -454,7 +454,7 @@ module KauffmanBracket =
 
                     let arcsAfter =
                         let survivors =
-                            diagram.Arcs |> Map.filter (fun id _ -> not (consumedArcs.Contains id))
+                            diagram.Arcs |> Map.filter (fun pid _ -> not (consumedArcs.Contains pid))
 
                         newArcs |> List.fold (fun acc (a: Arc) -> Map.add a.Id a acc) survivors
 
@@ -490,7 +490,7 @@ module KauffmanBracket =
                 diagram.Crossings
                 |> Map.toList
                 |> List.sortBy fst
-                |> List.map (fun (id, c) ->
+                |> List.map (fun (pid, c) ->
                     let sign =
                         match c.Sign with
                         | Positive -> "+"
@@ -503,14 +503,14 @@ module KauffmanBracket =
                         |> List.map (fun (pos, arcId) -> $"%A{pos}:%d{arcId}")
                         |> String.concat ";"
 
-                    $"%d{id}%s{sign}(%s{conns})")
+                    $"%d{pid}%s{sign}(%s{conns})")
                 |> String.concat ","
 
             let arcStr =
                 diagram.Arcs
                 |> Map.toList
                 |> List.sortBy fst
-                |> List.map (fun (id, arc) -> $"%d{id}:%A{arc.Start}-%A{arc.End}")
+                |> List.map (fun (pid, arc) -> $"%d{pid}:%A{arc.Start}-%A{arc.End}")
                 |> String.concat ","
 
             $"C[%s{crossingStr}]A[%s{arcStr}]"

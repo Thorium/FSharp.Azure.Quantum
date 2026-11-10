@@ -129,6 +129,7 @@ pad; and the pilots' workload.
 | `--pilots <n>` | 1 | Pilots declared in the evidence |
 | `--method` | classical | `classical` or `quantum` |
 | `--c2-band <MHz>` | 900 | C2 radio band |
-| `--mavlink` | off | Write ArduPilot missions and the launcher |
+| `--mavlink` | off | Write ArduPilot missions and the launcher. Refused (exit code 3, no file written) when the evidence pack is FAIL; written with a warning when it is INCOMPLETE |
+| `--export-on-fail` | off | Write the missions although the evidence pack is FAIL. `mavlink/FAILED-CHECKS.md` and the head of `mavlink_show.fsx` then list the failed checks |
 | `--home-alt <m>` | 0 | Ground at the base above mean sea level |
 | `--out <dir>` | `runs/drone/swarm-task-allocation` | Output directory |

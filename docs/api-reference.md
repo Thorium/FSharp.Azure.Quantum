@@ -432,8 +432,13 @@ type Solution = {
     CapacityUtilization: float       // Percentage used
     BackendName: string
     IsQuantum: bool
+    Sampling: SampleStatistics option   // Valid = samples that fit the capacity, Hits = samples that are the selection
 }
 ```
+
+`solveAsync` returns a selection that at least one shot produced. When no sample fits the capacity the result is an `Error`, not an empty selection.
+
+`findAllExactCombinationsAsync`, `findAllCapturedItemsAsync`, `findAllValidCombinationsAsync` and `solveWithModeAsync` run the quantum subset-sum search on the given backend, or on the local simulator when the backend is `None`; a combination that is never sampled is missing. The exact classical enumeration is `findAllExactCombinationsClassical`, `findAllCapturedItemsClassical` and `findAllValidCombinationsClassical`.
 
 ### Example
 
@@ -774,7 +779,7 @@ type Solution<'TResult> = {
 }
 ```
 
-- `budget` (USD): if the estimated quantum cost exceeds it, the classical solver runs instead.
+- `budget` (USD): if the estimated quantum cost exceeds it, the classical solver runs instead. The estimate covers every job the solve can submit (optimisation circuits and the final sampling), priced from the backend name. Simulators in this process and provider simulator targets (`ionq.simulator`, `rigetti.sim.qvm`, `iqm.sim`, …) cost nothing. A billed backend with no per-job USD price (Quantinuum, IQM, Atom Computing, the real D-Wave backend) estimates to infinity, so any budget keeps the problem classical; it runs there only with `budget = None` or a forced method.
 - `timeout`: accepted but not currently used.
 - `forceMethod`: `Some HybridSolver.Classical` or `Some HybridSolver.Quantum` bypasses the advisor (forced quantum uses the given backend or a new LocalBackend).
 
@@ -838,6 +843,8 @@ val CloudBackendFactory.createQuantinuum    : httpClient:HttpClient -> workspace
 val CloudBackendFactory.createAtomComputing : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
 val CloudBackendFactory.createIqm           : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
 ```
+
+Each function has a `...WithTimeout` form (`createIonQWithTimeout`, `createRigettiRoutedWithTimeout`, …) with a final `timeout:TimeSpan` argument: how long a job is waited for (default 5 minutes; Atom Computing 10). A job that times out, whose caller cancels or whose status cannot be read has its cancellation requested at the service, and the `Error` names the job id and says whether the request was accepted; a timeout is `QuantumError.AzureError (AzureQuantumError.JobTimeout _)`.
 
 Qubit limits the cloud backends report (`MaxQubits`) are defaults taken from the target name, as the devices were when this version was released: IonQ Aria 25 / Forte 36, Rigetti QPU 84, Quantinuum H1 32 / H2 56, Atom Computing QPU 100, IQM 20; provider simulator targets 20. A target this version does not know reports no limit, and the provider decides.
 
@@ -1410,7 +1417,7 @@ val sampleStatistics :
     → SampleStatistics
 ```
 
-`runQaoaAsync` optimises or grid-searches as `config.EnableOptimization` says and returns the lowest-energy sample; `runQaoaSampledAsync` returns the whole run as a `QaoaRun` (`Samples`, `Best`, `Parameters`, `Converged`).
+`runQaoaAsync` optimises or grid-searches as `config.EnableOptimization` says and returns the lowest-energy sample; `runQaoaSampledAsync` returns the whole run as a `QaoaRun` (`Samples`, `Best`, `Parameters`, `Converged`). The first backend error ends the optimisation or grid search and is returned as the `Error`: circuits not yet started, the final sampling included, are not submitted.
 
 **Sample statistics:** every QAOA solver solution has `Sampling: SampleStatistics option`, the standing of the returned solution among the final samples (`None` when no single sampling run produced it, as after decomposition):
 
@@ -1917,4 +1924,4 @@ val exportToFileWithConfigAsync : config:QasmConfig -> circuit:Circuit -> filePa
 
 ---
 
-**Last Updated**: 2026-10-10 (package version 1.6.2)
+**Last Updated**: 2026-11-10 (package version 1.7.0)

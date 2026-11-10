@@ -15,6 +15,7 @@ using static FSharp.Azure.Quantum.Core.BackendAbstraction;
 public class QuantumRiskEngineBuilder
 {
     private string? _marketDataPath;
+    private double[]? _marketReturns;
     private double _confidenceLevel = 0.95;
     private int _simulationPaths = 10000;
     private bool _useAmplitudeEstimation = false;
@@ -49,10 +50,23 @@ public class QuantumRiskEngineBuilder
     }
 
     /// <summary>
-    /// Sets the number of Monte Carlo simulation paths.
+    /// Supplies the returns in memory (at least 2 finite values). The engine generates no
+    /// data: a run without <see cref="LoadMarketData"/> or this call fails.
     /// </summary>
-    /// <param name="paths">Number of simulation paths.</param>
+    /// <param name="returns">Returns to compute the metrics from.</param>
     /// <returns>The current builder instance.</returns>
+    public QuantumRiskEngineBuilder WithMarketReturns(double[] returns)
+    {
+        _marketReturns = returns;
+        return this;
+    }
+
+    /// <summary>
+    /// Has no effect: the engine computes from the supplied returns and simulates no paths.
+    /// </summary>
+    /// <param name="paths">Ignored.</param>
+    /// <returns>The current builder instance.</returns>
+    [Obsolete("SetSimulationPaths has no effect: the engine computes from the supplied returns and simulates no paths. Supply the data with LoadMarketData or WithMarketReturns.")]
     public QuantumRiskEngineBuilder SetSimulationPaths(int paths)
     {
         _simulationPaths = paths;
@@ -60,7 +74,8 @@ public class QuantumRiskEngineBuilder
     }
 
     /// <summary>
-    /// Enables or disables amplitude estimation (when supported by the workflow).
+    /// Requests quantum amplitude estimation for every metric. It needs a backend
+    /// (<see cref="WithBackend"/>); without one the run fails rather than computing classically.
     /// </summary>
     /// <param name="enable">Whether to enable amplitude estimation.</param>
     /// <returns>The current builder instance.</returns>
@@ -71,7 +86,7 @@ public class QuantumRiskEngineBuilder
     }
 
     /// <summary>
-    /// Enables or disables error mitigation strategies (when supported by the workflow).
+    /// Error mitigation is not available for the risk engine's circuits: <c>true</c> makes the run fail.
     /// </summary>
     /// <param name="enable">Whether to enable error mitigation.</param>
     /// <returns>The current builder instance.</returns>
@@ -160,6 +175,7 @@ public class QuantumRiskEngineBuilder
     {
         var config = new RiskConfiguration(
             _marketDataPath == null ? FSharpOption<string>.None : FSharpOption<string>.Some(_marketDataPath),
+            _marketReturns == null ? FSharpOption<double[]>.None : FSharpOption<double[]>.Some(_marketReturns),
             _confidenceLevel,
             _simulationPaths,
             _useAmplitudeEstimation,

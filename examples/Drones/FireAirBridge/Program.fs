@@ -1914,7 +1914,8 @@ module Program =
         printfn "  --dispatch             turn the flow plan into whole-aircraft sorties (sorties.csv) and add the"
         printfn "                         exact closest-approach and follow-through checks to the evidence"
         printfn "  --mavlink              also write one ArduPilot mission per sortie and the launcher (mavlink/);"
-        printfn "                         implies --dispatch"
+        printfn "                         implies --dispatch. Refused (exit code 3) when the evidence pack FAILs"
+        printfn "  --export-on-fail       write the missions although the evidence pack FAILed; they are marked as failed"
         printfn "  --home-lat, --home-lon geodetic position of a local frame's origin, needed by --mavlink;"
         printfn "                         a geodetic scenario uses its own centroid"
         printfn "  --home-alt <m>         site altitude AMSL written where the formats are absolute (default 0)"
@@ -2561,11 +2562,31 @@ module Program =
                     let wantMavlink = Cli.hasFlag "mavlink" args
                     let evidenced = defaultArg hybrid results.Head
 
-                    let evidence =
+                    let evidence, exportRefused =
                         match settings.Dispatch, evidenced.Dispatched with
                         | Some opts, Some dispatched ->
                             let extra = Dispatch.checks fleet sectors opts events dispatched
                             Dispatch.writeSorties outDir dispatched
+
+                            // The pack of the dispatched flights, complete before any
+                            // mission is written: a dispatch that failed it is not exported,
+                            // unless --export-on-fail is given (the files are then marked).
+                            let dispatchedEvidence =
+                                { evidence with
+                                    Checks = evidence.Checks @ extra
+                                    PeakAirborne = max evidence.PeakAirborne (Dispatch.peakAirborne opts dispatched)
+                                }
+
+                            let exportGate =
+                                FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.gate
+                                    (Cli.hasFlag
+                                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.exportOnFailFlag
+                                        args)
+                                    dispatchedEvidence
+
+                            let refused =
+                                wantMavlink
+                                && not (FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.exports exportGate)
 
                             printfn ""
 
@@ -2587,6 +2608,11 @@ module Program =
                                     printfn "  %-16s %d aircraft on pads" sources.[si].Name n
 
                             if wantMavlink then
+                                FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.printGate
+                                    "MAVLink export"
+                                    exportGate
+
+                            if wantMavlink && not refused then
                                 let home =
                                     match origin, Cli.tryFloat "home-lat" args, Cli.tryFloat "home-lon" args with
                                     | Some(lat, lon), _, _ -> Some(lat, lon)
@@ -2609,16 +2635,18 @@ module Program =
                                             }
                                             dispatched
 
-                                    printfn
-                                        "  %d ArduPilot missions and the launcher written to %s"
-                                        n
-                                        (Path.Combine(outDir, "mavlink"))
+                                    let dir = Path.Combine(outDir, "mavlink")
 
-                            { evidence with
-                                Checks = evidence.Checks @ extra
-                                PeakAirborne = max evidence.PeakAirborne (Dispatch.peakAirborne opts dispatched)
-                            }
-                        | _ -> evidence
+                                    FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.markOverridden
+                                        dir
+                                        [ Path.Combine(dir, "mavlink_show.fsx") ]
+                                        []
+                                        exportGate
+
+                                    printfn "  %d ArduPilot missions and the launcher written to %s" n dir
+
+                            dispatchedEvidence, refused
+                        | _ -> evidence, false
 
                     FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.print evidence
                     FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.write outDir evidence
@@ -2668,4 +2696,8 @@ module Program =
 
                     printfn ""
                     printfn "Results written to: %s" outDir
-                    0
+
+                    if exportRefused then
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.refusedExitCode
+                    else
+                        0

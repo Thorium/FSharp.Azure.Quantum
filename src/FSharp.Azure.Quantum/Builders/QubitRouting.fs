@@ -189,6 +189,19 @@ module QubitRouting =
         | Barrier qs -> Barrier(List.map f qs)
         | Conditional(mq, inner) -> Conditional(f mq, mapQubits f inner)
 
+    /// Highest qubit index a gate acts on (-1 for a gate on no qubit, e.g. an empty barrier).
+    let private highestQubit (gate: Gate) : int =
+        let highest = ref -1
+
+        mapQubits
+            (fun q ->
+                highest.Value <- max highest.Value q
+                q)
+            gate
+        |> ignore
+
+        highest.Value
+
     /// The two logical endpoints of a two-qubit gate, or None for any other gate.
     let private twoQubitEndpoints (gate: Gate) : (int * int) option =
         match gate with
@@ -254,15 +267,28 @@ module QubitRouting =
                         out.Add(mapQubits (fun lq -> pos.[lq]) gate)
             | None -> out.Add(mapQubits (fun lq -> pos.[lq]) gate)
 
+        // The routed circuit acts on physical qubits, so its width is one past the highest
+        // physical qubit a gate touches or a logical qubit of the input ends on. Readout
+        // (terminal measurements, Quil `ro`, OpenQASM registers) is sized by QubitCount: a
+        // logical qubit resting on a physical qubit outside it would never be measured.
+        let highestGateQubit = out |> Seq.fold (fun acc gate -> max acc (highestQubit gate)) -1
+
+        let highestRestingQubit =
+            Seq.init circuit.QubitCount (fun logical -> pos.[logical]) |> Seq.fold max -1
+
         // `out` is in execution order; restore the most-recent-first storage invariant.
         ({ circuit with
+            QubitCount = max circuit.QubitCount (1 + max highestGateQubit highestRestingQubit)
             Gates = out |> Seq.rev |> List.ofSeq
          },
          pos)
 
     /// Route inserting SWAPs along fewest-hop shortest paths (minimises SWAP count).
     /// Returns the routed circuit plus the final logical->physical mapping
-    /// (`mapping.[logicalQubit] = physicalQubit`).
+    /// (`mapping.[logicalQubit] = physicalQubit`). The routed circuit is a circuit on
+    /// physical qubits: its QubitCount covers every physical qubit a gate acts on and every
+    /// physical qubit a logical qubit ends on, so it can exceed the input's QubitCount (and
+    /// never exceeds the coupling map's NumQubits for an input that fits the device).
     let route (cm: CouplingMap) (circuit: Circuit) : Circuit * int[] = routeCore (shortestPath cm) cm circuit
 
     /// Noise-aware routing: route SWAPs through the lowest-cost path per `edgeCost`

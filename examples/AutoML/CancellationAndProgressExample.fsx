@@ -237,10 +237,10 @@ if shouldRun "events" then
 
     eventReporter.ProgressChanged.Add(fun event ->
         match event with
-        | TrialStarted(id, total, modelType) -> pr "  [%d/%d] Starting: %s" id total modelType
+        | TrialStarted(pid, total, modelType) -> pr "  [%d/%d] Starting: %s" pid total modelType
 
-        | TrialCompleted(id, score, elapsed) ->
-            pr "  [%d] OK Score: %.2f%% (%.1fs)" id (score * 100.0) elapsed
+        | TrialCompleted(pid, score, elapsed) ->
+            pr "  [%d] OK Score: %.2f%% (%.1fs)" pid (score * 100.0) elapsed
 
             if score > bestScoreSeen then
                 bestScoreSeen <- score
@@ -249,7 +249,7 @@ if shouldRun "events" then
                     pr "  Excellent score (%.1f%%)! Cancelling remaining trials..." (score * 100.0)
                     cts.Cancel()
 
-        | TrialFailed(id, error) -> pr "  [%d] FAILED: %s" id error
+        | TrialFailed(pid, error) -> pr "  [%d] FAILED: %s" pid error
 
         | PhaseChanged(phase, msgOpt) ->
             match msgOpt with
@@ -376,8 +376,8 @@ if shouldRun "custom-ui" then
                     uiTracker.UpdateProgress(percent, $"Trial %d{id}/%d{total}: %s{modelType}")
                     pr "  [UI] Progress: %.0f%% - Trial %d/%d: %s" percent id total modelType
 
-                | TrialCompleted(id, score, _) ->
-                    let percent = float id / float cliMaxTrials * 100.0
+                | TrialCompleted(pid, score, _) ->
+                    let percent = float pid / float cliMaxTrials * 100.0
                     uiTracker.UpdateProgress(percent, sprintf "Completed with %.1f%% accuracy" (score * 100.0))
                     pr "  [UI] Progress: %.0f%% - Score: %.1f%%" percent (score * 100.0)
 
@@ -443,11 +443,11 @@ if shouldRun "production" then
         { new IProgressReporter with
             member _.Report event =
                 match event with
-                | TrialCompleted(id, score, elapsed) ->
+                | TrialCompleted(pid, score, elapsed) ->
                     let entry =
                         sprintf
                             "[LOG] Trial %d: score=%.4f, elapsed=%.2fs, ts=%s"
-                            id
+                            pid
                             score
                             elapsed
                             (DateTime.UtcNow.ToString("o"))
@@ -455,8 +455,8 @@ if shouldRun "production" then
                     logEntries <- logEntries @ [ entry ]
                     pr "  %s" entry
 
-                | TrialFailed(id, error) ->
-                    let entry = $"[LOG] ERROR Trial %d{id}: %s{error}"
+                | TrialFailed(pid, error) ->
+                    let entry = $"[LOG] ERROR Trial %d{pid}: %s{error}"
                     logEntries <- logEntries @ [ entry ]
                     pr "  %s" entry
 

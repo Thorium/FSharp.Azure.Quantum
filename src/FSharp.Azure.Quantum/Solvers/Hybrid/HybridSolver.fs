@@ -238,50 +238,95 @@ module HybridSolver =
     // COST ESTIMATION
     // ================================================================================
 
-    /// Estimate the USD cost of one QAOA execution over `numVariables` qubits
-    /// using the shared CostEstimation pricing tables.
+    /// Estimate the USD cost of every circuit a solve submits (`plan`) over `numVariables`
+    /// qubits and `numLayers` QAOA layers, using the shared CostEstimation pricing tables.
     ///
-    /// Models a single QAOA layer on a dense QUBO at 1000 shots: one Hadamard
-    /// plus one mixer rotation per qubit, one two-qubit cost-Hamiltonian
-    /// interaction per variable pair, and a full-register measurement.
-    let internal estimateQaoaCostUSD (costBackend: CostEstimation.CostBackend) (numVariables: int) : float =
+    /// A circuit is modelled on a dense QUBO: one Hadamard per qubit, per layer one cost
+    /// rotation and one mixer rotation per qubit and one two-qubit cost-Hamiltonian
+    /// interaction per variable pair, and a full-register measurement. The estimate is the
+    /// plan's optimisation circuits at their shots plus its final circuits at theirs — an
+    /// upper bound, since the plan counts the most circuits the solve can run.
+    let internal estimateQaoaCostUSD
+        (costBackend: CostEstimation.CostBackend)
+        (numVariables: int)
+        (numLayers: int)
+        (plan: QaoaExecutionHelpers.JobPlan)
+        : float =
 
         let n = max 1 numVariables
+        let layers = max 1 numLayers
 
         let profile: CostEstimation.CircuitCostProfile =
             {
-                SingleQubitGates = (2 * n) * 1<CostEstimation.gate>
-                TwoQubitGates = (n * (n - 1) / 2) * 1<CostEstimation.gate>
+                SingleQubitGates = (n + 2 * layers * n) * 1<CostEstimation.gate>
+                TwoQubitGates = (layers * (n * (n - 1) / 2)) * 1<CostEstimation.gate>
                 Measurements = n * 1<CostEstimation.gate>
                 QubitCount = n * 1<CostEstimation.qubit>
             }
 
-        match CostEstimation.estimateCost costBackend profile 1000<CostEstimation.shot> with
-        | Ok estimate -> float (estimate.ExpectedCost / 1.0M<CostEstimation.USD>)
-        | Error _ ->
-            // Conservative: an unknown cost must never pass a budget check
+        let costOf (jobs: int) (shots: int) : float =
+            if jobs <= 0 then
+                0.0
+            else
+                match CostEstimation.estimateCost costBackend profile (shots * 1<CostEstimation.shot>) with
+                | Ok estimate -> float jobs * float (estimate.ExpectedCost / 1.0M<CostEstimation.USD>)
+                | Error _ ->
+                    // Conservative: an unknown cost must never pass a budget check
+                    Double.PositiveInfinity
+
+        if CostEstimation.isSubscriptionPriced costBackend then
+            // Quota pricing (Quantinuum HQC) reports 0 USD per job. That is not a price a USD
+            // budget can be compared with, and as an estimate it would pass every budget.
             Double.PositiveInfinity
+        else
+            costOf plan.OptimizationJobs plan.OptimizationShots
+            + costOf plan.FinalJobs plan.FinalShots
 
-    /// Cost estimate for the legacy QuantumExecutionConfig backend selection
+    /// Cost estimate for the legacy QuantumExecutionConfig backend selection: the jobs of the
+    /// TSP solve that selection leads to (QuantumTspSolver.defaultConfig, at its own shot
+    /// counts), priced for the named provider.
     let internal estimateQuantumConfigCostUSD (backend: QuantumBackend) (numVariables: int) : float =
-        match backend with
-        | IonQ _ -> estimateQaoaCostUSD (CostEstimation.CostBackend.IonQ false) numVariables
-        | Rigetti _ -> estimateQaoaCostUSD CostEstimation.CostBackend.Rigetti numVariables
+        let config = QuantumTspSolver.defaultConfig
 
-    /// Cost estimate for a unified IQuantumBackend: cloud hardware is priced
-    /// by provider (recognised from the backend name); anything else is
-    /// treated as local simulation, which costs nothing.
-    let internal estimateBackendCostUSD (backend: BackendAbstraction.IQuantumBackend) (numVariables: int) : float =
+        // The plan of a backend that takes the solver's shot counts.
+        let plan = QuantumTspSolver.jobPlan (defaultHybridBackend ()) config
+
+        match backend with
+        | IonQ _ -> estimateQaoaCostUSD (CostEstimation.CostBackend.IonQ false) numVariables config.NumLayers plan
+        | Rigetti _ -> estimateQaoaCostUSD CostEstimation.CostBackend.Rigetti numVariables config.NumLayers plan
+
+    /// Cost estimate for the jobs (`plan`) a solve submits to a unified IQuantumBackend.
+    ///
+    /// - A backend that is not billed (QaoaExecutionHelpers.isBilledBackend: the simulators
+    ///   running in this process) costs nothing.
+    /// - A billed backend on a provider's free simulator target
+    ///   (CostEstimation.isSimulatorTarget) costs nothing.
+    /// - A billed backend with a per-job USD price model (IonQ, Rigetti, recognised from the
+    ///   backend name) is priced by it.
+    /// - Any other billed backend has no USD price here — Quantinuum (charged against a
+    ///   subscription's HQC quota), IQM, Atom Computing, D-Wave, anything unrecognised: the
+    ///   estimate is Double.PositiveInfinity, which no budget covers. Zero would pass every
+    ///   budget.
+    let internal estimateBackendCostUSD
+        (backend: BackendAbstraction.IQuantumBackend)
+        (numVariables: int)
+        (numLayers: int)
+        (plan: QaoaExecutionHelpers.JobPlan)
+        : float =
         let name = backend.Name.ToLowerInvariant()
 
-        if name.Contains "ionq" then
-            estimateQaoaCostUSD (CostEstimation.CostBackend.IonQ false) numVariables
-        elif name.Contains "rigetti" then
-            estimateQaoaCostUSD CostEstimation.CostBackend.Rigetti numVariables
-        elif name.Contains "quantinuum" then
-            estimateQaoaCostUSD CostEstimation.CostBackend.Quantinuum numVariables
-        else
+        if not (QaoaExecutionHelpers.isBilledBackend backend) then
             0.0
+        elif CostEstimation.isSimulatorTarget name then
+            0.0
+        elif name.Contains "ionq" then
+            estimateQaoaCostUSD (CostEstimation.CostBackend.IonQ false) numVariables numLayers plan
+        elif name.Contains "rigetti" then
+            estimateQaoaCostUSD CostEstimation.CostBackend.Rigetti numVariables numLayers plan
+        elif name.Contains "quantinuum" then
+            estimateQaoaCostUSD CostEstimation.CostBackend.Quantinuum numVariables numLayers plan
+        else
+            Double.PositiveInfinity
 
     // ================================================================================
     // SOLVER ROUTING - TSP
@@ -512,6 +557,8 @@ module HybridSolver =
                             estimateBackendCostUSD
                                 actualBackend
                                 ((Array2D.length1 distances) * (Array2D.length1 distances))
+                                quantumConfig.NumLayers
+                                (QuantumTspSolver.jobPlan actualBackend quantumConfig)
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
@@ -610,12 +657,13 @@ module HybridSolver =
         let solveClassical () =
             PortfolioSolver.solveGreedyByRatioWithCovariance assets covariance constraints config
 
+        // One configuration for the solve and for the cost estimate of its jobs.
+        let quantumConfig = QuantumPortfolioSolver.defaultConfig
+
         // Run the quantum portfolio solver on the backend and convert its result to the
         // classical portfolio solution format, keeping the solver's own elapsed time
         let solveQuantum (actualBackend: IQuantumBackend) =
             quantumResultTask {
-                let quantumConfig = QuantumPortfolioSolver.defaultConfig
-
                 let run =
                     match covariance with
                     | Some sigma ->
@@ -700,7 +748,12 @@ module HybridSolver =
                         return createClassicalSolution (solveClassical ()) reasoning startTime (Some recommendation)
 
                     | Some actualBackend ->
-                        let estimatedCost = estimateBackendCostUSD actualBackend numAssets
+                        let estimatedCost =
+                            estimateBackendCostUSD
+                                actualBackend
+                                numAssets
+                                1
+                                (QuantumPortfolioSolver.jobPlan actualBackend quantumConfig)
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
@@ -824,6 +877,9 @@ module HybridSolver =
         let solveClassical () =
             QuantumMaxCutSolver.solveClassical problem
 
+        // One configuration for the solve and for the cost estimate of its jobs.
+        let quantumConfig = QuantumMaxCutSolver.defaultConfig
+
         // Run the quantum MaxCut solver on the backend
         let solveQuantum
             (actualBackend: IQuantumBackend)
@@ -831,8 +887,6 @@ module HybridSolver =
             (recommendation: QuantumAdvisor.Recommendation option)
             =
             quantumResultTask {
-                let quantumConfig = QuantumMaxCutSolver.defaultConfig
-
                 let! quantumResult =
                     QuantumMaxCutSolver.solveAsync actualBackend problem quantumConfig cancellationToken
                     |> asOperationError "Quantum MaxCut solver"
@@ -875,7 +929,12 @@ module HybridSolver =
                         return createClassicalSolution (solveClassical ()) reasoning startTime (Some recommendation)
 
                     | Some actualBackend ->
-                        let estimatedCost = estimateBackendCostUSD actualBackend numVertices
+                        let estimatedCost =
+                            estimateBackendCostUSD
+                                actualBackend
+                                numVertices
+                                1
+                                (QaoaExecutionHelpers.singleRunPlan actualBackend quantumConfig.NumShots)
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
@@ -942,6 +1001,9 @@ module HybridSolver =
         let solveClassical () =
             QuantumKnapsackSolver.solveClassical problem
 
+        // One configuration for the solve and for the cost estimate of its jobs.
+        let quantumConfig = QuantumKnapsackSolver.defaultConfig
+
         // Run the quantum Knapsack solver on the backend
         let solveQuantum
             (actualBackend: IQuantumBackend)
@@ -949,8 +1011,6 @@ module HybridSolver =
             (recommendation: QuantumAdvisor.Recommendation option)
             =
             quantumResultTask {
-                let quantumConfig = QuantumKnapsackSolver.defaultConfig
-
                 let! quantumResult =
                     QuantumKnapsackSolver.solveAsync actualBackend problem quantumConfig cancellationToken
                     |> asOperationError "Quantum Knapsack solver"
@@ -993,7 +1053,12 @@ module HybridSolver =
                         return createClassicalSolution (solveClassical ()) reasoning startTime (Some recommendation)
 
                     | Some actualBackend ->
-                        let estimatedCost = estimateBackendCostUSD actualBackend numItems
+                        let estimatedCost =
+                            estimateBackendCostUSD
+                                actualBackend
+                                numItems
+                                1
+                                (QaoaExecutionHelpers.singleRunPlan actualBackend quantumConfig.NumShots)
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
@@ -1076,6 +1141,9 @@ module HybridSolver =
             else
                 createQuantumSolution result reasoning startTime recommendation
 
+        // One configuration for the solve and for the cost estimate of its jobs.
+        let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
+
         // Run the quantum Graph Coloring solver on the backend
         let solveQuantum
             (actualBackend: IQuantumBackend)
@@ -1083,8 +1151,6 @@ module HybridSolver =
             (recommendation: QuantumAdvisor.Recommendation option)
             =
             quantumResultTask {
-                let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
-
                 let! quantumResult =
                     QuantumGraphColoringSolver.solveAsync actualBackend problem quantumConfig cancellationToken
                     |> asOperationError "Quantum Graph Coloring solver"
@@ -1130,7 +1196,13 @@ module HybridSolver =
                         return createClassicalSolution classicalResult reasoning startTime (Some recommendation)
 
                     | Some actualBackend ->
-                        let estimatedCost = estimateBackendCostUSD actualBackend numVertices
+                        // The circuit has one qubit per vertex and colour (one-hot encoding).
+                        let estimatedCost =
+                            estimateBackendCostUSD
+                                actualBackend
+                                (numVertices * max 1 numColors)
+                                1
+                                (QaoaExecutionHelpers.singleRunPlan actualBackend quantumConfig.NumShots)
 
                         match budget with
                         | Some limit when estimatedCost > limit ->

@@ -273,6 +273,84 @@ let ``independent set minimum is a maximum-weight independent set`` () =
             false
 
 [<Fact>]
+let ``GraphOptimization MaxCut minimum is a maximum-weight cut`` () =
+    let instances: (string * int * (int * int * float) list) list =
+        [
+            "single edge", 2, [ (0, 1, 1.0) ]
+            "weighted triangle", 3, [ (0, 1, 5.0); (1, 2, 3.0); (0, 2, 2.0) ]
+            "ring of 5", 5, [ for i in 0..4 -> (i, (i + 1) % 5, 1.0) ]
+            "random 9 nodes, weighted", 9, randomEdges 31 9 0.45 |> List.mapi (fun k (i, j) -> (i, j, 1.0 + float (k % 4)))
+        ]
+
+    for label, n, edges in instances do
+        // Single-digit ids, so the id order the builder indexes nodes by is 0, 1, 2, …
+        let problem =
+            GraphOptimizationBuilder<int, unit>()
+                .Nodes([ for i in 0 .. n - 1 -> node (string i) i ])
+                .Edges(edges |> List.map (fun (i, j, w) -> edge (string i) (string j) w))
+                .Objective(MaximizeCut)
+                .Build()
+
+        let cutWeight (bits: int[]) =
+            edges |> List.sumBy (fun (i, j, w) -> if bits.[i] <> bits.[j] then w else 0.0)
+
+        let matrix = toQubo problem
+        let qubo = Qubo.toDenseArray matrix.NumVariables matrix.Q
+
+        assertGroundStatesOptimal $"GraphOptimization MaxCut, {label}" qubo n (fun _ -> true) cutWeight false
+
+        // The decoded solution reports that same weighted cut
+        for index in 0 .. (1 <<< n) - 1 do
+            let bits = bitsOf n index
+            let solution = decodeSolution problem (List.ofArray bits)
+            Assert.Equal(cutWeight bits, solution.ObjectiveValue, 9)
+            Assert.Equal(-cutWeight bits, QaoaExecutionHelpers.evaluateQubo qubo bits, 9)
+
+[<Fact>]
+let ``GraphOptimization colouring minimum is a proper colouring`` () =
+    let instances: (string * int * int * (int * int) list) list =
+        [
+            "triangle, 3 colours", 3, 3, [ (0, 1); (1, 2); (0, 2) ]
+            "path of 4, 2 colours", 4, 2, [ (0, 1); (1, 2); (2, 3) ]
+            "ring of 4, 3 colours", 4, 3, [ (0, 1); (1, 2); (2, 3); (0, 3) ]
+        ]
+
+    for label, n, colours, edges in instances do
+        let problem =
+            GraphOptimizationBuilder<int, unit>()
+                .Nodes([ for i in 0 .. n - 1 -> node (string i) i ])
+                .Edges(edges |> List.map (fun (i, j) -> edge (string i) (string j) 1.0))
+                .AddConstraint(NoAdjacentEqual)
+                .Objective(MinimizeColors)
+                .NumColors(colours)
+                .Build()
+
+        // Exactly one colour bit per node, and no edge with one colour at both ends
+        let proper (bits: int[]) =
+            let colourOf i =
+                match [ 0 .. colours - 1 ] |> List.filter (fun c -> bits.[i * colours + c] = 1) with
+                | [ colour ] -> Some colour
+                | _ -> None
+
+            let assigned = List.init n colourOf
+
+            assigned |> List.forall Option.isSome
+            && edges |> List.forall (fun (i, j) -> assigned.[i] <> assigned.[j])
+
+        let matrix = toQubo problem
+        let qubo = Qubo.toDenseArray matrix.NumVariables matrix.Q
+
+        // The QUBO has no term for the number of colours: every proper colouring is a minimum
+        assertGroundStatesOptimal $"GraphOptimization colouring, {label}" qubo (n * colours) proper (fun _ -> 0.0) true
+
+        // decodeSolution's feasibility is that same rule on every bitstring
+        for index in 0 .. (1 <<< (n * colours)) - 1 do
+            let bits = bitsOf (n * colours) index
+            let solution = decodeSolution problem (List.ofArray bits)
+            Assert.Equal(proper bits, solution.IsFeasible)
+            Assert.Equal(solution.IsFeasible, solution.Violations.IsEmpty)
+
+[<Fact>]
 let ``MaxCut energy is minus the cut value on every bitstring`` () =
     let instances: (string * int * (int * int * float) list) list =
         [

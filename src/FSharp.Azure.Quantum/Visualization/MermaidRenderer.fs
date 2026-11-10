@@ -194,7 +194,7 @@ module MermaidRenderer =
 
         let private initialState numQubits =
             let nodes = List.init numQubits (fun i -> NodeId i, $"|0⟩_{i}")
-            let lines = nodes |> List.map (fun (NodeId id, label) -> $"    n{id}[\"{label}\"]")
+            let lines = nodes |> List.map (fun (NodeId pid, label) -> $"    n{pid}[\"{label}\"]")
             let states = nodes |> List.map fst
             (NodeId numQubits, states, lines)
 

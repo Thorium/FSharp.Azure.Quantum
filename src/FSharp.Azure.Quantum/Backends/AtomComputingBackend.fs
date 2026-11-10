@@ -56,9 +56,11 @@ module AtomComputingBackend =
         {
             JobId = jobId
             Target = target
+            ProviderId = Some "atom-computing"
             Name = Some $"AtomComputing-%s{target}"
             InputData = qasmCode :> obj
             InputDataFormat = CircuitFormat.Custom "qasm.v2" // OpenQASM 2.0
+            OutputDataFormat = None
             InputParams = Map [ ("shots", shots :> obj) ]
             Tags = Map.empty
         }
@@ -196,7 +198,8 @@ module AtomComputingBackend =
                 | Ok(job: QuantumJob) ->
                     // Check job status
                     match job.Status with
-                    | JobStatus.Succeeded ->
+                    | JobStatus.Succeeded
+                    | JobStatus.Completed ->
                         // Step 4: Get results from blob storage
                         match job.OutputDataUri with
                         | None ->
@@ -234,7 +237,10 @@ module AtomComputingBackend =
                         return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
 
                     | JobStatus.Waiting
-                    | JobStatus.Executing ->
+                    | JobStatus.Executing
+                    | JobStatus.Finishing
+                    | JobStatus.Cancelling
+                    | JobStatus.Unknown _ ->
                         return
                             Error(
                                 QuantumError.AzureError(

@@ -19,13 +19,24 @@ type RiskMetric =
     | ExpectedShortfall
     | Volatility
 
-/// Configuration for the Quantum Risk Engine
+/// Configuration for the Quantum Risk Engine.
+///
+/// The returns the metrics are computed from come from exactly one of MarketDataPath and
+/// MarketReturns; the engine generates no data of its own, and a configuration with neither
+/// (or both) is an Error.
 type RiskConfiguration =
     {
+        /// File of returns: a header line, then one invariant-culture number per line
         MarketDataPath: string option
+        /// Returns supplied in memory (at least 2 finite values)
+        MarketReturns: float[] option
         ConfidenceLevel: float
+        /// Not read: every metric is computed from the supplied returns
         SimulationPaths: int
+        /// True: every metric comes from quantum amplitude estimation on Backend, and a
+        /// missing Backend is an Error. False: the classical empirical estimate
         UseAmplitudeEstimation: bool
+        /// Error mitigation is not available for the risk engine's circuits; true is an Error
         UseErrorMitigation: bool
         Metrics: RiskMetric list
         NumQubits: int
@@ -49,17 +60,6 @@ type RiskReport =
     }
 
 module RiskEngine =
-
-    // Mock data generator for fallback
-    let private generateMockReturns n =
-        let rng = Random(42)
-
-        Array.init n (fun _ ->
-            // Log-normal returns: mu=0.0005, sigma=0.02
-            let u1 = rng.NextDouble()
-            let u2 = rng.NextDouble()
-            let z = sqrt (-2.0 * log u1) * cos (2.0 * Math.PI * u2)
-            0.0005 + 0.02 * z)
 
     // ========================================================================
     // QUANTUM PATH - State Preparation & Oracle for VaR Estimation
@@ -320,6 +320,59 @@ module RiskEngine =
     [<Literal>]
     let private MinValidMarketDataRows = 2
 
+    /// The reason a configuration cannot run as asked, if any. A request the engine cannot
+    /// honour is an Error: it never runs a different method or computes from data the caller
+    /// did not supply.
+    let private unsupportedRequest (config: RiskConfiguration) : QuantumError option =
+        if config.ConfidenceLevel <= 0.0 || config.ConfidenceLevel >= 1.0 then
+            Some(
+                QuantumError.ValidationError(
+                    "ConfidenceLevel",
+                    $"Confidence level must be strictly between 0 and 1, got {config.ConfidenceLevel}"
+                )
+            )
+        elif config.UseErrorMitigation then
+            Some(
+                QuantumError.NotImplemented(
+                    "Error mitigation in the risk engine",
+                    Some
+                        "use_error_mitigation is not supported: the amplitude-estimation circuits are not run through the ErrorMitigation module, and the classical estimate runs no circuit. Set it to false."
+                )
+            )
+        elif config.UseAmplitudeEstimation && config.Backend.IsNone then
+            Some(
+                QuantumError.ValidationError(
+                    "Backend",
+                    "amplitude estimation was requested without a quantum backend; give one with `backend`, or set use_amplitude_estimation false for the classical estimate"
+                )
+            )
+        else
+            match config.MarketDataPath, config.MarketReturns with
+            | None, None ->
+                Some(
+                    QuantumError.ValidationError(
+                        "MarketData",
+                        "no market data: supply returns with load_market_data (a file) or market_returns (an array); the engine generates none"
+                    )
+                )
+            | Some _, Some _ ->
+                Some(
+                    QuantumError.ValidationError(
+                        "MarketData",
+                        "both a market data file and in-memory returns were given; supply one"
+                    )
+                )
+            | None, Some returns when returns.Length < MinValidMarketDataRows ->
+                Some(
+                    QuantumError.ValidationError(
+                        "MarketReturns",
+                        $"At least {MinValidMarketDataRows} returns are required for the VaR percentile math, got {returns.Length}"
+                    )
+                )
+            | None, Some returns when returns |> Array.exists (Double.IsFinite >> not) ->
+                Some(QuantumError.ValidationError("MarketReturns", "returns must be finite numbers"))
+            | _ -> None
+
     /// The risk analysis under the one token that cancels it.
     let private executeWithTokenAsync
         (config: RiskConfiguration)
@@ -333,29 +386,11 @@ module RiskEngine =
             cancellationToken.ThrowIfCancellationRequested()
 
             // 0. Validate configuration
-            if config.ConfidenceLevel <= 0.0 || config.ConfidenceLevel >= 1.0 then
-                return
-                    Error(
-                        QuantumError.ValidationError(
-                            "ConfidenceLevel",
-                            $"Confidence level must be strictly between 0 and 1, got {config.ConfidenceLevel}"
-                        )
-                    )
-            elif config.MarketDataPath.IsNone && config.SimulationPaths < MinValidMarketDataRows then
-                // Mock returns are generated from SimulationPaths; fewer than 2 paths
-                // crashes the VaR percentile index arithmetic (and the quantum path's
-                // distribution discretization) with an index-out-of-range instead of
-                // a proper validation error.
-                return
-                    Error(
-                        QuantumError.ValidationError(
-                            "SimulationPaths",
-                            $"At least {MinValidMarketDataRows} simulation paths are required for the VaR percentile math, got {config.SimulationPaths}"
-                        )
-                    )
-            else
-                // 1. Ingest data. Real market data is required when a path is configured;
-                //    mock returns are used only when no MarketDataPath is given.
+            match unsupportedRequest config with
+            | Some err -> return Error err
+            | None ->
+                // 1. Ingest data: the configured file, else the in-memory returns
+                //    (unsupportedRequest has established that exactly one is given).
                 let! returnsResult =
                     match config.MarketDataPath with
                     | Some path ->
@@ -363,8 +398,6 @@ module RiskEngine =
                             let! exists = Task.Run(fun () -> System.IO.File.Exists(path))
 
                             if not exists then
-                                // A configured-but-missing file is an explicit error,
-                                // not a silent fallback to mock data.
                                 return
                                     Error(
                                         QuantumError.ValidationError(
@@ -426,16 +459,16 @@ module RiskEngine =
                                     else
                                         return Ok parsed
                         }
-                    | None -> Task.FromResult(Ok(generateMockReturns config.SimulationPaths))
+                    | None -> Task.FromResult(Ok(config.MarketReturns |> Option.defaultValue [||]))
 
                 match returnsResult with
                 | Error err -> return Error err
                 | Ok returns ->
-                    // 2. Choose quantum or classical path
-                    if config.UseAmplitudeEstimation && config.Backend.IsSome then
+                    // 2. The path the caller asked for: amplitude estimation on the backend
+                    //    (unsupportedRequest refuses it without one), else the classical estimate.
+                    match config.Backend with
+                    | Some qBackend when config.UseAmplitudeEstimation ->
                         // Quantum path: every reported metric from amplitude estimation
-                        let qBackend = config.Backend.Value
-
                         match! executeQuantumRisk config qBackend returns cancellationToken with
                         | Error err ->
                             // Business outcome: propagate the quantum failure as Error (no classical fallback).
@@ -463,8 +496,9 @@ module RiskEngine =
                                         Method = "Quantum Amplitude Estimation" + estimates.Route
                                         Configuration = config
                                     }
-                    else
-                        // Classical path: Monte Carlo
+                    | _ ->
+                        // Classical path: empirical quantile, tail mean and standard deviation
+                        // of the supplied returns (historical simulation); nothing is simulated
                         let sortedReturns = Array.sort returns
                         let varIndex = int ((1.0 - config.ConfidenceLevel) * float returns.Length)
                         let classicalVaR = -sortedReturns.[varIndex]
@@ -509,16 +543,18 @@ module RiskEngine =
                                     Volatility = vol
                                     ConfidenceLevel = config.ConfidenceLevel
                                     ExecutionTimeMs = executionTime
-                                    Method = "Classical Monte Carlo"
+                                    Method = "Classical historical simulation"
                                     Configuration = config
                                 }
         }
 
     /// Execute the configured risk analysis (async, cancellable).
     ///
-    /// Returns a `Result`: the quantum amplitude-estimation path can fail as a business
-    /// outcome (e.g. backend rejects the circuit), surfaced as `Error`; the classical
-    /// Monte Carlo path always yields `Ok`.
+    /// Returns a `Result`. Error when no returns are supplied (the engine generates none),
+    /// when amplitude estimation is requested without a backend, when error mitigation is
+    /// requested, and when the quantum amplitude-estimation path fails (e.g. the backend
+    /// rejects the circuit). The classical estimate (empirical quantiles of the supplied
+    /// returns) runs only when amplitude estimation is not requested.
     let executeAsync
         (config: RiskConfiguration)
         (cancellationToken: CancellationToken)
@@ -540,6 +576,7 @@ type QuantumRiskEngineBuilder() =
     member _.Yield(_) =
         {
             MarketDataPath = None
+            MarketReturns = None
             ConfidenceLevel = 0.95
             SimulationPaths = 10000
             UseAmplitudeEstimation = false
@@ -555,6 +592,7 @@ type QuantumRiskEngineBuilder() =
     member _.Zero() =
         {
             MarketDataPath = None
+            MarketReturns = None
             ConfidenceLevel = 0.95
             SimulationPaths = 10000
             UseAmplitudeEstimation = false
@@ -582,29 +620,39 @@ type QuantumRiskEngineBuilder() =
 
     member this.Run(f: unit -> RiskConfiguration) : Task<QuantumResult<RiskReport>> = this.Run(f ())
 
-    /// Load market data from a file path
+    /// Load market data from a file path (a header line, then one return per line)
     [<CustomOperation("load_market_data")>]
     member _.LoadMarketData(state: RiskConfiguration, path: string) =
         { state with
             MarketDataPath = Some path
         }
 
+    /// Supply the returns in memory (at least 2 finite values)
+    [<CustomOperation("market_returns")>]
+    member _.MarketReturns(state: RiskConfiguration, returns: float[]) =
+        { state with
+            MarketReturns = Some returns
+        }
+
     /// Set the confidence level for risk calculations (e.g., 0.99 for 99%)
     [<CustomOperation("set_confidence_level")>]
     member _.SetConfidenceLevel(state: RiskConfiguration, level: float) = { state with ConfidenceLevel = level }
 
-    /// Set the number of simulation paths (classical equivalent)
+    /// Has no effect: the engine simulates no paths
     [<CustomOperation("set_simulation_paths")>]
+    [<Obsolete("set_simulation_paths has no effect: the engine computes from the supplied returns and simulates no paths. Supply the data with load_market_data or market_returns.")>]
     member _.SetSimulationPaths(state: RiskConfiguration, paths: int) = { state with SimulationPaths = paths }
 
-    /// Enable or disable Quantum Amplitude Estimation for quadratic speedup
+    /// Request quantum amplitude estimation for every metric. Needs `backend`; without one
+    /// the run is an Error. False (the default) computes the classical estimate
     [<CustomOperation("use_amplitude_estimation")>]
     member _.UseAmplitudeEstimation(state: RiskConfiguration, enable: bool) =
         { state with
             UseAmplitudeEstimation = enable
         }
 
-    /// Enable or disable error mitigation techniques
+    /// Error mitigation is not available for the risk engine's circuits: `true` makes the
+    /// run an Error
     [<CustomOperation("use_error_mitigation")>]
     member _.UseErrorMitigation(state: RiskConfiguration, enable: bool) =
         { state with

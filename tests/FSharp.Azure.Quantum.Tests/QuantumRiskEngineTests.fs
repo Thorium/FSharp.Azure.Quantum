@@ -16,11 +16,23 @@ module QuantumRiskEngineTests =
     // HELPERS
     // ========================================================================
 
+    /// Test data: n seeded draws from a normal distribution (mean 0.0005, sigma 0.02).
+    /// The engine generates no returns, so every test supplies its own.
+    let private sampleReturns (n: int) : float[] =
+        let rng = Random(42)
+
+        Array.init n (fun _ ->
+            let u1 = rng.NextDouble()
+            let u2 = rng.NextDouble()
+            let z = sqrt (-2.0 * log u1) * cos (2.0 * Math.PI * u2)
+            0.0005 + 0.02 * z)
+
     let private defaultConfig =
         {
             MarketDataPath = None
+            MarketReturns = Some(sampleReturns 10000)
             ConfidenceLevel = 0.95
-            SimulationPaths = 10000
+            SimulationPaths = 0
             UseAmplitudeEstimation = false
             UseErrorMitigation = false
             Metrics = []
@@ -44,7 +56,7 @@ module QuantumRiskEngineTests =
     // ========================================================================
 
     [<Fact>]
-    let ``execute with default config should return report with Method = Classical Monte Carlo`` () =
+    let ``execute without amplitude estimation reports the classical method`` () =
         task {
             let config =
                 { defaultConfig with
@@ -52,7 +64,160 @@ module QuantumRiskEngineTests =
                 }
 
             let! report = run config
-            Assert.Equal("Classical Monte Carlo", report.Method)
+            Assert.Equal("Classical historical simulation", report.Method)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``classical metrics are the empirical quantile, tail mean and deviation of the supplied returns`` () =
+        task {
+            // Ten returns, 75% confidence: index int(0.25 * 10) = 2 of the sorted returns
+            let returns = [| 0.03; -0.05; 0.01; -0.02; 0.02; -0.04; 0.00; 0.04; -0.01; 0.05 |]
+
+            let! report =
+                run
+                    { defaultConfig with
+                        MarketReturns = Some returns
+                        ConfidenceLevel = 0.75
+                        Metrics = [ ValueAtRisk; ConditionalVaR; Volatility ]
+                    }
+
+            Assert.Equal(ValueSome 0.02, report.VaR)
+
+            match report.CVaR, report.Volatility with
+            | ValueSome cvar, ValueSome vol ->
+                Assert.Equal((0.05 + 0.04 + 0.02) / 3.0, cvar, 12)
+                let mean = Array.average returns
+                Assert.Equal(sqrt (returns |> Array.averageBy (fun r -> (r - mean) * (r - mean))), vol, 12)
+            | other -> failwith $"Expected CVaR and volatility, got {other}"
+        }
+        :> Task
+
+    // ========================================================================
+    // REQUESTS THE ENGINE CANNOT HONOUR ARE ERRORS
+    // ========================================================================
+
+    [<Fact>]
+    let ``no market data is an Error, not figures on generated returns`` () =
+        task {
+            let! result =
+                RiskEngine.executeAsync
+                    { defaultConfig with
+                        MarketReturns = None
+                        SimulationPaths = 10000
+                        Metrics = [ ValueAtRisk; Volatility ]
+                    }
+                    CancellationToken.None
+
+            match result with
+            | Error(QuantumError.ValidationError("MarketData", _)) -> ()
+            | other -> failwith $"Expected a MarketData validation error, got {other}"
+
+            // The builder's default has no data either
+            match! quantumRiskEngine { calculate_metric ValueAtRisk } with
+            | Error(QuantumError.ValidationError("MarketData", _)) -> ()
+            | other -> failwith $"Expected a MarketData validation error, got {other}"
+        }
+        :> Task
+
+    [<Fact>]
+    let ``a market data file together with in-memory returns is an Error`` () =
+        task {
+            let! result =
+                RiskEngine.executeAsync
+                    { defaultConfig with
+                        MarketDataPath = Some "returns.csv"
+                    }
+                    CancellationToken.None
+
+            match result with
+            | Error(QuantumError.ValidationError("MarketData", _)) -> ()
+            | other -> failwith $"Expected a MarketData validation error, got {other}"
+        }
+        :> Task
+
+    [<Fact>]
+    let ``fewer than two or non-finite in-memory returns are an Error`` () =
+        task {
+            for returns in [ [| 0.01 |]; [| 0.01; nan; 0.02 |] ] do
+                let! result =
+                    RiskEngine.executeAsync
+                        { defaultConfig with
+                            MarketReturns = Some returns
+                            Metrics = [ ValueAtRisk ]
+                        }
+                        CancellationToken.None
+
+                match result with
+                | Error(QuantumError.ValidationError("MarketReturns", _)) -> ()
+                | other -> failwith $"Expected a MarketReturns validation error, got {other}"
+        }
+        :> Task
+
+    [<Fact>]
+    let ``returns are read from a market data file`` () =
+        task {
+            let path = IO.Path.Combine(IO.Path.GetTempPath(), $"fsaq-returns-{Guid.NewGuid():N}.csv")
+            do! IO.File.WriteAllLinesAsync(path, [ "return"; "0.03"; "-0.05"; "0.01"; "-0.02"; "0.02" ])
+
+            try
+                let! report =
+                    run
+                        { defaultConfig with
+                            MarketDataPath = Some path
+                            MarketReturns = None
+                            ConfidenceLevel = 0.75
+                            Metrics = [ ValueAtRisk ]
+                        }
+
+                // index int(0.25 * 5) = 1 of the sorted returns
+                Assert.Equal(ValueSome 0.02, report.VaR)
+            finally
+                IO.File.Delete path
+        }
+        :> Task
+
+    [<Fact>]
+    let ``error mitigation is refused on both paths instead of being ignored`` () =
+        task {
+            let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+            for config in
+                [
+                    { defaultConfig with
+                        UseErrorMitigation = true
+                    }
+                    { defaultConfig with
+                        UseErrorMitigation = true
+                        UseAmplitudeEstimation = true
+                        Backend = Some quantumBackend
+                        NumQubits = 3
+                    }
+                ] do
+                let! result =
+                    RiskEngine.executeAsync
+                        { config with
+                            Metrics = [ ValueAtRisk ]
+                        }
+                        CancellationToken.None
+
+                match result with
+                | Error(QuantumError.NotImplemented _) -> ()
+                | other -> failwith $"Expected NotImplemented, got {other}"
+        }
+        :> Task
+
+    [<Fact>]
+    let ``a backend without amplitude estimation runs the classical estimate the caller asked for`` () =
+        task {
+            let! report =
+                run
+                    { defaultConfig with
+                        Backend = Some(LocalBackend.LocalBackend() :> IQuantumBackend)
+                        Metrics = [ ValueAtRisk ]
+                    }
+
+            Assert.Equal("Classical historical simulation", report.Method)
         }
         :> Task
 
@@ -62,7 +227,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     Metrics = [ ValueAtRisk ]
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
             let! report = run config
@@ -79,7 +244,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     Metrics = [ ConditionalVaR ]
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
             let! report = run config
@@ -96,7 +261,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     Metrics = [ ExpectedShortfall ]
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
             let! report = run config
@@ -113,7 +278,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     Metrics = [ Volatility ]
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
             let! report = run config
@@ -130,7 +295,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     Metrics = [ ValueAtRisk; ConditionalVaR; ExpectedShortfall; Volatility ]
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
             let! report = run config
@@ -147,7 +312,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     Metrics = []
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
             let! report = run config
@@ -164,7 +329,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     ConfidenceLevel = 0.99
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
             let! report = run config
@@ -178,7 +343,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     Metrics = [ ValueAtRisk ]
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
             let! report = run config
@@ -191,12 +356,12 @@ module QuantumRiskEngineTests =
         task {
             let config =
                 { defaultConfig with
-                    SimulationPaths = 500
+                    MarketReturns = Some(sampleReturns 500)
                     ConfidenceLevel = 0.90
                 }
 
             let! report = run config
-            Assert.Equal(500, report.Configuration.SimulationPaths)
+            Assert.Equal(Some 500, report.Configuration.MarketReturns |> Option.map Array.length)
             Assert.Equal(0.90, report.Configuration.ConfidenceLevel)
         }
         :> Task
@@ -217,7 +382,7 @@ module QuantumRiskEngineTests =
                     NumQubits = 3
                     GroverIterations = 1
                     Shots = 100
-                    SimulationPaths = 200
+                    MarketReturns = Some(sampleReturns 200)
                     Metrics = [ ValueAtRisk ]
                 }
 
@@ -238,7 +403,7 @@ module QuantumRiskEngineTests =
                     NumQubits = 3
                     GroverIterations = 1
                     Shots = 100
-                    SimulationPaths = 200
+                    MarketReturns = Some(sampleReturns 200)
                     Metrics = [ ValueAtRisk ]
                 }
 
@@ -262,7 +427,7 @@ module QuantumRiskEngineTests =
                     NumQubits = 3
                     GroverIterations = 1
                     Shots = 100
-                    SimulationPaths = 200
+                    MarketReturns = Some(sampleReturns 200)
                     Metrics = [ ConditionalVaR; ExpectedShortfall ]
                 }
 
@@ -284,7 +449,7 @@ module QuantumRiskEngineTests =
                     NumQubits = 3
                     GroverIterations = 1
                     Shots = 100
-                    SimulationPaths = 200
+                    MarketReturns = Some(sampleReturns 200)
                     Metrics = [ Volatility ]
                 }
 
@@ -308,7 +473,7 @@ module QuantumRiskEngineTests =
                     NumQubits = 3
                     GroverIterations = 1
                     Shots = 100
-                    SimulationPaths = 200
+                    MarketReturns = Some(sampleReturns 200)
                     Metrics = []
                 }
 
@@ -331,7 +496,7 @@ module QuantumRiskEngineTests =
                     NumQubits = 3
                     GroverIterations = 1
                     Shots = 100
-                    SimulationPaths = 200
+                    MarketReturns = Some(sampleReturns 200)
                     ConfidenceLevel = 0.99
                     Metrics = [ ValueAtRisk ]
                 }
@@ -343,19 +508,29 @@ module QuantumRiskEngineTests =
         :> Task
 
     [<Fact>]
-    let ``execute with UseAmplitudeEstimation but no backend should not fail`` () =
+    let ``amplitude estimation without a backend is an Error, not a classical answer`` () =
         task {
-            // UseAmplitudeEstimation=true but Backend=None skips quantum path
             let config =
                 { defaultConfig with
                     UseAmplitudeEstimation = true
                     Backend = None
                     Metrics = [ ValueAtRisk ]
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                 }
 
-            let! report = run config
-            Assert.Equal("Classical Monte Carlo", report.Method)
+            match! RiskEngine.executeAsync config CancellationToken.None with
+            | Error(QuantumError.ValidationError("Backend", _)) -> ()
+            | other -> failwith $"Expected a Backend validation error, got {other}"
+
+            match!
+                quantumRiskEngine {
+                    market_returns (sampleReturns 1000)
+                    use_amplitude_estimation true
+                    calculate_metric ValueAtRisk
+                }
+            with
+            | Error(QuantumError.ValidationError("Backend", _)) -> ()
+            | other -> failwith $"Expected a Backend validation error, got {other}"
         }
         :> Task
 
@@ -376,7 +551,7 @@ module QuantumRiskEngineTests =
                     quantumRiskEngine {
                         cancellation_token cts.Token
                         calculate_metric ValueAtRisk
-                        set_simulation_paths 1000
+                        market_returns (sampleReturns 1000)
                     }
                     :> Task)
 
@@ -393,7 +568,7 @@ module QuantumRiskEngineTests =
             let config =
                 { defaultConfig with
                     Metrics = [ ValueAtRisk ]
-                    SimulationPaths = 1000
+                    MarketReturns = Some(sampleReturns 1000)
                     CancellationToken = Some configured.Token
                 }
 
@@ -435,14 +610,14 @@ module QuantumRiskEngineTests =
                 { defaultConfig with
                     ConfidenceLevel = 0.95
                     Metrics = [ ValueAtRisk ]
-                    SimulationPaths = 10000
+                    MarketReturns = Some(sampleReturns 10000)
                 }
 
             let config99 =
                 { defaultConfig with
                     ConfidenceLevel = 0.99
                     Metrics = [ ValueAtRisk ]
-                    SimulationPaths = 10000
+                    MarketReturns = Some(sampleReturns 10000)
                 }
 
             let! report95 = run config95
@@ -465,7 +640,7 @@ module QuantumRiskEngineTests =
             let! result =
                 quantumRiskEngine {
                     set_confidence_level 0.95
-                    set_simulation_paths 1000
+                    market_returns (sampleReturns 1000)
                     calculate_metric ValueAtRisk
                     calculate_metric Volatility
                 }
@@ -484,7 +659,7 @@ module QuantumRiskEngineTests =
         task {
             let! result =
                 quantumRiskEngine {
-                    set_simulation_paths 500
+                    market_returns (sampleReturns 500)
                     calculate_metric ValueAtRisk
                     calculate_metric ConditionalVaR
                     calculate_metric ExpectedShortfall
@@ -513,7 +688,7 @@ module QuantumRiskEngineTests =
                     qubits 3
                     iterations 1
                     shots 100
-                    set_simulation_paths 200
+                    market_returns (sampleReturns 200)
                     calculate_metric ValueAtRisk
                 }
 
@@ -533,7 +708,7 @@ module QuantumRiskEngineTests =
                     qubits 8
                     iterations 5
                     shots 200
-                    set_simulation_paths 500
+                    market_returns (sampleReturns 500)
                     calculate_metric ValueAtRisk
                 }
 
@@ -552,7 +727,7 @@ module QuantumRiskEngineTests =
             let! result =
                 quantumRiskEngine {
                     set_confidence_level 0.99
-                    set_simulation_paths 500
+                    market_returns (sampleReturns 500)
                     calculate_metric ValueAtRisk
                 }
 
@@ -565,32 +740,11 @@ module QuantumRiskEngineTests =
     [<Fact>]
     let ``quantumRiskEngine CE with no metrics should succeed with empty results`` () =
         task {
-            match! quantumRiskEngine { set_simulation_paths 500 } with
+            match! quantumRiskEngine { market_returns (sampleReturns 500) } with
             | Ok report ->
                 Assert.True(report.VaR.IsNone)
                 Assert.True(report.CVaR.IsNone)
             | Error e -> failwith $"Should succeed, got error: {e}"
-        }
-        :> Task
-
-    // ========================================================================
-    // DETERMINISTIC RESULTS TEST
-    // ========================================================================
-
-    [<Fact>]
-    let ``mock data generator should be deterministic with seed 42`` () =
-        task {
-            let config =
-                { defaultConfig with
-                    Metrics = [ ValueAtRisk; Volatility ]
-                    SimulationPaths = 100
-                }
-
-            let! report1 = run config
-            let! report2 = run config
-            Assert.Equal(report1.VaR, report2.VaR)
-            Assert.Equal(report1.Volatility, report2.Volatility)
-            Assert.Equal(report1.Method, report2.Method)
         }
         :> Task
 
@@ -605,7 +759,7 @@ module QuantumRiskEngineTests =
             NumQubits = 4
             GroverIterations = 2
             Shots = 1000
-            SimulationPaths = 2000
+            MarketReturns = Some(sampleReturns 2000)
             Metrics = [ ValueAtRisk; ConditionalVaR; Volatility ]
         }
 

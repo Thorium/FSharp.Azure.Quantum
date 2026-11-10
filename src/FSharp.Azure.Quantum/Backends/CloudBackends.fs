@@ -42,7 +42,8 @@ module CloudBackends =
     ///   workspaceUrl - Azure Quantum workspace URL
     ///   target       - Rigetti target (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
     ///   shots        - Number of measurement shots (default 1000)
-    ///   timeout      - Job timeout (default 5 minutes)
+    ///   timeout      - How long a job is waited for (default 5 minutes); after it the job's
+    ///                  cancellation is requested and an Error naming the job id is returned
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
     ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
@@ -113,7 +114,9 @@ module CloudBackends =
                             | None -> circuit, None
                         | None -> circuit, None
                     // Every (physical) qubit is read into ro when the circuit measures nothing:
-                    // Rigetti reports only what the program MEASUREs.
+                    // Rigetti reports only what the program MEASUREs. A routed circuit's
+                    // QubitCount covers each physical qubit a logical qubit ends on, so the
+                    // readout holds every bit unrouteHistogram needs.
                     let circuit = CloudBackendHelpers.withTerminalMeasurements circuit
                     // Step 1: Convert ICircuit → QuilProgram
                     match
@@ -140,7 +143,8 @@ module CloudBackends =
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
-                                | JobStatus.Succeeded ->
+                                | JobStatus.Succeeded
+                                | JobStatus.Completed ->
                                     match job.OutputDataUri with
                                     | None ->
                                         return
@@ -162,25 +166,35 @@ module CloudBackends =
                                                 match RigettiBackend.parseRigettiResults resultJson with
                                                 | Error err -> return Error err
                                                 | Ok histogram ->
-                                                    let histogram =
+                                                    let unrouted =
                                                         match routing with
                                                         | Some(mapping, numLogical) ->
                                                             CloudBackendHelpers.unrouteHistogram
                                                                 mapping
                                                                 numLogical
                                                                 histogram
-                                                        | None -> histogram
+                                                        | None -> Ok histogram
 
-                                                    let numQubits =
-                                                        CloudBackendHelpers.inferNumQubits histogram
-                                                        |> Option.defaultValue circuit.NumQubits
+                                                    match unrouted with
+                                                    | Error err -> return Error err
+                                                    | Ok histogram ->
+                                                        // The state is reported in logical qubits; a routed
+                                                        // circuit's own width counts physical ones.
+                                                        let width =
+                                                            match routing with
+                                                            | Some(_, numLogical) -> numLogical
+                                                            | None -> circuit.NumQubits
 
-                                                    return
-                                                        Ok(
-                                                            CloudBackendHelpers.histogramToQuantumState
-                                                                histogram
-                                                                numQubits
-                                                        )
+                                                        let numQubits =
+                                                            CloudBackendHelpers.inferNumQubits histogram
+                                                            |> Option.defaultValue width
+
+                                                        return
+                                                            Ok(
+                                                                CloudBackendHelpers.histogramToQuantumState
+                                                                    histogram
+                                                                    numQubits
+                                                            )
                                             with ex ->
                                                 return
                                                     Error(
@@ -196,7 +210,10 @@ module CloudBackends =
                                 | JobStatus.Cancelled ->
                                     return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
                                 | JobStatus.Waiting
-                                | JobStatus.Executing ->
+                                | JobStatus.Executing
+                                | JobStatus.Finishing
+                                | JobStatus.Cancelling
+                                | JobStatus.Unknown _ ->
                                     return
                                         Error(
                                             QuantumError.AzureError(
@@ -266,7 +283,8 @@ module CloudBackends =
     ///   workspaceUrl - Azure Quantum workspace URL
     ///   target       - IonQ target (e.g., "ionq.simulator", "ionq.qpu.aria-1")
     ///   shots        - Number of measurement shots (default 1000)
-    ///   timeout      - Job timeout (default 5 minutes)
+    ///   timeout      - How long a job is waited for (default 5 minutes); after it the job's
+    ///                  cancellation is requested and an Error naming the job id is returned
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
     ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
@@ -343,7 +361,8 @@ module CloudBackends =
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
-                                | JobStatus.Succeeded ->
+                                | JobStatus.Succeeded
+                                | JobStatus.Completed ->
                                     match job.OutputDataUri with
                                     | None ->
                                         return
@@ -402,7 +421,10 @@ module CloudBackends =
                                 | JobStatus.Cancelled ->
                                     return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
                                 | JobStatus.Waiting
-                                | JobStatus.Executing ->
+                                | JobStatus.Executing
+                                | JobStatus.Finishing
+                                | JobStatus.Cancelling
+                                | JobStatus.Unknown _ ->
                                     return
                                         Error(
                                             QuantumError.AzureError(
@@ -468,7 +490,8 @@ module CloudBackends =
     ///   workspaceUrl - Azure Quantum workspace URL
     ///   target       - Quantinuum target (e.g., "quantinuum.sim.h1-1sc", "quantinuum.qpu.h1-1")
     ///   shots        - Number of measurement shots (default 1000)
-    ///   timeout      - Job timeout (default 5 minutes)
+    ///   timeout      - How long a job is waited for (default 5 minutes); after it the job's
+    ///                  cancellation is requested and an Error naming the job id is returned
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
     ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
@@ -582,7 +605,8 @@ module CloudBackends =
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
-                                | JobStatus.Succeeded ->
+                                | JobStatus.Succeeded
+                                | JobStatus.Completed ->
                                     match job.OutputDataUri with
                                     | None ->
                                         return
@@ -640,7 +664,10 @@ module CloudBackends =
                                 | JobStatus.Cancelled ->
                                     return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
                                 | JobStatus.Waiting
-                                | JobStatus.Executing ->
+                                | JobStatus.Executing
+                                | JobStatus.Finishing
+                                | JobStatus.Cancelling
+                                | JobStatus.Unknown _ ->
                                     return
                                         Error(
                                             QuantumError.AzureError(
@@ -706,7 +733,8 @@ module CloudBackends =
     ///   workspaceUrl - Azure Quantum workspace URL
     ///   target       - Atom Computing target (e.g., "atom-computing.sim", "atom-computing.qpu.phoenix")
     ///   shots        - Number of measurement shots (default 1000)
-    ///   timeout      - Job timeout (default 10 minutes, longer for neutral atom hardware)
+    ///   timeout      - How long a job is waited for (default 10 minutes, longer for neutral atom hardware); after it the job's
+    ///                  cancellation is requested and an Error naming the job id is returned
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
     ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
@@ -818,7 +846,8 @@ module CloudBackends =
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
-                                | JobStatus.Succeeded ->
+                                | JobStatus.Succeeded
+                                | JobStatus.Completed ->
                                     match job.OutputDataUri with
                                     | None ->
                                         return
@@ -859,7 +888,10 @@ module CloudBackends =
                                 | JobStatus.Cancelled ->
                                     return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
                                 | JobStatus.Waiting
-                                | JobStatus.Executing ->
+                                | JobStatus.Executing
+                                | JobStatus.Finishing
+                                | JobStatus.Cancelling
+                                | JobStatus.Unknown _ ->
                                     return
                                         Error(
                                             QuantumError.AzureError(
@@ -921,7 +953,8 @@ module CloudBackends =
     ///   workspaceUrl - Azure Quantum workspace URL
     ///   target       - IQM target (e.g., "iqm.sim", "iqm.qpu.garnet")
     ///   shots        - Number of measurement shots (default 1000)
-    ///   timeout      - Job timeout (default 5 minutes)
+    ///   timeout      - How long a job is waited for (default 5 minutes); after it the job's
+    ///                  cancellation is requested and an Error naming the job id is returned
     ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     ///   maxQubits    - Qubit limit to report in place of the built-in figure for the target
     ///                  (default: the built-in figure; see CloudBackendHelpers.qubitLimit)
@@ -1033,7 +1066,8 @@ module CloudBackends =
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
-                                | JobStatus.Succeeded ->
+                                | JobStatus.Succeeded
+                                | JobStatus.Completed ->
                                     match job.OutputDataUri with
                                     | None ->
                                         return
@@ -1074,7 +1108,10 @@ module CloudBackends =
                                 | JobStatus.Cancelled ->
                                     return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
                                 | JobStatus.Waiting
-                                | JobStatus.Executing ->
+                                | JobStatus.Executing
+                                | JobStatus.Finishing
+                                | JobStatus.Cancelling
+                                | JobStatus.Unknown _ ->
                                     return
                                         Error(
                                             QuantumError.AzureError(
@@ -1184,3 +1221,69 @@ module CloudBackends =
         /// Example targets: "iqm.sim", "iqm.qpu.garnet".
         let createIqm (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) : IQuantumBackend =
             IqmCloudBackend(httpClient, workspaceUrl, target, shots) :> IQuantumBackend
+
+        // The ...WithTimeout functions set how long a job is waited for. A hardware queue can
+        // outlast the default; a job still unfinished at the timeout has its cancellation
+        // requested and comes back as an Error naming the job id.
+
+        /// createRigetti with the job timeout set.
+        let createRigettiWithTimeout
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            (timeout: TimeSpan)
+            : IQuantumBackend =
+            RigettiCloudBackend(httpClient, workspaceUrl, target, shots, timeout = timeout) :> IQuantumBackend
+
+        /// createRigettiRouted with the job timeout set.
+        let createRigettiRoutedWithTimeout
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            (couplingMap: QubitRouting.CouplingMap)
+            (timeout: TimeSpan)
+            : IQuantumBackend =
+            RigettiCloudBackend(httpClient, workspaceUrl, target, shots, timeout = timeout, couplingMap = couplingMap)
+            :> IQuantumBackend
+
+        /// createIonQ with the job timeout set.
+        let createIonQWithTimeout
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            (timeout: TimeSpan)
+            : IQuantumBackend =
+            IonQCloudBackend(httpClient, workspaceUrl, target, shots, timeout = timeout) :> IQuantumBackend
+
+        /// createQuantinuum with the job timeout set.
+        let createQuantinuumWithTimeout
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            (timeout: TimeSpan)
+            : IQuantumBackend =
+            QuantinuumCloudBackend(httpClient, workspaceUrl, target, shots, timeout = timeout) :> IQuantumBackend
+
+        /// createAtomComputing with the job timeout set.
+        let createAtomComputingWithTimeout
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            (timeout: TimeSpan)
+            : IQuantumBackend =
+            AtomComputingCloudBackend(httpClient, workspaceUrl, target, shots, timeout = timeout) :> IQuantumBackend
+
+        /// createIqm with the job timeout set.
+        let createIqmWithTimeout
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            (timeout: TimeSpan)
+            : IQuantumBackend =
+            IqmCloudBackend(httpClient, workspaceUrl, target, shots, timeout = timeout) :> IQuantumBackend

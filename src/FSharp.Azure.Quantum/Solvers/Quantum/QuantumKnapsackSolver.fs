@@ -39,8 +39,8 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///   the optimal selection stays close to that of uniform sampling. The result comes mainly
 ///   from sampling many feasible selections and keeping the best, so NumShots must grow with
 ///   the number of items (the selections double with every item).
-/// - When no sample is feasible the solver returns the empty selection (which is feasible)
-///   with Sampling.Valid = 0 and Sampling.Hits = 0; check Sampling before using the result.
+/// - When no sample is feasible the solver returns an Error: the selection it returns is
+///   always one a shot produced (Sampling.Hits >= 1 for a run as one circuit).
 /// - Weights must be non-negative and have a common integer scale (see toQubo).
 ///
 /// Knapsack Problem:
@@ -519,45 +519,39 @@ module QuantumKnapsackSolver =
                             // Step 9: Find best FEASIBLE solution (satisfies capacity)
                             let feasibleSolutions = solutions |> Array.filter (fun sol -> sol.IsFeasible)
 
-                            let bestSolution =
-                                if feasibleSolutions.Length > 0 then
-                                    feasibleSolutions |> Array.maxBy (fun sol -> sol.TotalValue)
-                                else
-                                    // No feasible sample: the empty selection, which Sampling
-                                    // reports with Valid = 0 and Hits = 0
+                            if feasibleSolutions.Length = 0 then
+                                // The empty selection always fits, but no shot produced it:
+                                // returning it would present an answer nobody sampled.
+                                Error(
+                                    QuantumError.OperationError(
+                                        "DecodeSolution",
+                                        $"No feasible selection in {measurements.Length} shots: every measurement exceeds the capacity "
+                                        + $"({problem.Items.Length} items, {quboMatrix.NumVariables} qubits). Take more shots (NumShots)."
+                                    )
+                                )
+                            else
+                                let bestSolution = feasibleSolutions |> Array.maxBy (fun sol -> sol.TotalValue)
+
+                                let sampling: QaoaExecutionHelpers.SampleStatistics =
                                     {
-                                        SelectedItems = []
-                                        TotalWeight = 0.0
-                                        TotalValue = 0.0
-                                        IsFeasible = true
-                                        BackendName = backend.Name
-                                        NumShots = config.NumShots
-                                        ElapsedMs = 0.0
-                                        BestEnergy = 0.0
-                                        Sampling = None
-                                        Split = None
+                                        Shots = measurements.Length
+                                        Qubits = quboMatrix.NumVariables
+                                        Hits =
+                                            feasibleSolutions
+                                            |> Array.filter (fun sol -> sol.SelectedItems = bestSolution.SelectedItems)
+                                            |> Array.length
+                                        Valid = feasibleSolutions.Length
                                     }
 
-                            let sampling: QaoaExecutionHelpers.SampleStatistics =
-                                {
-                                    Shots = measurements.Length
-                                    Qubits = quboMatrix.NumVariables
-                                    Hits =
-                                        feasibleSolutions
-                                        |> Array.filter (fun sol -> sol.SelectedItems = bestSolution.SelectedItems)
-                                        |> Array.length
-                                    Valid = feasibleSolutions.Length
-                                }
+                                let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
 
-                            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
-
-                            Ok
-                                { bestSolution with
-                                    BackendName = backend.Name
-                                    NumShots = config.NumShots
-                                    ElapsedMs = elapsedMs
-                                    Sampling = Some sampling
-                                }
+                                Ok
+                                    { bestSolution with
+                                        BackendName = backend.Name
+                                        NumShots = config.NumShots
+                                        ElapsedMs = elapsedMs
+                                        Sampling = Some sampling
+                                    }
 
                         task {
                             match!

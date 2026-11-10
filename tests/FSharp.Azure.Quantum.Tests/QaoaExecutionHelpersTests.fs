@@ -1,6 +1,7 @@
 module FSharp.Azure.Quantum.Tests.QaoaExecutionHelpersTests
 
 open Xunit
+open System
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
@@ -357,7 +358,7 @@ module LinearConstraintTests =
     [<Fact>]
     let ``tryScaleToIntegers gives up on values without a short decimal form`` () =
         Assert.Equal(None, Qubo.tryScaleToIntegers [ 1.0 / 3.0; 1.0 ])
-        Assert.Equal(None, Qubo.tryScaleToIntegers [ System.Math.PI ])
+        Assert.Equal(None, Qubo.tryScaleToIntegers [ Math.PI ])
         Assert.Equal(None, Qubo.tryScaleToIntegers [ nan; 1.0 ])
         Assert.Equal(None, Qubo.tryScaleToIntegers [ 1e12; 0.5 ])
 
@@ -428,7 +429,7 @@ module CreateObjectiveFunctionTests =
 
         let objective = createObjectiveFunction backend qubo problemHam mixerHam 1 50
         let value = objective [| 0.5; 0.3 |]
-        Assert.True(System.Double.IsFinite value, $"Expected finite value but got {value}")
+        Assert.True(Double.IsFinite value, $"Expected finite value but got {value}")
 
     [<Fact>]
     let ``createObjectiveFunction returns different values for different parameters`` () =
@@ -1515,3 +1516,357 @@ module BudgetExecutionAsyncTests =
                 Assert.True(parameters.Length > 0)
             | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
         }
+
+// ============================================================================
+// BACKEND FAILURE TESTS
+// ============================================================================
+
+/// LocalBackend that fails every circuit from the failFrom-th on (1-based) and counts the
+/// circuits it was given: each one is a job a cloud backend would bill.
+type private FailingFromBackend(failFrom: int) =
+    let inner = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+    let calls = ref 0
+
+    let failure =
+        Error(QuantumError.OperationError("FailingFromBackend", "the backend is down"))
+
+    member _.Calls = calls.Value
+
+    interface BackendAbstraction.IQuantumBackend with
+        member _.Name = "FailingFrom"
+        member _.NativeStateType = inner.NativeStateType
+        member _.SupportsOperation op = inner.SupportsOperation op
+        member _.InitializeState n = inner.InitializeState n
+        member _.ApplyOperation op state = inner.ApplyOperation op state
+        member _.ApplyOperationAsync op state ct = inner.ApplyOperationAsync op state ct
+
+        member _.ExecuteToState circuit =
+            if Interlocked.Increment(&calls.contents) >= failFrom then
+                failure
+            else
+                inner.ExecuteToState circuit
+
+        member _.ExecuteToStateAsync circuit ct =
+            if Interlocked.Increment(&calls.contents) >= failFrom then
+                Task.FromResult failure
+            else
+                inner.ExecuteToStateAsync circuit ct
+
+module BackendFailureTests =
+
+    let private qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
+
+    let private config =
+        { defaultConfig with
+            NumLayers = 1
+            OptimizationShots = 20
+            FinalShots = 50
+        }
+
+    let private assertBackendError (result: Result<'T, QuantumError>) =
+        match result with
+        | Error(QuantumError.OperationError("FailingFromBackend", _)) -> ()
+        | Error other -> Assert.Fail($"expected the backend's own error, got {other}")
+        | Ok _ -> Assert.Fail("expected the backend's error, got a result")
+
+    [<Theory; InlineData(1); InlineData(3)>]
+    let ``Nelder-Mead stops at the first backend error and returns it`` (failFrom: int) : Task =
+        task {
+            let backend = FailingFromBackend failFrom
+
+            let! result =
+                executeQaoaWithOptimizationAsync
+                    backend
+                    qubo
+                    { config with
+                        EnableOptimization = true
+                    }
+                    CancellationToken.None
+
+            assertBackendError result
+            // The failing circuit is the last one submitted: no later evaluation, no final sampling.
+            Assert.Equal(failFrom, backend.Calls)
+        }
+
+    [<Fact>]
+    let ``Grid search stops at the first backend error and returns it`` () : Task =
+        task {
+            let backend = FailingFromBackend 4
+
+            let! result =
+                executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None
+
+            assertBackendError result
+            Assert.Equal(4, backend.Calls)
+        }
+
+    [<Fact>]
+    let ``runQaoaSampledAsync returns the backend error of either strategy`` () : Task =
+        task {
+            for enableOptimization in [ true; false ] do
+                let backend = FailingFromBackend 2
+
+                let! result =
+                    runQaoaSampledAsync
+                        backend
+                        qubo
+                        { config with
+                            EnableOptimization = enableOptimization
+                        }
+                        CancellationToken.None
+
+                assertBackendError result
+                Assert.Equal(2, backend.Calls)
+        }
+
+    [<Fact>]
+    let ``createObjectiveFunctionWithError runs no circuit after a failure and reports the error`` () =
+        let backend = FailingFromBackend 2
+        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
+        let mixerHam = QaoaCircuit.MixerHamiltonian.create 2
+
+        let objective, firstError =
+            createObjectiveFunctionWithError backend qubo problemHam mixerHam 1 20
+
+        Assert.True(Double.IsFinite(objective [| 0.3; 0.2 |]))
+        Assert.Equal(None, firstError ())
+
+        Assert.Equal(Double.MaxValue, objective [| 0.4; 0.2 |])
+        Assert.Equal(Double.MaxValue, objective [| 0.5; 0.2 |])
+        Assert.Equal(2, backend.Calls)
+
+        match firstError () with
+        | Some(QuantumError.OperationError("FailingFromBackend", _)) -> ()
+        | other -> Assert.Fail($"expected the backend's error, got %A{other}")
+
+// ============================================================================
+// QaoaParameterOptimizer: a backend error ends the run and is returned
+// ============================================================================
+
+module ParameterOptimizerFailureTests =
+
+    let private problemHam =
+        QaoaCircuit.ProblemHamiltonian.fromQubo (array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |])
+
+    let private config: QaoaParameterOptimizer.QaoaOptimizationConfig =
+        { QaoaParameterOptimizer.defaultConfig with
+            MaxIterations = 40
+            NumShots = 50
+            RandomSeed = Some 3
+            OptStrategy = QaoaParameterOptimizer.SingleRun
+        }
+
+    [<Fact>]
+    let ``createObjectiveFunctionWithError runs no circuit after a failure and reports the error`` () =
+        let backend = FailingFromBackend 2
+        let mixerHam = QaoaCircuit.MixerHamiltonian.create 2
+
+        let objective, firstError =
+            QaoaParameterOptimizer.createObjectiveFunctionWithError problemHam mixerHam backend 20 None
+
+        Assert.True(Double.IsFinite(objective [| 0.3; 0.2 |]))
+        Assert.Equal(None, firstError ())
+
+        // No penalty value the optimizer could keep minimising against: the run is over.
+        Assert.Equal(Double.MaxValue, objective [| 0.4; 0.2 |])
+        Assert.Equal(Double.MaxValue, objective [| 0.5; 0.2 |])
+        Assert.Equal(2, backend.Calls)
+
+        match firstError () with
+        | Some(QuantumError.OperationError("FailingFromBackend", _)) -> ()
+        | other -> Assert.Fail($"expected the backend's error, got %A{other}")
+
+    [<Theory>]
+    [<InlineData("single")>]
+    [<InlineData("multi")>]
+    [<InlineData("layers")>]
+    [<InlineData("adaptive")>]
+    let ``tryOptimizeQaoaParameters returns the backend error and stops calling the backend`` (strategy: string) =
+        let optStrategy =
+            match strategy with
+            | "single" -> QaoaParameterOptimizer.SingleRun
+            | "multi" -> QaoaParameterOptimizer.MultiStart 4
+            | "layers" -> QaoaParameterOptimizer.LayerByLayer
+            | _ -> QaoaParameterOptimizer.Adaptive
+
+        let backend = FailingFromBackend 3
+
+        let result =
+            QaoaParameterOptimizer.tryOptimizeQaoaParameters
+                problemHam
+                2
+                backend
+                { config with
+                    OptStrategy = optStrategy
+                }
+
+        match result with
+        | Error(QuantumError.OperationError("FailingFromBackend", _)) -> ()
+        | Error other -> Assert.Fail($"expected the backend's own error, got {other}")
+        | Ok optimum -> Assert.Fail($"expected the backend's error, got %A{optimum.OptimizedParameters}")
+
+        // The failing circuit is the last one the backend saw, whatever the strategy had left.
+        Assert.Equal(3, backend.Calls)
+
+    [<Fact>]
+    let ``tryOptimizeQaoaParameters refuses an annealer, which has no angles to optimize`` () =
+        let annealer =
+            DWaveBackend.createMockDWaveBackend DWaveTypes.Advantage_System6_1 (Some 1)
+
+        match QaoaParameterOptimizer.tryOptimizeQaoaParameters problemHam 1 annealer config with
+        | Error(QuantumError.ValidationError("backend", reason)) -> Assert.Contains("annealer", reason)
+        | other -> Assert.Fail($"expected a ValidationError for the backend, got %A{other}")
+
+    [<Fact>]
+    let ``tryOptimizeQaoaParameters returns the optimum of a backend that works`` () =
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        match QaoaParameterOptimizer.tryOptimizeQaoaParameters problemHam 1 backend config with
+        | Error err -> Assert.Fail($"expected Ok, got {err}")
+        | Ok optimum ->
+            Assert.Equal(1, optimum.OptimizedParameters.Length)
+            Assert.True(Double.IsFinite optimum.FinalEnergy)
+            Assert.True(optimum.FinalEnergy < 1e9)
+            Assert.True(optimum.TotalEvaluations > 0)
+
+// ============================================================================
+// JOB PLAN: what a solve submits, known before it runs
+// ============================================================================
+
+/// LocalBackend that counts the circuits it runs: each is a job on a billed backend.
+type private CountingBackend() =
+    let inner = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+    let calls = ref 0
+
+    member _.Calls = calls.Value
+
+    interface BackendAbstraction.IQuantumBackend with
+        member _.Name = "Counting"
+        member _.NativeStateType = inner.NativeStateType
+        member _.SupportsOperation op = inner.SupportsOperation op
+        member _.InitializeState n = inner.InitializeState n
+        member _.ApplyOperation op state = inner.ApplyOperation op state
+        member _.ApplyOperationAsync op state ct = inner.ApplyOperationAsync op state ct
+
+        member _.ExecuteToState circuit =
+            Interlocked.Increment(&calls.contents) |> ignore
+            inner.ExecuteToState circuit
+
+        member _.ExecuteToStateAsync circuit ct =
+            Interlocked.Increment(&calls.contents) |> ignore
+            inner.ExecuteToStateAsync circuit ct
+
+module JobPlanTests =
+
+    /// Three coupled variables with a frustrated minimum, so the optimizer has work to do.
+    let private qubo =
+        array2D [| [| -1.0; 2.0; 0.5 |]; [| 0.0; -1.5; 2.0 |]; [| 0.0; 0.0; -0.5 |] |]
+
+    [<Theory>]
+    [<InlineData(1, 1)>]
+    [<InlineData(1, 7)>]
+    [<InlineData(1, 60)>]
+    [<InlineData(2, 5)>]
+    [<InlineData(2, 40)>]
+    [<InlineData(3, 12)>]
+    [<InlineData(2, 1000)>]
+    let ``the plan bounds the circuits a Nelder-Mead run executes`` (layers: int, maxIterations: int) : Task =
+        task {
+            let backend = CountingBackend()
+
+            let config =
+                { defaultConfig with
+                    NumLayers = layers
+                    MaxOptimizationIterations = maxIterations
+                    OptimizationShots = 20
+                    FinalShots = 30
+                }
+
+            let plan = jobPlan backend config
+            let! result = executeQaoaWithOptimizationAsync backend qubo config CancellationToken.None
+
+            match result with
+            | Error err -> Assert.Fail($"expected Ok, got {err}")
+            | Ok _ -> ()
+
+            Assert.Equal(maxOptimizerEvaluations layers maxIterations, plan.OptimizationJobs)
+            Assert.Equal(1, plan.FinalJobs)
+
+            Assert.True(
+                backend.Calls <= plan.Jobs,
+                $"p=%d{layers}, MaxOptimizationIterations=%d{maxIterations}: ran %d{backend.Calls} circuits, plan allows %d{plan.Jobs}"
+            )
+        }
+
+    [<Fact>]
+    let ``an optimizer stopped by its iteration limit runs more circuits than the limit`` () : Task =
+        task {
+            // The limit counts evaluations after the first simplex: the plan must not be read
+            // as "MaxOptimizationIterations jobs".
+            let backend = CountingBackend()
+
+            let config =
+                { defaultConfig with
+                    NumLayers = 2
+                    MaxOptimizationIterations = 10
+                }
+
+            let! _ = executeQaoaWithOptimizationAsync backend qubo config CancellationToken.None
+            Assert.True(backend.Calls > 10, $"ran %d{backend.Calls} circuits")
+            Assert.True(backend.Calls <= (jobPlan backend config).Jobs)
+        }
+
+    [<Fact>]
+    let ``the plan of a grid search is the grid and the final sampling, exactly`` () : Task =
+        task {
+            let backend = CountingBackend()
+
+            let config =
+                { fastConfig with
+                    OptimizationShots = 20
+                    FinalShots = 30
+                }
+
+            let plan = jobPlan backend config
+            let! _ = runQaoaSampledAsync backend qubo config CancellationToken.None
+
+            Assert.Equal(gridSearchEvaluations, plan.OptimizationJobs)
+            Assert.Equal(plan.Jobs, backend.Calls)
+        }
+
+    [<Fact>]
+    let ``a simulator's plan takes the configured shots`` () =
+        let plan = jobPlan (CountingBackend()) defaultConfig
+
+        Assert.Equal(defaultConfig.OptimizationShots, plan.OptimizationShots)
+        Assert.Equal(defaultConfig.FinalShots, plan.FinalShots)
+
+        Assert.Equal(
+            int64 plan.OptimizationJobs * int64 defaultConfig.OptimizationShots
+            + int64 defaultConfig.FinalShots,
+            plan.Shots
+        )
+
+    [<Fact>]
+    let ``a sampling backend's plan takes the backend's shots per job`` () =
+        use http = new System.Net.Http.HttpClient()
+
+        let backend =
+            CloudBackends.RigettiCloudBackend(http, "https://example.invalid", "rigetti.qpu.ankaa-3", 250)
+
+        let plan = jobPlan backend defaultConfig
+        Assert.Equal(250, plan.OptimizationShots)
+        Assert.Equal(250, plan.FinalShots)
+        Assert.Equal(int64 plan.Jobs * 250L, plan.Shots)
+
+        let single = singleRunPlan backend 1000
+        Assert.Equal(1, single.Jobs)
+        Assert.Equal(250L, single.Shots)
+
+    [<Fact>]
+    let ``only job-submitting backends are billed`` () =
+        use http = new System.Net.Http.HttpClient()
+
+        Assert.True(isBilledBackend (CloudBackends.IonQCloudBackend(http, "https://example.invalid", "ionq.simulator")))
+        Assert.False(isBilledBackend (LocalBackend.LocalBackend()))
+        Assert.False(isBilledBackend (CountingBackend()))

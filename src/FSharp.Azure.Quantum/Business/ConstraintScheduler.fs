@@ -183,6 +183,32 @@ module ConstraintScheduler =
 
             /// Execution message
             Message: string
+
+            /// True when the lowest-energy QAOA sample left clauses unsatisfied and classical
+            /// constraint repair (greedy bit flips) changed it into BestSchedule; false when
+            /// BestSchedule is a measured sample. Only the QAOA SAT path repairs
+            WasRepaired: bool
+
+            /// Standing of BestSchedule among the final QAOA samples: Valid = samples that
+            /// were feasible before any repair, Hits = samples that are BestSchedule. None for
+            /// Grover's search and when no single sampling run produced the schedule
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+        }
+
+    /// A schedule search outcome with how the schedule was obtained
+    type private Found =
+        {
+            Schedule: Schedule option
+            Repaired: bool
+            Samples: QaoaExecutionHelpers.SampleStatistics option
+        }
+
+    /// The outcome of a search that neither repairs nor reports sample statistics
+    let private asMeasured (schedule: Schedule option) : Found =
+        {
+            Schedule = schedule
+            Repaired = false
+            Samples = None
         }
 
     // ========================================================================
@@ -881,12 +907,14 @@ module ConstraintScheduler =
             |> Qubo.toDenseArray numQubits
             |> Ok
 
-    /// Find optimal schedule using QAOA-based SAT optimization.
+    /// Find a schedule using QAOA-based SAT optimization. The SAT solver repairs its
+    /// lowest-energy sample classically when that leaves clauses unsatisfied; the outcome
+    /// carries whether it did and the sample statistics.
     let private optimizeQaoaSat
         (backend: IQuantumBackend)
         (problem: SchedulingProblem)
         (cancellationToken: CancellationToken)
-        : Task<QuantumResult<Schedule option>> =
+        : Task<QuantumResult<Found>> =
         quantumResultTask {
             let satProblem = toQaoaSatProblem problem
 
@@ -899,29 +927,48 @@ module ConstraintScheduler =
                     }
                     cancellationToken
 
-            let schedule = decodeQaoaSatSolution problem satSolution
-            return Some schedule
+            return
+                {
+                    Schedule = Some(decodeQaoaSatSolution problem satSolution)
+                    Repaired = satSolution.WasRepaired
+                    Samples = satSolution.Sampling
+                }
         }
 
     /// The schedule that the samples of a capacity-QUBO run stand for. Slack bits are
     /// auxiliary, so a feasible sample can sit at a higher energy than an infeasible one:
     /// the pick is the feasible sample of least cost (the first feasible sample for
     /// MaximizeSatisfaction), and the lowest-energy sample only when no sample is feasible.
-    /// The sample is decoded as measured, without repair.
-    let private pickCapacitySchedule (problem: SchedulingProblem) (run: QaoaExecutionHelpers.QaoaRun) : Schedule =
+    /// The sample is decoded as measured, without repair; the statistics count the samples
+    /// that decode to a feasible schedule and those that decode to the picked one.
+    let private pickCapacitySchedule (problem: SchedulingProblem) (run: QaoaExecutionHelpers.QaoaRun) : Found =
         let feasible =
             run.Samples
             |> Array.distinct
             |> Array.map (decodeAssignmentBits problem)
             |> Array.filter (fun schedule -> schedule.IsFeasible)
 
-        if feasible.Length = 0 then
-            decodeAssignmentBits problem run.Best
-        else
-            match problem.Goal with
-            | MinimizeCost
-            | Balanced -> feasible |> Array.minBy (fun schedule -> schedule.TotalCost)
-            | MaximizeSatisfaction -> feasible.[0]
+        let picked =
+            if feasible.Length = 0 then
+                decodeAssignmentBits problem run.Best
+            else
+                match problem.Goal with
+                | MinimizeCost
+                | Balanced -> feasible |> Array.minBy (fun schedule -> schedule.TotalCost)
+                | MaximizeSatisfaction -> feasible.[0]
+
+        {
+            Schedule = Some picked
+            Repaired = false
+            Samples =
+                Some(
+                    QaoaExecutionHelpers.sampleStatistics
+                        run.Best.Length
+                        (fun sample -> (decodeAssignmentBits problem sample).IsFeasible)
+                        (fun sample -> (decodeAssignmentBits problem sample).Assignments = picked.Assignments)
+                        run.Samples
+                )
+        }
 
     /// Find a schedule by QAOA on the capacity QUBO (see pickCapacitySchedule for the sample
     /// that is returned); createSchedule reports whether it is feasible.
@@ -929,7 +976,7 @@ module ConstraintScheduler =
         (backend: IQuantumBackend)
         (problem: SchedulingProblem)
         (cancellationToken: CancellationToken)
-        : Task<QuantumResult<Schedule option>> =
+        : Task<QuantumResult<Found>> =
         task {
             match toCapacityQubo problem with
             | Error err -> return Error err
@@ -954,7 +1001,7 @@ module ConstraintScheduler =
                     let! run =
                         QaoaExecutionHelpers.runQaoaSampledAsync backend qubo config cancellationToken
 
-                    return run |> Result.map (pickCapacitySchedule problem >> Some)
+                    return run |> Result.map (pickCapacitySchedule problem)
         }
 
     /// Determine the effective strategy based on problem characteristics.
@@ -1015,7 +1062,7 @@ module ConstraintScheduler =
                 let strategy = resolveStrategy problem
                 let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
 
-                let! schedule =
+                let! found =
                     match strategy, problem.Goal with
                     // Satisfaction goal: resource cost is intentionally NOT part of the
                     // objective (the user is maximising constraint satisfaction, not cost).
@@ -1025,7 +1072,8 @@ module ConstraintScheduler =
                     | QaoaOptimize, MaximizeSatisfaction when hasCapacity ->
                         optimizeQaoaCapacity backend problem cancellationToken
                     | QaoaOptimize, MaximizeSatisfaction -> optimizeQaoaSat backend problem cancellationToken
-                    | (GroverSearch | Auto), MaximizeSatisfaction -> Task.FromResult(optimizeQuantumSat backend problem)
+                    | (GroverSearch | Auto), MaximizeSatisfaction ->
+                        Task.FromResult(optimizeQuantumSat backend problem |> Result.map asMeasured)
 
                     // Cost goal WITH capacity: the capacity QUBO carries each resource's own
                     // capacity, the hard constraints and the resource costs, whatever the
@@ -1037,19 +1085,24 @@ module ConstraintScheduler =
                     // weighted graph-colouring oracle. The SAT/QAOA clause encoding cannot
                     // express resource costs, so every cost goal is routed to the cost-aware
                     // colouring formulation regardless of the Grover/QAOA strategy hint.
-                    | _, (MinimizeCost | Balanced) -> Task.FromResult(optimizeQuantumColoring backend problem)
+                    | _, (MinimizeCost | Balanced) ->
+                        Task.FromResult(optimizeQuantumColoring backend problem |> Result.map asMeasured)
 
                 // Quantum-first: when the quantum search finds no schedule, the result says
                 // so; no classical search runs in its place.
                 return
                     {
-                        BestSchedule = schedule
+                        WasRepaired = found.Repaired
+                        Sampling = found.Samples
+                        BestSchedule = found.Schedule
                         Message =
-                            match schedule with
+                            match found.Schedule with
                             | None ->
                                 "The quantum search found no feasible schedule with the current constraints and shots"
                             | Some sched ->
-                                if sched.IsFeasible then
+                                if sched.IsFeasible && found.Repaired then
+                                    $"Feasible schedule with cost ${sched.TotalCost:F2} (the lowest-energy sample broke constraints; classical constraint repair produced this schedule)"
+                                elif sched.IsFeasible then
                                     $"Found feasible schedule with cost ${sched.TotalCost:F2}"
                                 else
                                     let misassigned = misassignedTasks problem sched.Assignments

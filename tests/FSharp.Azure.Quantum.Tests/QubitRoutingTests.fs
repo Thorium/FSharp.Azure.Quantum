@@ -41,6 +41,55 @@ module QubitRoutingTests =
         Assert.Equal(3, mapping.Length)
 
     [<Fact>]
+    let ``route widens the circuit to the physical qubits it uses`` () =
+        // 5 logical qubits on a 3x3 grid. CNOT(2,3) is routed through physical 5 and 4, which
+        // pushes logical 4 (already flipped) onto physical 5 — beyond the logical width.
+        let cm = QubitRouting.grid 3 3
+        let c = empty 5 |> addGate (X 4) |> addGate (CNOT(2, 3))
+        let routed, mapping = QubitRouting.route cm c
+
+        Assert.Equal<Gate list>([ X 4; SWAP(2, 5); SWAP(5, 4); CNOT(4, 3) ], getGates routed)
+        Assert.Equal<int[]>([| 0; 1; 4; 3; 5; 2; 6; 7; 8 |], mapping)
+        // Physical 5 holds logical 4, so the routed circuit spans physical 0-5.
+        Assert.Equal(6, routed.QubitCount)
+        Assert.True(QubitRouting.respectsCoupling cm routed)
+
+    [<Fact>]
+    let ``a routed circuit's width covers every logical qubit's final position and every gate`` () =
+        let cm = QubitRouting.grid 3 3
+
+        let circuits =
+            [
+                empty 5 |> addGate (X 4) |> addGate (CNOT(2, 3))
+                empty 4 |> addGate (H 0) |> addGate (CNOT(0, 3)) |> addGate (CZ(1, 2))
+                empty 6 |> addGate (CNOT(0, 5)) |> addGate (CNOT(1, 4)) |> addGate (RZZ(2, 3, 0.3))
+                empty 2 |> addGate (H 1)
+            ]
+
+        for c in circuits do
+            let routed, mapping = QubitRouting.route cm c
+
+            for logical in 0 .. c.QubitCount - 1 do
+                Assert.True(
+                    mapping.[logical] < routed.QubitCount,
+                    $"logical %d{logical} rests on physical %d{mapping.[logical]}, outside %d{routed.QubitCount} qubits"
+                )
+
+            Assert.True(routed.QubitCount >= c.QubitCount)
+            Assert.True(routed.QubitCount <= cm.NumQubits)
+
+            match validate routed with
+            | result when result.IsValid -> ()
+            | result -> Assert.Fail($"routed circuit is not valid: %A{result}")
+
+    [<Fact>]
+    let ``route keeps the width of a circuit that needs no qubit outside it`` () =
+        let routed, _ =
+            QubitRouting.route (QubitRouting.linear 6) (empty 3 |> addGate (CNOT(0, 2)))
+
+        Assert.Equal(3, routed.QubitCount)
+
+    [<Fact>]
     let ``route is a no-op when all gates already respect the coupling`` () =
         let cm = QubitRouting.linear 3
         let c = empty 3 |> addGate (CNOT(0, 1)) |> addGate (CNOT(1, 2))

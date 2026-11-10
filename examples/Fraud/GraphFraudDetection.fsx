@@ -545,8 +545,8 @@ let detectCommunities (accounts: Account list) (transactions: Transaction list) 
 
         let membership =
             [
-                for id in solution.PartitionS -> (id, 1)
-                for id in solution.PartitionT -> (id, 2)
+                for pid in solution.PartitionS -> (pid, 1)
+                for pid in solution.PartitionT -> (pid, 2)
             ]
             |> Map.ofList
 

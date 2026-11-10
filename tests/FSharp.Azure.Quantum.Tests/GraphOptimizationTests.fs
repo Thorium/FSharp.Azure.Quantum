@@ -458,7 +458,7 @@ module GraphOptimizationTests =
     // ============================================================================
 
     [<Fact>]
-    let ``calculateObjectiveValue - graph coloring counts colors used`` () =
+    let ``objectiveValue - graph coloring counts colors used`` () =
         let nodes = [ node "A" "Node A"; node "B" "Node B"; node "C" "Node C" ]
         let edges = [ edge "A" "B" 1.0; edge "B" "C" 1.0 ]
 
@@ -476,11 +476,12 @@ module GraphOptimizationTests =
                 Violations = []
             }
 
-        let actualValue = calculateObjectiveValue solution
+        // A 0/1 colouring of a colouring problem is still counted in colours, not as a cut
+        let actualValue = objectiveValue problem solution
         Assert.Equal(2.0, actualValue) // 2 colors used
 
     [<Fact>]
-    let ``calculateObjectiveValue - TSP sums edge weights in tour`` () =
+    let ``objectiveValue - TSP sums edge weights in tour`` () =
         let cities = [ node "A" "City A"; node "B" "City B"; node "C" "City C" ]
         let routes = [ edge "A" "B" 10.0; edge "B" "C" 20.0; edge "C" "A" 15.0 ]
 
@@ -507,19 +508,19 @@ module GraphOptimizationTests =
                 Violations = []
             }
 
-        let actualValue = calculateObjectiveValue solution
+        let actualValue = objectiveValue problem solution
         Assert.Equal(45.0, actualValue) // 10 + 20 + 15
 
     [<Fact>]
-    let ``calculateObjectiveValue - MaxCut counts edges crossing partition`` () =
+    let ``objectiveValue - MaxCut sums the weights of the edges crossing the partition`` () =
         let nodes = List.init 4 (fun i -> node $"N{i}" i)
 
         let edges =
             [
                 edge "N0" "N1" 1.0
-                edge "N1" "N2" 1.0
-                edge "N2" "N3" 1.0
-                edge "N0" "N3" 1.0
+                edge "N1" "N2" 2.0
+                edge "N2" "N3" 3.0
+                edge "N0" "N3" 4.0
             ]
 
         let problem =
@@ -536,8 +537,16 @@ module GraphOptimizationTests =
                 Violations = []
             }
 
-        let actualValue = calculateObjectiveValue solution
-        Assert.Equal(4.0, actualValue) // All 4 edges cross the partition
+        let actualValue = objectiveValue problem solution
+        Assert.Equal(10.0, actualValue) // All 4 edges cross the partition: 1 + 2 + 3 + 4
+
+        // Partition {N0, N1} vs {N2, N3}: only N1-N2 (2) and N0-N3 (4) cross
+        let halfCut =
+            { solution with
+                NodeAssignments = Some(Map.ofList [ ("N0", 0); ("N1", 0); ("N2", 1); ("N3", 1) ])
+            }
+
+        Assert.Equal(6.0, objectiveValue problem halfCut)
 
     // ============================================================================
     // TDD CYCLE 2 - CONSTRAINT VALIDATION
@@ -730,25 +739,150 @@ module GraphOptimizationTests =
 
         let qubo = toQubo problem
 
-        // MaxCut QUBO formulation: Minimize -w * x_i * x_j for each edge (i,j)
-        // To maximize cut, we minimize the negative: -5*x_A*x_B - 3*x_B*x_C - 2*x_A*x_C
+        // MaxCut QUBO formulation: edge (i, j, w) contributes w * (2*x_i*x_j - x_i - x_j),
+        // which is -w when the edge is cut and 0 otherwise.
         // Node indices: A=0, B=1, C=2
 
         // Check QUBO has correct number of variables (one per node)
         Assert.Equal(3, qubo.NumVariables)
 
-        // Check quadratic terms exist for edges with negative weights
-        // Edge A-B (nodes 0-1): Should have Q[(0,1)] = -5.0
-        Assert.True(qubo.Q.ContainsKey((0, 1)))
-        Assert.Equal(-5.0, qubo.Q.[(0, 1)])
+        // Quadratic terms: twice the edge weight
+        Assert.Equal(10.0, qubo.Q.[(0, 1)]) // A-B
+        Assert.Equal(6.0, qubo.Q.[(1, 2)]) // B-C
+        Assert.Equal(4.0, qubo.Q.[(0, 2)]) // A-C
 
-        // Edge B-C (nodes 1-2): Should have Q[(1,2)] = -3.0
-        Assert.True(qubo.Q.ContainsKey((1, 2)))
-        Assert.Equal(-3.0, qubo.Q.[(1, 2)])
+        // Linear terms: minus the total weight of the node's edges
+        Assert.Equal(-7.0, qubo.Q.[(0, 0)]) // A: 5 + 2
+        Assert.Equal(-8.0, qubo.Q.[(1, 1)]) // B: 5 + 3
+        Assert.Equal(-5.0, qubo.Q.[(2, 2)]) // C: 3 + 2
 
-        // Edge A-C (nodes 0-2): Should have Q[(0,2)] = -2.0
-        Assert.True(qubo.Q.ContainsKey((0, 2)))
-        Assert.Equal(-2.0, qubo.Q.[(0, 2)])
+    [<Fact>]
+    let ``MaxCut QUBO energy is minus the cut weight, so one side for all nodes is the worst state`` () =
+        let nodes = [ node "A" 1; node "B" 2; node "C" 3 ]
+        let edges = [ edge "A" "B" 5.0; edge "B" "C" 3.0; edge "A" "C" 2.0 ]
+
+        let problem =
+            GraphOptimizationBuilder<int, float>().Nodes(nodes).Edges(edges).Objective(MaximizeCut).Build()
+
+        let qubo = toQubo problem
+
+        let energy (bits: int list) =
+            qubo.Q |> Map.toList |> List.sumBy (fun ((i, j), q) -> q * float bits.[i] * float bits.[j])
+
+        for index in 0..7 do
+            let bits = [ index &&& 1; (index >>> 1) &&& 1; (index >>> 2) &&& 1 ]
+            let solution = decodeSolution problem bits
+            Assert.Equal(-solution.ObjectiveValue, energy bits, 9)
+
+        // No cut at all is the maximum of the energy, never its minimum
+        Assert.Equal(0.0, energy [ 0; 0; 0 ])
+        Assert.Equal(0.0, energy [ 1; 1; 1 ])
+        // B alone against A and C cuts 5 + 3
+        Assert.Equal(-8.0, energy [ 0; 1; 0 ])
+
+    // ============================================================================
+    // DECODING REPORTS FEASIBILITY AND VIOLATIONS
+    // ============================================================================
+
+    let private colouringPath (numColors: int) =
+        GraphOptimizationBuilder<string, float>()
+            .Nodes([ node "A" "a"; node "B" "b"; node "C" "c" ])
+            .Edges([ edge "A" "B" 1.0; edge "B" "C" 1.0 ])
+            .AddConstraint(NoAdjacentEqual)
+            .Objective(MinimizeColors)
+            .NumColors(numColors)
+            .Build()
+
+    [<Fact>]
+    let ``decodeSolution - a proper colouring is feasible without violations`` () =
+        // A = colour 0, B = colour 1, C = colour 0
+        let solution = decodeSolution (colouringPath 2) [ 1; 0; 0; 1; 1; 0 ]
+
+        Assert.True(solution.IsFeasible)
+        Assert.Empty(solution.Violations)
+        Assert.Equal(2.0, solution.ObjectiveValue)
+
+    [<Fact>]
+    let ``decodeSolution - adjacent nodes with one colour are infeasible and reported`` () =
+        // A = colour 0, B = colour 0, C = colour 1
+        let solution = decodeSolution (colouringPath 2) [ 1; 0; 1; 0; 0; 1 ]
+
+        Assert.False(solution.IsFeasible)
+        let broken = Assert.Single(solution.Violations)
+        Assert.Contains("A-B", broken.Description)
+
+        match broken.Constraint with
+        | NoAdjacentEqual -> ()
+        | other -> Assert.Fail($"Expected NoAdjacentEqual, got %A{other}")
+
+    [<Fact>]
+    let ``decodeSolution - a node without exactly one colour bit is a violation, not colour 0`` () =
+        // A has no colour bit, B has both, C = colour 1
+        let solution = decodeSolution (colouringPath 2) [ 0; 0; 1; 1; 0; 1 ]
+
+        Assert.False(solution.IsFeasible)
+        Assert.Equal<Map<string, int>>(Map.ofList [ "C", 1 ], solution.NodeAssignments.Value)
+        Assert.Equal(2, solution.Violations.Length)
+        Assert.Contains(solution.Violations, fun v -> v.Description.Contains "'A' has no colour")
+        Assert.Contains(solution.Violations, fun v -> v.Description.Contains "'B' has 2 colours")
+
+        // Too few bits leave the later nodes without a colour as well
+        let short = decodeSolution (colouringPath 2) [ 1; 0 ]
+        Assert.False(short.IsFeasible)
+        Assert.Equal(2, short.Violations.Length)
+
+    [<Fact>]
+    let ``decodeSolution - a MaxCut node without a bit has no side`` () =
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes([ node "A" 1; node "B" 2; node "C" 3 ])
+                .Edges([ edge "A" "B" 5.0; edge "B" "C" 3.0 ])
+                .Objective(MaximizeCut)
+                .Build()
+
+        let complete = decodeSolution problem [ 0; 1; 0 ]
+        Assert.True(complete.IsFeasible)
+        Assert.Equal(8.0, complete.ObjectiveValue)
+
+        let short = decodeSolution problem [ 0; 1 ]
+        Assert.False(short.IsFeasible)
+        Assert.False(short.NodeAssignments.Value.ContainsKey "C")
+        // Only the edge with both sides known is counted
+        Assert.Equal(5.0, short.ObjectiveValue)
+
+    [<Fact>]
+    let ``decodeSolution - an edge selection is checked against the problem's constraints`` () =
+        // A star: selecting every edge gives the hub degree 3
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes([ node "A" 1; node "B" 2; node "C" 3; node "D" 4 ])
+                .Edges([ edge "A" "B" 1.0; edge "A" "C" 1.0; edge "A" "D" 1.0 ])
+                .AddConstraint(DegreeLimit 2)
+                .Objective(MaximizeEdges)
+                .Build()
+
+        // The QUBO's minimum selects every edge: it does not encode the degree limit
+        let all = decodeSolution problem [ 1; 1; 1 ]
+        Assert.Equal(3.0, all.ObjectiveValue)
+        Assert.False(all.IsFeasible)
+        Assert.Single(all.Violations) |> ignore
+
+        let two = decodeSolution problem [ 1; 1; 0 ]
+        Assert.True(two.IsFeasible)
+        Assert.Equal(2.0, two.ObjectiveValue)
+
+    [<Fact>]
+    let ``decodeSolution - bits that are no tour carry a violation`` () =
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes([ node "A" "a"; node "B" "b"; node "C" "c" ])
+                .Edges([ edge "A" "B" 1.0; edge "B" "C" 1.0; edge "C" "A" 1.0 ])
+                .Objective(MinimizeTotalWeight)
+                .Build()
+
+        let invalid = decodeSolution problem [ 1; 1; 0; 0; 0; 1; 0; 0; 0 ]
+        Assert.False(invalid.IsFeasible)
+        Assert.Single(invalid.Violations) |> ignore
 
     // ============================================================================
     // TDD CYCLE #5: TSP QUBO ENCODING
@@ -1016,16 +1150,13 @@ module GraphOptimizationTests =
         Assert.True(solution.NodeAssignments.IsSome)
 
     [<Fact>]
-    let ``calculateObjectiveValue handles empty node assignments`` () =
+    let ``objectiveValue handles empty node assignments`` () =
+        let problem =
+            GraphOptimizationBuilder<int, float>().Objective(MinimizeColors).Build()
+
         let solution =
             {
-                Graph =
-                    {
-                        Nodes = Map.empty
-                        Edges = []
-                        Directed = false
-                        Adjacency = Map.empty
-                    }
+                Graph = problem.Graph
                 NodeAssignments = None
                 SelectedEdges = None
                 ObjectiveValue = 0.0
@@ -1033,22 +1164,17 @@ module GraphOptimizationTests =
                 Violations = []
             }
 
-        let value = calculateObjectiveValue solution
+        let value = objectiveValue problem solution
         Assert.Equal(0.0, value)
 
     [<Fact>]
-    let ``calculateObjectiveValue handles empty edge list for TSP`` () =
-        let graph =
-            {
-                Nodes = Map.empty
-                Edges = []
-                Directed = false
-                Adjacency = Map.empty
-            }
+    let ``objectiveValue handles empty edge list for TSP`` () =
+        let problem =
+            GraphOptimizationBuilder<int, float>().Objective(MinimizeTotalWeight).Build()
 
         let solution =
             {
-                Graph = graph
+                Graph = problem.Graph
                 NodeAssignments = None
                 SelectedEdges = Some []
                 ObjectiveValue = 0.0
@@ -1056,7 +1182,7 @@ module GraphOptimizationTests =
                 Violations = []
             }
 
-        let value = calculateObjectiveValue solution
+        let value = objectiveValue problem solution
         Assert.Equal(0.0, value)
 
     [<Fact>]

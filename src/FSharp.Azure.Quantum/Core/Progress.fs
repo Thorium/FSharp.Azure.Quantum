@@ -92,12 +92,12 @@ module Progress =
             member _.Report(event: ProgressEvent) =
                 if verbose then
                     match event with
-                    | TrialStarted(id, total, modelType) -> printfn $"[Trial {id}/{total}] Starting: {modelType}"
+                    | TrialStarted(pid, total, modelType) -> printfn $"[Trial {pid}/{total}] Starting: {modelType}"
 
-                    | TrialCompleted(id, score, elapsed) ->
-                        printfn $"[Trial {id}] ✓ Score: {score * 100.0:F2}%% ({elapsed:F1}s)"
+                    | TrialCompleted(pid, score, elapsed) ->
+                        printfn $"[Trial {pid}] ✓ Score: {score * 100.0:F2}%% ({elapsed:F1}s)"
 
-                    | TrialFailed(id, error) -> printfn $"[Trial {id}] ✗ Failed: {error}"
+                    | TrialFailed(pid, error) -> printfn $"[Trial {pid}] ✗ Failed: {error}"
 
                     | ProgressUpdate(percent, message) ->
                         // Only print when percent changes by at least 5%

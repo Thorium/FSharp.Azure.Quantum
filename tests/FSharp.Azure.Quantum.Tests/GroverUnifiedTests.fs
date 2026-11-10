@@ -356,10 +356,13 @@ module GroverTests =
 
     // Width limits come from the backend (UnifiedBackend.getRunnableQubits). No test here
     // simulates more than 16 qubits: wide searches go to a backend that simulates nothing.
+    // That backend takes the Grover intents natively: lowering a 24-qubit search to gates
+    // decomposes a 23-control Z without ancillas, which alone costs gigabytes.
 
     [<Fact>]
     let ``Search admits a 24-qubit oracle when the backend declares no limit`` () =
-        let backend = CapacityStubBackend("non-simulating", None) :> IQuantumBackend
+        let backend =
+            CapacityStubBackend("non-simulating", None, nativeAlgorithms = true) :> IQuantumBackend
 
         let result = Grover.searchSingle 5 24 backend testConfig
 

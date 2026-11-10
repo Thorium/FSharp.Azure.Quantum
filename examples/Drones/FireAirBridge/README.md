@@ -390,7 +390,8 @@ Run with `--help` for the full list. The main options are:
 | `--demand fire\|touches`, `--touch-target-s` | What the targets want; for touches, the seconds an open target should be finished in (default 30). |
 | `--ceiling-m` | Altitude ceiling for the evidence (default the regulatory AGL ceiling). |
 | `--dispatch` | Whole aircraft fly the plan; adds the closest-approach and follow-through checks and writes `sorties.csv`. |
-| `--mavlink`, `--home-lat`, `--home-lon`, `--home-alt` | Also write one ArduPilot mission per sortie and the launcher (implies `--dispatch`). A local frame needs the home position. |
+| `--mavlink`, `--home-lat`, `--home-lon`, `--home-alt` | Also write one ArduPilot mission per sortie and the launcher (implies `--dispatch`). A local frame needs the home position. Refused (exit code 3, no mission written) when the evidence pack of the dispatched flights is FAIL; written with a warning when it is INCOMPLETE. |
+| `--export-on-fail` | Write the missions although the evidence pack is FAIL. `mavlink/FAILED-CHECKS.md` and the head of `mavlink_show.fsx` then list the failed checks. |
 | `--stagger-margin` | Booked passages are this many headways apart (default 1.5). |
 | `--policy all\|static\|adaptive-greedy\|adaptive-exact\|adaptive-hybrid` | Which policies to run. |
 | `--crews`, `--coordinators`, `--crew-move` | People on the ground. |

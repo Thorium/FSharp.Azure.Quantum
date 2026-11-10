@@ -231,6 +231,85 @@ module CloudEndToEndTests =
                 shots |> Array.filter (fun s -> s = [| 1; 1 |]) |> Array.length
             ))
 
+    // ========================================================================
+    // ROUTING — a coupling map that moves a logical qubit beyond the logical width
+    // ========================================================================
+
+    [<Fact>]
+    let ``A routed Rigetti job reads a logical qubit that ends beyond the logical width`` () =
+        use service = LocalQuantumService.start options
+        use http = service.CreateHttpClient()
+
+        let backend =
+            CloudBackendFactory.createRigettiRouted
+                http
+                service.WorkspaceUrl
+                "rigetti.sim.qvm"
+                200
+                (QubitRouting.grid 3 3)
+
+        // Routing CNOT(2,3) on the grid swaps logical 4, already |1>, onto physical 5.
+        let circuit =
+            CircuitBuilder.empty 5
+            |> CircuitBuilder.addGate (CircuitBuilder.X 4)
+            |> CircuitBuilder.addGate (CircuitBuilder.CNOT(2, 3))
+
+        let state =
+            backend.ExecuteToState(CircuitAbstraction.CircuitWrapper circuit) |> expectOk
+
+        let shots = UnifiedBackend.measureState state 200
+        Assert.Equal(200, shots.Length)
+        Assert.All(shots, (fun shot -> Assert.Equal<int[]>([| 0; 0; 0; 0; 1 |], shot)))
+
+        // The job measured physical qubits 0-5; the state is reported in the 5 logical ones.
+        let job = service.Jobs |> List.last
+        Assert.Contains("DECLARE ro BIT[6]", job.InputData)
+        Assert.Contains("MEASURE 5 ro[5]", job.InputData)
+        Assert.Equal<Map<string, int>>(Map.ofList [ ("100000", 200) ], job.Histogram)
+        Assert.Equal(1, service.SubmittedJobCount)
+
+    [<Fact>]
+    let ``A routed Rigetti job returns the logical circuit's distribution`` () =
+        use service = LocalQuantumService.start options
+        use http = service.CreateHttpClient()
+        let cm = QubitRouting.grid 3 3
+
+        let backend =
+            CloudBackendFactory.createRigettiRouted http service.WorkspaceUrl "rigetti.sim.qvm" 300 cm
+
+        // Entangle the far corners of the logical register and flip two bystanders: the
+        // routed job must report 0=3 correlated, 2 and 4 set, 1 clear — in logical order.
+        let circuit =
+            CircuitBuilder.empty 5
+            |> CircuitBuilder.addGate (CircuitBuilder.X 4)
+            |> CircuitBuilder.addGate (CircuitBuilder.X 2)
+            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.CNOT(2, 3))
+            |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 3))
+
+        let _, mapping = QubitRouting.route cm circuit
+        Assert.True(mapping |> Array.take 5 |> Array.exists (fun physical -> physical >= 5))
+
+        let state =
+            backend.ExecuteToState(CircuitAbstraction.CircuitWrapper circuit) |> expectOk
+
+        let shots = UnifiedBackend.measureState state 300
+        Assert.Equal(300, shots.Length)
+
+        // q3 = q2 XOR q0 = 1 XOR q0.
+        Assert.All(
+            shots,
+            (fun shot ->
+                Assert.Equal(5, shot.Length)
+                Assert.Equal(0, shot.[1])
+                Assert.Equal(1, shot.[2])
+                Assert.Equal(1 - shot.[0], shot.[3])
+                Assert.Equal(1, shot.[4]))
+        )
+
+        Assert.True(shots |> Array.exists (fun shot -> shot.[0] = 0))
+        Assert.True(shots |> Array.exists (fun shot -> shot.[0] = 1))
+
     [<Fact>]
     let ``A job budget stops an algorithm before the job it cannot afford`` () =
         use service = LocalQuantumService.start options

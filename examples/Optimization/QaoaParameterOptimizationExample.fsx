@@ -28,8 +28,7 @@ open FSharp.Azure.Quantum.Core.QaoaCircuit
 open FSharp.Azure.Quantum.Core.QaoaParameterOptimizer
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.Core.BackendAbstraction
-open FSharp.Azure.Quantum.Backends.DWaveBackend
-open FSharp.Azure.Quantum.Backends.DWaveTypes
+open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Examples.Common
 
 // --- CLI ---
@@ -67,7 +66,7 @@ Cli.exitIfHelp
         }
         {
             Name = "seed"
-            Description = "Random seed for reproducibility"
+            Description = "Random seed for the optimizer's starting points"
             Default = Some "42"
         }
         {
@@ -106,9 +105,9 @@ let pr fmt =
         fmt
 
 // --- Quantum Backend (Rule 1) ---
-// MockDWaveBackend implements IQuantumBackend; keep concrete type for Execute method
-let dwaveBackend = createMockDWaveBackend Advantage_System6_1 (Some seed)
-let quantumBackend = dwaveBackend :> IQuantumBackend
+// A gate-based backend: the QAOA angles are gate parameters. An annealer uses no angles,
+// and tryOptimizeQaoaParameters refuses one.
+let quantumBackend = LocalBackend() :> IQuantumBackend
 
 // ============================================================================
 // STEP 1: Define MaxCut Problem
@@ -123,32 +122,21 @@ let edges = [ (0, 1, 1.0); (1, 2, 1.0); (0, 2, 1.0) ]
 [<Literal>]
 let numVertices = 3
 
+/// MaxCut as a minimisation. An edge (u, v) of weight w is cut when Z_u Z_v = -1, so the
+/// cut weight is the sum of w (1 - Z_u Z_v) / 2 and the Hamiltonian sum of (w / 2) Z_u Z_v
+/// is lowest where the cut is largest. The constant -w / 2 per edge is left out.
 let buildMaxCutHamiltonian (nVerts: int) (edgeList: (int * int * float) list) : ProblemHamiltonian =
-    let diagonalTerms =
-        List.init (max 0 nVerts) (fun v ->
-            let weight =
-                edgeList
-                |> List.filter (fun (u, w, _) -> u = v || w = v)
-                |> List.sumBy (fun (_, _, w) -> w)
-
-            {
-                Coefficient = weight / 2.0
-                QubitsIndices = [| v |]
-                PauliOperators = [| PauliZ |]
-            })
-
-    let offDiagonalTerms =
-        edgeList
-        |> List.map (fun (u, v, w) ->
-            {
-                Coefficient = -w / 4.0
-                QubitsIndices = [| u; v |]
-                PauliOperators = [| PauliZ; PauliZ |]
-            })
-
     {
         NumQubits = nVerts
-        Terms = List.append diagonalTerms offDiagonalTerms |> List.toArray
+        Terms =
+            edgeList
+            |> List.map (fun (u, v, w) ->
+                {
+                    Coefficient = w / 2.0
+                    QubitsIndices = [| u; v |]
+                    PauliOperators = [| PauliZ; PauliZ |]
+                })
+            |> List.toArray
     }
 
 let problemHam = buildMaxCutHamiltonian numVertices edges
@@ -180,21 +168,31 @@ let strategies =
         ("SingleRun-TwoLocal", makeConfig SingleRun TwoLocalPattern)
     ]
 
+/// The strategies whose optimization returned a result. A backend error ends its strategy
+/// and is printed; that strategy has no optimum to compare.
 let results =
     strategies
-    |> List.map (fun (name, config) ->
+    |> List.choose (fun (name, config) ->
         pr "  Running: %s ..." name
-        let result = optimizeQaoaParameters problemHam p quantumBackend config
 
-        pr
-            "    Energy: %.6f  |  Converged: %b  |  Evaluations: %d"
-            result.FinalEnergy
-            result.Converged
-            result.TotalEvaluations
+        match tryOptimizeQaoaParameters problemHam p quantumBackend config with
+        | Ok result ->
+            pr
+                "    Energy: %.6f  |  Converged: %b  |  Evaluations: %d"
+                result.FinalEnergy
+                result.Converged
+                result.TotalEvaluations
 
-        (name, result))
+            Some(name, result)
+        | Error err ->
+            pr "    [ERROR] %s" err.Message
+            None)
 
 pr ""
+
+if results.IsEmpty then
+    eprintfn "Error: every optimization strategy failed on %s; nothing to compare." quantumBackend.Name
+    exit 1
 
 // ============================================================================
 // STEP 3: Compare Results
@@ -232,11 +230,12 @@ let optimalCircuit =
 
 let circuitWrapper = QaoaCircuitWrapper(optimalCircuit) :> ICircuit
 
-match dwaveBackend.Execute circuitWrapper verifyShots with
+match quantumBackend.ExecuteToState circuitWrapper with
 | Error e -> pr "  [ERROR] Verification failed: %A" e
-| Ok execResult ->
-    let counts =
-        execResult.Measurements |> Array.countBy id |> Array.sortByDescending snd
+| Ok state ->
+    let measurements = UnifiedBackend.measureState state verifyShots
+
+    let counts = measurements |> Array.countBy id |> Array.sortByDescending snd
 
     pr ""
     pr "  Top solutions (%d shots):" verifyShots
@@ -248,7 +247,7 @@ match dwaveBackend.Execute circuitWrapper verifyShots with
     counts
     |> Array.take topN
     |> Array.iter (fun (bitstring, count) ->
-        let prob = float count / float execResult.NumShots
+        let prob = float count / float measurements.Length
 
         let cutValue =
             edges
@@ -282,7 +281,7 @@ match dwaveBackend.Execute circuitWrapper verifyShots with
         (float edges.Length)
         (maxCut / float edges.Length * 100.0)
 
-    pr "  Found in: %.1f%% of shots" (float maxCount / float execResult.NumShots * 100.0)
+    pr "  Found in: %.1f%% of shots" (float maxCount / float measurements.Length * 100.0)
     pr ""
 
 // --- JSON output ---

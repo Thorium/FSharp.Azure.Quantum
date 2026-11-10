@@ -16,8 +16,8 @@ module ProgressTests =
         let event = TrialStarted(1, 10, "VQC")
 
         match event with
-        | TrialStarted(id, total, model) ->
-            Assert.Equal(1, id)
+        | TrialStarted(pid, total, model) ->
+            Assert.Equal(1, pid)
             Assert.Equal(10, total)
             Assert.Equal("VQC", model)
         | _ -> failwith "Unexpected event type"
@@ -27,8 +27,8 @@ module ProgressTests =
         let event = TrialCompleted(3, 0.95, 2.5)
 
         match event with
-        | TrialCompleted(id, score, elapsed) ->
-            Assert.Equal(3, id)
+        | TrialCompleted(pid, score, elapsed) ->
+            Assert.Equal(3, pid)
             Assert.True(abs (score - 0.95) < 1e-10)
             Assert.True(abs (elapsed - 2.5) < 1e-10)
         | _ -> failwith "Unexpected event type"
@@ -38,8 +38,8 @@ module ProgressTests =
         let event = TrialFailed(2, "convergence failure")
 
         match event with
-        | TrialFailed(id, error) ->
-            Assert.Equal(2, id)
+        | TrialFailed(pid, error) ->
+            Assert.Equal(2, pid)
             Assert.Equal("convergence failure", error)
         | _ -> failwith "Unexpected event type"
 

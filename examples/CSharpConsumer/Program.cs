@@ -14,7 +14,7 @@ namespace CSharpConsumer
 
             var report = await new FSharp.Azure.Quantum.Business.CSharp.QuantumRiskEngineBuilder()
                 .SetConfidenceLevel(0.99)
-                .SetSimulationPaths(1000)
+                .WithMarketReturns(new[] { 0.012, -0.031, 0.004, -0.008, 0.021, -0.015, 0.007, -0.002, 0.016, -0.024 })
                 .CalculateMetric(RiskMetric.ValueAtRisk)
                 .BuildAndRunAsync();
 

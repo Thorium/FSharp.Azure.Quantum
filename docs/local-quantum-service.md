@@ -10,7 +10,7 @@ title: Local Azure Quantum Service
 Use it to:
 
 - test code that uses `IonQCloudBackend`, `RigettiCloudBackend` and the other cloud backends before spending money;
-- run the whole job lifecycle (serialize → `PUT` job → poll status → download the result blob → provider result parser → `QuantumState`) in unit tests;
+- run the whole job lifecycle (serialize → upload the input blob → `PUT` job → poll status → download the result blob → provider result parser → `QuantumState`) in unit tests;
 - inject failures, slow jobs and rejected submissions to test error handling and `JobBudget` limits.
 
 Nothing starts unless you call `LocalQuantumService.start`. If you only need simulation results, use `LocalBackend` directly (see [Local Simulation](local-simulation)); the service is for exercising the Azure path.
@@ -54,14 +54,18 @@ Swap in `RigettiCloudBackend(http, service.WorkspaceUrl, "rigetti.sim.qvm", 1000
 
 | Request | Behaviour |
 |---------|-----------|
-| `PUT {workspace}/jobs/{id}` | Accepts the job (`201 Created`, status `Waiting`), decodes the program and runs it on the local simulator with the requested shots (`shots` or Rigetti's `count`). |
+| `POST {workspace}/storage/sasUri` | Hands out a SAS URI for a container of the local blob store (creating the container) or, with `blobName`, for a blob in it. |
+| `PUT {base}/blobs/...?sig=...` | Stores a blob (the job input). Needs `x-ms-blob-type: BlockBlob` and an existing container. Like Azure Storage, blob requests are accepted only as SAS requests *without* a bearer token. |
+| `PUT {workspace}/jobs/{id}` | Accepts the job (`201 Created`, status `Waiting`), decodes the program and runs it on the local simulator with the requested shots (`shots` or Rigetti's `count`). The id must be a GUID and the body must name `itemType` (`"Job"`), `name`, `providerId`, `target` and `containerUri`; the input is the blob at `inputDataUri` (default: the container's `inputData` blob). Inline `inputData` is rejected. |
 | `GET {workspace}/jobs/{id}` | Reports `Waiting` / `Executing` according to the configured schedule, then `Succeeded` with an `outputDataUri`, or `Failed` with `errorData`. |
-| `GET {base}/blobs/...?sig=...` | Serves the result blob. Like Azure Storage, it accepts only SAS requests *without* a bearer token. |
-| `DELETE {workspace}/jobs/{id}`, `POST .../cancel` | Cancels a job that has not yet reported a final status. |
+| `GET {base}/blobs/...?sig=...` | Serves the result blob. |
+| `POST {workspace}/jobs/{id}:cancel` | Cancels a job that has not yet reported a final status. |
+| `DELETE {workspace}/jobs/{id}` | Deletes the job. |
 | `GET {workspace}/jobs` | Lists jobs with `nextLink` paging. |
-| `POST {workspace}/storage/sasUri` | Hands out SAS URIs for the local blob store (`inputDataUri` pointing there is also accepted). |
 | `GET {workspace}/quotas` | One monthly workspace quota per provider; `utilization` is the shots of the jobs accepted so far. |
 | `GET {workspace}/providerStatus` | Every emulated provider `Available`; its targets are the ones jobs have been submitted to. |
+
+Every workspace request must carry `api-version` (the library sends `JobLifecycle.ApiVersion`); one without it is answered `400 MissingApiVersionParameter`, as the Azure Quantum data plane does.
 
 Programs are decoded from the formats the library emits, and results are written in the shapes the library's parsers read:
 

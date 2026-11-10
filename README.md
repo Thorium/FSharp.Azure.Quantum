@@ -95,7 +95,7 @@ flowchart TD
 
 **Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with opt-in classical routing (via `HybridSolver` / `QuantumAdvisor`) for small problems where quantum offers no advantage. Quantum solvers never fall back to classical silently — see [Design Philosophy](#design-philosophy).
 
-**Current Version:** 1.6.2 (core) / 0.6.2 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
+**Current Version:** 1.7.0 (core) / 0.7.0 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
 
 **Current Features:**
 - Multiple Backends: LocalBackend (simulation), NoisyLocalBackend (density-matrix noise), Azure Quantum (IonQ, Rigetti, Quantinuum, Atom Computing, IQM), D-Wave quantum annealers (1200-5640 qubits), AWS Braket (separate plugin)
@@ -1099,7 +1099,7 @@ task {
 - Dual oracle support (Max-SAT and Weighted Graph Coloring)
 - Quantum backend support (LocalBackend by default, or any gate-based cloud backend: every Grover or QAOA circuit is submitted as one whole-circuit job)
 - Configurable shots for accuracy vs. speed tradeoff
-- Up to 50 tasks accepted; when the quantum search finds no schedule, `BestSchedule` is `None` (no classical search runs in its place)
+- When the quantum search finds no schedule, `BestSchedule` is `None` (no classical search runs in its place)
 - Detailed constraint satisfaction metrics
 
 **Example:** `examples/JobScheduling/ConstraintScheduler_Example.fsx`
@@ -1287,7 +1287,7 @@ The HybridSolver provides a unified API that:
 **Decision Framework** (`QuantumAdvisor.defaultThresholds`):
 - Small problems (below 50 variables) → classical solver (milliseconds, $0)
 - Large problems (50 variables or more) → quantum solver (seconds to minutes, provider pricing), **only** if you passed a backend (the `...WithBackendAsync` functions) and the estimated cost is within the budget; otherwise the classical solver runs and `Reasoning` says why
-- Automatic cost guards and recommendations: the cost of a QAOA run is estimated with `CostEstimation` from the backend name (IonQ: $12.42 base per job, $97.50 with error mitigation, plus per-gate-per-shot charges; Rigetti: $0.02 per 10 ms of QPU time; Quantinuum: subscription-priced; simulators: free). For the one-layer, 1000-shot QAOA circuit HybridSolver prices, a 10-variable problem estimates at about $60 on IonQ and a 50-variable problem at about $1,230, so set a budget before routing large problems to paid hardware.
+- Automatic cost guards and recommendations: the estimate covers every job the configured solve can submit, each at the shots the backend takes per job, priced with `CostEstimation` from the backend name (IonQ: $12.42 base per job, $97.50 with error mitigation, plus per-gate-per-shot charges; Rigetti: $0.02 per 10 ms of QPU time). The jobs are an upper bound: TSP with `QuantumTspSolver.defaultConfig` is up to about 1,000 optimizer evaluations plus the final sampling (`QuantumTspSolver.jobPlan`), Portfolio is the 19 angle-grid circuits plus the final sampling, and MaxCut, Knapsack and Graph Coloring are one circuit. Simulators in this process and the providers' free simulator targets (`ionq.simulator`, `rigetti.sim.qvm`, `iqm.sim`, …) cost nothing. A billed backend with no per-job USD price here (Quantinuum, which is charged against a subscription's HQC quota; IQM; Atom Computing; the real D-Wave backend) estimates to infinity: any budget keeps the problem classical, and it runs there only when you pass no budget. Set a budget before routing large problems to paid hardware.
 - `forceMethod = Some Classical` / `Some Quantum` bypasses the advisor (forced quantum uses the given backend, or a new LocalBackend)
 
 ### Supported Problems
@@ -1634,6 +1634,8 @@ task {
 
 Hardware targets follow the same pattern; check your workspace for the targets it offers.
 
+A cloud backend waits for a job for 5 minutes (Atom Computing: 10). For a hardware queue, set the wait with the `...WithTimeout` form of a factory function, e.g. `CloudBackendFactory.createIonQWithTimeout httpClient workspaceUrl "ionq.qpu.aria-1" 1000 (TimeSpan.FromHours 2.0)`. A job that is no longer waited for (timeout, caller cancellation, unreadable status) has its cancellation requested, and the `Error` names the job id and says whether the request was accepted.
+
 **Quantinuum Targets** (qubit limits as enforced by the library):
 - `quantinuum.sim.h1-1sc` - H1-1 syntax-checker simulator (32 qubits)
 - `quantinuum.qpu.h1-1` - H1-1 hardware (32 qubits, 99.9%+ fidelity)
@@ -1705,6 +1707,11 @@ task {
 - Production hardware - Available now (Advantage_system6.1: 5640 qubits)
 - Specialized - Best for optimization problems (not universal quantum computing)
 
+**What the D-Wave backends do with a problem:**
+- No minor-embedding. The real backend submits a problem only when every variable is a working qubit of the solver and every coupling is one of its couplers; any other problem returns an `Error` and nothing is submitted. The qubit counts above are the size of the hardware graph, not the size of an arbitrary QUBO that runs: a densely coupled problem (TSP, Knapsack, Graph Coloring penalties) has to be embedded by the caller first. The mock has no hardware graph and accepts any QUBO up to the solver's qubit count.
+- One submission per solve. Annealing uses no QAOA angles, so a solver submits the problem once and asks for as many reads as the shots it was configured with (`NumShots` / `FinalShots`), at most the solver's `num_reads` limit (10,000 unless the solver reports another). The samples of the result are those reads: `QuantumState.measure` never returns more samples than reads were taken.
+- `ExecuteToState` called directly takes one read (SAPI's default); pass `defaultReads` to the backend constructor, or call `IAnnealingBackend.ExecuteWithReadsAsync circuit reads cancellationToken`, for more.
+
 **Available D-Wave Solvers** (`DWaveTypes.DWaveSolver`, qubit counts from `DWaveTypes.getMaxQubits`):
 - `Advantage_System6_1`: 5640 qubits (Pegasus topology, latest)
 - `Advantage_System4_1`: 5000 qubits (Pegasus topology)
@@ -1737,10 +1744,11 @@ let largeProblem =
         [for i in 1..100 -> sprintf "V%d" i]  // 100 vertices!
         [for i in 1..99 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
 
-// Create D-Wave backend (mock for testing; RealDWaveBackend.createFromEnv () for production)
+// Create D-Wave backend: the mock anneals any QUBO. The real backend (RealDWaveBackend.createFromEnv ())
+// runs this graph only if V1..V100 are qubits of the solver and every edge is one of its couplers.
 let annealer = DWaveBackend.createMockDWaveBackend Advantage_System6_1 None :> IQuantumBackend
 
-let result3 = MaxCut.solveAsync largeProblem (Some annealer) CancellationToken.None  // 100 variables on a 5640-qubit annealer
+let result3 = MaxCut.solveAsync largeProblem (Some annealer) CancellationToken.None  // 100 variables, one submission of 1000 reads
 ```
 
 **Backend Selection Guide:**
@@ -1748,15 +1756,14 @@ let result3 = MaxCut.solveAsync largeProblem (Some annealer) CancellationToken.N
 | Problem Size | Backend | Qubits (library limit) | Speed | Cost | Best For |
 |--------------|---------|------------------------|-------|------|----------|
 | **Small** (up to about 20 variables) | LocalBackend | Memory-derived, at most 30 | Milliseconds | Free | Development, testing, prototyping |
-| **Medium** (20-36 variables) | IonQ / Rigetti / IQM | IonQ 25 (Aria) / 36 (Forte), Rigetti 84, IQM 20 | Seconds | IonQ: $12.42 base per job plus per-gate charges, about $200 for a 20-variable QAOA run (`CostEstimation`); Rigetti: $0.02 per 10 ms | Gate-based quantum algorithms (QAOA, VQE) |
+| **Medium** (20-36 variables) | IonQ / Rigetti / IQM | IonQ 25 (Aria) / 36 (Forte), Rigetti 84, IQM 20 | Seconds | IonQ: $12.42 base per job plus per-gate charges, about $200 for one 20-variable, one-layer QAOA circuit at 1000 shots (`CostEstimation`); Rigetti: $0.02 per 10 ms | Gate-based quantum algorithms (QAOA, VQE) |
 | **Medium-High Fidelity** (20-56 variables) | Quantinuum | 32 (H1) / 56 (H2) | Seconds | Subscription (HQC) | High-precision quantum chemistry, error-sensitive algorithms |
 | **Large** (up to 100 variables) | Atom Computing | 100 | Seconds | ~$20-80/run (approximate provider pricing) | Large-scale optimization, all-to-all connectivity benefits |
-| **Very Large** (100+ variables) | D-Wave | 1200-5640 | Seconds | ~$1-10/run (approximate provider pricing) | Optimization problems (MaxCut, TSP, scheduling) |
+| **Very Large** (100+ variables) | D-Wave | 1200-5640 physical qubits | Seconds | ~$1-10/run (approximate provider pricing) | QUBO/Ising problems laid out on the solver's working graph (no minor-embedding in the backend) |
 
 **When to use D-Wave:**
-- Optimization problems with 50+ variables
-- QUBO/Ising problems (MaxCut, Knapsack, Graph Coloring) too large for gate-based backends
-- Production workloads needing large problem sizes
+- QUBO/Ising problems whose variables and couplings are qubits and couplers of the solver (sparse graphs such as MaxCut on a hardware-native graph), at sizes beyond gate-based backends
+- A problem with other couplings is refused by the real backend with an `Error`: embed it onto the working graph first
 - NOT for: QFT-based algorithms, Grover's search, quantum chemistry (use gate-based)
 
 ### Unified Backend Architecture
@@ -2160,7 +2167,7 @@ transpiles to itself a second time.
 Beyond circuit construction and execution, the library ships a hardware-aware
 compilation and estimation toolchain (all in `Builders/`):
 
-- **`QubitRouting`** — inserts SWAPs so two-qubit gates respect a device's `CouplingMap` (grid / linear / `fromPairs`) and tracks the logical→physical qubit permutation. `CloudBackends.CloudBackendFactory.createRigettiRouted` wires this into a Rigetti backend automatically.
+- **`QubitRouting`** — inserts SWAPs so two-qubit gates respect a device's `CouplingMap` (grid / linear / `fromPairs`) and tracks the logical→physical qubit permutation. The routed circuit is a circuit on physical qubits: its `QubitCount` covers every physical qubit a gate or a logical qubit ends on, so it can be wider than the input. `CloudBackends.CloudBackendFactory.createRigettiRouted` wires this into a Rigetti backend automatically: it measures every physical qubit of the routed circuit and reports the results in logical qubit order.
 - **`NoiseModel`** — `DeviceNoiseProfile` plus noise-aware routing (`routeNoiseAware`) and success-probability estimation.
 - **`ResourceEstimation`** — logical resource estimates (qubits / gates / T-count / depth) via `estimateLogical` and physical surface-code estimates via `estimatePhysical`.
 - **`QirEmitter`** — emit circuits as QIR base-profile textual LLVM IR for Azure Quantum submission.
@@ -2754,7 +2761,7 @@ drop-in alternative to the fixed-mixer `MaxCut.solveAsync` — same `Solution` t
 | **Network Flow** | one per route | up to 20 routes |
 | **Task Scheduling** | tasks × time slots | e.g. 3 tasks × 6 slots = 18 |
 
-**Note:** The local simulator's width is derived from available memory (`StateVector.maxQubits`, at most 30; override with `FSAQ_MAX_QUBITS`). QAOA is practical up to about 20 qubits; TSP and task scheduling refuse wider problems on the local simulator (wall-clock budget, raise it with `FSAQ_MAX_CIRCUIT_QUBITS`). A problem that is too wide returns an `Error`; run it on a cloud backend, on D-Wave (QUBO problems), or through the classical path of `HybridSolver`.
+**Note:** The local simulator's width is derived from available memory (`StateVector.maxQubits`, at most 30; override with `FSAQ_MAX_QUBITS`). QAOA is practical up to about 20 qubits; TSP and task scheduling refuse wider problems on the local simulator (wall-clock budget, raise it with `FSAQ_MAX_CIRCUIT_QUBITS`). A problem that is too wide returns an `Error`; run it on a cloud backend, on D-Wave (QUBO problems that lie on the solver's working graph), or through the classical path of `HybridSolver`.
 
 ---
 
@@ -3416,6 +3423,10 @@ let triangle = MaxCut.createProblem ["A"; "B"; "C"] [("A", "B", 1.0); ("B", "C",
 let annealer = MockDWaveBackend(Advantage_System6_1, seed = 42) :> IQuantumBackend
 MaxCut.solveAsync triangle (Some annealer) CancellationToken.None   // solved by simulated/real annealing, not QAOA gates
 ```
+
+The mock anneals any QUBO up to the solver's qubit count. `RealDWaveBackend` does no minor-embedding:
+it submits a problem only when every variable is a working qubit of the solver and every coupling
+one of its couplers, and returns an `Error` otherwise.
 
 ---
 

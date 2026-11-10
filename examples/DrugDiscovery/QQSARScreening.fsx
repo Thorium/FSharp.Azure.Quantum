@@ -148,6 +148,7 @@ match screeningResult with
         printfn "%s" result.Message
 
     printfn ""
+    printfn "Molecules trained on: %d" result.MoleculesTrained
     printfn "Molecules processed: %d" result.MoleculesProcessed
     printfn "Method: %A" result.Method
 | Error e -> eprintfn "Screening failed: %A" e
@@ -171,6 +172,7 @@ match outputFile, screeningResult with
         Map.ofList
             [
                 "Method", $"%A{result.Method}"
+                "MoleculesTrained", string result.MoleculesTrained
                 "MoleculesProcessed", string result.MoleculesProcessed
                 "InputFile", resolvedInput
                 "BatchSize", string batchSize

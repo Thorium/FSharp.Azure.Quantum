@@ -6,14 +6,25 @@ module Types =
 
     /// Azure Quantum job status
     type JobStatus =
-        /// Job is waiting in queue
+        /// Job is waiting in queue (service statuses Queued and Waiting)
         | Waiting
 
         /// Job is currently executing on quantum hardware
         | Executing
 
+        /// Job has run and the service is finishing it; not final
+        | Finishing
+
+        /// Cancellation was requested or is in progress (service statuses
+        /// CancellationRequested and Cancelling); not final
+        | Cancelling
+
         /// Job completed successfully
         | Succeeded
+
+        /// Job completed without the service calling it succeeded or failed (service status
+        /// Completed); final
+        | Completed
 
         /// Job failed with error
         | Failed of errorCode: string * errorMessage: string
@@ -21,19 +32,41 @@ module Types =
         /// Job was cancelled by user
         | Cancelled
 
+        /// A status string this version does not know. Never final and never a success: a
+        /// caller keeps polling until a known final status or its own timeout.
+        | Unknown of status: string
+
+        /// Whether the job has reached a final status (Succeeded, Completed, Failed, Cancelled).
+        member this.IsTerminal: bool =
+            match this with
+            | Succeeded
+            | Completed
+            | Failed _
+            | Cancelled -> true
+            | Waiting
+            | Executing
+            | Finishing
+            | Cancelling
+            | Unknown _ -> false
+
         /// Parse job status from Azure API response
         static member Parse(status: string, errorCode: string option, errorMessage: string option) : JobStatus =
             match status.ToLowerInvariant() with
+            | "queued"
             | "waiting" -> Waiting
             | "executing" -> Executing
+            | "finishing" -> Finishing
+            | "cancellationrequested"
+            | "cancelling" -> Cancelling
             | "succeeded" -> Succeeded
+            | "completed" -> Completed
             | "failed" ->
                 Failed(
                     errorCode |> Option.defaultValue "Unknown",
                     errorMessage |> Option.defaultValue "No error message"
                 )
             | "cancelled" -> Cancelled
-            | _ -> Failed("UnknownStatus", $"Unknown job status: %s{status}")
+            | _ -> Unknown status
 
     /// Azure Quantum backend information
     type Backend =
@@ -68,20 +101,29 @@ module Types =
     /// Job submission request
     type JobSubmission =
         {
-            /// Unique job ID (client-generated GUID)
+            /// Unique job ID: a client-generated GUID (the service accepts no other form)
             JobId: string
 
             /// Target backend (e.g., "ionq.simulator")
             Target: string
 
+            /// Provider id the workspace knows the target's provider by (e.g., "ionq").
+            /// None: the part of Target before its first '.'
+            ProviderId: string option
+
             /// Job name (for display)
             Name: string option
 
-            /// Job input data (quantum circuit)
+            /// Job input data (quantum circuit): a string or byte[] is uploaded as it is,
+            /// any other value as its JSON
             InputData: obj
 
             /// Input data format
             InputDataFormat: CircuitFormat
+
+            /// Format the provider writes the result blob in (e.g., "ionq.quantum-results.v1").
+            /// None: not sent
+            OutputDataFormat: string option
 
             /// Input parameters (shots, etc.)
             InputParams: Map<string, obj>

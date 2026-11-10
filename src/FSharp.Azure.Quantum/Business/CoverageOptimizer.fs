@@ -84,6 +84,14 @@ module CoverageOptimizer =
             IsComplete: bool
             /// Execution message
             Message: string
+            /// True when the lowest-energy sample left elements uncovered and classical
+            /// constraint repair changed the selection to complete the cover; false when the
+            /// selection is a measured sample
+            WasRepaired: bool
+            /// Standing of the selection among the final samples: Valid = samples that were
+            /// complete covers before any repair, Hits = samples that are the returned
+            /// selection. None when no single sampling run produced the selection
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
         }
 
     // ========================================================================
@@ -126,10 +134,14 @@ module CoverageOptimizer =
             TotalElements = problem.UniverseSize
             IsComplete = solution.IsValid
             Message =
-                if solution.IsValid then
+                if solution.IsValid && solution.WasRepaired then
+                    $"Complete coverage with {selectedOptions.Length} options, cost ${solution.TotalCost:F2} (the lowest-energy sample left elements uncovered; classical constraint repair completed the cover)"
+                elif solution.IsValid then
                     $"Found complete coverage with {selectedOptions.Length} options, cost ${solution.TotalCost:F2}"
                 else
                     $"Partial coverage: {coveredElements}/{problem.UniverseSize} elements covered"
+            WasRepaired = solution.WasRepaired
+            Sampling = solution.Sampling
         }
 
     /// Execute coverage optimization without blocking the calling thread.

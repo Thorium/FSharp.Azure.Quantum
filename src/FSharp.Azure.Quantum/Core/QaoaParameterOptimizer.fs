@@ -181,7 +181,85 @@ module QaoaParameterOptimizer =
     /// - backend: Quantum backend for circuit execution
     /// - numShots: Number of measurement shots
     ///
-    /// Returns: Objective function (parameters → energy)
+    /// Returns: Objective function (parameters → energy), paired with a reader of the first
+    /// backend error.
+    ///
+    /// The first Error ends the backend calls: that evaluation and every later one return
+    /// Double.MaxValue without running a circuit, so an optimizer driving the objective
+    /// submits (and is billed for) nothing more. Its result is void then: read the error
+    /// once the optimizer returns and report that instead. A penalty value in place of the
+    /// error would let the optimizer keep calling a backend that is failing.
+    let createObjectiveFunctionWithError
+        (problemHam: ProblemHamiltonian)
+        (mixerHam: MixerHamiltonian)
+        (backend: IQuantumBackend)
+        (numShots: int)
+        (logger: ILogger option)
+        : (float[] -> float) * (unit -> QuantumError option) =
+
+        let firstError: QuantumError option ref = ref None
+
+        let fail (error: QuantumError) =
+            logWarning logger $"Circuit execution failed: {error}"
+            firstError.Value <- Some error
+            Double.MaxValue
+
+        // Energy of one measured bitstring under the problem Hamiltonian.
+        let energyOf (bitstring: int[]) =
+            problemHam.Terms
+            |> Array.sumBy (fun term ->
+                match term.QubitsIndices.Length with
+                | 1 ->
+                    // Single-qubit term: c * Z_i
+                    let i = term.QubitsIndices.[0]
+                    let z_i = if bitstring.[i] = 0 then 1.0 else -1.0
+                    term.Coefficient * z_i
+                | 2 ->
+                    // Two-qubit term: c * Z_i * Z_j
+                    let i = term.QubitsIndices.[0]
+                    let j = term.QubitsIndices.[1]
+                    let z_i = if bitstring.[i] = 0 then 1.0 else -1.0
+                    let z_j = if bitstring.[j] = 0 then 1.0 else -1.0
+                    term.Coefficient * z_i * z_j
+                | _ ->
+                    // Higher-order terms (shouldn't occur in QAOA)
+                    0.0)
+
+        let objective (parameters: float[]) =
+            match firstError.Value with
+            | Some _ -> Double.MaxValue
+            | None ->
+                // Convert flat array to (γ, β) pairs
+                let p = parameters.Length / 2
+
+                let paramPairs =
+                    Array.init p (fun i ->
+                        let gamma = parameters.[2 * i]
+                        let beta = parameters.[2 * i + 1]
+                        (gamma, beta))
+
+                // Build QAOA circuit
+                let circuit = QaoaCircuit.build problemHam mixerHam paramPairs
+                let circuitWrapper = QaoaCircuitWrapper(circuit) :> ICircuit
+
+                // Execute on backend and measure state
+                match backend.ExecuteToState circuitWrapper with
+                | Error e -> fail e
+                | Ok state ->
+                    // Expectation value over the measured bitstrings
+                    match QuantumState.measure state numShots with
+                    | [||] ->
+                        fail (
+                            QuantumError.OperationError("QAOA objective", $"{backend.Name} returned no measurements")
+                        )
+                    | measurements -> measurements |> Array.averageBy energyOf
+
+        objective, (fun () -> firstError.Value)
+
+    /// The objective of createObjectiveFunctionWithError alone. It stops running circuits at
+    /// the first backend error too, but cannot report it: the optimizer's result is then
+    /// meaningless and nothing says so.
+    [<Obsolete("Use createObjectiveFunctionWithError: it also returns a reader of the first backend error, which this function cannot report.")>]
     let createObjectiveFunction
         (problemHam: ProblemHamiltonian)
         (mixerHam: MixerHamiltonian)
@@ -189,60 +267,8 @@ module QaoaParameterOptimizer =
         (numShots: int)
         (logger: ILogger option)
         : (float[] -> float) =
-
-        fun (parameters: float[]) ->
-            // Convert flat array to (γ, β) pairs
-            let p = parameters.Length / 2
-
-            let paramPairs =
-                Array.init p (fun i ->
-                    let gamma = parameters.[2 * i]
-                    let beta = parameters.[2 * i + 1]
-                    (gamma, beta))
-
-            // Build QAOA circuit
-            let circuit = QaoaCircuit.build problemHam mixerHam paramPairs
-            let circuitWrapper = QaoaCircuitWrapper(circuit) :> ICircuit
-
-            // Execute on backend and measure state
-            match backend.ExecuteToState circuitWrapper with
-            | Error e ->
-                // On error, return large penalty
-                logWarning logger $"Circuit execution failed: {e}"
-                1e10
-            | Ok state ->
-                // Measure state to get bitstrings
-                let measurements = QuantumState.measure state numShots
-
-                // Calculate expectation value from measurements
-                let expectationValue =
-                    measurements
-                    |> Array.map (fun bitstring ->
-                        // Calculate energy for this bitstring
-                        let energy =
-                            problemHam.Terms
-                            |> Array.sumBy (fun term ->
-                                match term.QubitsIndices.Length with
-                                | 1 ->
-                                    // Single-qubit term: c * Z_i
-                                    let i = term.QubitsIndices.[0]
-                                    let z_i = if bitstring.[i] = 0 then 1.0 else -1.0
-                                    term.Coefficient * z_i
-                                | 2 ->
-                                    // Two-qubit term: c * Z_i * Z_j
-                                    let i = term.QubitsIndices.[0]
-                                    let j = term.QubitsIndices.[1]
-                                    let z_i = if bitstring.[i] = 0 then 1.0 else -1.0
-                                    let z_j = if bitstring.[j] = 0 then 1.0 else -1.0
-                                    term.Coefficient * z_i * z_j
-                                | _ ->
-                                    // Higher-order terms (shouldn't occur in QAOA)
-                                    0.0)
-
-                        energy)
-                    |> Array.average
-
-                expectationValue
+        createObjectiveFunctionWithError problemHam mixerHam backend numShots logger
+        |> fst
 
     // ============================================================================
     // OPTIMIZATION STRATEGIES
@@ -487,29 +513,15 @@ module QaoaParameterOptimizer =
     // MAIN OPTIMIZATION INTERFACE
     // ============================================================================
 
-    /// Optimize QAOA parameters for a given problem
-    ///
-    /// Angles follow Core.QaoaCircuit's minimisation convention (standard mixer -Σ Xᵢ) and
-    /// apply to problemHam as given; pass ProblemHamiltonian.normalize problemHam to get
-    /// angles in the solver pipeline's units.
-    ///
-    /// Parameters:
-    /// - problemHam: Problem Hamiltonian to optimize
-    /// - p: Number of QAOA layers
-    /// - backend: Quantum backend for circuit execution
-    /// - config: Optimization configuration
-    ///
-    /// Returns: QaoaOptimizationResult with optimized parameters
-    ///
-    /// Example:
-    ///   let result = optimizeQaoaParameters problemHam 2 backend defaultConfig
-    ///   let optimalParams = result.OptimizedParameters
-    let optimizeQaoaParameters
+    /// The optimization run behind tryOptimizeQaoaParameters: its result and the first
+    /// backend error. After an error the result holds no optimum (the objective returned
+    /// Double.MaxValue from then on) and only the error is meaningful.
+    let private optimizeWithFirstError
         (problemHam: ProblemHamiltonian)
         (p: int)
         (backend: IQuantumBackend)
         (config: QaoaOptimizationConfig)
-        : QaoaOptimizationResult =
+        : QaoaOptimizationResult * QuantumError option =
 
         logInfo config.Logger "=== QAOA Parameter Optimization ==="
         logInfo config.Logger $"Problem: {problemHam.NumQubits} qubits, {problemHam.Terms.Length} terms"
@@ -526,9 +538,10 @@ module QaoaParameterOptimizer =
         // Create mixer Hamiltonian
         let mixerHam = MixerHamiltonian.create problemHam.NumQubits
 
-        // Create objective function
-        let objectiveFunc =
-            createObjectiveFunction problemHam mixerHam backend config.NumShots config.Logger
+        // Create objective function. It stops calling the backend at the first error, which
+        // is read once the optimizer has returned.
+        let objectiveFunc, firstError =
+            createObjectiveFunctionWithError problemHam mixerHam backend config.NumShots config.Logger
 
         // Run optimization based on strategy
         let (result, history) =
@@ -610,10 +623,65 @@ module QaoaParameterOptimizer =
                 )
             ))
 
-        {
-            OptimizedParameters = optimizedParams
-            FinalEnergy = result.FinalObjectiveValue
-            Converged = result.Converged
-            TotalEvaluations = history.Length
-            History = history
-        }
+        let optimization =
+            {
+                OptimizedParameters = optimizedParams
+                FinalEnergy = result.FinalObjectiveValue
+                Converged = result.Converged
+                TotalEvaluations = history.Length
+                History = history
+            }
+
+        optimization, firstError ()
+
+    /// Optimize QAOA parameters for a given problem
+    ///
+    /// Angles follow Core.QaoaCircuit's minimisation convention (standard mixer -Σ Xᵢ) and
+    /// apply to problemHam as given; pass ProblemHamiltonian.normalize problemHam to get
+    /// angles in the solver pipeline's units.
+    ///
+    /// Parameters:
+    /// - problemHam: Problem Hamiltonian to optimize
+    /// - p: Number of QAOA layers
+    /// - backend: Quantum backend for circuit execution
+    /// - config: Optimization configuration
+    ///
+    /// Returns: Ok with the optimized parameters, or the first Error the backend returned.
+    /// A backend error ends the run: no further circuit is executed after it (every
+    /// remaining evaluation, start and layer returns at once), and no result is reported.
+    /// An annealer (IAnnealingBackend) is refused with a ValidationError before anything is
+    /// submitted: it uses no angles, so every evaluation would submit the same problem.
+    ///
+    /// Example:
+    ///   match tryOptimizeQaoaParameters problemHam 2 backend defaultConfig with
+    ///   | Ok result -> result.OptimizedParameters
+    ///   | Error err -> failwith err.Message
+    let tryOptimizeQaoaParameters
+        (problemHam: ProblemHamiltonian)
+        (p: int)
+        (backend: IQuantumBackend)
+        (config: QaoaOptimizationConfig)
+        : Result<QaoaOptimizationResult, QuantumError> =
+        match backend with
+        | :? IAnnealingBackend ->
+            Error(
+                QuantumError.ValidationError(
+                    "backend",
+                    $"{backend.Name} is an annealer: it uses no QAOA angles, so there is nothing to optimize. Sample the problem with QaoaExecutionHelpers.runQaoaSampledAsync, which submits it once."
+                )
+            )
+        | _ ->
+            match optimizeWithFirstError problemHam p backend config with
+            | _, Some error -> Error error
+            | result, None -> Ok result
+
+    /// tryOptimizeQaoaParameters without its error. After a backend error the returned
+    /// record holds no optimum (FinalEnergy is Double.MaxValue) and nothing says why.
+    [<Obsolete("Use tryOptimizeQaoaParameters: it returns the backend's Error instead of a result that holds no optimum.")>]
+    let optimizeQaoaParameters
+        (problemHam: ProblemHamiltonian)
+        (p: int)
+        (backend: IQuantumBackend)
+        (config: QaoaOptimizationConfig)
+        : QaoaOptimizationResult =
+        optimizeWithFirstError problemHam p backend config |> fst

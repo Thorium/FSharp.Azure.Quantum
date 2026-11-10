@@ -19,8 +19,10 @@ open FSharp.Azure.Quantum.Quantum
 /// - Ride-sharing: Match drivers with passengers by proximity/preference
 ///
 /// **Quantum Advantage:**
-/// Uses QAOA-based maximum weight matching to find optimal 1:1 pairings
-/// that maximize total compatibility/weight, via QUBO formulation.
+/// Uses QAOA-based maximum weight matching to sample 1:1 pairings of high
+/// total compatibility/weight, via QUBO formulation. The result is the best
+/// sampled matching, not a proven optimum; PairingResult.WasRepaired and
+/// PairingResult.Sampling say how it was obtained.
 ///
 /// **Example:**
 /// ```fsharp
@@ -80,7 +82,7 @@ module ResourcePairing =
     /// Resource pairing solution
     type PairingResult =
         {
-            /// Optimal pairings found
+            /// Pairings found: the best sampled matching, not a proven optimum
             Pairings: Pairing list
             /// Total compatibility score
             TotalScore: float
@@ -92,6 +94,14 @@ module ResourcePairing =
             IsValid: bool
             /// Execution message
             Message: string
+            /// True when the lowest-energy sample paired a participant more than once and
+            /// classical constraint repair dropped pairings to make it a matching; false when
+            /// the pairings are a measured sample
+            WasRepaired: bool
+            /// Standing of the pairings among the final samples: Valid = samples that were
+            /// matchings before any repair, Hits = samples that are the returned pairings.
+            /// None when no single sampling run produced the pairings
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
         }
 
     // ========================================================================
@@ -153,10 +163,14 @@ module ResourcePairing =
             TotalParticipants = problem.Participants.Length
             IsValid = solution.IsValid
             Message =
-                if solution.IsValid then
-                    $"Found {pairings.Length} optimal pairings with total score {solution.TotalWeight:F2}"
+                if solution.IsValid && solution.WasRepaired then
+                    $"{pairings.Length} pairings with total score {solution.TotalWeight:F2} (the lowest-energy sample paired a participant more than once; classical constraint repair dropped the conflicting pairings)"
+                elif solution.IsValid then
+                    $"Found {pairings.Length} pairings with total score {solution.TotalWeight:F2}"
                 else
                     $"Found {pairings.Length} pairings (may have conflicts)"
+            WasRepaired = solution.WasRepaired
+            Sampling = solution.Sampling
         }
 
     /// Execute resource pairing optimization without blocking the calling thread.

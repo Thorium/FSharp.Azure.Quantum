@@ -361,3 +361,53 @@ module CoverageOptimizerTests =
             | Error e -> Assert.Fail($"Zero cost case failed: %A{e}")
         }
         :> Task
+
+    [<Fact>]
+    let ``CoverageOptimizer - result says whether the cover was repaired and how it was sampled`` () =
+        task {
+            let problem =
+                {
+                    UniverseSize = 3
+                    Options =
+                        [
+                            {
+                                Id = "A"
+                                CoveredElements = [ 0; 1 ]
+                                Cost = 2.0
+                            }
+                            {
+                                Id = "B"
+                                CoveredElements = [ 1; 2 ]
+                                Cost = 2.0
+                            }
+                            {
+                                Id = "C"
+                                CoveredElements = [ 0; 2 ]
+                                Cost = 2.0
+                            }
+                        ]
+                    Backend = Some(localBackend ())
+                    Shots = 200
+                }
+
+            match! CoverageOptimizer.solveAsync problem CancellationToken.None with
+            | Error e -> Assert.Fail($"Coverage optimizer failed: %A{e}")
+            | Ok r ->
+                // Repair is on by default, so the cover is complete
+                Assert.True(r.IsComplete)
+
+                match r.Sampling with
+                | None -> Assert.Fail("no sampling statistics")
+                | Some stats ->
+                    Assert.Equal(200, stats.Shots)
+                    Assert.InRange(stats.Valid, 0, stats.Shots)
+
+                    // A repaired cover is not claimed as found by sampling
+                    if r.WasRepaired then
+                        Assert.Contains("repair", r.Message)
+                        Assert.DoesNotContain("Found", r.Message)
+                    else
+                        Assert.InRange(stats.Hits, 1, stats.Valid)
+                        Assert.DoesNotContain("repair", r.Message)
+        }
+        :> Task

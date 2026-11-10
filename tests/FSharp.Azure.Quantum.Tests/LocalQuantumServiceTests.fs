@@ -203,9 +203,11 @@ module LocalQuantumServiceTests =
                 {
                     JobId = Guid.NewGuid().ToString()
                     Target = "ionq.simulator"
+                    ProviderId = None
                     Name = Some "garbage"
                     InputData = box "this is not an IonQ circuit"
                     InputDataFormat = CircuitFormat.IonQ_V1
+                    OutputDataFormat = None
                     InputParams = Map [ "shots", box 10 ]
                     Tags = Map.empty
                 }
@@ -290,7 +292,7 @@ module LocalQuantumServiceTests =
     // ------------------------------------------------------------------------
 
     [<Fact>]
-    let ``Bearer token goes to the workspace API and never to the result blob`` () =
+    let ``Bearer token goes to the workspace API and never to the input or result blob`` () =
         use service = LocalQuantumService.start seeded
         use http = service.CreateHttpClient()
         let backend = backendFor "quantinuum" service http (CloudBackendHelpers.JobBudget())
@@ -299,16 +301,311 @@ module LocalQuantumServiceTests =
 
         let requests = service.Requests
 
-        let jobRequests =
-            requests |> List.filter (fun r -> r.PathAndQuery.Contains "/jobs/")
+        let workspaceRequests =
+            requests
+            |> List.filter (fun r -> r.PathAndQuery.Contains "/jobs/" || r.PathAndQuery.Contains "/storage/sasUri")
 
         let blobRequests =
             requests |> List.filter (fun r -> r.PathAndQuery.StartsWith "/blobs/")
 
-        Assert.NotEmpty jobRequests
-        Assert.All(jobRequests, fun r -> Assert.True r.HadBearerToken)
-        Assert.Single blobRequests |> ignore
+        Assert.NotEmpty workspaceRequests
+        Assert.All(workspaceRequests, fun r -> Assert.True r.HadBearerToken)
+        // The input upload and the result download, each authorised by its SAS query alone.
+        Assert.Equal<string list>([ "PUT"; "GET" ], blobRequests |> List.map (fun r -> r.Method))
         Assert.All(blobRequests, fun r -> Assert.False r.HadBearerToken)
+        Assert.All(requests, fun r -> Assert.InRange(r.StatusCode, 200, 299))
+
+    // ------------------------------------------------------------------------
+    // The data-plane contract the service enforces
+    // ------------------------------------------------------------------------
+
+    let private apiVersion = $"api-version={JobLifecycle.ApiVersion}"
+
+    let private send (http: HttpClient) (method: HttpMethod) (url: string) (body: string option) =
+        task {
+            use request = new HttpRequestMessage(method, url)
+
+            body
+            |> Option.iter (fun text ->
+                request.Content <- new StringContent(text, Text.Encoding.UTF8, "application/json"))
+
+            use! response = http.SendAsync request
+            let! text = response.Content.ReadAsStringAsync()
+            return int response.StatusCode, text
+        }
+
+    /// Container and input blob SAS URIs for a job, with a Bell circuit uploaded as its input.
+    let private uploadInput (service: LocalQuantumService) (http: HttpClient) (jobId: string) =
+        task {
+            let sasUri (body: string) =
+                task {
+                    let! status, text =
+                        send http HttpMethod.Post $"{service.WorkspaceUrl}/storage/sasUri?{apiVersion}" (Some body)
+
+                    Assert.Equal(200, status)
+                    return JsonDocument.Parse(text).RootElement.GetProperty("sasUri").GetString()
+                }
+
+            let! containerUri = sasUri $"""{{"containerName":"job-{jobId}"}}"""
+            let! inputDataUri = sasUri $"""{{"containerName":"job-{jobId}","blobName":"inputData"}}"""
+
+            use upload = new HttpRequestMessage(HttpMethod.Put, inputDataUri)
+            Authentication.markNoAuth upload
+            upload.Headers.TryAddWithoutValidation("x-ms-blob-type", "BlockBlob") |> ignore
+
+            upload.Content <-
+                new StringContent("""{"qubits":2,"circuit":[{"gate":"h","target":0},{"gate":"cnot","control":0,"target":1}]}""")
+
+            use! uploaded = http.SendAsync upload
+            Assert.Equal(HttpStatusCode.Created, uploaded.StatusCode)
+            return containerUri, inputDataUri
+        }
+
+    /// A job definition that meets the contract, as (property, JSON value) pairs.
+    let private jobFields (jobId: string) (containerUri: string) (inputDataUri: string) =
+        [
+            "id", $"\"{jobId}\""
+            "itemType", "\"Job\""
+            "name", "\"contract\""
+            "providerId", "\"ionq\""
+            "target", "\"ionq.simulator\""
+            "containerUri", $"\"{containerUri}\""
+            "inputDataUri", $"\"{inputDataUri}\""
+            "inputDataFormat", "\"ionq.circuit.v1\""
+            "inputParams", """{"shots":10}"""
+        ]
+
+    let private jobBody (fields: (string * string) list) =
+        fields
+        |> List.map (fun (name, value) -> $"\"{name}\":{value}")
+        |> String.concat ","
+        |> sprintf "{%s}"
+
+    [<Fact>]
+    let ``A job that meets the contract is created, and one posted to :cancel is cancelled`` () : Task =
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
+            let jobId = Guid.NewGuid().ToString()
+            let! containerUri, inputDataUri = uploadInput service http jobId
+            let jobUrl = $"{service.WorkspaceUrl}/jobs/{jobId}"
+
+            let! status, body =
+                send http HttpMethod.Put $"{jobUrl}?{apiVersion}" (Some(jobBody (jobFields jobId containerUri inputDataUri)))
+
+            Assert.Equal(201, status)
+            Assert.Equal("Waiting", JsonDocument.Parse(body).RootElement.GetProperty("status").GetString())
+
+            // {job}/cancel is not a route of the data plane: cancellation is {job}:cancel.
+            let! slashCancelStatus, _ = send http HttpMethod.Post $"{jobUrl}/cancel?{apiVersion}" None
+            Assert.Equal(404, slashCancelStatus)
+
+            let! cancelStatus, cancelBody = send http HttpMethod.Post $"{jobUrl}:cancel?{apiVersion}" None
+            Assert.Equal(200, cancelStatus)
+            Assert.Equal("Cancelled", JsonDocument.Parse(cancelBody).RootElement.GetProperty("status").GetString())
+            Assert.Equal(JobStatus.Cancelled, (service.TryGetJob jobId).Value.Status)
+        }
+        :> Task
+
+    [<Theory; InlineData("jobs"); InlineData("quotas"); InlineData("providerStatus")>]
+    let ``A workspace request without api-version is rejected`` (resource: string) : Task =
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
+
+            let! status, body = send http HttpMethod.Get $"{service.WorkspaceUrl}/{resource}" None
+            Assert.Equal(400, status)
+            Assert.Contains("MissingApiVersionParameter", body)
+
+            let! withVersion, _ = send http HttpMethod.Get $"{service.WorkspaceUrl}/{resource}?{apiVersion}" None
+            Assert.Equal(200, withVersion)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Job creation, status, cancel and sasUri requests without api-version are rejected`` () : Task =
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
+            let jobId = Guid.NewGuid().ToString()
+            let! containerUri, inputDataUri = uploadInput service http jobId
+            let jobUrl = $"{service.WorkspaceUrl}/jobs/{jobId}"
+            let body = jobBody (jobFields jobId containerUri inputDataUri)
+
+            let! create, _ = send http HttpMethod.Put jobUrl (Some body)
+            Assert.Equal(400, create)
+            Assert.Equal(0, service.SubmittedJobCount)
+
+            let! created, _ = send http HttpMethod.Put $"{jobUrl}?{apiVersion}" (Some body)
+            Assert.Equal(201, created)
+
+            let! status, _ = send http HttpMethod.Get jobUrl None
+            Assert.Equal(400, status)
+            let! cancel, _ = send http HttpMethod.Post $"{jobUrl}:cancel" None
+            Assert.Equal(400, cancel)
+
+            let! sas, _ =
+                send http HttpMethod.Post $"{service.WorkspaceUrl}/storage/sasUri" (Some """{"containerName":"c"}""")
+
+            Assert.Equal(400, sas)
+            Assert.Equal(JobStatus.Waiting, (service.TryGetJob jobId).Value.Status)
+        }
+        :> Task
+
+    [<Theory>]
+    [<InlineData("containerUri")>]
+    [<InlineData("providerId")>]
+    [<InlineData("target")>]
+    [<InlineData("name")>]
+    [<InlineData("itemType")>]
+    let ``A job without a required property is rejected`` (missing: string) : Task =
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
+            let jobId = Guid.NewGuid().ToString()
+            let! containerUri, inputDataUri = uploadInput service http jobId
+
+            let body =
+                jobFields jobId containerUri inputDataUri
+                |> List.filter (fun (name, _) -> name <> missing)
+                |> jobBody
+
+            let! status, reply = send http HttpMethod.Put $"{service.WorkspaceUrl}/jobs/{jobId}?{apiVersion}" (Some body)
+
+            Assert.Equal(400, status)
+            Assert.Contains(missing, reply)
+            Assert.Equal(0, service.SubmittedJobCount)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Inline input, a non-GUID id, a foreign provider and an unknown container are rejected`` () : Task =
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
+            let jobId = Guid.NewGuid().ToString()
+            let! containerUri, inputDataUri = uploadInput service http jobId
+            let fields = jobFields jobId containerUri inputDataUri
+
+            let create (pid: string) (body: string) =
+                send http HttpMethod.Put $"{service.WorkspaceUrl}/jobs/{pid}?{apiVersion}" (Some body)
+
+            let replace (name: string) (value: string) =
+                fields |> List.map (fun (n, v) -> if n = name then n, value else n, v)
+
+            // The contract has no inline input property.
+            let! inlineStatus, inlineReply =
+                create jobId (jobBody (fields @ [ "inputData", """{"qubits":1,"circuit":[]}""" ]))
+
+            Assert.Equal(400, inlineStatus)
+            Assert.Contains("inputData", inlineReply)
+
+            let! idStatus, idReply = create "job-123" (jobBody (replace "id" "\"job-123\""))
+            Assert.Equal(400, idStatus)
+            Assert.Contains("GUID", idReply)
+
+            let! providerStatus, providerReply = create jobId (jobBody (replace "providerId" "\"rigetti\""))
+            Assert.Equal(400, providerStatus)
+            Assert.Contains("providerId", providerReply)
+
+            let foreignContainer = containerUri.Replace($"job-{jobId}", "never-requested")
+            let! containerStatus, containerReply = create jobId (jobBody (replace "containerUri" $"\"{foreignContainer}\""))
+            Assert.Equal(400, containerStatus)
+            Assert.Contains("containerUri", containerReply)
+
+            Assert.Equal(0, service.SubmittedJobCount)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``A blob upload needs the BlockBlob header, a SAS signature and an existing container`` () : Task =
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
+            let jobId = Guid.NewGuid().ToString()
+            let! _, inputDataUri = uploadInput service http jobId
+
+            let put (url: string) (blobType: string option) =
+                task {
+                    use request = new HttpRequestMessage(HttpMethod.Put, url)
+                    Authentication.markNoAuth request
+
+                    blobType
+                    |> Option.iter (fun value ->
+                        request.Headers.TryAddWithoutValidation("x-ms-blob-type", value) |> ignore)
+
+                    request.Content <- new StringContent "{}"
+                    use! response = http.SendAsync request
+                    return int response.StatusCode
+                }
+
+            let! noHeader = put inputDataUri None
+            Assert.Equal(400, noHeader)
+
+            let! noSignature = put (inputDataUri.Substring(0, inputDataUri.IndexOf '?')) (Some "BlockBlob")
+            Assert.Equal(403, noSignature)
+
+            let! noContainer = put (inputDataUri.Replace($"job-{jobId}", "never-requested")) (Some "BlockBlob")
+            Assert.Equal(404, noContainer)
+
+            let! ok = put inputDataUri (Some "BlockBlob")
+            Assert.Equal(201, ok)
+        }
+        :> Task
+
+    // ------------------------------------------------------------------------
+    // Jobs that are no longer waited for
+    // ------------------------------------------------------------------------
+
+    [<Fact>]
+    let ``A backend that times out cancels its job and names it in the Error`` () =
+        // The job never completes within the backend's timeout.
+        use service =
+            LocalQuantumService.start
+                { seeded with
+                    ExecutionDelay = TimeSpan.FromMinutes 10.0
+                }
+
+        use http = service.CreateHttpClient()
+
+        let backend =
+            CloudBackendFactory.createIonQWithTimeout
+                http
+                service.WorkspaceUrl
+                "ionq.simulator"
+                shots
+                (TimeSpan.FromMilliseconds 200.0)
+
+        match backend.ExecuteToState bell with
+        | Error(QuantumError.AzureError(AzureQuantumError.JobTimeout message)) ->
+            let job = service.Jobs |> List.exactlyOne
+            Assert.Contains(job.JobId, message)
+            Assert.Contains("cancellation request was accepted", message)
+            Assert.Equal(JobStatus.Cancelled, job.Status)
+        | other -> failwith $"expected JobTimeout, got %A{other}"
+
+    [<Fact>]
+    let ``A caller's cancellation cancels the job on the service`` () : Task =
+        task {
+            use service =
+                LocalQuantumService.start
+                    { seeded with
+                        ExecutionDelay = TimeSpan.FromMinutes 10.0
+                    }
+
+            use http = service.CreateHttpClient()
+            let backend = backendFor "rigetti" service http (CloudBackendHelpers.JobBudget())
+            use cts = new CancellationTokenSource(TimeSpan.FromMilliseconds 300.0)
+
+            match! backend.ExecuteToStateAsync bell cts.Token with
+            | Error(QuantumError.OperationError("Job polling", message)) ->
+                let job = service.Jobs |> List.exactlyOne
+                Assert.Contains(job.JobId, message)
+                Assert.Contains("cancelled", message)
+                Assert.Equal(JobStatus.Cancelled, job.Status)
+            | other -> failwith $"expected the polling cancellation error, got %A{other}"
+        }
+        :> Task
 
     [<Fact>]
     let ``A client without the bearer token gets InvalidCredentials`` () =

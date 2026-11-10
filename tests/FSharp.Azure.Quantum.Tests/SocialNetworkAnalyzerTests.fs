@@ -498,7 +498,9 @@ module SocialNetworkAnalyzerTests =
                     $"Strength should be in [0,1], got {community.Strength}"
                 )
 
-                Assert.Contains("largest community", result.Message)
+                // A QAOA sample is a clique, not a proven largest one
+                Assert.Contains("ully-connected community", result.Message)
+                Assert.Contains("not proven largest", result.Message)
             | Error e -> failwith $"Should succeed, got error: {e}"
         }
         :> Task
@@ -1179,5 +1181,68 @@ module SocialNetworkAnalyzerTests =
             |> Result.map (fun r -> Assert.True(r.Pairings.Length >= 1, "Should find pairings with QAOA"))
             |> Result.defaultWith (fun e ->
                 failwith $"Should succeed with QAOA strategy for FindPairings, got error: {e}")
+        }
+        :> Task
+
+    /// A QAOA answer reports its sample statistics; a repaired one says so in the message
+    /// and none is worded as proven best.
+    let private assertRepairIsVisible (r: SocialNetworkResult) =
+        Assert.True(r.IsValid)
+        Assert.DoesNotContain("optimal", r.Message)
+        Assert.DoesNotContain("Found largest", r.Message)
+
+        match r.Sampling with
+        | None -> Assert.Fail("no sampling statistics")
+        | Some stats ->
+            Assert.Equal(200, stats.Shots)
+
+            if r.WasRepaired then
+                Assert.Contains("repair", r.Message)
+            else
+                Assert.InRange(stats.Hits, 1, stats.Valid)
+                Assert.DoesNotContain("repair", r.Message)
+
+    [<Fact>]
+    let ``QAOA analyses say whether the answer was repaired and how it was sampled`` () =
+        task {
+            let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+            // A path of four people: neither a clique, nor coverable by one person
+            let path mode =
+                {
+                    People = [ "Alice"; "Bob"; "Carol"; "Dave" ]
+                    Connections =
+                        [
+                            { Person1 = "Alice"; Person2 = "Bob" }
+                            { Person1 = "Bob"; Person2 = "Carol" }
+                            { Person1 = "Carol"; Person2 = "Dave" }
+                        ]
+                    MinCommunitySize = None
+                    Mode = Some mode
+                    Strategy = Some QaoaOptimize
+                    Backend = Some quantumBackend
+                    Shots = 200
+                }
+
+            for mode in [ FindLargestCommunity; FindMonitorSet; FindPairings ] do
+                match! SocialNetworkAnalyzer.solveAsync (path mode) CancellationToken.None with
+                | Error e -> Assert.Fail($"%A{mode} failed: %A{e}")
+                | Ok r -> assertRepairIsVisible r
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Grover community search reports no repair and no QAOA sample statistics`` () =
+        task {
+            let problem =
+                { createTriangle () with
+                    Backend = Some(LocalBackend.LocalBackend() :> IQuantumBackend)
+                }
+
+            match! SocialNetworkAnalyzer.solveAsync problem CancellationToken.None with
+            | Error e -> Assert.Fail($"Grover search failed: %A{e}")
+            | Ok r ->
+                Assert.False(r.WasRepaired)
+                Assert.True(r.Sampling.IsNone)
         }
         :> Task

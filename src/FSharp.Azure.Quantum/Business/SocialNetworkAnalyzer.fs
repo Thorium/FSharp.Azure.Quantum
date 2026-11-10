@@ -187,7 +187,7 @@ module SocialNetworkAnalyzer =
             /// Monitor set — minimum people covering all connections (populated by FindMonitorSet)
             MonitorSet: PersonId list
 
-            /// Optimal pairings (populated by FindPairings)
+            /// Pairings (populated by FindPairings): the best sampled matching, not a proven optimum
             Pairings: Pairing list
 
             /// Total people analyzed
@@ -198,6 +198,38 @@ module SocialNetworkAnalyzer =
 
             /// Execution message
             Message: string
+
+            /// False when a QAOA answer breaks its own rule: the community is not fully
+            /// connected, the monitor set misses a connection, or a person is paired twice
+            IsValid: bool
+
+            /// True when the lowest-energy QAOA sample broke the rule of the analysis and
+            /// classical constraint repair changed it into the returned answer; false when
+            /// the answer is a measured sample (always false for Grover's search)
+            WasRepaired: bool
+
+            /// Standing of a QAOA answer among the final samples: Valid = samples that kept
+            /// the rule before any repair, Hits = samples that are the returned answer. None
+            /// for Grover's search and when no single sampling run produced the answer
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+        }
+
+    /// A QAOA answer with how it was obtained
+    type private QaoaAnswer<'T> =
+        {
+            Value: 'T
+            IsValid: bool
+            WasRepaired: bool
+            Sampling: QaoaExecutionHelpers.SampleStatistics option
+        }
+
+    /// The answer of an analysis that needed no circuit (nothing to cover or pair)
+    let private trivialAnswer (value: 'T) : QaoaAnswer<'T> =
+        {
+            Value = value
+            IsValid = true
+            WasRepaired = false
+            Sampling = None
         }
 
     // ========================================================================
@@ -325,7 +357,7 @@ module SocialNetworkAnalyzer =
         (backend: IQuantumBackend)
         (problem: SocialNetworkProblem)
         (cancellationToken: CancellationToken)
-        : Task<QuantumResult<Community list>> =
+        : Task<QuantumResult<QaoaAnswer<Community list>>> =
         quantumResultTask {
             let personIndex = createPersonIndex problem.People
 
@@ -367,10 +399,10 @@ module SocialNetworkAnalyzer =
                 |> List.filter (fun conn -> memberSet.Contains(conn.Person1) && memberSet.Contains(conn.Person2))
                 |> List.length
 
-            if members.IsEmpty then
-                return []
-            else
-                return
+            let communities =
+                if members.IsEmpty then
+                    []
+                else
                     [
                         {
                             Members = members
@@ -378,6 +410,14 @@ module SocialNetworkAnalyzer =
                             InternalConnections = internalConns
                         }
                     ]
+
+            return
+                {
+                    Value = communities
+                    IsValid = solution.IsValid
+                    WasRepaired = solution.WasRepaired
+                    Sampling = solution.Sampling
+                }
         }
 
     /// Find the minimum monitor set covering all connections using QAOA min vertex cover
@@ -385,7 +425,7 @@ module SocialNetworkAnalyzer =
         (backend: IQuantumBackend)
         (problem: SocialNetworkProblem)
         (cancellationToken: CancellationToken)
-        : Task<QuantumResult<PersonId list>> =
+        : Task<QuantumResult<QaoaAnswer<PersonId list>>> =
         quantumResultTask {
             let personIndex = createPersonIndex problem.People
 
@@ -397,7 +437,7 @@ module SocialNetworkAnalyzer =
                     | _ -> None)
 
             if edges.IsEmpty then
-                return [] // No connections to cover
+                return trivialAnswer [] // No connections to cover
             else
                 let vcProblem: QuantumVertexCoverSolver.Problem =
                     {
@@ -420,15 +460,21 @@ module SocialNetworkAnalyzer =
                         }
                         cancellationToken
 
-                return solution.CoverVertices |> List.map (fun v -> v.Id)
+                return
+                    {
+                        Value = solution.CoverVertices |> List.map (fun v -> v.Id)
+                        IsValid = solution.IsValid
+                        WasRepaired = solution.WasRepaired
+                        Sampling = solution.Sampling
+                    }
         }
 
-    /// Find optimal 1:1 pairings using QAOA max weight matching
+    /// Find 1:1 pairings using QAOA max weight matching
     let private findPairingsQaoa
         (backend: IQuantumBackend)
         (problem: SocialNetworkProblem)
         (cancellationToken: CancellationToken)
-        : Task<QuantumResult<Pairing list>> =
+        : Task<QuantumResult<QaoaAnswer<Pairing list>>> =
         quantumResultTask {
             let personIndex = createPersonIndex problem.People
 
@@ -448,7 +494,7 @@ module SocialNetworkAnalyzer =
                     | _ -> None)
 
             if edges.IsEmpty then
-                return [] // No connections to pair
+                return trivialAnswer [] // No connections to pair
             else
                 let matchingProblem: QuantumMatchingSolver.Problem =
                     {
@@ -476,7 +522,13 @@ module SocialNetworkAnalyzer =
                             Weight = edge.Weight
                         })
 
-                return pairings
+                return
+                    {
+                        Value = pairings
+                        IsValid = solution.IsValid
+                        WasRepaired = solution.WasRepaired
+                        Sampling = solution.Sampling
+                    }
         }
 
     // ========================================================================
@@ -535,6 +587,9 @@ module SocialNetworkAnalyzer =
             TotalPeople = problem.People.Length
             TotalConnections = problem.Connections.Length
             Message = message
+            IsValid = true
+            WasRepaired = false
+            Sampling = None
         }
 
     // ========================================================================
@@ -614,29 +669,43 @@ module SocialNetworkAnalyzer =
                                         "No communities found with the specified criteria"
                                     else
                                         $"Found {communities.Length} communities"
+                                IsValid = true
+                                WasRepaired = false
+                                Sampling = None
                             }
 
                 | FindLargestCommunity ->
                     let resolvedStrategy = resolveStrategy effectiveMode problem.Strategy
 
-                    let! communities =
+                    let! answer =
                         match resolvedStrategy with
-                        | GroverSearch -> Task.FromResult(findLargestCommunityGrover backend problem)
+                        | GroverSearch ->
+                            Task.FromResult(findLargestCommunityGrover backend problem |> Result.map trivialAnswer)
                         | QaoaOptimize
                         | Auto -> findLargestCommunityQaoa backend problem cancellationToken
 
                     return
                         {
-                            Communities = communities
+                            Communities = answer.Value
                             MonitorSet = []
                             Pairings = []
                             TotalPeople = problem.People.Length
                             TotalConnections = problem.Connections.Length
                             Message =
-                                match communities with
-                                | [] -> "No community found in the network"
-                                | [ c ] -> $"Found largest community of {c.Members.Length} people"
-                                | cs -> $"Found {cs.Length} communities"
+                                match answer.Value, resolvedStrategy with
+                                | [], _ -> "No community found in the network"
+                                | [ c ], _ when not answer.IsValid ->
+                                    $"Found a group of {c.Members.Length} people that is not fully connected"
+                                | [ c ], _ when answer.WasRepaired ->
+                                    $"Fully-connected community of {c.Members.Length} people (the lowest-energy sample was not fully connected; classical constraint repair removed members until it was; not proven largest)"
+                                | [ c ], GroverSearch ->
+                                    $"Found a fully-connected community of {c.Members.Length} people (the largest size at which the search found one)"
+                                | [ c ], _ ->
+                                    $"Found a fully-connected community of {c.Members.Length} people (best sample; not proven largest)"
+                                | cs, _ -> $"Found {cs.Length} communities"
+                            IsValid = answer.IsValid
+                            WasRepaired = answer.WasRepaired
+                            Sampling = answer.Sampling
                         }
 
                 | FindMonitorSet ->
@@ -655,7 +724,8 @@ module SocialNetworkAnalyzer =
                             )
                     | Auto
                     | QaoaOptimize ->
-                        let! monitors = findMonitorSetQaoa backend problem cancellationToken
+                        let! answer = findMonitorSetQaoa backend problem cancellationToken
+                        let monitors = answer.Value
 
                         return
                             {
@@ -665,10 +735,17 @@ module SocialNetworkAnalyzer =
                                 TotalPeople = problem.People.Length
                                 TotalConnections = problem.Connections.Length
                                 Message =
-                                    if monitors.IsEmpty then
+                                    if not answer.IsValid then
+                                        $"Found {monitors.Length} people who do not cover every connection"
+                                    elif monitors.IsEmpty then
                                         "No monitors needed (no connections in network)"
+                                    elif answer.WasRepaired then
+                                        $"Monitor set of {monitors.Length} people covering all connections (the lowest-energy sample missed connections; classical constraint repair completed the cover; not proven smallest)"
                                     else
-                                        $"Found monitor set of {monitors.Length} people covering all connections"
+                                        $"Found monitor set of {monitors.Length} people covering all connections (best sample; not proven smallest)"
+                                IsValid = answer.IsValid
+                                WasRepaired = answer.WasRepaired
+                                Sampling = answer.Sampling
                             }
 
                 | FindPairings ->
@@ -687,7 +764,8 @@ module SocialNetworkAnalyzer =
                             )
                     | Auto
                     | QaoaOptimize ->
-                        let! pairings = findPairingsQaoa backend problem cancellationToken
+                        let! answer = findPairingsQaoa backend problem cancellationToken
+                        let pairings = answer.Value
 
                         return
                             {
@@ -697,10 +775,17 @@ module SocialNetworkAnalyzer =
                                 TotalPeople = problem.People.Length
                                 TotalConnections = problem.Connections.Length
                                 Message =
-                                    if pairings.IsEmpty then
-                                        "No pairings found (no connections in network)"
+                                    if not answer.IsValid then
+                                        $"Found {pairings.Length} pairings that pair a person more than once"
+                                    elif pairings.IsEmpty then
+                                        "No pairings found"
+                                    elif answer.WasRepaired then
+                                        $"{pairings.Length} pairings (the lowest-energy sample paired a person more than once; classical constraint repair dropped the conflicting pairings; not proven maximal)"
                                     else
-                                        $"Found {pairings.Length} optimal pairings"
+                                        $"Found {pairings.Length} pairings (best sample; not proven maximal)"
+                                IsValid = answer.IsValid
+                                WasRepaired = answer.WasRepaired
+                                Sampling = answer.Sampling
                             }
         }
 

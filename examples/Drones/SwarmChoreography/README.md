@@ -48,6 +48,7 @@ dotnet run -- --export --mavlink --home-lat 50.4501 --home-lon 30.5234
 | `--out` | `runs/drone/swarm` | Output directory |
 | `--export` | (flag) | Generate Crazyflie Python script |
 | `--mavlink` | (flag) | Generate MAVLink mission files |
+| `--export-on-fail` | (flag) | Write the `--export` / `--mavlink` files although their evidence pack is FAIL. Without it a FAIL writes no flight file and the run exits with code 3; an INCOMPLETE pack exports with a warning. Files exported by this flag carry the failed checks at their head (`crazyflie_show.py`, `mavlink_show.fsx`, the export's `README.md`) and in `FAILED-CHECKS.md`. With both exports the Crazyflie show is gated on its own pack, printed in the run; the pack written to disk is the MAVLink one |
 | `--scale` | automatic | Position scale factor for both exports. Without it, `--mavlink` picks the scale that puts the closest slots and the closest synchronised transit at 1.2 × the 5 m minimum separation (1.81 for this show, measured on the S-curve legs as flown), and the Crazyflie show scales each formation for the room (see Indoor layout); both are printed |
 | `--duration` | `3.0` | Transition duration in seconds |
 | `--home-lat` | (required for MAVLink) | Home position latitude (decimal degrees) |

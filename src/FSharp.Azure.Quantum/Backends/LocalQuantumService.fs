@@ -896,6 +896,8 @@ type internal LocalJobEntry =
         Name: string
         Target: string
         ProviderId: string
+        Container: string
+        InputDataUri: string
         InputDataFormat: string
         InputData: string
         InputParamsJson: string
@@ -927,16 +929,21 @@ type internal LocalServiceReply =
 /// local simulator. Nothing starts until LocalQuantumService.start is called; the service
 /// listens on the loopback interface only and never contacts the network.
 ///
-/// Emulated API (paths under WorkspaceUrl, api-version accepted and ignored):
-///   PUT    {workspace}/jobs/{id}          submit (201 Created, status Waiting)
+/// Emulated API (the Azure Quantum data plane; paths under WorkspaceUrl). Every workspace
+/// request must carry `api-version`: one without it is answered 400, as the service does.
+///   POST   {workspace}/storage/sasUri     SAS URI for a container (created when missing) or a blob in it
+///   PUT    {workspace}/jobs/{id}          create (201 Created, status Waiting). The id is a GUID; the body
+///                                         names itemType "Job", name, providerId, target and containerUri,
+///                                         and its input is the blob at inputDataUri (default: the
+///                                         container's "inputData" blob). Inline input is rejected.
 ///   GET    {workspace}/jobs/{id}          status (Waiting → Executing → Succeeded/Failed)
-///   DELETE {workspace}/jobs/{id}          cancel (204)
-///   POST   {workspace}/jobs/{id}/cancel   cancel (200)
+///   POST   {workspace}/jobs/{id}:cancel   cancel (200)
+///   DELETE {workspace}/jobs/{id}          delete the job (204)
 ///   GET    {workspace}/jobs               list ({"value": [...], "nextLink": ...})
-///   POST   {workspace}/storage/sasUri     SAS URI for a container/blob in the local blob store
 ///   GET    {workspace}/quotas             one quota per provider; utilization = shots accepted so far
 ///   GET    {workspace}/providerStatus     every provider Available; targets = those jobs have used
-///   GET/PUT {base}/blobs/{container}/{blob}?...sig=...   SAS blob download/upload (no bearer token)
+///   GET/PUT {base}/blobs/{container}/{blob}?...sig=...   SAS blob download/upload (no bearer token;
+///                                         PUT needs x-ms-blob-type: BlockBlob and an existing container)
 type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener: HttpListener, baseUri: Uri) =
 
     static let workspacePrefix =
@@ -950,7 +957,7 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
 
     static let jobsRoute =
         Regex(
-            $@"^(?<ws>{workspacePrefix})/jobs(?:/(?<id>[^/]+)(?<cancel>/cancel)?)?/?$",
+            $@"^(?<ws>{workspacePrefix})/jobs(?:/(?<id>[^/:]+)(?<cancel>:cancel)?)?/?$",
             RegexOptions.IgnoreCase ||| RegexOptions.Compiled
         )
 
@@ -963,13 +970,14 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
     let credential = LocalQuantumServiceCredential(options.AccessToken)
 
     let workspacePath =
-        $"/subscriptions/%s{options.SubscriptionId}/resourceGroups/%s{options.ResourceGroup}/providers/Microsoft.Quantum/Workspaces/%s{options.WorkspaceName}"
+        $"/subscriptions/%s{options.SubscriptionId}/resourceGroups/%s{options.ResourceGroup}/providers/Microsoft.Quantum/workspaces/%s{options.WorkspaceName}"
 
     let baseText = baseUri.AbsoluteUri.TrimEnd '/'
     let workspaceUrl = baseText + workspacePath
 
     let jobs = ConcurrentDictionary<string, LocalJobEntry>(StringComparer.Ordinal)
     let blobs = ConcurrentDictionary<string, byte[]>(StringComparer.Ordinal)
+    let containers = ConcurrentDictionary<string, unit>(StringComparer.Ordinal)
     let requests = ConcurrentQueue<LocalServiceRequest>()
     let injectionLock = obj ()
     let mutable failNext: (string * string) list = []
@@ -1006,27 +1014,26 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         match status with
         | JobStatus.Waiting -> "Waiting"
         | JobStatus.Executing -> "Executing"
+        | JobStatus.Finishing -> "Finishing"
+        | JobStatus.Cancelling -> "Cancelling"
         | JobStatus.Succeeded -> "Succeeded"
+        | JobStatus.Completed -> "Completed"
         | JobStatus.Failed _ -> "Failed"
         | JobStatus.Cancelled -> "Cancelled"
+        | JobStatus.Unknown status -> status
 
-    let isTerminal (status: JobStatus) =
-        match status with
-        | JobStatus.Succeeded
-        | JobStatus.Failed _
-        | JobStatus.Cancelled -> true
-        | JobStatus.Waiting
-        | JobStatus.Executing -> false
+    let isTerminal (status: JobStatus) = status.IsTerminal
 
     let timestamp (t: DateTimeOffset) =
         t.ToString("o", CultureInfo.InvariantCulture)
 
-    let containerName (jobId: string) = $"job-{jobId}"
+    let sasSignature = "local-quantum-service"
 
-    let sasQuery = "sv=2019-02-02&sr=b&sp=r&sig=local-quantum-service"
+    let containerUri (container: string) =
+        $"{baseText}/blobs/{Uri.EscapeDataString container}?sv=2019-02-02&sr=c&sp=rcw&sig={sasSignature}"
 
     let blobUri (container: string) (blob: string) =
-        $"{baseText}/blobs/{Uri.EscapeDataString container}/{Uri.EscapeDataString blob}?{sasQuery}"
+        $"{baseText}/blobs/{Uri.EscapeDataString container}/{Uri.EscapeDataString blob}?sv=2019-02-02&sr=b&sp=rcw&sig={sasSignature}"
 
     let writeJobJson (w: Utf8JsonWriter) (job: LocalJobEntry) =
         w.WriteStartObject()
@@ -1036,8 +1043,8 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         w.WriteString("target", job.Target)
         w.WriteString("itemType", "Job")
         w.WriteString("jobType", "QuantumComputing")
-        w.WriteString("containerUri", $"{baseText}/blobs/{Uri.EscapeDataString(containerName job.Id)}?{sasQuery}")
-        w.WriteString("inputDataUri", blobUri (containerName job.Id) "inputData")
+        w.WriteString("containerUri", containerUri job.Container)
+        w.WriteString("inputDataUri", job.InputDataUri)
         w.WriteString("inputDataFormat", job.InputDataFormat)
         w.WritePropertyName "inputParams"
         w.WriteRawValue job.InputParamsJson
@@ -1046,7 +1053,7 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         w.WriteString("outputDataFormat", job.OutputDataFormat)
 
         if job.Reported = JobStatus.Succeeded then
-            w.WriteString("outputDataUri", blobUri (containerName job.Id) "rawOutputData")
+            w.WriteString("outputDataUri", blobUri job.Container "rawOutputData")
 
         w.WriteString("status", statusText job.Reported)
         w.WriteString("creationTime", timestamp job.Created)
@@ -1194,22 +1201,98 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                 None
         | _ -> None
 
-    let readInputData (payload: JsonElement) : Result<string, string> =
-        match tryProperty "inputData" payload, tryProperty "inputDataUri" payload with
-        | Some data, _ when data.ValueKind = JsonValueKind.String -> Ok(data.GetString())
-        | Some data, _ when data.ValueKind = JsonValueKind.Object || data.ValueKind = JsonValueKind.Array ->
-            Ok(data.GetRawText())
-        | Some data, _ -> Error $"inputData must be a string or JSON object, got {data.ValueKind}"
-        | None, Some uri when uri.ValueKind = JsonValueKind.String ->
-            match localBlobKey (uri.GetString()) with
+    /// Container a containerUri the service handed out points at, if it exists.
+    let localContainer (uriText: string) : string option =
+        match Uri.TryCreate(uriText, UriKind.Absolute) with
+        | true, uri when uri.IsLoopback && uri.Port = baseUri.Port ->
+            let m = blobRoute.Match uri.AbsolutePath
+
+            if m.Success && not m.Groups.["blob"].Success then
+                Some(Uri.UnescapeDataString m.Groups.["container"].Value)
+                |> Option.filter containers.ContainsKey
+            else
+                None
+        | _ -> None
+
+    let stringProperty (name: string) (payload: JsonElement) : string option =
+        tryProperty name payload
+        |> Option.filter (fun e -> e.ValueKind = JsonValueKind.String)
+        |> Option.map (fun e -> e.GetString())
+        |> Option.filter (fun text -> not (String.IsNullOrWhiteSpace text))
+
+    /// The job's input: the blob at inputDataUri, else the container's default input blob.
+    /// A job carries no inline input. Returns (input URI, input text).
+    let readInputData (container: string) (payload: JsonElement) : Result<string * string, string> =
+        let read (uriText: string) =
+            match localBlobKey uriText with
             | Some key ->
                 match blobs.TryGetValue key with
-                | true, bytes -> Ok(Encoding.UTF8.GetString bytes)
-                | _ -> Error $"inputDataUri blob '{key}' has not been uploaded"
+                | true, bytes -> Ok(uriText, Encoding.UTF8.GetString bytes)
+                | _ -> Error $"Input blob '{key}' has not been uploaded"
             | None ->
                 Error
                     "inputDataUri must point at this LocalQuantumService's blob store (external URIs are never fetched)"
-        | _ -> Error "Job has neither inputData nor inputDataUri"
+
+        match tryProperty "inputData" payload, stringProperty "inputDataUri" payload with
+        | Some _, _ ->
+            Error
+                "A job has no inline 'inputData': upload the input to the job's container and name the blob in 'inputDataUri'"
+        | None, Some uri -> read uri
+        | None, None -> read (blobUri container "inputData")
+
+    /// The first rule of the job-creation contract a request breaks, if any; else the
+    /// (name, target, provider, container) of the job.
+    let validateJobDefinition (urlJobId: string) (payload: JsonElement) =
+        let required (name: string) =
+            match stringProperty name payload with
+            | Some value -> Ok value
+            | None -> Error("InvalidJobDefinition", $"Job has no '{name}'")
+
+        let isGuid = fst (Guid.TryParseExact(urlJobId, "D"))
+
+        match stringProperty "id" payload with
+        | _ when not isGuid -> Error("InvalidJobDefinition", $"Job id '{urlJobId}' is not a GUID")
+        | Some id when id <> urlJobId ->
+            Error("InvalidJobDefinition", $"Body id '{id}' does not match the URL job id '{urlJobId}'")
+        | _ ->
+            required "itemType"
+            |> Result.bind (fun itemType ->
+                if itemType = "Job" then
+                    Ok()
+                else
+                    Error("InvalidJobDefinition", $"itemType must be 'Job', got '{itemType}'"))
+            |> Result.bind (fun () -> required "name")
+            |> Result.bind (fun name -> required "target" |> Result.map (fun target -> name, target))
+            |> Result.bind (fun (name, target) ->
+                match LocalQuantumServiceFormats.providerOfTarget target with
+                | None ->
+                    Error(
+                        "InvalidTarget",
+                        $"Target '{target}' is not supported by LocalQuantumService (providers: ionq, rigetti, quantinuum, iqm, atom-computing)"
+                    )
+                | Some provider -> Ok(name, target, provider))
+            |> Result.bind (fun (name, target, provider) ->
+                required "providerId"
+                |> Result.bind (fun providerId ->
+                    let expected = LocalQuantumServiceFormats.providerId provider
+
+                    if String.Equals(providerId, expected, StringComparison.OrdinalIgnoreCase) then
+                        Ok(name, target, provider)
+                    else
+                        Error(
+                            "InvalidJobDefinition",
+                            $"providerId '{providerId}' does not serve target '{target}' (expected '{expected}')"
+                        )))
+            |> Result.bind (fun (name, target, provider) ->
+                required "containerUri"
+                |> Result.bind (fun uri ->
+                    match localContainer uri with
+                    | Some container -> Ok(name, target, provider, container)
+                    | None ->
+                        Error(
+                            "InvalidJobDefinition",
+                            "containerUri must be a container SAS URI this service's storage/sasUri handed out"
+                        )))
 
     /// Decode and run a submission, producing (final status, output, histogram, warnings).
     let run (provider: LocalQuantumServiceFormats.Provider) (format: string) (input: string) (shots: int) =
@@ -1261,9 +1344,6 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         | Ok payload when payload.ValueKind <> JsonValueKind.Object ->
             errorReply 400 "InvalidJobDefinition" "Request body must be a JSON object"
         | Ok payload ->
-            let bodyId = tryProperty "id" payload |> Option.map (fun e -> e.GetString())
-            let target = tryProperty "target" payload |> Option.map (fun e -> e.GetString())
-
             let rejection =
                 lock injectionLock (fun () ->
                     match rejectNext with
@@ -1281,76 +1361,60 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                     RetryAfterSeconds = ValueSome 1
                 }
             | None ->
-                match bodyId, target with
-                | Some id, _ when id <> urlJobId ->
-                    errorReply 400 "InvalidJobDefinition" $"Body id '{id}' does not match the URL job id '{urlJobId}'"
-                | _, None -> errorReply 400 "InvalidJobDefinition" "Job has no 'target'"
-                | _, Some target ->
-                    match LocalQuantumServiceFormats.providerOfTarget target with
-                    | None ->
-                        errorReply
-                            400
-                            "InvalidTarget"
-                            $"Target '{target}' is not supported by LocalQuantumService (providers: ionq, rigetti, quantinuum, iqm, atom-computing)"
-                    | Some provider ->
-                        let inputParams = tryProperty "inputParams" payload
+                match validateJobDefinition urlJobId payload with
+                | Error(code, message) -> errorReply 400 code message
+                | Ok(name, target, provider, container) ->
+                    let inputParams = tryProperty "inputParams" payload
 
-                        match readInputData payload, readShots inputParams with
-                        | Error message, _
-                        | _, Error message -> errorReply 400 "InvalidJobDefinition" message
-                        | Ok input, Ok shots ->
-                            let format =
-                                tryProperty "inputDataFormat" payload
-                                |> Option.map (fun e -> e.GetString())
-                                |> Option.defaultValue ""
+                    match readInputData container payload, readShots inputParams with
+                    | Error message, _
+                    | _, Error message -> errorReply 400 "InvalidJobDefinition" message
+                    | Ok(inputDataUri, input), Ok shots ->
+                        let format = stringProperty "inputDataFormat" payload |> Option.defaultValue ""
 
-                            let rawObject (element: JsonElement option) =
-                                match element with
-                                | Some e when e.ValueKind = JsonValueKind.Object -> e.GetRawText()
-                                | _ -> "{}"
+                        let rawObject (element: JsonElement option) =
+                            match element with
+                            | Some e when e.ValueKind = JsonValueKind.Object -> e.GetRawText()
+                            | _ -> "{}"
 
-                            let final, output, counts, warnings = run provider format input shots
+                        let final, output, counts, warnings = run provider format input shots
 
-                            let entry =
-                                {
-                                    Sequence = Interlocked.Increment(&acceptSequence.contents)
-                                    Id = urlJobId
-                                    Name =
-                                        tryProperty "name" payload
-                                        |> Option.map (fun e -> e.GetString())
-                                        |> Option.defaultValue urlJobId
-                                    Target = target
-                                    ProviderId = LocalQuantumServiceFormats.providerId provider
-                                    InputDataFormat = format
-                                    InputData = input
-                                    InputParamsJson = rawObject inputParams
-                                    MetadataJson = rawObject (tryProperty "metadata" payload)
-                                    Shots = shots
-                                    Created = DateTimeOffset.UtcNow
-                                    Final = final
-                                    OutputData = output
-                                    OutputDataFormat = LocalQuantumServiceFormats.outputDataFormat provider
-                                    Histogram = counts
-                                    Warnings = warnings
-                                    Polls = 0
-                                    Reported = JobStatus.Waiting
-                                    History = [ JobStatus.Waiting ]
-                                    BeginTime = ValueNone
-                                    EndTime = ValueNone
-                                    CancelTime = ValueNone
-                                }
+                        let entry =
+                            {
+                                Sequence = Interlocked.Increment(&acceptSequence.contents)
+                                Id = urlJobId
+                                Name = name
+                                Target = target
+                                ProviderId = LocalQuantumServiceFormats.providerId provider
+                                Container = container
+                                InputDataUri = inputDataUri
+                                InputDataFormat = format
+                                InputData = input
+                                InputParamsJson = rawObject inputParams
+                                MetadataJson = rawObject (tryProperty "metadata" payload)
+                                Shots = shots
+                                Created = DateTimeOffset.UtcNow
+                                Final = final
+                                OutputData = output
+                                OutputDataFormat = LocalQuantumServiceFormats.outputDataFormat provider
+                                Histogram = counts
+                                Warnings = warnings
+                                Polls = 0
+                                Reported = JobStatus.Waiting
+                                History = [ JobStatus.Waiting ]
+                                BeginTime = ValueNone
+                                EndTime = ValueNone
+                                CancelTime = ValueNone
+                            }
 
-                            if jobs.TryAdd(urlJobId, entry) then
-                                let container = containerName urlJobId
-                                blobs.[container + "/inputData"] <- Encoding.UTF8.GetBytes input
+                        if jobs.TryAdd(urlJobId, entry) then
+                            output
+                            |> Option.iter (fun data ->
+                                blobs.[container + "/rawOutputData"] <- Encoding.UTF8.GetBytes data)
 
-                                output
-                                |> Option.iter (fun data ->
-                                    blobs.[container + "/rawOutputData"] <- Encoding.UTF8.GetBytes data)
-
-                                reply 201 (jobJson entry)
-                            else
-                                errorReply 409 "Conflict" $"Job '{urlJobId}' already exists"
+                            reply 201 (jobJson entry)
+                        else
+                            errorReply 409 "Conflict" $"Job '{urlJobId}' already exists"
 
     // ------------------------------------------------------------------------
     // Routing
@@ -1386,7 +1450,7 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                 if next < ordered.Length then
                     w.WriteString(
                         "nextLink",
-                        $"{baseText}{wsPrefix}/jobs?api-version=2022-09-12-preview&skipToken={next}"
+                        $"{baseText}{wsPrefix}/jobs?api-version={JobLifecycle.ApiVersion}&skipToken={next}"
                     )
                 else
                     w.WriteNull "nextLink"
@@ -1401,10 +1465,13 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
             match tryProperty "containerName" root |> Option.map (fun e -> e.GetString()) with
             | None -> errorReply 400 "InvalidRequest" "containerName is required"
             | Some container ->
+                // A SAS request for a container creates the container when it does not exist.
+                containers.TryAdd(container, ()) |> ignore
+
                 let uri =
                     match tryProperty "blobName" root |> Option.map (fun e -> e.GetString()) with
                     | Some blob -> blobUri container blob
-                    | None -> $"{baseText}/blobs/{Uri.EscapeDataString container}?{sasQuery}"
+                    | None -> containerUri container
 
                 reply
                     200
@@ -1415,7 +1482,13 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         with ex ->
             errorReply 400 "InvalidRequest" ex.Message
 
-    let blobRequest (httpMethod: string) (url: Uri) (hasBearer: bool) (bodyBytes: byte[]) : LocalServiceReply =
+    let blobRequest
+        (httpMethod: string)
+        (url: Uri)
+        (hasBearer: bool)
+        (blobType: string)
+        (bodyBytes: byte[])
+        : LocalServiceReply =
         let m = blobRoute.Match url.AbsolutePath
         let parameters = Web.HttpUtility.ParseQueryString url.Query
 
@@ -1426,13 +1499,19 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                 401
                 "InvalidAuthenticationInfo"
                 "Blob requests are authorised by their SAS query; a bearer token must not be sent"
-        elif String.IsNullOrEmpty parameters.["sig"] then
-            errorReply 403 "AuthenticationFailed" "Blob request has no SAS signature"
+        elif parameters.["sig"] <> sasSignature then
+            errorReply 403 "AuthenticationFailed" "Blob request has no valid SAS signature"
         else
             let container = Uri.UnescapeDataString m.Groups.["container"].Value
 
             match httpMethod, m.Groups.["blob"].Success with
-            | "PUT", false -> reply 201 "" // create container
+            | "PUT", false ->
+                containers.TryAdd(container, ()) |> ignore
+                reply 201 ""
+            | "PUT", true when not (containers.ContainsKey container) ->
+                errorReply 404 "ContainerNotFound" "The specified container does not exist"
+            | "PUT", true when not (String.Equals(blobType, "BlockBlob", StringComparison.OrdinalIgnoreCase)) ->
+                errorReply 400 "MissingRequiredHeader" "A blob upload needs the header x-ms-blob-type: BlockBlob"
             | "PUT", true ->
                 blobs.[container + "/" + Uri.UnescapeDataString m.Groups.["blob"].Value] <- bodyBytes
                 reply 201 ""
@@ -1517,15 +1596,30 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                 w.WriteNull "nextLink"
                 w.WriteEndObject()))
 
-    let route (httpMethod: string) (url: Uri) (authorization: string) (bodyBytes: byte[]) : LocalServiceReply =
+    let route
+        (httpMethod: string)
+        (url: Uri)
+        (authorization: string)
+        (blobType: string)
+        (bodyBytes: byte[])
+        : LocalServiceReply =
         let path = url.AbsolutePath
         let hasBearer = not (String.IsNullOrEmpty authorization)
         let body = Encoding.UTF8.GetString bodyBytes
 
+        let hasApiVersion =
+            not (String.IsNullOrWhiteSpace (Web.HttpUtility.ParseQueryString url.Query).["api-version"])
+
         if blobRoute.IsMatch path then
-            blobRequest httpMethod url hasBearer bodyBytes
+            blobRequest httpMethod url hasBearer blobType bodyBytes
         elif not (authorized authorization) then
             errorReply 401 "Unauthorized" "Missing or invalid bearer token for the Azure Quantum workspace API"
+        elif not hasApiVersion then
+            // The data plane requires api-version on every workspace request.
+            errorReply
+                400
+                "MissingApiVersionParameter"
+                "The api-version query parameter (?api-version=) is required for all requests"
         elif sasRoute.IsMatch path then
             if httpMethod = "POST" then
                 sasUri body
@@ -1565,13 +1659,16 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                         match jobs.TryGetValue jobId with
                         | true, job -> reply 200 (poll job)
                         | _ -> errorReply 404 "JobNotFound" $"Job '{jobId}' not found"
-                    | "DELETE", false
                     | "POST", true ->
                         match jobs.TryGetValue jobId with
                         | true, job ->
                             match cancel job with
-                            | Ok json -> if isCancel then reply 200 json else reply 204 ""
+                            | Ok json -> reply 200 json
                             | Error message -> errorReply 409 "Conflict" message
+                        | _ -> errorReply 404 "JobNotFound" $"Job '{jobId}' not found"
+                    | "DELETE", false ->
+                        match jobs.TryRemove jobId with
+                        | true, _ -> reply 204 ""
                         | _ -> errorReply 404 "JobNotFound" $"Job '{jobId}' not found"
                     | _ -> errorReply 405 "MethodNotAllowed" $"{httpMethod} is not supported on {path}"
 
@@ -1590,9 +1687,12 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                     let authorization = request.Headers.["Authorization"]
                     let authorization = if isNull authorization then "" else authorization
 
+                    let blobType = request.Headers.["x-ms-blob-type"]
+                    let blobType = if isNull blobType then "" else blobType
+
                     let result =
                         try
-                            route request.HttpMethod request.Url authorization (buffer.ToArray())
+                            route request.HttpMethod request.Url authorization blobType (buffer.ToArray())
                         with ex ->
                             errorReply 500 "InternalError" ex.Message
 

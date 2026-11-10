@@ -36,6 +36,9 @@ and plugs into the standard algorithms (Grover, QFT, Shor, HHL).
 ```fsharp
 open Amazon.Braket
 open Amazon.S3
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.Braket
 open FSharp.Azure.Quantum.Braket.BraketExecution
 
@@ -46,7 +49,13 @@ let s3Config = { Bucket = "my-braket-results"; KeyPrefix = "tasks" }
 // Pick a device by ARN — simulator, IonQ, Rigetti, IQM, OQC, Infleqtion, ...
 let backend = BraketBackend(braket, s3, s3Config, Braket.Devices.sv1, shots = 1000)
 
-// Run a gate circuit (wrap a CircuitBuilder.Circuit with CircuitWrapper)
+// Run a gate circuit (wrap a CircuitBuilder.Circuit with wrapCircuit)
+let circuit =
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))
+    |> wrapCircuit
+
 let result = (backend :> IQuantumBackend).ExecuteToState circuit
 ```
 
@@ -88,13 +97,16 @@ let! result =
 - **`Braket`** — pure helpers with no AWS SDK dependency (device ARNs, OpenQASM action wrapping,
   gate-result parsing). Testable in isolation.
 - **`BraketExecution`** — the AWS-facing layer: `submitActionAsync`, `submitAhsAsync`, and the
-  `BraketBackend` gate `IQuantumBackend`.
+  `BraketBackend` gate `IQuantumBackend`. Once a task exists, every `Error` names its ARN; a task
+  that times out, whose status cannot be read, or whose caller cancels has its cancellation
+  requested (`CancelQuantumTask`), and the `Error` says whether Braket accepted it.
 
 ## Notes
 
 - `ExecuteToState` reconstructs a `QuantumState` from the measurement histogram in three tiers:
-  a dense state vector up to 20 qubits, a `SparseState` (observed outcomes only) for 21–31
-  qubits, and `QuantumState.MeasurementHistogram` (bitstring → count) beyond that. The
+  a dense state vector up to `StateVector.maxQubits` (derived from available memory, at most
+  30), a `SparseState` (observed outcomes only) above that up to 31 qubits, and
+  `QuantumState.MeasurementHistogram` (bitstring → count) beyond that. The
   histogram tier has no width limit — it holds at most `shots` entries regardless of qubit
   count, so wide devices (Rigetti Ankaa, QuEra-scale) work. To get the raw histogram at any
   width, call `BraketBackend.ExecuteToHistogramAsync (circuit, ct)`.

@@ -402,13 +402,13 @@ module KnotConstructors =
             // - Update final arcs to close the loop
             let closedArcs =
                 arcs
-                |> Map.filter (fun id _ -> id >= p) // Remove initial placeholders
-                |> Map.map (fun id arc ->
+                |> Map.filter (fun pid _ -> pid >= p) // Remove initial placeholders
+                |> Map.map (fun pid arc ->
                     // Check if this arc is a final output that needs closure
                     // Find if 'id' is a target in our closure map (reverse lookup)
                     let initIdOpt =
                         closureMap
-                        |> Map.tryPick (fun init final -> if final = id then Some init else None)
+                        |> Map.tryPick (fun init final -> if final = pid then Some init else None)
 
                     match initIdOpt with
                     | Some initId ->

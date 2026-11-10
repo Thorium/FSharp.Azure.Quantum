@@ -2,7 +2,11 @@
 
 All four drone examples export ArduPilot missions with `--mavlink`. The
 generated `mavlink_show.fsx` flies them over MAVLink 2, and it also draws the
-flight. This page shows how the missions were flown in ArduPilot's own
+flight. An example writes the missions only when its own 1:N evidence pack is
+PASS or INCOMPLETE (the latter with a warning). On FAIL it writes no mission,
+names the failed checks and exits with code 3; `--export-on-fail` writes them
+anyway, with the failed checks at the head of the launcher and in
+`FAILED-CHECKS.md`. This page shows how the missions were flown in ArduPilot's own
 software-in-the-loop simulator (SITL). It also covers what that changed in the
 examples. SITL runs the real autopilot firmware against a simulated airframe.
 It is the step before a real aircraft, not a substitute for one.

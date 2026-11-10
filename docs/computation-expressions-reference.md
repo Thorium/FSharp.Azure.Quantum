@@ -36,7 +36,7 @@ Computation expressions give a declarative way to describe quantum problems, cir
 | **predictiveModel** | Predict continuous values or categories | `trainWith`, `problemType`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note`, `progressReporter`, `cancellationToken` |
 | **quantumArithmetic** | Quantum arithmetic operations | `operands`, `operandA`, `operandB`, `operation`, `modulus`, `qubits`, `exponent`, `backend`, `shots` |
 | **quantumChemistry** | Ground state energy with VQE or QPE | `molecule`, `basis`, `ansatz`, `groundStateMethod`, `optimizer`, `maxIterations`, `initialParameters`, `integralProvider`, `molecule_from_xyz`, `molecule_from_fcidump`, `molecule_from_provider`, `molecule_from_name` |
-| **quantumRiskEngine** | Portfolio risk metrics (VaR, CVaR) | `load_market_data`, `set_confidence_level`, `set_simulation_paths`, `use_amplitude_estimation`, `use_error_mitigation`, `calculate_metric`, `cancellation_token`, `qubits`, `iterations`, `shots`, `backend` |
+| **quantumRiskEngine** | Portfolio risk metrics (VaR, CVaR) | `load_market_data`, `market_returns`, `set_confidence_level`, `use_amplitude_estimation`, `use_error_mitigation`, `calculate_metric`, `cancellation_token`, `qubits`, `iterations`, `shots`, `backend` |
 | **quantumTreeSearch<'T>** | Game-tree and decision-tree search with Grover search | `initialState`, `maxDepth`, `branchingFactor`, `evaluateWith`, `generateMovesWith`, `topPercentile`, `backend`, `shots`, `solutionThreshold`, `successThreshold`, `maxPaths`, `limitSearchSpace`, `maxIterations`, `onProgress` |
 | **resource<'T>** | A resource for task scheduling | `resourceId`, `capacity`, `costPerUnit`, `availableWindow` |
 | **resourcePairing** | 1:1 pairing that maximizes total compatibility | `participant`, `participants`, `compatibility`, `backend`, `shots` |
@@ -531,7 +531,7 @@ task {
 
 **Module**: `FSharp.Azure.Quantum.Business.ConstraintScheduler`
 
-**Purpose**: Assign tasks to resources under hard constraints (conflicts, required resources, precedence) and weighted preferences. Solves when evaluated and returns `Task<QuantumResult<SchedulingResult>>`.
+**Purpose**: Assign tasks to resources under hard constraints (conflicts, required resources) and weighted preferences. Solves when evaluated and returns `Task<QuantumResult<SchedulingResult>>`.
 
 **Example**:
 ```fsharp
@@ -559,7 +559,7 @@ task {
 - `resourceWithCapacity id cost capacity` - Add a resource with a limit on concurrent tasks
 - `conflict task1 task2` - The two tasks must not share a resource
 - `require task resource` - The task must use the resource
-- `precedence before after` - Ordering constraint
+- `precedence before after` - Not supported: the scheduler has no time dimension, and a problem with a precedence returns a `NotImplemented` error
 - `prefer task resource weight` - Soft preference
 - `optimizeFor` - `MinimizeCost` | `MaximizeSatisfaction` | `Balanced` (default)
 - `maxBudget` - Budget limit
@@ -947,17 +947,18 @@ task {
 ```
 
 **Custom Operations**:
-- `load_market_data` - Path to a file of returns. Without it the engine uses generated sample returns
+- `load_market_data` - Path to a file of returns (a header line, then one number per line)
+- `market_returns` - Returns in memory (`float[]`, at least 2 finite values). Exactly one of `load_market_data` and `market_returns` is required: the engine generates no data, and a run without returns is an `Error`
 - `set_confidence_level` - Confidence level (default 0.95)
-- `set_simulation_paths` - Number of simulation paths (default 10000)
-- `use_amplitude_estimation` - Use quantum amplitude estimation (default false); each metric is estimated with `QuantumMonteCarlo.estimateBoundedExpectationAsync`, as whole-circuit jobs on a cloud backend
-- `use_error_mitigation` - Enable error mitigation (default false)
+- `set_simulation_paths` - Obsolete, has no effect (the engine simulates no paths)
+- `use_amplitude_estimation` - Use quantum amplitude estimation (default false); each metric is estimated with `QuantumMonteCarlo.estimateBoundedExpectationAsync`, as whole-circuit jobs on a cloud backend. Requires `backend`: `true` without a backend is an `Error`. With `false` the report's `Method` is `Classical historical simulation` (empirical quantile, tail mean and standard deviation of the supplied returns)
+- `use_error_mitigation` - Not supported: `true` is an `Error` (default false)
 - `calculate_metric` - Add a metric: `ValueAtRisk` | `ConditionalVaR` | `ExpectedShortfall` | `Volatility`
 - `cancellation_token` - Cancellation token
 - `qubits` - Qubits for amplitude estimation (default 5)
 - `iterations` - Grover iterations (default 2)
 - `shots` - Measurement shots (default 100)
-- `backend` - Quantum backend (default: LocalBackend)
+- `backend` - Quantum backend for amplitude estimation (no default)
 
 ---
 
@@ -970,11 +971,12 @@ task {
 **Example**:
 ```fsharp
 let screening = drugDiscovery {
-    load_candidates_from_file "candidates.sdf"
+    load_candidates_from_file "candidates.csv"  // CSV with SMILES and Label columns
     use_method QuantumKernelSVM
     use_feature_map ZZFeatureMap
     set_batch_size 10
     shots 100
+    backend localBackend
 }
 
 task {
@@ -986,11 +988,11 @@ task {
 
 **Custom Operations**:
 - `target_protein_from_pdb` - Target protein from a PDB file
-- `load_candidates_from_file` - Candidate molecules from a file
+- `load_candidates_from_file` - Candidate molecules from a file (only a `.csv` with `SMILES` and `Label` columns carries the labels every method needs)
 - `load_candidates_from_provider` / `load_candidates_from_provider_async` - Candidates from a dataset provider
 - `use_method` - `QuantumKernelSVM` (default) | `VQCClassifier` | `QAOADiverseSelection`
 - `use_feature_map` - `ZZFeatureMap` (default) | `PauliFeatureMap` | `ZFeatureMap`
-- `set_batch_size` - Batch size (default 10)
+- `set_batch_size` - Batch size (default 10): the most molecules a classifier trains on (a subset stratified by label; every candidate is still scored, and the result reports `MoleculesTrained` and `MoleculesProcessed`), and the number of leading molecules `QAOADiverseSelection` chooses among. Every method needs activity labels; without them the result is an `Error`
 - `shots` - Measurement shots (default 100 for the classifiers, 1000 final shots for `QAOADiverseSelection`)
 - `backend` - Quantum backend (required)
 - `vqc_layers` - Layers for `VQCClassifier` (default 2)
@@ -1305,9 +1307,9 @@ task {
 - `person` / `people` - Add one person / several people
 - `connection p1 p2` / `connections pairs` - Add connections
 - `findCommunities size` - Find communities of the given size
-- `findLargestCommunity` - Find the largest community
-- `findMonitorSet` - Smallest set of people covering all connections
-- `findPairings` - Pair people along connections
+- `findLargestCommunity` - Find a large fully-connected community (QAOA best sample, not proven largest; `WasRepaired` and `Sampling` on the result say how it was obtained)
+- `findMonitorSet` - Find a small set of people covering all connections (QAOA best sample, not proven smallest)
+- `findPairings` - Pair people along connections (QAOA best sample, not proven maximal)
 - `backend` - Quantum backend (default: LocalBackend)
 - `useGrover` / `useQaoa` - Force the algorithm
 - `shots` - Measurement shots

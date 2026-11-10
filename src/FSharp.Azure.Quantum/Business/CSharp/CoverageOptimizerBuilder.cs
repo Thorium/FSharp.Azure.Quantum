@@ -107,7 +107,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// </summary>
         /// <param name="cancellationToken">Token that cancels the optimization.</param>
         /// <exception cref="InvalidOperationException">Thrown if optimization fails or validation errors occur.</exception>
-        /// <returns>A task producing a <see cref="CoverageOptimizationResult"/> with the optimal coverage solution.</returns>
+        /// <returns>A task producing a <see cref="CoverageOptimizationResult"/> with the best sampled coverage solution.</returns>
         public async Task<CoverageOptimizationResult> BuildAsync(CancellationToken cancellationToken = default)
         {
             // Convert C# types to F# types internally
@@ -159,6 +159,21 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>Gets a human-readable execution message.</summary>
         public required string Message { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether classical constraint repair changed the selection
+        /// because the lowest-energy measured sample left elements uncovered.
+        /// </summary>
+        public bool WasRepaired { get; init; }
+
+        /// <summary>Gets the number of samples in the final sampling run; null when no single run produced the selection.</summary>
+        public int? SampleShots { get; init; }
+
+        /// <summary>Gets the number of samples that were complete covers before any repair; null when no single run produced the selection.</summary>
+        public int? ValidSamples { get; init; }
+
+        /// <summary>Gets the number of samples that are the returned selection (0 when only repair produced it); null when no single run produced the selection.</summary>
+        public int? SampleHits { get; init; }
     }
 
     /// <summary>
@@ -200,6 +215,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 TotalElements = fsharpResult.TotalElements,
                 IsComplete = fsharpResult.IsComplete,
                 Message = fsharpResult.Message,
+                WasRepaired = fsharpResult.WasRepaired,
+                SampleShots = fsharpResult.Sampling?.Value.Shots,
+                ValidSamples = fsharpResult.Sampling?.Value.Valid,
+                SampleHits = fsharpResult.Sampling?.Value.Hits,
             };
         }
     }

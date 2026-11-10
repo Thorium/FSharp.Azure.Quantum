@@ -147,7 +147,7 @@ type private AllOnesBackend() =
         member _.ApplyOperationAsync op state ct = inner.ApplyOperationAsync op state ct
 
 [<Fact>]
-let ``knapsack without a feasible sample returns the empty selection with no hit and no valid sample`` () : Task =
+let ``knapsack without a feasible sample is an Error, not an empty selection no shot produced`` () : Task =
     task {
         let knapsack: QuantumKnapsackSolver.KnapsackProblem =
             {
@@ -173,14 +173,45 @@ let ``knapsack without a feasible sample returns the empty selection with no hit
                 }
                 CancellationToken.None
 
-        let solution = ok "Knapsack" result
-        Assert.Empty(solution.SelectedItems)
-        Assert.True(solution.IsFeasible)
-        Assert.Equal(0.0, solution.TotalValue)
+        match result with
+        | Error(QuantumError.OperationError("DecodeSolution", message)) ->
+            Assert.Contains("No feasible selection in 50 shots", message)
+            Assert.Contains($"{knapsackQubits} qubits", message)
+        | other -> Assert.Fail($"Expected a DecodeSolution error, got %A{other}")
 
-        let stats = sampled "Knapsack" 50 knapsackQubits solution.Sampling
-        Assert.Equal(0, stats.Valid)
-        Assert.Equal(0, stats.Hits)
+        // The builder passes the Error on
+        let! built =
+            Knapsack.solveAsync
+                (Knapsack.createProblem [ ("a", 2.0, 3.0); ("b", 3.0, 4.0); ("c", 4.0, 5.0) ] 5.0)
+                (Some(AllOnesBackend() :> BackendAbstraction.IQuantumBackend))
+                CancellationToken.None
+
+        match built with
+        | Error _ -> ()
+        | Ok solution -> Assert.Fail($"Expected an Error, got the selection %A{solution.SelectedItems}")
+    }
+
+[<Fact>]
+let ``knapsack builder solution carries the sample statistics of its selection`` () : Task =
+    task {
+        let! built =
+            Knapsack.solveAsync
+                (Knapsack.createProblem [ ("a", 2.0, 3.0); ("b", 3.0, 4.0); ("c", 4.0, 5.0) ] 5.0)
+                (Some(backend ()))
+                CancellationToken.None
+
+        // A selection that is returned was sampled: Error otherwise
+        match built with
+        | Error(QuantumError.OperationError("DecodeSolution", _)) -> ()
+        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        | Ok solution ->
+            Assert.True(solution.IsFeasible)
+
+            match solution.Sampling with
+            | None -> Assert.Fail("no sampling statistics")
+            | Some stats ->
+                Assert.Equal(1000, stats.Shots)
+                Assert.InRange(stats.Hits, 1, stats.Valid)
     }
 
 [<Fact>]
@@ -230,11 +261,11 @@ let ``fixed-angle solvers report the standing of the returned solution`` () : Ta
                 }
                 CancellationToken.None
 
+        // No feasible sample at all is an Error, so a returned selection was sampled
+        // (5 of the 8 selections fit: 200 shots without one of them does not happen).
         let solution = ok "Knapsack" result
         let stats = sampled "Knapsack" 200 knapsackQubits solution.Sampling
-        // No feasible sample at all returns the empty selection without a hit.
-        if stats.Valid > 0 then
-            pickedFromValid "Knapsack" stats
+        pickedFromValid "Knapsack" stats
 
         let tsp = array2D [ [ 0.0; 2.0; 3.0 ]; [ 2.0; 0.0; 4.0 ]; [ 3.0; 4.0; 0.0 ] ]
 

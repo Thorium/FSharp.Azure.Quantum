@@ -470,6 +470,26 @@ module BackendAbstraction =
         /// Shots per submitted circuit.
         abstract member Shots: int
 
+    /// A quantum annealer: a backend that reads only the problem (QUBO/Ising) out of a QAOA
+    /// circuit and takes a number of anneals ("reads") of it, one sample per read.
+    ///
+    /// Two rules follow for callers:
+    /// - The read count is part of the submission. ExecuteToState takes the backend's default
+    ///   read count; a caller that wants N samples calls ExecuteWithReadsAsync with N, and the
+    ///   state it gets holds the reads the annealer took. QuantumState.measure never returns
+    ///   more samples than that.
+    /// - The circuit's variational angles are not used, so two circuits of one problem are the
+    ///   same submission. A variational loop has nothing to optimise: QAOA solvers submit
+    ///   the problem once (QaoaExecutionHelpers).
+    type IAnnealingBackend =
+        inherit IQuantumBackend
+
+        /// Anneal the problem of `circuit` `reads` times. A count above the solver's limit is
+        /// cut down to the limit, and a count below 1 is a ValidationError. The returned state
+        /// holds exactly the reads taken.
+        abstract member ExecuteWithReadsAsync:
+            ICircuit -> int -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
+
     /// Bounded fan-out of circuit jobs against one backend. On a sampling backend
     /// (IShotSamplingBackend: cloud hardware, where every circuit is a separately queued and
     /// billed job) at most MaxConcurrentSampledJobs run at once; simulators are not limited.

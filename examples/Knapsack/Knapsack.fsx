@@ -209,7 +209,7 @@ let loadItemsFromCsv (path: string) : (string * float * float) list =
 
     rows
     |> List.map (fun row ->
-        let id =
+        let pid =
             row.Values
             |> Map.tryFind "id"
             |> Option.orElse (row.Values |> Map.tryFind "name")
@@ -233,7 +233,7 @@ let loadItemsFromCsv (path: string) : (string * float * float) list =
                 | _ -> None)
             |> Option.defaultValue 0.0
 
-        (id, weight, value))
+        (pid, weight, value))
 
 // ==============================================================================
 // DISPLAY HELPERS
@@ -368,6 +368,9 @@ match inputPath with
                 quantumSol.TotalWeight
 
             printfn ""
+        | Error err when not quiet ->
+            printfn "  Quantum solver comparison failed: %A" err
+            printfn ""
         | _ -> ()
 
         printHeader "Example 2: Cargo Loading (Maximize Value on Truck)"
@@ -420,7 +423,7 @@ match inputPath with
                     printfn "    Manual selection matches the quantum solution!"
                 else
                     printfn "    Manual is %.1f%% of the quantum solution" (tv / optSol.TotalValue * 100.0)
-            | Error _ -> ()
+            | Error err -> printfn "  Quantum solver (local simulator) failed: %A" err
 
             printfn ""
 

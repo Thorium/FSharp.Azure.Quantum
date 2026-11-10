@@ -355,3 +355,53 @@ module ResourcePairingTests =
             |> Result.defaultWith (fun e -> Assert.Fail($"Zero weight case failed: %A{e}"))
         }
         :> Task
+
+    [<Fact>]
+    let ``ResourcePairing - result says whether the pairings were repaired and how they were sampled`` () =
+        task {
+            // A triangle: any two of its three pairings share a participant
+            let problem =
+                {
+                    Participants = [ "A"; "B"; "C" ]
+                    Compatibilities =
+                        [
+                            {
+                                Participant1 = "A"
+                                Participant2 = "B"
+                                Weight = 3.0
+                            }
+                            {
+                                Participant1 = "B"
+                                Participant2 = "C"
+                                Weight = 2.0
+                            }
+                            {
+                                Participant1 = "A"
+                                Participant2 = "C"
+                                Weight = 1.0
+                            }
+                        ]
+                    Backend = Some(localBackend ())
+                    Shots = 200
+                }
+
+            match! ResourcePairing.solveAsync problem CancellationToken.None with
+            | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
+            | Ok r ->
+                // Repair is on by default, so no participant is paired twice
+                Assert.True(r.IsValid)
+                Assert.InRange(r.Pairings.Length, 0, 1)
+                Assert.DoesNotContain("optimal", r.Message)
+
+                match r.Sampling with
+                | None -> Assert.Fail("no sampling statistics")
+                | Some stats ->
+                    Assert.Equal(200, stats.Shots)
+
+                    if r.WasRepaired then
+                        Assert.Contains("repair", r.Message)
+                    else
+                        Assert.InRange(stats.Hits, 1, stats.Valid)
+                        Assert.DoesNotContain("repair", r.Message)
+        }
+        :> Task

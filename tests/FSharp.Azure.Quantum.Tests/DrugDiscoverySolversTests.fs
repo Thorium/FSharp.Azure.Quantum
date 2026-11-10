@@ -1,6 +1,8 @@
 module FSharp.Azure.Quantum.Tests.DrugDiscoverySolversTests
 
 open Xunit
+open System
+open System.IO
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum.Quantum.DrugDiscoverySolvers
@@ -1002,8 +1004,8 @@ module AdvancedQaoaTests =
                     Assert.Equal(2, parameters.Length) // 2 layers
 
                     for (gamma, beta) in parameters do
-                        Assert.True(gamma >= 0.0 && gamma <= System.Math.PI, $"Gamma {gamma} should be in [0, π]")
-                        Assert.True(beta >= 0.0 && beta <= System.Math.PI / 2.0, $"Beta {beta} should be in [0, π/2]")
+                        Assert.True(gamma >= 0.0 && gamma <= Math.PI, $"Gamma {gamma} should be in [0, π]")
+                        Assert.True(beta >= 0.0 && beta <= Math.PI / 2.0, $"Beta {beta} should be in [0, π/2]")
                 | None -> Assert.Fail("OptimizedParameters should not be None")
         }
 
@@ -1340,7 +1342,7 @@ module QuboMinimumTests =
             | Error(QuantumError.ValidationError("cost", _)) -> ()
             | other -> Assert.Fail($"expected a validation error on the costs, got %A{other}")
 
-            Assert.Throws<System.ArgumentException>(fun () -> DiverseSelection.toQubo problem |> ignore)
+            Assert.Throws<ArgumentException>(fun () -> DiverseSelection.toQubo problem |> ignore)
             |> ignore
 
             let! solved =
@@ -1422,10 +1424,10 @@ module DrugDiscoveryBuilderTests =
     let ``QAOA diverse selection stays within the budget and reports repair and sampling`` () : Task =
         task {
             let file =
-                System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"fsaq-diverse-{System.Guid.NewGuid():N}.csv")
+                Path.Combine(Path.GetTempPath(), $"fsaq-diverse-{Guid.NewGuid():N}.csv")
 
             do!
-                System.IO.File.WriteAllLinesAsync(
+                File.WriteAllLinesAsync(
                     file,
                     [
                         "SMILES,Label"
@@ -1457,6 +1459,122 @@ module DrugDiscoveryBuilderTests =
                     Assert.Contains("Feasible: True", screening.Message)
                     Assert.Contains("Repaired to fit the budget:", screening.Message)
                     Assert.Contains("Final samples: 1000;", screening.Message)
+                    // A selection trains no model, and says which molecules it chose among
+                    Assert.Equal(0, screening.MoleculesTrained)
+                    Assert.Contains("the first 6 of 6 molecules", screening.Message)
             finally
-                System.IO.File.Delete file
+                File.Delete file
+        }
+
+    [<Fact>]
+    let ``QAOA diverse selection without activity labels is an Error, not a score made from descriptors`` () : Task =
+        task {
+            let file =
+                Path.Combine(Path.GetTempPath(), $"fsaq-unlabelled-{Guid.NewGuid():N}.smi")
+
+            do! File.WriteAllLinesAsync(file, [ "CCO"; "CC(=O)O"; "c1ccccc1"; "c1ccc(O)cc1" ])
+
+            try
+                let! result =
+                    drugDiscovery {
+                        load_candidates_from_file file
+                        use_method QAOADiverseSelection
+                        selection_budget 2.0
+                        backend (createLocalBackend ())
+                    }
+
+                match result with
+                | Error(QuantumError.ValidationError("labels", message)) ->
+                    Assert.Contains("activity score", message)
+                | other -> Assert.Fail($"Expected a labels validation error, got %A{other}")
+            finally
+                File.Delete file
+        }
+
+    [<Fact>]
+    let ``the training subset keeps the label proportions instead of taking the first rows`` () =
+        // Ordered by label, 6 inactive then 2 active: the first 4 rows hold one class
+        let labels = [| 0; 0; 0; 0; 0; 0; 1; 1 |]
+        let subset = ScreeningTraining.stratifiedSubset labels 4
+
+        Assert.Equal(4, subset.Length)
+        Assert.Equal<int[]>(Array.sort subset, subset)
+        Assert.Equal(4, (Array.distinct subset).Length)
+        Assert.Equal(3, subset |> Array.filter (fun i -> labels.[i] = 0) |> Array.length)
+        Assert.Equal(1, subset |> Array.filter (fun i -> labels.[i] = 1) |> Array.length)
+        // Evenly spaced within a class, not its first members
+        Assert.Equal<int[]>([| 0; 2; 4; 6 |], subset)
+
+        // A rare class keeps a member even when its share rounds to none
+        let rare = Array.append (Array.create 19 0) [| 1 |]
+        Assert.Contains(19, ScreeningTraining.stratifiedSubset rare 5)
+
+        // A batch at least as large as the data trains on everything
+        Assert.Equal<int[]>([| 0 .. 7 |], ScreeningTraining.stratifiedSubset labels 8)
+        Assert.Equal<int[]>([| 0 .. 7 |], ScreeningTraining.stratifiedSubset labels 50)
+        Assert.Empty(ScreeningTraining.stratifiedSubset labels 0)
+
+        // Every size gives that many distinct molecules
+        for size in 1..7 do
+            let chosen = ScreeningTraining.stratifiedSubset labels size
+            Assert.Equal(size, (Array.distinct chosen).Length)
+
+    [<Fact>]
+    let ``the training note states trained against ranked counts and how the subset was chosen`` () =
+        let labels = [| 0; 0; 0; 0; 0; 0; 1; 1 |]
+
+        let note =
+            ScreeningTraining.describe labels (ScreeningTraining.stratifiedSubset labels 4)
+
+        Assert.Contains("Trained on 4 of 8 molecules", note)
+        Assert.Contains("stratified by label (3 of 6 with label 0, 1 of 2 with label 1)", note)
+        Assert.Contains("ranked all 8", note)
+
+        Assert.Contains("Trained on all 8 molecules", ScreeningTraining.describe labels [| 0 .. 7 |])
+
+    [<Fact>]
+    let ``kernel SVM screening trains on a stratified subset and reports trained against ranked`` () : Task =
+        task {
+            let file =
+                Path.Combine(Path.GetTempPath(), $"fsaq-ordered-{Guid.NewGuid():N}.csv")
+
+            // Ordered by label: the first four rows are all inactive
+            do!
+                File.WriteAllLinesAsync(
+                    file,
+                    [
+                        "SMILES,Label"
+                        "CCO,0"
+                        "CCCO,0"
+                        "CC(C)O,0"
+                        "CC(=O)O,0"
+                        "c1ccccc1,1"
+                        "c1ccc(O)cc1,1"
+                        "c1ccc(N)cc1,1"
+                        "CC(=O)Oc1ccccc1C(=O)O,1"
+                    ]
+                )
+
+            try
+                // One fingerprint bit and the 10 descriptors: 11 feature qubits
+                let config =
+                    { drugDiscovery.Zero() with
+                        CandidateSource = Some(FilePath file)
+                        Method = QuantumKernelSVM
+                        BatchSize = 4
+                        FingerprintSize = 1
+                        Shots = 50
+                        Backend = Some(createLocalBackend ())
+                    }
+
+                match! drugDiscovery.RunAsync(config, CancellationToken.None) with
+                | Error err -> Assert.Fail($"Screening failed: {err}")
+                | Ok screening ->
+                    Assert.Equal(4, screening.MoleculesTrained)
+                    Assert.Equal(8, screening.MoleculesProcessed)
+                    Assert.Equal(8, screening.RankedCandidates.Length)
+                    Assert.Contains("Trained on 4 of 8 molecules", screening.Message)
+                    Assert.Contains("2 of 4 with label 0, 2 of 4 with label 1", screening.Message)
+            finally
+                File.Delete file
         }

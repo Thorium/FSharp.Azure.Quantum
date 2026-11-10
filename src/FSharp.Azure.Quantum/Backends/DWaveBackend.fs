@@ -179,10 +179,34 @@ module DWaveBackend =
     /// Usage:
     ///   let backend = MockDWaveBackend(Advantage_System6_1, seed = Some 42)
     ///   let result = backend.Execute(qaoaCircuit, 1000)
-    type MockDWaveBackend(solver: DWaveSolver, ?seed: int) =
+    ///
+    /// Reads: ExecuteToState takes `defaultReads` anneals (default 1, as SAPI does when
+    /// num_reads is not given); IAnnealingBackend.ExecuteWithReadsAsync takes the caller's
+    /// count, cut down to DWaveTypes.maxReadsPerExecution like the real backend. The returned
+    /// state holds one sample per read taken.
+    type MockDWaveBackend(solver: DWaveSolver, ?seed: int, ?defaultReads: int) =
 
         let solverName = getSolverName solver
         let maxQubits = getMaxQubits solver
+
+        let defaultReads =
+            match defaultReads with
+            | Some reads when reads < 1 -> invalidArg (nameof defaultReads) $"must be at least 1, got {reads}"
+            | Some reads -> reads
+            | None -> 1
+
+        /// Anneal the problem of a QAOA circuit `reads` times (at most maxReadsPerExecution).
+        let annealCircuit (circuit: ICircuit) (reads: int) : Result<QuantumState, QuantumError> =
+            if reads < 1 then
+                Error(QuantumError.ValidationError("reads", $"must be > 0, got {reads}"))
+            else
+                match extractFromICircuit circuit with
+                | Error e -> Error(QuantumError.ValidationError("QUBO extraction", e))
+                | Ok qubo ->
+                    let ising = quboToIsing qubo
+                    // Empty problems yield a validation Error.
+                    MockSimulatedAnnealing.solve ising (min reads maxReadsPerExecution) seed
+                    |> Result.map (fun solutions -> QuantumState.IsingSamples(box ising, box solutions))
 
         /// Backend name
         member _.Name = $"Mock D-Wave {solverName}"
@@ -274,16 +298,11 @@ module DWaveBackend =
         interface BackendAbstraction.IQuantumBackend with
             member _.Name = "D-Wave (Mock)"
 
-            /// Execute circuit and return quantum state (annealing samples)
-            member this.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                // Extract Ising problem and solve directly (avoid redundant Execute call)
-                match extractFromICircuit circuit with
-                | Error e -> Error(QuantumError.ValidationError("QUBO extraction", e))
-                | Ok qubo ->
-                    let ising = quboToIsing qubo
-                    // Return as IsingSamples state (empty problems yield a validation Error)
-                    MockSimulatedAnnealing.solve ising 1 seed
-                    |> Result.map (fun solutions -> QuantumState.IsingSamples(box ising, box solutions))
+            /// Anneal the circuit's problem `defaultReads` times and return the reads as the
+            /// state. A caller that wants a given number of samples uses
+            /// IAnnealingBackend.ExecuteWithReadsAsync.
+            member _.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
+                annealCircuit circuit defaultReads
 
             /// Get backend's native state type (Annealing)
             member _.NativeStateType = QuantumStateType.Annealing
@@ -364,16 +383,33 @@ module DWaveBackend =
 
             member this.ExecuteToStateAsync
                 (circuit: ICircuit)
-                (_ct: CancellationToken)
+                (ct: CancellationToken)
                 : Task<Result<QuantumState, QuantumError>> =
-                task { return (this :> BackendAbstraction.IQuantumBackend).ExecuteToState circuit }
+                task {
+                    ct.ThrowIfCancellationRequested()
+                    return (this :> BackendAbstraction.IQuantumBackend).ExecuteToState circuit
+                }
 
             member this.ApplyOperationAsync
                 (operation: BackendAbstraction.QuantumOperation)
                 (state: QuantumState)
-                (_ct: CancellationToken)
+                (ct: CancellationToken)
                 : Task<Result<QuantumState, QuantumError>> =
-                task { return (this :> BackendAbstraction.IQuantumBackend).ApplyOperation operation state }
+                task {
+                    ct.ThrowIfCancellationRequested()
+                    return (this :> BackendAbstraction.IQuantumBackend).ApplyOperation operation state
+                }
+
+        interface BackendAbstraction.IAnnealingBackend with
+            member _.ExecuteWithReadsAsync
+                (circuit: ICircuit)
+                (reads: int)
+                (ct: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
+                task {
+                    ct.ThrowIfCancellationRequested()
+                    return annealCircuit circuit reads
+                }
 
     // ============================================================================
     // HELPER FUNCTIONS FOR BACKEND CREATION

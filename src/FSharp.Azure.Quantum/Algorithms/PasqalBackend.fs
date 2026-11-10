@@ -104,9 +104,11 @@ module Pasqal =
         {
             JobId = Guid.NewGuid().ToString()
             Target = target
+            ProviderId = Some "pasqal"
             Name = Some $"Pasqal-%s{target}"
             InputData = pulserJson :> obj
             InputDataFormat = CircuitFormat.Custom "pasqal.pulser.abstract-repr.v1"
+            OutputDataFormat = None
             InputParams = Map [ ("count", shots :> obj) ]
             Tags = Map.empty
         }
@@ -178,7 +180,8 @@ module Pasqal =
                 | Error err -> return Error err
                 | Ok(job: QuantumJob) ->
                     match job.Status with
-                    | JobStatus.Succeeded ->
+                    | JobStatus.Succeeded
+                    | JobStatus.Completed ->
                         match job.OutputDataUri with
                         | None ->
                             return
@@ -208,7 +211,10 @@ module Pasqal =
                     | JobStatus.Cancelled ->
                         return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
                     | JobStatus.Waiting
-                    | JobStatus.Executing ->
+                    | JobStatus.Executing
+                    | JobStatus.Finishing
+                    | JobStatus.Cancelling
+                    | JobStatus.Unknown _ ->
                         return
                             Error(
                                 QuantumError.AzureError(

@@ -256,7 +256,8 @@ dropout check still failed: one fallback passed 2.3 m from a neighbour.
 | `--rtl-base-m`, `--rtl-step-m` | 60, 10 | Copter fallback layers; fixed-wings step down from the ceiling |
 | `--pilots <n>` | 1 | Pilots declared in the evidence |
 | `--method` | hybrid | `hybrid` or `quantum` TSP. `quantum` needs waypoints² qubits, so 4 waypoints at most on the local simulator; the 8 default waypoints need 64 and are refused |
-| `--mavlink` | off | Write ArduPilot missions and the launcher |
+| `--mavlink` | off | Write ArduPilot missions and the launcher. Refused (exit code 3, no file written) when the evidence pack is FAIL; written with a warning when it is INCOMPLETE |
+| `--export-on-fail` | off | Write the missions although the evidence pack is FAIL. `mavlink/FAILED-CHECKS.md` and the head of `mavlink_show.fsx` then list the failed checks |
 | `--home-alt <m>` | 0 | Ground at the base above mean sea level |
 
 The limits are this example's working values from `DroneDomain.fs`, not any

@@ -19,6 +19,9 @@
 //   dotnet fsi QuantumVaRStressTest.fsx -- --help                    (show options)
 //   dotnet fsi QuantumVaRStressTest.fsx -- --levels 95,99            (select levels)
 //   dotnet fsi QuantumVaRStressTest.fsx -- --input custom-levels.csv
+//   dotnet fsi QuantumVaRStressTest.fsx -- --returns returns.csv     (your own returns)
+//
+// Without --returns the script draws synthetic returns itself (the engine generates none).
 //   dotnet fsi QuantumVaRStressTest.fsx -- --quiet --output results.json --csv out.csv
 //
 // References:
@@ -83,8 +86,13 @@ Cli.exitIfHelp
             Default = Some "2"
         }
         {
+            Cli.OptionSpec.Name = "returns"
+            Description = "File of returns (header line, then one return per line); without it the script draws synthetic returns"
+            Default = None
+        }
+        {
             Cli.OptionSpec.Name = "paths"
-            Description = "Monte Carlo simulation paths"
+            Description = "Number of synthetic returns the script draws when --returns is not given"
             Default = Some "1000000"
         }
         {
@@ -142,6 +150,30 @@ let shots = Cli.getIntOr "shots" 10_000 args
 let numQubits = Cli.getIntOr "qubits" 5 args
 let groverIterations = Cli.getIntOr "grover-iterations" 2 args
 let simulationPaths = Cli.getIntOr "paths" 1_000_000 args
+
+// ==============================================================================
+// MARKET DATA
+// ==============================================================================
+// The risk engine computes from the returns it is given and generates none. With
+// --returns the file is used; otherwise this script draws SYNTHETIC daily returns
+// (normal, mean 0.05%, standard deviation 2%, fixed seed) so the demo runs offline.
+
+let returnsPath =
+    Cli.tryGet "returns" args
+    |> Option.map (Data.resolveRelative __SOURCE_DIRECTORY__)
+
+let syntheticReturns =
+    let rng = Random(42)
+
+    Array.init simulationPaths (fun _ ->
+        let u1 = 1.0 - rng.NextDouble()
+        let u2 = rng.NextDouble()
+        0.0005 + 0.02 * sqrt (-2.0 * log u1) * cos (2.0 * Math.PI * u2))
+
+let dataDescription =
+    match returnsPath with
+    | Some path -> sprintf "returns from %s" path
+    | None -> sprintf "%s synthetic returns (seeded normal, drawn by this script)" (simulationPaths.ToString "N0")
 
 // ==============================================================================
 // BUILT-IN CONFIDENCE LEVEL PRESETS
@@ -267,11 +299,11 @@ if not quiet then
     printfn "Quantum VaR Stress Test — RiskEngine DSL"
 
     printfn
-        "Levels: %d  Qubits: %d (+1 ancilla)  Shots: %d  Paths: %s"
+        "Levels: %d  Qubits: %d (+1 ancilla)  Shots: %d  Data: %s"
         levels.Length
         numQubits
         shots
-        (simulationPaths.ToString "N0")
+        dataDescription
 
     printfn ""
 
@@ -289,11 +321,15 @@ let private runLevelAsync (level: LevelInfo) =
                     let! executed =
                         RiskEngine.executeAsync
                             {
-                                MarketDataPath = None
+                                MarketDataPath = returnsPath
+                                MarketReturns =
+                                    match returnsPath with
+                                    | Some _ -> None
+                                    | None -> Some syntheticReturns
                                 ConfidenceLevel = level.Confidence
                                 SimulationPaths = simulationPaths
                                 UseAmplitudeEstimation = true
-                                UseErrorMitigation = true
+                                UseErrorMitigation = false
                                 Metrics =
                                     [
                                         RiskMetric.ValueAtRisk

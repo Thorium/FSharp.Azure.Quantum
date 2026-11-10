@@ -129,6 +129,15 @@ module QaoaExecutionHelpers =
                     Sweeps = split |> List.sumBy (fun report -> report.Sweeps)
                 }
 
+    /// True for a backend that submits every circuit as a separately queued and billed job:
+    /// cloud hardware and cloud simulators (IShotSamplingBackend). False for a simulator that
+    /// runs in this process, where a run costs time only. The split policy and the cost
+    /// estimates of HybridSolver both decide by this.
+    let isBilledBackend (backend: BackendAbstraction.IQuantumBackend) : bool =
+        match backend with
+        | :? BackendAbstraction.IShotSamplingBackend -> true
+        | _ -> false
+
     /// The widest piece a split may use on this backend, or ValueNone when the problem runs as
     /// one circuit: the policy forbids a split on this backend, or the problem fits. The
     /// widest circuit is the smaller of what the backend runs
@@ -143,10 +152,7 @@ module QaoaExecutionHelpers =
             match settings.Policy with
             | SplitPolicy.Never -> false
             | SplitPolicy.Always -> true
-            | SplitPolicy.OnSimulators ->
-                match backend with
-                | :? BackendAbstraction.IShotSamplingBackend -> false
-                | _ -> true
+            | SplitPolicy.OnSimulators -> not (isBilledBackend backend)
 
         let asked = settings.MaxPieceQubits |> ValueOption.filter (fun piece -> piece >= 1)
 
@@ -365,10 +371,26 @@ module QaoaExecutionHelpers =
 
         CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
 
+    /// Run `circuit` for `shots` samples. An annealer (IAnnealingBackend) is told the count
+    /// and takes that many reads; every other backend runs the circuit as it is configured
+    /// (a sampling backend with its own shot count).
+    let private executeForShotsAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (circuit: CircuitAbstraction.ICircuit)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<Result<QuantumState, QuantumError>> =
+        match backend with
+        | :? BackendAbstraction.IAnnealingBackend as annealer ->
+            annealer.ExecuteWithReadsAsync circuit shots cancellationToken
+        | _ -> backend.ExecuteToStateAsync circuit cancellationToken
+
     /// Execute a single QAOA circuit asynchronously with given parameters and return measurements.
-    /// Uses backend.ExecuteToStateAsync for non-blocking I/O against cloud backends.
+    /// Uses backend.ExecuteToStateAsync for non-blocking I/O against cloud backends; an
+    /// annealer takes `shots` reads (IAnnealingBackend.ExecuteWithReadsAsync).
     /// Pipeline: QUBO -> ProblemHamiltonian (normalised) -> MixerHamiltonian -> QaoaCircuit -> ICircuit -> backend
     /// Angles follow QaoaCircuit's minimisation convention, in units of the normalised Hamiltonian.
+    /// The result holds the samples the backend took, which can be fewer than `shots`.
     let executeQaoaCircuitAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problemHam: QaoaCircuit.ProblemHamiltonian)
@@ -379,7 +401,7 @@ module QaoaExecutionHelpers =
         : Task<Result<int[][], QuantumError>> =
         task {
             let! result =
-                backend.ExecuteToStateAsync (buildSolverCircuit problemHam mixerHam parameters) cancellationToken
+                executeForShotsAsync backend (buildSolverCircuit problemHam mixerHam parameters) shots cancellationToken
 
             return result |> Result.map (fun state -> QuantumState.measure state shots)
         }
@@ -456,7 +478,21 @@ module QaoaExecutionHelpers =
         (shots: int)
         (parameters: (float * float)[])
         : Result<float, QuantumError> =
-        backend.ExecuteToState(buildSolverCircuit problemHam mixerHam parameters)
+        let circuit = buildSolverCircuit problemHam mixerHam parameters
+
+        let state =
+            match backend with
+            | :? BackendAbstraction.IAnnealingBackend as annealer ->
+                // An annealer takes its read count with the submission; off the caller's
+                // context, so blocking here cannot deadlock a UI thread.
+                Task
+                    .Run<Result<QuantumState, QuantumError>>(fun () ->
+                        annealer.ExecuteWithReadsAsync circuit shots CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
+            | _ -> backend.ExecuteToState circuit
+
+        state
         |> Result.map (expectedEnergy energyOf energies problemHam.NumQubits shots)
 
     /// Asynchronous evaluateParameters.
@@ -472,24 +508,40 @@ module QaoaExecutionHelpers =
         : Task<Result<float, QuantumError>> =
         task {
             let! result =
-                backend.ExecuteToStateAsync (buildSolverCircuit problemHam mixerHam parameters) cancellationToken
+                executeForShotsAsync backend (buildSolverCircuit problemHam mixerHam parameters) shots cancellationToken
 
             return
                 result
                 |> Result.map (expectedEnergy energyOf energies problemHam.NumQubits shots)
         }
 
-    /// Nelder-Mead objective over flat [γ₁; β₁; γ₂; β₂; …]: the expected energy, or
-    /// Double.MaxValue when execution fails.
-    let private flatObjective
+    /// Nelder-Mead objective over flat [γ₁; β₁; γ₂; β₂; …] (the expected energy), paired with
+    /// a reader of the first evaluation error.
+    ///
+    /// The first Error ends the backend calls: that evaluation and every later one return
+    /// Double.MaxValue without running a circuit, so a failed backend is not billed for the
+    /// rest of the optimizer's iterations. The caller reads the error once the optimizer
+    /// returns and reports it in place of a result.
+    let private failFastObjective
         (evaluate: (float * float)[] -> Result<float, QuantumError>)
         (numLayers: int)
-        : float[] -> float =
-        fun (flatParams: float[]) ->
-            let parameters =
-                Array.init numLayers (fun i -> (flatParams.[2 * i], flatParams.[2 * i + 1]))
+        : (float[] -> float) * (unit -> QuantumError option) =
+        let firstError: QuantumError option ref = ref None
 
-            (evaluate parameters) |> Result.defaultWith (fun _ -> Double.MaxValue)
+        let objective (flatParams: float[]) =
+            match firstError.Value with
+            | Some _ -> Double.MaxValue
+            | None ->
+                let parameters =
+                    Array.init numLayers (fun i -> (flatParams.[2 * i], flatParams.[2 * i + 1]))
+
+                match evaluate parameters with
+                | Ok energy -> energy
+                | Error error ->
+                    firstError.Value <- Some error
+                    Double.MaxValue
+
+        objective, (fun () -> firstError.Value)
 
     /// Nelder-Mead starting point: a linear ramp (γ rising, β falling across the layers, as a
     /// discretised annealing schedule) in normalised-Hamiltonian units.
@@ -516,25 +568,102 @@ module QaoaExecutionHelpers =
                     Array.init numLayers (fun _ -> (gamma, beta))
         |]
 
-    /// Lowest-energy evaluated grid point, or the last error when none evaluated.
-    let private pickGridPoint
-        (results: ((float * float)[] * Result<float, QuantumError>)[])
-        : Result<(float * float)[], QuantumError> =
-        let evaluated =
-            results
-            |> Array.choose (fun (parameters, r) ->
-                match r with
-                | Ok energy -> Some(parameters, energy)
-                | Error _ -> None)
+    // ================================================================================
+    // JOB PLAN (what a solve submits, before it runs)
+    // ================================================================================
 
-        if evaluated.Length > 0 then
-            evaluated |> Array.minBy snd |> fst |> Ok
-        else
-            results
-            |> Array.choose (fun (_, r) -> r |> Result.map (fun _ -> None) |> Result.defaultWith (fun err -> Some err))
-            |> Array.tryLast
-            |> Option.defaultValue (QuantumError.OperationError("QAOA", "No valid solution found"))
-            |> Error
+    /// The circuits one solve submits to a backend, at most. On a billed backend
+    /// (isBilledBackend) each is a separately queued and billed job, so jobs × shots is what
+    /// a budget has to cover.
+    [<Struct>]
+    type JobPlan =
+        {
+            /// Circuits run to choose the angles (optimizer or grid evaluations)
+            OptimizationJobs: int
+
+            /// Shots of each of them
+            OptimizationShots: int
+
+            /// Circuits run at the chosen angles (the final sampling)
+            FinalJobs: int
+
+            /// Shots of each of them
+            FinalShots: int
+        }
+
+        /// All circuits of the plan
+        member this.Jobs = this.OptimizationJobs + this.FinalJobs
+
+        /// All shots of the plan
+        member this.Shots =
+            int64 this.OptimizationJobs * int64 this.OptimizationShots
+            + int64 this.FinalJobs * int64 this.FinalShots
+
+    /// Upper bound on the circuits the Nelder-Mead optimizer (QaoaOptimizer.minimizeWithBounds)
+    /// runs for `numLayers` layers within `maxIterations`.
+    ///
+    /// Math.NET's simplex counts objective evaluations against the limit, not simplex steps:
+    /// it evaluates the 2p+1 vertices of the first simplex, then steps until the count
+    /// reaches the limit, and a step evaluates at most a reflection, a contraction and a
+    /// shrink of every vertex before the count is checked. minimizeWithBounds evaluates the
+    /// returned point once more.
+    let maxOptimizerEvaluations (numLayers: int) (maxIterations: int) : int =
+        let vertices = 2 * max 1 numLayers + 1
+        vertices + max 0 maxIterations + (vertices + 1) + 1
+
+    /// Circuits the grid search runs to choose the angles.
+    let gridSearchEvaluations: int = gridGammas.Length * gridBetas.Length
+
+    /// The plan of a solve that runs `optimizationJobs` circuits of `optimizationShots` shots
+    /// to choose the angles and one of `finalShots` at the chosen angles.
+    ///
+    /// The backend decides two things. A sampling backend (IShotSamplingBackend) takes its own
+    /// shot count per circuit, whatever the solver asks for, so that count is the plan's. An
+    /// annealer (IAnnealingBackend) has no angles to choose: the plan is the one submission
+    /// of `finalShots` reads.
+    let jobPlanOf
+        (backend: BackendAbstraction.IQuantumBackend)
+        (optimizationJobs: int)
+        (optimizationShots: int)
+        (finalShots: int)
+        : JobPlan =
+        match backend with
+        | :? BackendAbstraction.IAnnealingBackend ->
+            {
+                OptimizationJobs = 0
+                OptimizationShots = 0
+                FinalJobs = 1
+                FinalShots = finalShots
+            }
+        | _ ->
+            let shotsPerJob (asked: int) =
+                match backend with
+                | :? BackendAbstraction.IShotSamplingBackend as sampling when sampling.Shots > 0 -> sampling.Shots
+                | _ -> asked
+
+            {
+                OptimizationJobs = max 0 optimizationJobs
+                OptimizationShots = if optimizationJobs > 0 then shotsPerJob optimizationShots else 0
+                FinalJobs = 1
+                FinalShots = shotsPerJob finalShots
+            }
+
+    /// The plan of a solve that runs one circuit of `shots` shots at fixed angles.
+    let singleRunPlan (backend: BackendAbstraction.IQuantumBackend) (shots: int) : JobPlan = jobPlanOf backend 0 0 shots
+
+    /// What runQaoaSampledAsync (and the other execute functions here) submits to `backend`
+    /// with `config`, at most, for a problem that runs as one circuit: the optimizer's
+    /// evaluations (maxOptimizerEvaluations) or the grid's, then the final sampling. A split
+    /// problem (config.Splitting) repeats this once per SplitReport.Runs; the default policy
+    /// never splits on a billed backend.
+    let jobPlan (backend: BackendAbstraction.IQuantumBackend) (config: QaoaSolverConfig) : JobPlan =
+        let evaluations =
+            if config.EnableOptimization then
+                maxOptimizerEvaluations config.NumLayers config.MaxOptimizationIterations
+            else
+                gridSearchEvaluations
+
+        jobPlanOf backend evaluations config.OptimizationShots config.FinalShots
 
     /// Execute QAOA from a dense QUBO matrix asynchronously.
     /// Builds Hamiltonians, circuit, executes via backend.ExecuteToStateAsync,
@@ -572,14 +701,19 @@ module QaoaExecutionHelpers =
     /// (gamma, beta) pairs, executes the QAOA circuit, and returns the expected QUBO energy
     /// (lower = better): exact over the amplitudes on a state-vector backend, otherwise the
     /// mean energy of `shots` samples.
-    let createObjectiveFunction
+    ///
+    /// The second function reads the first backend error. Once an evaluation fails, the
+    /// objective runs no further circuit and returns Double.MaxValue: an optimizer driving it
+    /// costs no more jobs, and its result is void — read the error after it returns and
+    /// report that instead.
+    let createObjectiveFunctionWithError
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
         (problemHam: QaoaCircuit.ProblemHamiltonian)
         (mixerHam: QaoaCircuit.MixerHamiltonian)
         (numLayers: int)
         (shots: int)
-        : float[] -> float =
+        : (float[] -> float) * (unit -> QuantumError option) =
 
         if
             Array2D.length1 qubo <> problemHam.NumQubits
@@ -591,7 +725,21 @@ module QaoaExecutionHelpers =
 
         let energyOf = denseEnergy qubo
         let energies = lazy (basisEnergies (Array2D.length1 qubo) energyOf)
-        flatObjective (evaluateParameters backend problemHam mixerHam energyOf energies shots) numLayers
+        failFastObjective (evaluateParameters backend problemHam mixerHam energyOf energies shots) numLayers
+
+    /// The objective of createObjectiveFunctionWithError alone. It stops running circuits at
+    /// the first backend error too, but cannot report it: prefer
+    /// createObjectiveFunctionWithError wherever the backend can fail.
+    let createObjectiveFunction
+        (backend: BackendAbstraction.IQuantumBackend)
+        (qubo: float[,])
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (numLayers: int)
+        (shots: int)
+        : float[] -> float =
+        createObjectiveFunctionWithError backend qubo problemHam mixerHam numLayers shots
+        |> fst
 
     /// Nelder-Mead over the expected energy from the ramp start, then FinalShots samples at the
     /// optimum; returns every sample, the parameters, whether the optimizer converged and its
@@ -599,7 +747,9 @@ module QaoaExecutionHelpers =
     /// The Nelder-Mead evaluations run one after another on the calling thread (each simplex step
     /// depends on the previous evaluation) and check the token before each circuit; the final
     /// sampling is awaited.
-    let private optimizeAndSampleAllAsync
+    /// The first evaluation the backend fails ends the run with that Error: no further
+    /// circuit, the final sampling included, is submitted.
+    let private optimizeAnglesAndSampleAllAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problemHam: QaoaCircuit.ProblemHamiltonian)
         (mixerHam: QaoaCircuit.MixerHamiltonian)
@@ -614,7 +764,7 @@ module QaoaExecutionHelpers =
                 cancellationToken.ThrowIfCancellationRequested()
                 evaluateParameters backend problemHam mixerHam energyOf energies config.OptimizationShots parameters
 
-            let objectiveFunc = flatObjective evaluate config.NumLayers
+            let objectiveFunc, firstError = failFastObjective evaluate config.NumLayers
 
             let initialParams = rampInitialParameters config.NumLayers
 
@@ -635,18 +785,71 @@ module QaoaExecutionHelpers =
                     1e-6
                     config.MaxOptimizationIterations
 
-            let optimizedParams =
-                Array.init config.NumLayers (fun i ->
-                    (optimResult.OptimizedParameters.[2 * i], optimResult.OptimizedParameters.[2 * i + 1]))
+            match firstError () with
+            | Some error -> return Error error
+            | None ->
+                let optimizedParams =
+                    Array.init config.NumLayers (fun i ->
+                        (optimResult.OptimizedParameters.[2 * i], optimResult.OptimizedParameters.[2 * i + 1]))
 
-            let! finalResult =
-                executeQaoaCircuitAsync backend problemHam mixerHam optimizedParams config.FinalShots cancellationToken
+                let! finalResult =
+                    executeQaoaCircuitAsync
+                        backend
+                        problemHam
+                        mixerHam
+                        optimizedParams
+                        config.FinalShots
+                        cancellationToken
+
+                return
+                    finalResult
+                    |> Result.map (fun measurements ->
+                        (measurements, optimizedParams, optimResult.Converged, optimResult.Iterations))
+        }
+
+    /// The one submission an annealer needs. Its samples do not depend on a circuit's angles,
+    /// so every evaluation of a variational loop would submit the same problem again: the
+    /// problem is submitted once, for FinalShots reads, and the reads taken are the samples.
+    let private annealOnceAsync
+        (annealer: BackendAbstraction.IAnnealingBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (config: QaoaSolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[][], QuantumError>> =
+        task {
+            // The angles only complete the circuit: the annealer reads its problem Hamiltonian.
+            let circuit =
+                buildSolverCircuit problemHam mixerHam (Array.create config.NumLayers (0.0, 0.0))
+
+            let! result = annealer.ExecuteWithReadsAsync circuit config.FinalShots cancellationToken
 
             return
-                finalResult
-                |> Result.map (fun measurements ->
-                    (measurements, optimizedParams, optimResult.Converged, optimResult.Iterations))
+                result
+                |> Result.bind (fun state ->
+                    match QuantumState.measure state config.FinalShots with
+                    | [||] -> Error(QuantumError.OperationError("Annealing", $"{annealer.Name} returned no reads"))
+                    | samples -> Ok samples)
         }
+
+    /// Choose the angles and sample: optimizeAnglesAndSampleAllAsync on a gate backend. On
+    /// an annealer one submission (annealOnceAsync), reported with no angles, converged and
+    /// 0 iterations — nothing was optimised.
+    let private optimizeAndSampleAllAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (config: QaoaSolverConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[][] * (float * float)[] * bool * int, QuantumError>> =
+        match backend with
+        | :? BackendAbstraction.IAnnealingBackend as annealer ->
+            task {
+                let! annealed = annealOnceAsync annealer problemHam mixerHam config cancellationToken
+                return annealed |> Result.map (fun samples -> (samples, Array.empty, true, 0))
+            }
+        | _ -> optimizeAnglesAndSampleAllAsync backend problemHam mixerHam energyOf config cancellationToken
 
     /// optimizeAndSampleAllAsync reduced to the lowest-energy sample.
     let private optimizeAndSampleAsync
@@ -670,7 +873,9 @@ module QaoaExecutionHelpers =
     /// Grid search over (γ, β) by expected energy, then FinalShots samples at the best grid
     /// point; returns every sample and the parameters. At most maxConcurrency grid points
     /// are in flight.
-    let private gridSearchAndSampleAllAsync
+    /// The first grid point the backend fails ends the search with that Error: grid points
+    /// not yet started, and the final sampling, are not submitted.
+    let private gridSearchAnglesAndSampleAllAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problemHam: QaoaCircuit.ProblemHamiltonian)
         (mixerHam: QaoaCircuit.MixerHamiltonian)
@@ -684,38 +889,79 @@ module QaoaExecutionHelpers =
             let parameterSets = gridParameterSets config.NumLayers
             let concurrency = max 1 (min maxConcurrency parameterSets.Length)
             use semaphore = new SemaphoreSlim(concurrency, concurrency)
+            let firstError: QuantumError option ref = ref None
 
-            let executeOne (parameters: (float * float)[]) =
+            let executeOne (parameters: (float * float)[]) : Task<((float * float)[] * float) voption> =
                 task {
                     do! semaphore.WaitAsync cancellationToken
 
                     try
-                        let! result =
-                            evaluateParametersAsync
-                                backend
-                                problemHam
-                                mixerHam
-                                energyOf
-                                energies
-                                config.OptimizationShots
-                                parameters
-                                cancellationToken
+                        match firstError.Value with
+                        | Some _ -> return ValueNone
+                        | None ->
+                            let! result =
+                                evaluateParametersAsync
+                                    backend
+                                    problemHam
+                                    mixerHam
+                                    energyOf
+                                    energies
+                                    config.OptimizationShots
+                                    parameters
+                                    cancellationToken
 
-                        return (parameters, result)
+                            match result with
+                            | Ok energy -> return ValueSome(parameters, energy)
+                            | Error error ->
+                                lock firstError (fun () ->
+                                    if firstError.Value.IsNone then
+                                        firstError.Value <- Some error)
+
+                                return ValueNone
                     finally
                         semaphore.Release() |> ignore
                 }
 
             let! results = parameterSets |> Array.map executeOne |> Task.WhenAll
 
-            match pickGridPoint results with
-            | Error err -> return Error err
-            | Ok bestParams ->
+            match firstError.Value with
+            | Some error -> return Error error
+            | None ->
+                let bestParams =
+                    results |> Array.choose ValueOption.toOption |> Array.minBy snd |> fst
+
                 let! finalResult =
                     executeQaoaCircuitAsync backend problemHam mixerHam bestParams config.FinalShots cancellationToken
 
                 return finalResult |> Result.map (fun measurements -> (measurements, bestParams))
         }
+
+    /// Choose the angles on the grid and sample: gridSearchAnglesAndSampleAllAsync on a gate
+    /// backend. On an annealer one submission (annealOnceAsync), reported with no angles.
+    let private gridSearchAndSampleAllAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (config: QaoaSolverConfig)
+        (maxConcurrency: int)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[][] * (float * float)[], QuantumError>> =
+        match backend with
+        | :? BackendAbstraction.IAnnealingBackend as annealer ->
+            task {
+                let! annealed = annealOnceAsync annealer problemHam mixerHam config cancellationToken
+                return annealed |> Result.map (fun samples -> (samples, Array.empty))
+            }
+        | _ ->
+            gridSearchAnglesAndSampleAllAsync
+                backend
+                problemHam
+                mixerHam
+                energyOf
+                config
+                maxConcurrency
+                cancellationToken
 
     /// gridSearchAndSampleAllAsync reduced to the lowest-energy sample.
     let private gridSearchAndSampleAsync
@@ -798,19 +1044,21 @@ module QaoaExecutionHelpers =
             /// The lowest-energy sample
             Best: int[]
 
-            /// The (γ, β) angles the final run used
+            /// The (γ, β) angles the final run used; empty on an annealer, which uses none
             Parameters: (float * float)[]
 
-            /// Whether the optimizer converged; None after a grid search
+            /// Whether the optimizer converged; None after a grid search and on an annealer
             Converged: bool option
 
-            /// Optimizer iterations used; ValueNone after a grid search
+            /// Optimizer iterations used; ValueNone after a grid search and on an annealer
             Iterations: int voption
         }
 
     /// Execute QAOA the way the configuration asks: Nelder-Mead parameter optimization when
     /// config.EnableOptimization, else a sequential (maxConcurrency = 1) grid search.
     /// Returns every final sample along with the lowest-energy one.
+    /// An annealer (IAnnealingBackend) is submitted the problem once, for FinalShots reads:
+    /// Samples are the reads it took (fewer than FinalShots when the solver's limit is lower).
     let runQaoaSampledAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
@@ -834,7 +1082,14 @@ module QaoaExecutionHelpers =
                         Iterations = iterations
                     }
 
-                if config.EnableOptimization then
+                // An annealer has no angles to optimise: it takes the branch that reports no
+                // optimizer, and is submitted once there (annealOnceAsync).
+                let optimizes =
+                    match backend with
+                    | :? BackendAbstraction.IAnnealingBackend -> false
+                    | _ -> config.EnableOptimization
+
+                if optimizes then
                     let! optimized =
                         optimizeAndSampleAllAsync backend problemHam mixerHam energyOf config cancellationToken
 

@@ -114,6 +114,28 @@ module QuantumTspSolver =
             EnableOptimization = false
         }
 
+    /// The shared QAOA configuration a solve with EnableOptimization runs
+    /// (QaoaExecutionHelpers.runQaoaSampledAsync).
+    let private optimizingConfig (config: QuantumTspConfig) : QaoaExecutionHelpers.QaoaSolverConfig =
+        {
+            NumLayers = config.NumLayers
+            OptimizationShots = config.OptimizationShots
+            FinalShots = config.FinalShots
+            EnableOptimization = true
+            EnableConstraintRepair = false
+            MaxOptimizationIterations = config.MaxOptimizationIterations
+            Splitting = QaoaExecutionHelpers.defaultSplitSettings
+        }
+
+    /// What solveAsync submits to `backend` with `config`, at most: with EnableOptimization
+    /// the optimizer's evaluations and the final sampling (QaoaExecutionHelpers.jobPlan),
+    /// otherwise the single circuit at InitialParameters.
+    let jobPlan (backend: BackendAbstraction.IQuantumBackend) (config: QuantumTspConfig) : QaoaExecutionHelpers.JobPlan =
+        if config.EnableOptimization then
+            QaoaExecutionHelpers.jobPlan backend (optimizingConfig config)
+        else
+            QaoaExecutionHelpers.singleRunPlan backend config.FinalShots
+
     /// Quantum TSP solution with execution details
     type QuantumTspSolution =
         {
@@ -317,16 +339,7 @@ module QuantumTspSolver =
                     let! run =
                         if config.EnableOptimization then
                             task {
-                                let sharedConfig: QaoaExecutionHelpers.QaoaSolverConfig =
-                                    {
-                                        NumLayers = config.NumLayers
-                                        OptimizationShots = config.OptimizationShots
-                                        FinalShots = config.FinalShots
-                                        EnableOptimization = true
-                                        EnableConstraintRepair = false
-                                        MaxOptimizationIterations = config.MaxOptimizationIterations
-                                        Splitting = QaoaExecutionHelpers.defaultSplitSettings
-                                    }
+                                let sharedConfig = optimizingConfig config
 
                                 let! sampled =
                                     QaoaExecutionHelpers.runQaoaSampledAsync backend qubo sharedConfig cancellationToken

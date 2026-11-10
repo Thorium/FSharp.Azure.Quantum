@@ -45,7 +45,7 @@ module SmilesDataProviders =
     /// Wraps MolecularData.loadFromCsv with the unified provider interface.
     ///
     /// Example:
-    ///   let provider = CsvSmilesDatasetProvider("molecules.csv", "SMILES", Some "Activity")
+    ///   let provider = CsvSmilesDatasetProvider("molecules.csv", "SMILES", "Activity")
     ///   match provider.Load All with
     ///   | Ok dataset -> printfn "Loaded %d molecules" dataset.Molecules.Length
     ///   | Error e -> printfn "Error: %A" e

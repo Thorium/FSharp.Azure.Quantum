@@ -322,9 +322,11 @@ module RigettiBackend =
         {
             JobId = Guid.NewGuid().ToString()
             Target = target
+            ProviderId = Some "rigetti"
             Name = name
             InputData = quilText // Quil assembly as string
             InputDataFormat = CircuitFormat.Custom "application/x-quil" // Rigetti Quil format
+            OutputDataFormat = Some "rigetti.quil-results.v1"
             InputParams = Map.ofList [ ("count", box shots) ] // "count" is Rigetti parameter name for shots
             Tags = Map.empty
         }
@@ -447,7 +449,8 @@ module RigettiBackend =
                 | Ok(job: QuantumJob) ->
                     // Check job status
                     match job.Status with
-                    | JobStatus.Succeeded ->
+                    | JobStatus.Succeeded
+                    | JobStatus.Completed ->
                         // Step 4: Get results from blob storage
                         match job.OutputDataUri with
                         | None ->
@@ -487,7 +490,10 @@ module RigettiBackend =
                         return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
 
                     | JobStatus.Waiting
-                    | JobStatus.Executing ->
+                    | JobStatus.Executing
+                    | JobStatus.Finishing
+                    | JobStatus.Cancelling
+                    | JobStatus.Unknown _ ->
                         return
                             Error(
                                 QuantumError.AzureError(

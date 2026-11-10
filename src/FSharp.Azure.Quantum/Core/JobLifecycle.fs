@@ -3,31 +3,322 @@ namespace FSharp.Azure.Quantum.Core
 open System
 open System.Net
 open System.Net.Http
+open System.Net.Http.Headers
 open System.Text
 open System.Text.Json
+open System.Text.RegularExpressions
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.Types
 
 /// Job lifecycle management for Azure Quantum
 ///
-/// Implements job submission, status polling with exponential backoff,
-/// result retrieval from blob storage, and job cancellation.
+/// Implements job submission (input upload to the workspace's blob storage, then job
+/// creation), status polling with exponential backoff, result retrieval from blob storage,
+/// and job cancellation, against the Azure Quantum data-plane REST API.
 ///
 /// All functions use task { } CE for direct Task-based I/O without
 /// Async<>/Task<> bridging overhead. HttpClient is natively Task-based.
 module JobLifecycle =
 
+    /// Azure Quantum data-plane API version. The service requires `api-version` on every
+    /// workspace request; a request without it is rejected.
+    [<Literal>]
+    let ApiVersion = "2026-01-15-preview"
+
+    /// URL of a workspace resource: {workspaceUrl}/{relativePath}?api-version={ApiVersion}.
+    let workspaceResourceUrl (workspaceUrl: string) (relativePath: string) : string =
+        $"%s{workspaceUrl.TrimEnd '/'}/%s{relativePath}?api-version=%s{ApiVersion}"
+
+    // ============================================================================
+    // SAS URLS AND ERROR MAPPING
+    // ============================================================================
+
+    let private sasSignature =
+        Regex(@"(\bsig=)[^&\s""'<>]+", RegexOptions.IgnoreCase ||| RegexOptions.Compiled)
+
+    /// Text with the signature of every SAS URL in it removed. A SAS signature is a
+    /// credential: it never goes into an error message or a log.
+    let internal withoutSasSignature (text: string) : string =
+        if isNull text then
+            ""
+        else
+            sasSignature.Replace(text, "$1REDACTED")
+
+    /// A URI without its query string (the SAS token of a blob URI).
+    let internal withoutQuery (uri: string) : string =
+        match uri.IndexOf '?' with
+        | -1 -> uri
+        | index -> uri.Substring(0, index)
+
+    /// Maps a response that is not the expected success, and its body, to the error reported.
+    type internal ResponseError = HttpResponseMessage -> string -> QuantumError
+
+    let private retryAfter (response: HttpResponseMessage) (fallback: TimeSpan) : TimeSpan =
+        match response.Headers.RetryAfter with
+        | null -> fallback
+        | header when header.Delta.HasValue -> header.Delta.Value
+        | _ -> fallback
+
+    /// Error for a workspace response; `notFound` is what a 404 means for the request.
+    let private workspaceError (notFound: QuantumError) : ResponseError =
+        fun response body ->
+            match response.StatusCode with
+            | HttpStatusCode.Unauthorized -> QuantumError.AzureError AzureQuantumError.InvalidCredentials
+            | HttpStatusCode.TooManyRequests ->
+                QuantumError.AzureError(
+                    AzureQuantumError.RateLimited(retryAfter response (TimeSpan.FromSeconds 60.0))
+                )
+            | HttpStatusCode.ServiceUnavailable ->
+                QuantumError.AzureError(
+                    AzureQuantumError.ServiceUnavailable(Some(retryAfter response (TimeSpan.FromSeconds 30.0)))
+                )
+            | HttpStatusCode.NotFound -> notFound
+            | status -> QuantumError.AzureError(AzureQuantumError.UnknownError(int status, withoutSasSignature body))
+
+    let private jobNotFound (jobId: string) : QuantumError =
+        QuantumError.AzureError(AzureQuantumError.UnknownError(404, $"Job %s{jobId} not found"))
+
+    /// Error for an exception thrown while a request was in flight. Status code 0 marks a
+    /// request that produced no HTTP response.
+    let private requestException (ex: exn) : QuantumError =
+        match ex with
+        | :? TaskCanceledException -> QuantumError.AzureError(AzureQuantumError.NetworkTimeout 1)
+        | _ -> QuantumError.AzureError(AzureQuantumError.UnknownError(0, withoutSasSignature ex.Message))
+
+    /// Send a request and return the response body when the status is one of `expected`.
+    let private sendAsync
+        (httpClient: HttpClient)
+        (toError: ResponseError)
+        (expected: HttpStatusCode list)
+        (request: HttpRequestMessage)
+        (ct: CancellationToken)
+        : Task<Result<string, QuantumError>> =
+        task {
+            use! response = httpClient.SendAsync(request, ct)
+            let! body = response.Content.ReadAsStringAsync ct
+
+            return
+                if List.contains response.StatusCode expected then
+                    Ok body
+                else
+                    Error(toError response body)
+        }
+
+    /// Continue with `next` on Ok; an Error ends the chain.
+    let private andThenAsync
+        (next: 'T -> Task<Result<'U, QuantumError>>)
+        (step: Task<Result<'T, QuantumError>>)
+        : Task<Result<'U, QuantumError>> =
+        task {
+            match! step with
+            | Ok value -> return! next value
+            | Error error -> return Error error
+        }
+
     // ============================================================================
     // JOB SUBMISSION
     // ============================================================================
 
+    /// Blob container the service keeps a job's input and output in.
+    let private containerName (jobId: string) = $"job-%s{jobId}"
+
+    [<Literal>]
+    let private inputBlobName = "inputData"
+
+    /// Provider id sent with a submission: its ProviderId, else the part of the target
+    /// before the first '.' ("ionq.simulator" → "ionq").
+    let providerIdOf (submission: JobSubmission) : string =
+        match submission.ProviderId with
+        | Some provider when not (String.IsNullOrWhiteSpace provider) -> provider
+        | _ ->
+            match submission.Target.IndexOf '.' with
+            | -1 -> submission.Target
+            | index -> submission.Target.Substring(0, index)
+
+    /// The service takes only a GUID (8-4-4-4-12 hex digits) as a job id.
+    let private validateSubmission (submission: JobSubmission) : Result<unit, QuantumError> =
+        if not (fst (Guid.TryParseExact(submission.JobId, "D"))) then
+            Error(QuantumError.ValidationError("JobId", $"'%s{submission.JobId}' is not a GUID"))
+        elif String.IsNullOrWhiteSpace submission.Target then
+            Error(QuantumError.ValidationError("Target", "A job needs a target"))
+        elif String.IsNullOrWhiteSpace(providerIdOf submission) then
+            Error(QuantumError.ValidationError("ProviderId", "A job needs a provider id"))
+        elif isNull submission.InputData then
+            Error(QuantumError.ValidationError("InputData", "A job needs input data"))
+        else
+            Ok()
+
+    /// Bytes and media type of the input blob: a string or byte[] as it is, anything else as JSON.
+    let private inputContent (inputData: obj) : byte[] * string =
+        match inputData with
+        | :? (byte[]) as bytes -> bytes, "application/octet-stream"
+        | :? string as text ->
+            let start = text.TrimStart()
+
+            let mediaType =
+                if start.StartsWith '{' || start.StartsWith '[' then
+                    "application/json"
+                else
+                    "text/plain"
+
+            Encoding.UTF8.GetBytes text, mediaType
+        | other -> JsonSerializer.SerializeToUtf8Bytes other, "application/json"
+
+    /// Ask the workspace for a SAS URI of the container (which the service creates when it
+    /// does not exist), or of one blob in it.
+    let private requestSasUriAsync
+        (httpClient: HttpClient)
+        (toError: ResponseError)
+        (workspaceUrl: string)
+        (container: string)
+        (blob: string voption)
+        (ct: CancellationToken)
+        : Task<Result<string, QuantumError>> =
+        task {
+            let payload =
+                match blob with
+                | ValueSome blobName ->
+                    JsonSerializer.Serialize
+                        {|
+                            containerName = container
+                            blobName = blobName
+                        |}
+                | ValueNone -> JsonSerializer.Serialize {| containerName = container |}
+
+            use request =
+                new HttpRequestMessage(HttpMethod.Post, workspaceResourceUrl workspaceUrl "storage/sasUri")
+
+            request.Content <- new StringContent(payload, Encoding.UTF8, "application/json")
+
+            match! sendAsync httpClient toError [ HttpStatusCode.OK ] request ct with
+            | Error error -> return Error error
+            | Ok body ->
+                let sasUri =
+                    try
+                        use doc = JsonDocument.Parse body
+                        tryGetJsonString "sasUri" doc.RootElement
+                    with
+                    | :? JsonException
+                    | :? InvalidOperationException -> None
+
+                match sasUri with
+                | Some uri when not (String.IsNullOrWhiteSpace uri) -> return Ok uri
+                | _ ->
+                    return
+                        Error(
+                            QuantumError.AzureError(
+                                AzureQuantumError.UnknownError(200, "The storage/sasUri response holds no sasUri")
+                            )
+                        )
+        }
+
+    /// PUT a block blob to its SAS URI. The SAS query string is the credential: the request
+    /// is marked so the workspace bearer token is withheld from the storage host.
+    let private uploadBlobAsync
+        (httpClient: HttpClient)
+        (sasUri: string)
+        (content: byte[])
+        (mediaType: string)
+        (ct: CancellationToken)
+        : Task<Result<unit, QuantumError>> =
+        task {
+            use request = new HttpRequestMessage(HttpMethod.Put, sasUri)
+            Authentication.markNoAuth request
+            request.Headers.TryAddWithoutValidation("x-ms-blob-type", "BlockBlob") |> ignore
+            request.Content <- new ByteArrayContent(content)
+            request.Content.Headers.ContentType <- MediaTypeHeaderValue mediaType
+
+            let toError: ResponseError =
+                fun response body ->
+                    QuantumError.AzureError(
+                        AzureQuantumError.UnknownError(
+                            int response.StatusCode,
+                            $"Uploading the job input failed: %s{withoutSasSignature body}"
+                        )
+                    )
+
+            let! uploaded = sendAsync httpClient toError [ HttpStatusCode.Created ] request ct
+            return uploaded |> Result.map ignore
+        }
+
+    /// Job definition for Jobs - Create. The service takes no inline input: the job names
+    /// its container and the uploaded input blob.
+    let private jobDefinition (submission: JobSubmission) (containerUri: string) (inputDataUri: string) : string =
+        let fields: (string * obj) list =
+            [
+                "id", box submission.JobId
+                "name", box (submission.Name |> Option.defaultValue "Quantum Job")
+                "itemType", box "Job"
+                "providerId", box (providerIdOf submission)
+                "target", box submission.Target
+                "containerUri", box containerUri
+                "inputDataUri", box inputDataUri
+                "inputDataFormat", box (submission.InputDataFormat.ToFormatString())
+                "inputParams", box submission.InputParams
+                "metadata", box submission.Tags
+                match submission.OutputDataFormat with
+                | Some format -> "outputDataFormat", box format
+                | None -> ()
+            ]
+
+        JsonSerializer.Serialize(Map.ofList fields)
+
+    /// Submit a job and return the service's job document (the Jobs - Create response body):
+    /// container SAS → input blob SAS → input upload → job creation. Exceptions, cancellation
+    /// included, propagate to the caller.
+    let internal createJobAsync
+        (toError: ResponseError)
+        (httpClient: HttpClient)
+        (workspaceUrl: string)
+        (submission: JobSubmission)
+        (ct: CancellationToken)
+        : Task<Result<string, QuantumError>> =
+        match validateSubmission submission with
+        | Error error -> Task.FromResult(Error error)
+        | Ok() ->
+            let container = containerName submission.JobId
+
+            requestSasUriAsync httpClient toError workspaceUrl container ValueNone ct
+            |> andThenAsync (fun containerUri ->
+                requestSasUriAsync httpClient toError workspaceUrl container (ValueSome inputBlobName) ct
+                |> andThenAsync (fun inputDataUri ->
+                    let content, mediaType = inputContent submission.InputData
+
+                    uploadBlobAsync httpClient inputDataUri content mediaType ct
+                    |> andThenAsync (fun () ->
+                        task {
+                            use request =
+                                new HttpRequestMessage(
+                                    HttpMethod.Put,
+                                    workspaceResourceUrl workspaceUrl $"jobs/%s{submission.JobId}"
+                                )
+
+                            request.Content <-
+                                new StringContent(
+                                    jobDefinition submission containerUri inputDataUri,
+                                    Encoding.UTF8,
+                                    "application/json"
+                                )
+
+                            return!
+                                sendAsync
+                                    httpClient
+                                    toError
+                                    [ HttpStatusCode.OK; HttpStatusCode.Created ]
+                                    request
+                                    ct
+                        })))
+
     /// Submit a quantum job to Azure Quantum
+    ///
+    /// The input is uploaded to the workspace's blob storage (the service takes no inline
+    /// input) and the job is then created with its container and input blob URIs.
     ///
     /// Parameters:
     /// - httpClient: HTTP client for API requests
     /// - workspaceUrl: Azure Quantum workspace URL
-    /// - submission: Job submission details
+    /// - submission: Job submission details (JobId must be a GUID)
     ///
     /// Returns: Result with job ID or QuantumError
     let submitJobAsync
@@ -37,87 +328,98 @@ module JobLifecycle =
         : Task<Result<string, QuantumError>> =
         task {
             try
-                // Construct job submission payload
-                let payload =
-                    {|
-                        id = submission.JobId
-                        target = submission.Target
-                        name = submission.Name |> Option.defaultValue "Quantum Job"
-                        inputData = submission.InputData
-                        inputDataFormat = submission.InputDataFormat.ToFormatString()
-                        inputParams = submission.InputParams |> Map.toSeq |> dict
-                        metadata = submission.Tags |> Map.toSeq |> dict
-                    |}
+                let notFound = QuantumError.BackendError(submission.Target, "Backend not found")
 
-                // Serialize to JSON
-                let jsonContent = JsonSerializer.Serialize(payload)
-                use content = new StringContent(jsonContent, Encoding.UTF8, "application/json")
+                let! created =
+                    createJobAsync (workspaceError notFound) httpClient workspaceUrl submission CancellationToken.None
 
-                // Make PUT request to /jobs/{id}
-                let url = $"%s{workspaceUrl}/jobs/%s{submission.JobId}"
-                use! response = httpClient.PutAsync(url, content)
-
-                // Handle response
-                match response.StatusCode with
-                | HttpStatusCode.Created -> return Ok submission.JobId
-                | HttpStatusCode.Unauthorized ->
-                    return Error(QuantumError.AzureError AzureQuantumError.InvalidCredentials)
-                | HttpStatusCode.TooManyRequests ->
-                    let retryAfter =
-                        if
-                            not (isNull response.Headers.RetryAfter)
-                            && response.Headers.RetryAfter.Delta.HasValue
-                        then
-                            response.Headers.RetryAfter.Delta.Value
-                        else
-                            TimeSpan.FromSeconds(60.0)
-
-                    return Error(QuantumError.AzureError(AzureQuantumError.RateLimited retryAfter))
-                | HttpStatusCode.ServiceUnavailable ->
-                    let retryAfter =
-                        if
-                            not (isNull response.Headers.RetryAfter)
-                            && response.Headers.RetryAfter.Delta.HasValue
-                        then
-                            Some response.Headers.RetryAfter.Delta.Value
-                        else
-                            Some(TimeSpan.FromSeconds(30.0))
-
-                    return Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable retryAfter))
-                | HttpStatusCode.NotFound ->
-                    return Error(QuantumError.BackendError(submission.Target, "Backend not found"))
-                | _ ->
-                    let! errorBody = response.Content.ReadAsStringAsync()
-
-                    return
-                        Error(
-                            QuantumError.AzureError(AzureQuantumError.UnknownError(int response.StatusCode, errorBody))
-                        )
-            with
-            | :? TaskCanceledException -> return Error(QuantumError.AzureError(AzureQuantumError.NetworkTimeout 1))
-            | ex -> return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
+                return created |> Result.map (fun _ -> submission.JobId)
+            with ex ->
+                return Error(requestException ex)
         }
 
     // ============================================================================
     // JOB STATUS POLLING
     // ============================================================================
 
-    /// JSON error data response
-    [<CLIMutable>]
-    type private ErrorData = { code: string; message: string }
+    /// QuantumJob of a job document (Jobs - Get). Throws when a required property is
+    /// missing or null.
+    let private parseJob (root: JsonElement) : QuantumJob =
+        // Helper to safely get required string property (throws if null or missing)
+        let getRequiredString (name: string) =
+            let prop = root.GetProperty name
 
-    /// JSON response type for job status
-    [<CLIMutable>]
-    type private JobStatusResponse =
+            if prop.ValueKind = JsonValueKind.Null then
+                failwith $"Required property '%s{name}' is null"
+            else
+                prop.GetString()
+
+        // Extract required fields (will throw if null or missing - intentional for validation)
+        let pid = getRequiredString "id"
+        let status = getRequiredString "status"
+        let target = getRequiredString "target"
+        let creationTime = getRequiredString "creationTime"
+
+        // Helper to safely get optional string property
+        let tryGetStringProperty (name: string) = tryGetJsonString name root
+
+        // Extract optional timestamp fields
+        let beginExecutionTime = tryGetStringProperty "beginExecutionTime"
+        let endExecutionTime = tryGetStringProperty "endExecutionTime"
+        let cancellationTime = tryGetStringProperty "cancellationTime"
+        let outputDataUri = tryGetStringProperty "outputDataUri"
+
+        // Extract error data if present
+        let (errorCode, errorMessage) =
+            match tryGetJsonProperty "errorData" root with
+            | Some errorData ->
+                let code = tryGetJsonString "code" errorData
+                let message = tryGetJsonString "message" errorData
+                (code, message)
+            | None -> (None, None)
+
         {
-            id: string
-            status: string
-            target: string
-            creationTime: string
-            beginExecutionTime: string option
-            endExecutionTime: string option
-            cancellationTime: string option
-            errorData: ErrorData option
+            JobId = pid
+            Status = JobStatus.Parse(status, errorCode, errorMessage)
+            Target = target
+            CreationTime = DateTimeOffset.Parse(creationTime, System.Globalization.CultureInfo.InvariantCulture)
+            BeginExecutionTime = beginExecutionTime |> Option.map DateTimeOffset.Parse
+            EndExecutionTime = endExecutionTime |> Option.map DateTimeOffset.Parse
+            CancellationTime = cancellationTime |> Option.map DateTimeOffset.Parse
+            OutputDataUri = outputDataUri
+        }
+
+    let private getJobStatusWithTokenAsync
+        (httpClient: HttpClient)
+        (workspaceUrl: string)
+        (jobId: string)
+        (ct: CancellationToken)
+        : Task<Result<QuantumJob, QuantumError>> =
+        task {
+            try
+                use request =
+                    new HttpRequestMessage(HttpMethod.Get, workspaceResourceUrl workspaceUrl $"jobs/%s{jobId}")
+
+                match! sendAsync httpClient (workspaceError (jobNotFound jobId)) [ HttpStatusCode.OK ] request ct with
+                | Error error -> return Error error
+                | Ok body ->
+                    try
+                        use jsonDoc = JsonDocument.Parse body
+                        return Ok(parseJob jsonDoc.RootElement)
+                    with ex ->
+                        // A response that arrived but cannot be read is not a missing
+                        // response: it keeps its status code, so it is not retried as one.
+                        return
+                            Error(
+                                QuantumError.AzureError(
+                                    AzureQuantumError.UnknownError(
+                                        200,
+                                        $"The status of job %s{jobId} could not be read: %s{withoutSasSignature ex.Message}"
+                                    )
+                                )
+                            )
+            with ex ->
+                return Error(requestException ex)
         }
 
     /// Get current job status from Azure Quantum
@@ -133,103 +435,97 @@ module JobLifecycle =
         (workspaceUrl: string)
         (jobId: string)
         : Task<Result<QuantumJob, QuantumError>> =
+        getJobStatusWithTokenAsync httpClient workspaceUrl jobId CancellationToken.None
+
+    // ============================================================================
+    // JOB CANCELLATION
+    // ============================================================================
+
+    /// Request the cancellation of a job (Jobs - Cancel)
+    ///
+    /// Parameters:
+    /// - httpClient: HTTP client for API requests
+    /// - workspaceUrl: Azure Quantum workspace URL
+    /// - jobId: Job identifier
+    ///
+    /// Returns: Ok when the service accepted the request (the job then moves through
+    /// Cancelling to Cancelled), or QuantumError
+    let cancelJobAsync
+        (httpClient: HttpClient)
+        (workspaceUrl: string)
+        (jobId: string)
+        : Task<Result<unit, QuantumError>> =
         task {
             try
-                // Make GET request to /jobs/{id}
-                let url = $"%s{workspaceUrl}/jobs/%s{jobId}"
-                use! response = httpClient.GetAsync url
+                use request =
+                    new HttpRequestMessage(
+                        HttpMethod.Post,
+                        workspaceResourceUrl workspaceUrl $"jobs/%s{jobId}:cancel"
+                    )
 
-                // Handle response
-                match response.StatusCode with
-                | HttpStatusCode.OK ->
-                    // Parse JSON response manually using JsonDocument
-                    let! jsonBody = response.Content.ReadAsStringAsync()
-                    use jsonDoc = JsonDocument.Parse(jsonBody)
-                    let root = jsonDoc.RootElement
+                let! cancelled =
+                    sendAsync
+                        httpClient
+                        (workspaceError (jobNotFound jobId))
+                        [ HttpStatusCode.OK; HttpStatusCode.Accepted; HttpStatusCode.NoContent ]
+                        request
+                        CancellationToken.None
 
-                    // Helper to safely get required string property (throws if null or missing)
-                    let getRequiredString (name: string) =
-                        let prop = root.GetProperty name
-
-                        if prop.ValueKind = JsonValueKind.Null then
-                            failwith $"Required property '%s{name}' is null"
-                        else
-                            prop.GetString()
-
-                    // Extract required fields (will throw if null or missing - intentional for validation)
-                    let id = getRequiredString "id"
-                    let status = getRequiredString "status"
-                    let target = getRequiredString "target"
-                    let creationTime = getRequiredString "creationTime"
-
-                    // Helper to safely get optional string property
-                    let tryGetStringProperty (name: string) = tryGetJsonString name root
-
-                    // Extract optional timestamp fields
-                    let beginExecutionTime = tryGetStringProperty "beginExecutionTime"
-                    let endExecutionTime = tryGetStringProperty "endExecutionTime"
-                    let cancellationTime = tryGetStringProperty "cancellationTime"
-                    let outputDataUri = tryGetStringProperty "outputDataUri"
-
-                    // Extract error data if present
-                    let (errorCode, errorMessage) =
-                        match tryGetJsonProperty "errorData" root with
-                        | Some errorData ->
-                            let code = tryGetJsonString "code" errorData
-                            let message = tryGetJsonString "message" errorData
-                            (code, message)
-                        | None -> (None, None)
-
-                    // Parse job status
-                    let jobStatus = JobStatus.Parse(status, errorCode, errorMessage)
-
-                    // Build QuantumJob
-                    let quantumJob =
-                        {
-                            JobId = id
-                            Status = jobStatus
-                            Target = target
-                            CreationTime =
-                                DateTimeOffset.Parse(creationTime, System.Globalization.CultureInfo.InvariantCulture)
-                            BeginExecutionTime = beginExecutionTime |> Option.map DateTimeOffset.Parse
-                            EndExecutionTime = endExecutionTime |> Option.map DateTimeOffset.Parse
-                            CancellationTime = cancellationTime |> Option.map DateTimeOffset.Parse
-                            OutputDataUri = outputDataUri
-                        }
-
-                    return Ok quantumJob
-
-                | HttpStatusCode.Unauthorized ->
-                    return Error(QuantumError.AzureError AzureQuantumError.InvalidCredentials)
-
-                | HttpStatusCode.NotFound ->
-                    return
-                        Error(QuantumError.AzureError(AzureQuantumError.UnknownError(404, $"Job %s{jobId} not found")))
-
-                | HttpStatusCode.TooManyRequests ->
-                    let retryAfter =
-                        if
-                            not (isNull response.Headers.RetryAfter)
-                            && response.Headers.RetryAfter.Delta.HasValue
-                        then
-                            response.Headers.RetryAfter.Delta.Value
-                        else
-                            TimeSpan.FromSeconds(60.0)
-
-                    return Error(QuantumError.AzureError(AzureQuantumError.RateLimited retryAfter))
-
-                | _ ->
-                    let! errorBody = response.Content.ReadAsStringAsync()
-
-                    return
-                        Error(
-                            QuantumError.AzureError(AzureQuantumError.UnknownError(int response.StatusCode, errorBody))
-                        )
-
-            with
-            | :? TaskCanceledException -> return Error(QuantumError.AzureError(AzureQuantumError.NetworkTimeout 1))
-            | ex -> return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
+                return cancelled |> Result.map ignore
+            with ex ->
+                return Error(requestException ex)
         }
+
+    // ============================================================================
+    // POLLING UNTIL COMPLETE
+    // ============================================================================
+
+    /// Why waiting for a job stopped before the job reached a final status.
+    [<RequireQualifiedAccess>]
+    type private Abandoned =
+        | TimedOut
+        | CallerCancelled
+        | StatusUnavailable of QuantumError
+
+    /// A status request that failed in a way a later attempt can succeed: no HTTP response
+    /// at all (status code 0), a timeout, 429 or 5xx.
+    let private isTransientStatusFailure (error: QuantumError) : bool =
+        match error with
+        | QuantumError.AzureError(AzureQuantumError.UnknownError(0, _)) -> true
+        | other -> Retry.isTransientError other
+
+    /// Error for a job that is no longer waited for. It always names the job, and says
+    /// whether the service accepted the cancellation, so the caller knows what may still
+    /// run and bill.
+    let private abandonedError
+        (jobId: string)
+        (timeout: TimeSpan)
+        (reason: Abandoned)
+        (cancellation: Result<unit, QuantumError>)
+        : QuantumError =
+        let cancellationNote =
+            match cancellation with
+            | Ok() -> "the cancellation request was accepted"
+            | Error error ->
+                $"the cancellation request was not accepted (%s{error.Message}), so the job may still run and bill"
+
+        match reason with
+        | Abandoned.TimedOut ->
+            QuantumError.AzureError(
+                AzureQuantumError.JobTimeout(
+                    $"Job %s{jobId} did not reach a final status within %g{timeout.TotalSeconds} s; %s{cancellationNote}"
+                )
+            )
+        | Abandoned.CallerCancelled ->
+            QuantumError.OperationError(
+                "Job polling",
+                $"Operation cancelled by the caller while waiting for job %s{jobId}; %s{cancellationNote}"
+            )
+        | Abandoned.StatusUnavailable error ->
+            QuantumError.OperationError(
+                "Job polling",
+                $"The status of job %s{jobId} could not be read (%s{error.Message}); %s{cancellationNote}"
+            )
 
     /// Poll job until it reaches a terminal state with exponential backoff
     ///
@@ -237,12 +533,19 @@ module JobLifecycle =
     /// - Start with 2 second interval
     /// - Double interval after each poll
     /// - Cap at 30 second maximum
+    /// - A status request that fails transiently (no response, timeout, 429, 5xx) is
+    ///   retried with Retry.defaultConfig's backoff, up to its MaxAttempts in a row
+    ///
+    /// A job that is no longer waited for is not left running: on timeout, on caller
+    /// cancellation and when the status cannot be read, the service is asked to cancel the
+    /// job (without the caller's token), and the Error names the job id and says whether
+    /// the cancellation request was accepted.
     ///
     /// Parameters:
     /// - httpClient: HTTP client for API requests
     /// - workspaceUrl: Azure Quantum workspace URL
     /// - jobId: Job identifier
-    /// - timeout: Maximum time to wait (default: 5 minutes)
+    /// - timeout: Maximum time to wait
     /// - cancellationToken: Cancellation token
     ///
     /// Returns: Result with final QuantumJob or QuantumError
@@ -254,70 +557,64 @@ module JobLifecycle =
         (cancellationToken: CancellationToken)
         : Task<Result<QuantumJob, QuantumError>> =
         task {
-            // Helper to check if job status is terminal
-            let isTerminal (status: JobStatus) =
-                match status with
-                | JobStatus.Succeeded -> true
-                | JobStatus.Failed _ -> true
-                | JobStatus.Cancelled -> true
-                | JobStatus.Waiting
-                | JobStatus.Executing -> false
-
             // Exponential backoff parameters
             let initialInterval = TimeSpan.FromSeconds(2.0)
             let maxInterval = TimeSpan.FromSeconds(30.0)
             let startTime = DateTimeOffset.UtcNow
 
+            // Sleep that ends early on cancellation and never runs past the timeout; the
+            // loop head then reports whichever happened.
+            let pause (duration: TimeSpan) : Task =
+                task {
+                    let remaining = timeout - (DateTimeOffset.UtcNow - startTime)
+                    let capped = if duration < remaining then duration else remaining
+
+                    if capped > TimeSpan.Zero then
+                        try
+                            do! Task.Delay(capped, cancellationToken)
+                        with :? OperationCanceledException ->
+                            ()
+                }
+
             // Iterative polling loop (task CE does not support tail-call recursion)
             let mutable currentInterval = initialInterval
-            let mutable finished = false
+            let mutable failedAttempts = 0
+            let mutable outcome: Result<QuantumJob, Abandoned> voption = ValueNone
 
-            let mutable finalResult =
-                Error(QuantumError.OperationError("Job polling", "Polling did not complete"))
-
-            while not finished do
-                // Check cancellation
+            while outcome.IsNone do
                 if cancellationToken.IsCancellationRequested then
-                    finalResult <- Error(QuantumError.OperationError("Job polling", "Operation cancelled"))
-                    finished <- true
+                    outcome <- ValueSome(Error Abandoned.CallerCancelled)
+                elif DateTimeOffset.UtcNow - startTime >= timeout then
+                    outcome <- ValueSome(Error Abandoned.TimedOut)
                 else
-                    // Check timeout
-                    let elapsed = DateTimeOffset.UtcNow - startTime
+                    match! getJobStatusWithTokenAsync httpClient workspaceUrl jobId cancellationToken with
+                    | Ok job when job.Status.IsTerminal -> outcome <- ValueSome(Ok job)
+                    | Ok _ ->
+                        failedAttempts <- 0
+                        do! pause currentInterval
 
-                    if elapsed >= timeout then
-                        finalResult <-
-                            Error(QuantumError.OperationError("Job polling", "Operation cancelled due to timeout"))
+                        // Calculate next interval with exponential backoff
+                        let doubled = TimeSpan.FromMilliseconds(currentInterval.TotalMilliseconds * 2.0)
+                        currentInterval <- if doubled > maxInterval then maxInterval else doubled
+                    | Error error when
+                        isTransientStatusFailure error
+                        && failedAttempts + 1 < Retry.defaultConfig.MaxAttempts
+                        ->
+                        failedAttempts <- failedAttempts + 1
 
-                        finished <- true
-                    else
-                        // Get current job status
+                        do!
+                            pause (
+                                TimeSpan.FromMilliseconds(
+                                    float (Retry.calculateDelay Retry.defaultConfig failedAttempts)
+                                )
+                            )
+                    | Error error -> outcome <- ValueSome(Error(Abandoned.StatusUnavailable error))
 
-                        match! getJobStatusAsync httpClient workspaceUrl jobId with
-                        | Ok job ->
-                            if isTerminal job.Status then
-                                // Job complete - return result
-                                finalResult <- Ok job
-                                finished <- true
-                            else
-                                // Job still running - wait and poll again.
-                                // Pass the token so cancellation interrupts the sleep
-                                // (up to 60 s) instead of waiting out the full interval;
-                                // the loop head then reports the graceful cancel error.
-                                try
-                                    do! Task.Delay(int currentInterval.TotalMilliseconds, cancellationToken)
-                                with :? OperationCanceledException ->
-                                    ()
-
-                                // Calculate next interval with exponential backoff
-                                let doubled = TimeSpan.FromMilliseconds(currentInterval.TotalMilliseconds * 2.0)
-                                currentInterval <- if doubled > maxInterval then maxInterval else doubled
-
-                        | Error err ->
-                            // Error getting status - return error
-                            finalResult <- Error err
-                            finished <- true
-
-            return finalResult
+            match outcome.Value with
+            | Ok job -> return Ok job
+            | Error reason ->
+                let! cancellation = cancelJobAsync httpClient workspaceUrl jobId
+                return Error(abandonedError jobId timeout reason cancellation)
         }
 
     // ============================================================================
@@ -377,10 +674,14 @@ module JobLifecycle =
                     return Ok jobResult
 
                 | HttpStatusCode.NotFound ->
+                    // The blob URI carries a SAS token in its query string: only the path is reported.
                     return
                         Error(
                             QuantumError.AzureError(
-                                AzureQuantumError.UnknownError(404, $"Result blob not found at %s{blobUri}")
+                                AzureQuantumError.UnknownError(
+                                    404,
+                                    $"Result blob not found at %s{withoutQuery blobUri}"
+                                )
                             )
                         )
 
@@ -392,75 +693,13 @@ module JobLifecycle =
 
                     return
                         Error(
-                            QuantumError.AzureError(AzureQuantumError.UnknownError(int response.StatusCode, errorBody))
+                            QuantumError.AzureError(
+                                AzureQuantumError.UnknownError(int response.StatusCode, withoutSasSignature errorBody)
+                            )
                         )
 
-            with
-            | :? TaskCanceledException -> return Error(QuantumError.AzureError(AzureQuantumError.NetworkTimeout 1))
-            | ex -> return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
-        }
-
-    // ============================================================================
-    // JOB CANCELLATION
-    // ============================================================================
-
-    /// Cancel a running job
-    ///
-    /// Parameters:
-    /// - httpClient: HTTP client for API requests
-    /// - workspaceUrl: Azure Quantum workspace URL
-    /// - jobId: Job identifier
-    ///
-    /// Returns: Result with unit or QuantumError
-    let cancelJobAsync
-        (httpClient: HttpClient)
-        (workspaceUrl: string)
-        (jobId: string)
-        : Task<Result<unit, QuantumError>> =
-        task {
-            try
-                // Make DELETE request to /jobs/{id}
-                let url = $"%s{workspaceUrl}/jobs/%s{jobId}"
-                use! response = httpClient.DeleteAsync url
-
-                // Handle response
-                match response.StatusCode with
-                | HttpStatusCode.NoContent
-                // Successfully cancelled
-                | HttpStatusCode.OK ->
-                    // Some APIs return 200 OK for successful cancellation
-                    return Ok()
-
-                | HttpStatusCode.NotFound ->
-                    return
-                        Error(QuantumError.AzureError(AzureQuantumError.UnknownError(404, $"Job %s{jobId} not found")))
-
-                | HttpStatusCode.Unauthorized ->
-                    return Error(QuantumError.AzureError AzureQuantumError.InvalidCredentials)
-
-                | HttpStatusCode.TooManyRequests ->
-                    let retryAfter =
-                        if
-                            not (isNull response.Headers.RetryAfter)
-                            && response.Headers.RetryAfter.Delta.HasValue
-                        then
-                            response.Headers.RetryAfter.Delta.Value
-                        else
-                            TimeSpan.FromSeconds(60.0)
-
-                    return Error(QuantumError.AzureError(AzureQuantumError.RateLimited retryAfter))
-
-                | _ ->
-                    let! errorBody = response.Content.ReadAsStringAsync()
-
-                    return
-                        Error(
-                            QuantumError.AzureError(AzureQuantumError.UnknownError(int response.StatusCode, errorBody))
-                        )
-
-            with
-            | :? TaskCanceledException -> return Error(QuantumError.AzureError(AzureQuantumError.NetworkTimeout 1))
-            | ex -> return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
+            with ex ->
+                return Error(requestException ex)
         }
 
     // ============================================================================
@@ -476,7 +715,7 @@ module JobLifecycle =
     /// - httpClient: HTTP client for API requests
     /// - workspaceUrl: Azure Quantum workspace URL
     /// - submission: Job submission details
-    /// - timeout: Maximum polling time (default: 5 minutes)
+    /// - timeout: Maximum polling time
     /// - cancellationToken: Cancellation token
     ///
     /// Returns: Result with JobResult or QuantumError
@@ -519,7 +758,7 @@ module JobLifecycle =
     /// - httpClient: HTTP client for API requests
     /// - workspaceUrl: Azure Quantum workspace URL
     /// - submission: Job submission details
-    /// - timeout: Maximum polling time (default: 5 minutes)
+    /// - timeout: Maximum polling time
     /// - cancellationToken: Cancellation token
     ///
     /// Returns: Result with final QuantumJob or QuantumError

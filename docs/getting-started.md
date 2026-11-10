@@ -444,7 +444,7 @@ task {
 
 ### Handling Budget Limits
 
-The `budget` argument (USD) is a cost guard: when the advisor recommends quantum but the estimated cost exceeds the budget, HybridSolver runs the classical solver instead and says so in `Reasoning`. Exceeding the budget is not an error.
+The `budget` argument (USD) is a cost guard: when the advisor recommends quantum but the estimated cost exceeds the budget, HybridSolver runs the classical solver instead and says so in `Reasoning`. Exceeding the budget is not an error. The estimate covers every job the solve can submit. Simulators (in this process, and provider simulator targets such as `ionq.simulator`) cost nothing; a billed backend with no per-job USD price (Quantinuum, IQM, Atom Computing, the real D-Wave backend) estimates to infinity, so with any budget the problem stays classical.
 
 ```fsharp
 let solveTspWithBudget (distances: float[,]) (maxBudget: float) (cancellationToken: CancellationToken) =

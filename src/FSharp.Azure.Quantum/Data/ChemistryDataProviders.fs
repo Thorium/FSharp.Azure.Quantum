@@ -2165,7 +2165,7 @@ module ChemistryDataProviders =
                                 | None -> []
                             yield!
                                 match pdbId with
-                                | Some id -> [ "pdb_id", id ]
+                                | Some pid -> [ "pdb_id", pid ]
                                 | None -> []
                         ]
                         |> Map.ofList
@@ -2179,7 +2179,7 @@ module ChemistryDataProviders =
 
             let name =
                 match pdbId with
-                | Some id -> $"{id}_{residue.Name}_{residue.ResSeq}"
+                | Some pid -> $"{pid}_{residue.Name}_{residue.ResSeq}"
                 | None -> $"{residue.Name}_{residue.ResSeq}"
 
             {

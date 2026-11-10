@@ -6,13 +6,32 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.6.2</Version>
+    <Version>1.7.0</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification, QPE, Shor, HHL) and quantum chemistry (VQE, QPE) with cloud backend execution as whole-circuit jobs. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>Next release:
+    <PackageReleaseNotes>v1.7.0: Azure jobs follow the data-plane contract; a job no longer waited for is cancelled; results say when an answer was repaired, and refuse to invent one
 - FIXED (RealDWaveBackend): SAPI calls no longer follow redirects, which sent X-Auth-Token to the redirect's host
+- FIXED (JobLifecycle, Client): an Azure job uploads its input to workspace storage and names it (containerUri, inputDataUri, providerId, itemType), every request carries api-version 2026-01-15-preview, cancel is POST :cancel, 200 and 201 both create; a job id must be a GUID
+- BREAKING (JobSubmission): ProviderId and OutputDataFormat added
+- CHANGED (JobStatus): Finishing, Cancelling, Completed and Unknown added; an unrecognised status keeps polling instead of reading as Failed
+- FIXED (JobLifecycle): a job that times out, is cancelled by the caller or cannot be polled is cancelled at the service, and the error names the job id; a timeout is AzureQuantumError.JobTimeout; transient status failures are retried
+- ADDED (CloudBackendFactory): create*WithTimeout for every Azure backend
+- CHANGED (LocalQuantumService): enforces the data-plane contract (api-version, GUID id, containerUri, providerId, input blob upload)
+- FIXED (QaoaExecutionHelpers, QaoaParameterOptimizer): the first backend error stops the optimisation and is returned, no further jobs are submitted; tryOptimizeQaoaParameters and createObjectiveFunctionWithError replace optimizeQaoaParameters and createObjectiveFunction (obsolete)
+- FIXED (QubitRouting): a routed circuit's QubitCount covers the physical qubits it uses, so a logical qubit moved past the logical width is measured (it read 0); BREAKING: CloudBackendHelpers.unrouteHistogram returns Result
+- FIXED (HybridSolver): the budget estimate covers every job of the solve, not one circuit; a billed backend without a USD price (Quantinuum, IQM, Atom, D-Wave) fails any budget; provider simulator targets are free (CostEstimation.isSimulatorTarget)
+- FIXED (D-Wave): one submission per solve with as many reads as shots asked (IAnnealingBackend.ExecuteWithReadsAsync, defaultReads); measuring returns only the reads taken
+- CHANGED (CoverageOptimizer, ResourcePairing, SocialNetworkAnalyzer, ConstraintScheduler): results carry WasRepaired and Sampling, and the message says when the answer was repaired
+- BREAKING (quantumRiskEngine): Error without market data (the built-in sample returns are removed), for amplitude estimation without a backend and for use_error_mitigation; market_returns added; set_simulation_paths obsolete
+- BREAKING (GraphOptimization): the MaxCut QUBO is corrected (its minimum was the uncut graph); decodeSolution reports real feasibility and violations; objectiveValue replaces calculateObjectiveValue (obsolete)
+- BREAKING (Knapsack): Error when no sampled selection fits (was an empty selection); Solution.Sampling added; findAll*Async without a backend runs on the local simulator, findAll*Classical is the classical route
+- BREAKING (QuantumKeyDistribution): runCompleteQKD reconciles Bob's measured key with Alice's (Cascade), shortens the key by the leak and the security parameter or returns Error; BobFinalSecureKey added
+- BREAKING (QuantumDrugDiscovery): trains on a stratified subset and reports MoleculesTrained; QAOA selection without labels is an Error
+- FIXED (AnomalyDetection): Confidence stays within 0..1
+- EXAMPLES (Drones): an export whose permission evidence fails is refused (exit 3) unless --export-on-fail
+
 v1.6.2: Neighbourhood search for QUBOs that no exact split cuts; drone examples at swarm scale and on a map
 - ADDED (QuboSplitting): searchNeighbourhoodsAsync improves any problem one block at a time with the rest fixed (Neighbourhoods: blocks per sweep, a block's QUBO, Apply, Score, Accept); runs are blocks times sweeps; quboNeighbourhoods and searchQuboNeighbourhoodsAsync for a dense QUBO
 - ADDED (QaoaExecutionHelpers): SplitSettings.MaxSweeps (default 0, off) lets runQaoaAsync search a QUBO that neither cuts nor fits; SplitReport.Sweeps tells a heuristic answer from an exact join

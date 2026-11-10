@@ -201,6 +201,10 @@ module GraphOptimization =
         | OneIncoming
         /// Each node has exactly one outgoing edge (TSP)
         | OneOutgoing
+        /// Every node carries exactly one value (a colour, a side of the cut). The colouring
+        /// and cut encodings always require it; decodeSolution reports a node whose bits give
+        /// no single value as a violation of this constraint
+        | OneValuePerNode
         /// Custom constraint function
         | Custom of (Graph<obj, obj> -> bool)
 
@@ -385,7 +389,7 @@ module GraphOptimization =
     /// any edge of a directed graph, allows only its own direction.
     let private tourStepEdges (graph: Graph<'TNode, 'TEdge>) : Map<int * int, Edge<'TEdge>> =
         let indexOf =
-            orderedNodeIds graph |> List.mapi (fun index id -> id, index) |> Map.ofList
+            orderedNodeIds graph |> List.mapi (fun index pid -> pid, index) |> Map.ofList
 
         graph.Edges
         |> List.collect (fun e ->
@@ -481,6 +485,9 @@ module GraphOptimization =
     ///   <item>NoAdjacentEqual: Adjacent nodes must have different colors (if specified)</item>
     /// </list>
     /// <para>Formula: Σ_{c1&lt;c2} x_{i,c1} * x_{i,c2} + Σ_{(u,v)∈E} Σ_c x_{u,c} * x_{v,c}</para>
+    /// <para>The QUBO has no term for the number of colours: its minima are the proper
+    /// colourings with NumColors colours, whichever of them use fewer. ObjectiveValue of a
+    /// decoded solution reports the colours used.</para>
     ///
     /// <para><b>Traveling Salesman Problem (MinimizeTotalWeight):</b></para>
     /// <para>Variables: x_{i,t} = 1 if city i is visited at time t (n² variables, index i·n + t,
@@ -502,7 +509,16 @@ module GraphOptimization =
     /// <para><b>MaxCut (MaximizeCut):</b></para>
     /// <para>Variables: x_i = 1 if node i is in partition 1, else 0</para>
     /// <para>Objective: Maximize Σ_{(i,j)∈E} w_{i,j} * (x_i ⊕ x_j)</para>
-    /// <para>QUBO form: Minimize -Σ_{(i,j)∈E} w_{i,j} * x_i * x_j (encourages opposite partitions)</para>
+    /// <para>QUBO form: Minimize Σ_{(i,j)∈E} w_{i,j} * (2·x_i·x_j − x_i − x_j), which is minus
+    /// the weight of the cut (x_i ⊕ x_j = x_i + x_j − 2·x_i·x_j)</para>
+    ///
+    /// <para><b>Edge selection (MaximizeEdges, MinimizeEdges):</b></para>
+    /// <para>Variables: x_e = 1 if edge e is selected; the QUBO only counts the selected edges.</para>
+    ///
+    /// <para><b>Constraints outside the QUBO:</b> only the constraints named above are encoded.
+    /// Every other constraint of the problem (DegreeLimit, MinDegree, Acyclic, Connected,
+    /// Custom, …) is absent from the QUBO, so a minimum can break it; decodeSolution checks
+    /// all of the problem's constraints and reports the broken ones in Violations.</para>
     /// </remarks>
     ///
     /// <example>
@@ -660,28 +676,31 @@ module GraphOptimization =
         | MaximizeCut ->
             // MaxCut: binary partition encoding
             // Variables: x_i = 1 if node i in partition 1, 0 otherwise
-            // Objective: Maximize edges crossing partition
-            // QUBO formulation: Minimize -Σ w_ij * x_i * x_j
-            //   (negative weights encourage x_i ≠ x_j, i.e., nodes in different partitions)
+            // Objective: Maximize the weight of the edges crossing the partition.
+            // Edge (i, j, w) is cut when x_i ⊕ x_j = x_i + x_j − 2·x_i·x_j = 1, so the
+            // QUBO minimizes Σ w_ij · (2·x_i·x_j − x_i − x_j) = −(cut weight).
+            // A quadratic term alone (±w·x_i·x_j) is not MaxCut: its minimum puts both
+            // endpoints on side 1 or leaves every node on side 0.
 
             let numVars = numNodes
             let baseQubo = emptyQubo numVars
 
-            // Add quadratic terms for each edge: Q[(i,j)] = -weight
+            // A self-loop is never cut and contributes nothing
             let edgeTerms =
                 problem.Graph.Edges
-                |> List.choose (fun edge ->
+                |> List.collect (fun edge ->
                     match Map.tryFind edge.Source nodeIndexMap, Map.tryFind edge.Target nodeIndexMap with
-                    | Some srcIdx, Some tgtIdx ->
-                        // Use canonical ordering (i < j) for QUBO matrix
-                        let (i, j) =
-                            if srcIdx < tgtIdx then
-                                (srcIdx, tgtIdx)
-                            else
-                                (tgtIdx, srcIdx)
+                    | Some srcIdx, Some tgtIdx when srcIdx <> tgtIdx ->
+                        // Canonical ordering (i < j) for the quadratic entry
+                        let i = min srcIdx tgtIdx
+                        let j = max srcIdx tgtIdx
 
-                        Some((i, j), -edge.Weight)
-                    | _ -> None)
+                        [
+                            ((i, j), 2.0 * edge.Weight)
+                            ((i, i), -edge.Weight)
+                            ((j, j), -edge.Weight)
+                        ]
+                    | _ -> [])
 
             // Build QUBO matrix with edge terms
             addTermsToQubo baseQubo edgeTerms
@@ -690,7 +709,8 @@ module GraphOptimization =
         | MinimizeEdges ->
             // Edge-selection encoding: one binary variable per edge, x_e = 1 when
             // edge e is selected. QUBO always minimizes, so maximizing the edge
-            // count means minimizing its negation.
+            // count means minimizing its negation. The problem's constraints are not
+            // part of this QUBO; decodeSolution checks them on the decoded selection.
             let numEdges = problem.Graph.Edges.Length
             let baseQubo = emptyQubo numEdges
 
@@ -719,8 +739,91 @@ module GraphOptimization =
     // OBJECTIVE VALUE CALCULATION (TDD CYCLE 2)
     // ========================================================================
 
+    /// A graph with boxed node and edge payloads, the shape Custom constraints and objectives
+    /// take. A direct cast of Graph<'TNode, 'TEdge> throws InvalidCastException for any
+    /// concretely-typed graph.
+    let private boxGraph (graph: Graph<'TNode, 'TEdge>) : Graph<obj, obj> =
+        {
+            Nodes =
+                graph.Nodes
+                |> Map.map (fun _ n ->
+                    {
+                        Id = n.Id
+                        Value = box n.Value
+                        Properties = n.Properties
+                    })
+            Edges =
+                graph.Edges
+                |> List.map (fun e ->
+                    {
+                        Source = e.Source
+                        Target = e.Target
+                        Weight = e.Weight
+                        Directed = e.Directed
+                        Value = e.Value |> Option.map box
+                        Properties = e.Properties
+                    })
+            Directed = graph.Directed
+            Adjacency = graph.Adjacency
+        }
+
     /// <summary>
-    /// Calculate the objective value for a given solution.
+    /// The value of the problem's objective for a solution.
+    /// </summary>
+    ///
+    /// <param name="problem">The problem whose objective is evaluated</param>
+    /// <param name="solution">The solution to evaluate</param>
+    /// <returns>
+    /// <list type="bullet">
+    ///   <item><b>MinimizeColors:</b> the number of distinct values among the node assignments</item>
+    ///   <item><b>MaximizeCut:</b> the total weight of the problem's edges whose endpoints are
+    ///   assigned different values (an edge with an unassigned endpoint is not counted)</item>
+    ///   <item><b>MinimizeTotalWeight, MinimizeSpanningTree:</b> the total weight of the selected edges</item>
+    ///   <item><b>MinimizeMaxWeight:</b> the largest weight among the selected edges (0 without any)</item>
+    ///   <item><b>MaximizeEdges, MinimizeEdges:</b> the number of selected edges</item>
+    ///   <item><b>Custom:</b> the function applied to the graph of the selected edges, or to the
+    ///   problem graph when the solution has no selection</item>
+    /// </list>
+    /// The value says nothing about feasibility; see IsFeasible and Violations.
+    /// </returns>
+    let objectiveValue
+        (problem: GraphOptimizationProblem<'TNode, 'TEdge>)
+        (solution: GraphOptimizationSolution<'TNode, 'TEdge>)
+        : float =
+        let assignments = solution.NodeAssignments |> Option.defaultValue Map.empty
+        let selected = solution.SelectedEdges |> Option.defaultValue []
+
+        match problem.Objective with
+        | MinimizeColors -> assignments |> Map.toList |> List.map snd |> List.distinct |> List.length |> float
+        | MaximizeCut ->
+            problem.Graph.Edges
+            |> List.sumBy (fun edge ->
+                match Map.tryFind edge.Source assignments, Map.tryFind edge.Target assignments with
+                | Some sideU, Some sideV when sideU <> sideV -> edge.Weight
+                | _ -> 0.0)
+        | MinimizeTotalWeight
+        | MinimizeSpanningTree -> selected |> List.sumBy (fun edge -> edge.Weight)
+        | MinimizeMaxWeight ->
+            match selected with
+            | [] -> 0.0
+            | edges -> edges |> List.map (fun edge -> edge.Weight) |> List.max
+        | MaximizeEdges
+        | MinimizeEdges -> float selected.Length
+        | Custom objective ->
+            match solution.SelectedEdges with
+            | Some edges ->
+                objective (
+                    boxGraph
+                        { problem.Graph with
+                            Edges = edges
+                            Adjacency = Graph.buildAdjacency problem.Graph.Directed edges
+                        }
+                )
+            | None -> objective (boxGraph problem.Graph)
+
+    /// <summary>
+    /// Calculate the objective value for a given solution, guessing the objective from the
+    /// shape of the solution.
     /// </summary>
     ///
     /// <param name="solution">The graph optimization solution to evaluate</param>
@@ -750,6 +853,7 @@ module GraphOptimization =
     /// let value = calculateObjectiveValue solution  // Returns 8.0 (sum of edge weights)
     /// </code>
     /// </example>
+    [<Obsolete("calculateObjectiveValue guesses the objective from the shape of the solution (a 0/1 colouring counts as MaxCut) and counts cut edges instead of their weights. Use objectiveValue problem solution.")>]
     let calculateObjectiveValue (solution: GraphOptimizationSolution<'TNode, 'TEdge>) : float =
         match solution.NodeAssignments, solution.SelectedEdges with
         | Some assignments, None ->
@@ -783,36 +887,28 @@ module GraphOptimization =
     // FR-8: SOLUTION DECODING
     // ========================================================================
 
-    /// Helper: Create a solution record with calculated objective value
-    let private createSolution
+    /// What the bits say, before the objective and the constraints are evaluated: decodeSolution
+    /// fills in ObjectiveValue, IsFeasible and Violations.
+    let private readAssignment
         (graph: Graph<'TNode, 'TEdge>)
         (nodeAssignments: Map<string, int> option)
         (selectedEdges: Edge<'TEdge> list option)
         : GraphOptimizationSolution<'TNode, 'TEdge> =
-
-        let tempSolution =
-            {
-                Graph = graph
-                NodeAssignments = nodeAssignments
-                SelectedEdges = selectedEdges
-                ObjectiveValue = 0.0
-                IsFeasible = true
-                Violations = []
-            }
-
-        { tempSolution with
-            ObjectiveValue = calculateObjectiveValue tempSolution
-        }
-
-    /// Helper: Create an empty/infeasible solution
-    let private emptySolution (graph: Graph<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
         {
             Graph = graph
-            NodeAssignments = None
-            SelectedEdges = None
+            NodeAssignments = nodeAssignments
+            SelectedEdges = selectedEdges
             ObjectiveValue = 0.0
             IsFeasible = false
             Violations = []
+        }
+
+    /// A broken rule of the encoding or of the problem
+    let private violation (broken: GraphConstraint) (description: string) : ConstraintViolation =
+        {
+            Constraint = broken
+            Description = description
+            Severity = DefaultPenalty
         }
 
     /// <summary>
@@ -853,77 +949,69 @@ module GraphOptimization =
             else
                 None
 
-    /// <summary>
-    /// Decode a QUBO solution (binary variable assignments) back to a graph optimization solution.
-    /// </summary>
-    ///
-    /// <param name="problem">The original graph optimization problem</param>
-    /// <param name="quboSolution">Binary variable assignments from QUBO solver (list of 0s and 1s)</param>
-    /// <returns>A graph optimization solution with node assignments, objective value, and feasibility status</returns>
-    ///
-    /// <remarks>
-    /// <para><b>Graph Coloring:</b></para>
-    /// <para>Decodes one-hot color encoding: x_{i,c} = 1 means node i has color c</para>
-    /// <para>If multiple colors are assigned to a node, selects the first one</para>
-    ///
-    /// <para><b>TSP:</b></para>
-    /// <para>Decodes one-hot time encoding: x_{i,t} = 1 means city i visited at time t</para>
-    /// <para>A permutation matrix (see tryDecodeTour) gives the edges of the closed tour in
-    /// time-slot order, each oriented in the direction of travel, the edge from the last city
-    /// back to the first included. The solution is infeasible, without edges, when the bits
-    /// are not a permutation matrix, and infeasible when a step of the tour has no edge.</para>
-    ///
-    /// <para><b>MaxCut:</b></para>
-    /// <para>Decodes binary partition: x_i = 1 means node i is in partition 1, else partition 0</para>
-    /// </remarks>
-    ///
-    /// <example>
-    /// <code>
-    /// let problem = GraphOptimizationBuilder().Nodes(...).Objective(MinimizeColors).NumColors(3).Build()
-    /// let quboSolution = [1; 0; 0; 0; 1; 0] // Node 0 → color 0, Node 1 → color 1
-    /// let solution = decodeSolution problem quboSolution
-    /// // solution.NodeAssignments = Some (Map ["N0", 0; "N1", 1])
-    /// // solution.ObjectiveValue = 2.0 (two colors used)
-    /// // solution.IsFeasible = true
-    /// </code>
-    /// </example>
-    let decodeSolution
+    /// The assignment the bits encode, and the rules of the encoding itself that they break
+    /// (a node without exactly one value, bits that are no tour, a tour step without an edge).
+    /// Nothing is repaired or filled in: a node whose bits give no single value is left out
+    /// of NodeAssignments and reported.
+    let private decodeBits
         (problem: GraphOptimizationProblem<'TNode, 'TEdge>)
         (quboSolution: int list)
-        : GraphOptimizationSolution<'TNode, 'TEdge> =
-        let numNodes = problem.Graph.Nodes |> Map.count
+        : GraphOptimizationSolution<'TNode, 'TEdge> * ConstraintViolation list =
         let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
         let bits = List.toArray quboSolution
 
         match problem.Objective with
         | MinimizeColors ->
-            // Decode one-hot color assignment
+            // Decode one-hot color assignment: exactly one set bit in a node's group is its
+            // colour. A group with no set bit or several is not a colour; picking one
+            // (colour 0, the first set bit) would report a colouring the bits do not hold.
             let numColors = problem.NumColors |> Option.defaultValue DefaultNumColors
 
-            let assignments =
+            let decoded =
                 nodeIds
                 |> List.mapi (fun nodeIdx nodeId ->
-                    // Find which color is assigned (one-hot)
-                    let colorIdx =
+                    let colours =
                         [ 0 .. numColors - 1 ]
-                        |> List.tryFindIndex (fun c ->
+                        |> List.filter (fun c ->
                             let varIdx = nodeIdx * numColors + c
                             varIdx < bits.Length && bits.[varIdx] = 1)
-                        |> Option.defaultValue 0
 
-                    nodeId, colorIdx)
+                    match colours with
+                    | [ colour ] -> Ok(nodeId, colour)
+                    | [] -> Error(violation OneValuePerNode $"node '{nodeId}' has no colour")
+                    | several ->
+                        let listed = several |> List.map string |> String.concat ", "
+                        Error(violation OneValuePerNode $"node '{nodeId}' has {several.Length} colours ({listed})"))
+
+            let assignments =
+                decoded
+                |> List.choose (function
+                    | Ok assigned -> Some assigned
+                    | Error _ -> None)
                 |> Map.ofList
 
-            createSolution problem.Graph (Some assignments) None
+            let undecodable =
+                decoded
+                |> List.choose (function
+                    | Ok _ -> None
+                    | Error broken -> Some broken)
+
+            readAssignment problem.Graph (Some assignments) None, undecodable
 
         | MinimizeTotalWeight ->
             // Decode TSP tour from one-hot time encoding
             // Variables: x_{i,t} = 1 if city i visited at time t
             match tryDecodeTour problem quboSolution with
-            | None -> emptySolution problem.Graph
+            | None ->
+                readAssignment problem.Graph None None,
+                [
+                    violation
+                        VisitOnce
+                        "the bits are not a tour: every time slot needs exactly one city and every city exactly one slot"
+                ]
             | Some tour ->
-                let indexOf = nodeIds |> List.mapi (fun index id -> id, index) |> Map.ofList
-                let order = tour |> List.map (fun id -> Map.find id indexOf) |> List.toArray
+                let indexOf = nodeIds |> List.mapi (fun index pid -> pid, index) |> Map.ofList
+                let order = tour |> List.map (fun pid -> Map.find pid indexOf) |> List.toArray
                 let stepEdges = tourStepEdges problem.Graph
 
                 // The steps of the closed tour: consecutive time slots, the last slot being
@@ -935,21 +1023,34 @@ module GraphOptimization =
                         [ for t in 0 .. order.Length - 1 -> order.[t], order.[(t + 1) % order.Length] ]
 
                 let tourEdges = steps |> List.choose (fun step -> Map.tryFind step stepEdges)
+                let nodeIdArray = List.toArray nodeIds
 
-                { createSolution problem.Graph None (Some tourEdges) with
-                    IsFeasible = tourEdges.Length = steps.Length
-                }
+                let missingSteps =
+                    steps
+                    |> List.filter (fun step -> not (Map.containsKey step stepEdges))
+                    |> List.map (fun (source, target) ->
+                        violation
+                            OneOutgoing
+                            $"the tour steps from '{nodeIdArray.[source]}' to '{nodeIdArray.[target]}', which no edge allows")
+
+                readAssignment problem.Graph None (Some tourEdges), missingSteps
 
         | MaximizeCut ->
-            // Decode partition
+            // Decode partition: bit i is the side of node i. A node without a bit has no
+            // side; placing it on side 0 would report a cut the bits do not hold.
             let partition =
                 nodeIds
-                |> List.mapi (fun i nodeId ->
-                    let partitionValue = if i < bits.Length then bits.[i] else 0
-                    nodeId, partitionValue)
+                |> List.indexed
+                |> List.filter (fun (i, _) -> i < bits.Length)
+                |> List.map (fun (i, nodeId) -> nodeId, bits.[i])
                 |> Map.ofList
 
-            createSolution problem.Graph (Some partition) None
+            let unplaced =
+                nodeIds
+                |> List.skip (min bits.Length nodeIds.Length)
+                |> List.map (fun nodeId -> violation OneValuePerNode $"node '{nodeId}' has no side of the cut")
+
+            readAssignment problem.Graph (Some partition) None, unplaced
 
         | MaximizeEdges
         | MinimizeEdges ->
@@ -960,7 +1061,7 @@ module GraphOptimization =
                 |> List.filter (fun (e, _) -> e < bits.Length && bits.[e] = 1)
                 |> List.map snd
 
-            createSolution problem.Graph None (Some selectedEdges)
+            readAssignment problem.Graph None (Some selectedEdges), []
 
         | MinimizeSpanningTree
         | MinimizeMaxWeight
@@ -1150,7 +1251,13 @@ module GraphOptimization =
                     let visitedNodes =
                         edges |> List.collect (fun e -> [ e.Source; e.Target ]) |> List.distinct
 
-                    visitedNodes.Length = nodeIds.Length
+                    // The tour of a single node has no edge
+                    nodeIds.Length <= 1 || visitedNodes.Length = nodeIds.Length
+                | None -> true
+
+            | OneValuePerNode ->
+                match solution.NodeAssignments with
+                | Some assignments -> problem.Graph.Nodes |> Map.forall (fun nodeId _ -> assignments.ContainsKey nodeId)
                 | None -> true
 
             | Acyclic -> not (hasCycle problem.Graph.Directed edgesUnderTest)
@@ -1197,32 +1304,109 @@ module GraphOptimization =
             | GraphConstraint.Custom predicate ->
                 // Custom constraint validation using provided predicate.
                 // Note: predicate takes the graph, not problem/solution.
-                // The predicate is typed over Graph<obj, obj>, so box the node/edge
-                // payloads into a new graph value (a direct cast of Graph<'TNode, 'TEdge>
-                // throws InvalidCastException for any concretely-typed graph).
-                let boxedGraph: Graph<obj, obj> =
-                    {
-                        Nodes =
-                            problem.Graph.Nodes
-                            |> Map.map (fun _ n ->
-                                {
-                                    Id = n.Id
-                                    Value = box n.Value
-                                    Properties = n.Properties
-                                })
-                        Edges =
-                            problem.Graph.Edges
-                            |> List.map (fun e ->
-                                {
-                                    Source = e.Source
-                                    Target = e.Target
-                                    Weight = e.Weight
-                                    Directed = e.Directed
-                                    Value = e.Value |> Option.map box
-                                    Properties = e.Properties
-                                })
-                        Directed = problem.Graph.Directed
-                        Adjacency = problem.Graph.Adjacency
-                    }
+                predicate (boxGraph problem.Graph))
 
-                predicate boxedGraph)
+    // ========================================================================
+    // FR-8: SOLUTION DECODING WITH FEASIBILITY
+    // ========================================================================
+
+    /// What a solution breaks of one constraint of the problem, in words
+    let private describeBroken
+        (problem: GraphOptimizationProblem<'TNode, 'TEdge>)
+        (solution: GraphOptimizationSolution<'TNode, 'TEdge>)
+        (broken: GraphConstraint)
+        : string =
+        match broken, solution.NodeAssignments with
+        | NoAdjacentEqual, Some assignments ->
+            let clashes =
+                problem.Graph.Edges
+                |> List.filter (fun edge ->
+                    match Map.tryFind edge.Source assignments, Map.tryFind edge.Target assignments with
+                    | Some valueU, Some valueV -> valueU = valueV
+                    | _ -> false)
+                |> List.map (fun edge -> $"{edge.Source}-{edge.Target}")
+                |> String.concat ", "
+
+            $"adjacent nodes share a value: {clashes}"
+        | DegreeLimit maxDegree, _ -> $"a node has more than {maxDegree} edges"
+        | MinDegree minDegree, _ -> $"a node has fewer than {minDegree} edges"
+        | VisitOnce, _ -> "the selected edges do not visit every node"
+        | Acyclic, _ -> "the edges contain a cycle"
+        | Connected, _ -> "the edges are not connected"
+        | OneIncoming, _ -> "a node does not have exactly one incoming edge"
+        | OneOutgoing, _ -> "a node does not have exactly one outgoing edge"
+        | OneValuePerNode, _ -> "a node has no value"
+        | NoAdjacentEqual, None -> "adjacent nodes share a value"
+        | GraphConstraint.Custom _, _ -> "the custom constraint does not hold"
+
+    /// <summary>
+    /// Decode a QUBO solution (binary variable assignments) back to a graph optimization solution.
+    /// </summary>
+    ///
+    /// <param name="problem">The original graph optimization problem</param>
+    /// <param name="quboSolution">Binary variable assignments from QUBO solver (list of 0s and 1s)</param>
+    /// <returns>
+    /// The assignment the bits encode, with ObjectiveValue = objectiveValue problem solution,
+    /// Violations = the rules of the encoding the bits break plus every constraint of the
+    /// problem that validateConstraints finds broken, and IsFeasible = no violation.
+    /// </returns>
+    ///
+    /// <remarks>
+    /// <para>The bits are read as they are; nothing is repaired or filled in.</para>
+    ///
+    /// <para><b>Graph Coloring:</b></para>
+    /// <para>Decodes one-hot color encoding: x_{i,c} = 1 means node i has color c</para>
+    /// <para>A node with no color bit set, or with several, has no color: it is left out of
+    /// NodeAssignments and reported as a OneValuePerNode violation.</para>
+    ///
+    /// <para><b>TSP:</b></para>
+    /// <para>Decodes one-hot time encoding: x_{i,t} = 1 means city i visited at time t</para>
+    /// <para>A permutation matrix (see tryDecodeTour) gives the edges of the closed tour in
+    /// time-slot order, each oriented in the direction of travel, the edge from the last city
+    /// back to the first included. The solution is infeasible, without edges, when the bits
+    /// are not a permutation matrix, and infeasible when a step of the tour has no edge.</para>
+    ///
+    /// <para><b>MaxCut:</b></para>
+    /// <para>Decodes binary partition: x_i = 1 means node i is in partition 1, else partition 0.
+    /// A node without a bit is left out and reported as a OneValuePerNode violation.</para>
+    ///
+    /// <para><b>Edge selection (MaximizeEdges, MinimizeEdges):</b></para>
+    /// <para>x_e = 1 selects edge e. The QUBO does not encode the problem's constraints, so
+    /// the selection is checked against them here.</para>
+    /// </remarks>
+    ///
+    /// <example>
+    /// <code>
+    /// let problem = GraphOptimizationBuilder().Nodes(...).Objective(MinimizeColors).NumColors(3).Build()
+    /// let quboSolution = [1; 0; 0; 0; 1; 0] // Node 0 → color 0, Node 1 → color 1
+    /// let solution = decodeSolution problem quboSolution
+    /// // solution.NodeAssignments = Some (Map ["N0", 0; "N1", 1])
+    /// // solution.ObjectiveValue = 2.0 (two colors used)
+    /// // solution.IsFeasible = true
+    /// </code>
+    /// </example>
+    let decodeSolution
+        (problem: GraphOptimizationProblem<'TNode, 'TEdge>)
+        (quboSolution: int list)
+        : GraphOptimizationSolution<'TNode, 'TEdge> =
+        let decoded, brokenEncoding = decodeBits problem quboSolution
+
+        let brokenConstraints =
+            problem.Constraints
+            |> List.filter (fun constr ->
+                not (
+                    validateConstraints
+                        { problem with
+                            Constraints = [ constr ]
+                        }
+                        decoded
+                ))
+            |> List.map (fun constr -> violation constr (describeBroken problem decoded constr))
+
+        let violations = brokenEncoding @ brokenConstraints
+
+        { decoded with
+            ObjectiveValue = objectiveValue problem decoded
+            IsFeasible = violations.IsEmpty
+            Violations = violations
+        }

@@ -112,32 +112,21 @@ if not quiet then
 // Step 2: Build MaxCut QAOA Circuit
 // ---------------------------------------------------------------------------
 
+/// MaxCut as a minimisation. An edge (u, v) of weight w is cut when Z_u Z_v = -1, so the
+/// cut weight is the sum of w (1 - Z_u Z_v) / 2 and the Hamiltonian sum of (w / 2) Z_u Z_v
+/// is lowest where the cut is largest. The constant -w / 2 per edge is left out.
 let buildMaxCutHamiltonian (nVerts: int) (edgeList: (int * int * float) list) : ProblemHamiltonian =
-    let diagonalTerms =
-        List.init (max 0 nVerts) (fun v ->
-            let weight =
-                edgeList
-                |> List.filter (fun (u, w, _) -> u = v || w = v)
-                |> List.sumBy (fun (_, _, w) -> w)
-
-            {
-                Coefficient = weight / 2.0
-                QubitsIndices = [| v |]
-                PauliOperators = [| PauliZ |]
-            })
-
-    let offDiagonalTerms =
-        edgeList
-        |> List.map (fun (u, v, w) ->
-            {
-                Coefficient = -w / 4.0
-                QubitsIndices = [| u; v |]
-                PauliOperators = [| PauliZ; PauliZ |]
-            })
-
     {
         NumQubits = nVerts
-        Terms = List.append diagonalTerms offDiagonalTerms |> List.toArray
+        Terms =
+            edgeList
+            |> List.map (fun (u, v, w) ->
+                {
+                    Coefficient = w / 2.0
+                    QubitsIndices = [| u; v |]
+                    PauliOperators = [| PauliZ; PauliZ |]
+                })
+            |> List.toArray
     }
 
 let problemHamiltonian = buildMaxCutHamiltonian numVertices edges
@@ -261,7 +250,7 @@ match backend.Execute circuit numShots with
         printfn "============================================================"
         printfn ""
         printfn "  Partition: %s" (String.Join("", bestBitstring))
-        printfn "  Cut Value: %.1f (max possible: 12.0)" bestCut
+        printfn "  Cut Value: %.1f (total edge weight: %.1f)" bestCut (edges |> List.sumBy (fun (_, _, w) -> w))
         printfn "  Occurrences: %d/%d (%.1f%%)" bestCount numShots (100.0 * float bestCount / float numShots)
         printfn ""
         printfn "  Partition Sets:"

@@ -218,7 +218,7 @@ let private loadNodesFromCsv (path: string) : SupplyChainNode list =
         let get key = row.Values |> Map.tryFind key
 
         match get "id", get "type" with
-        | Some id, Some nodeType ->
+        | Some pid, Some nodeType ->
             let tryInt key =
                 get key
                 |> Option.bind (fun s ->
@@ -235,7 +235,7 @@ let private loadNodesFromCsv (path: string) : SupplyChainNode list =
 
             Some
                 {
-                    Id = id
+                    Id = pid
                     NodeType = nodeType
                     Capacity = tryInt "capacity" |> Option.defaultValue 0
                     OperatingCost = tryFloat "cost" |> Option.defaultValue 0.0

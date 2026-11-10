@@ -277,44 +277,69 @@ module QuantumStateTests =
         )
 
     [<Fact>]
-    let ``IsingSamples - measure should respect NumOccurrences weighting`` () =
+    let ``IsingSamples - measure returns the reads taken, never more`` () =
         let problem = createIsingProblem ()
         let solutions = createDWaveSolutions ()
         let state = QuantumState.IsingSamples(problem :> obj, solutions :> obj)
 
+        // The annealer took 70 + 25 + 5 = 100 reads; asking for 1000 samples returns those 100.
         let measurements = QuantumState.measure state 1000
+        Assert.Equal(100, measurements.Length)
 
-        // Count occurrences of each bitstring
         let counts = measurements |> Array.countBy id |> Map.ofArray
+        Assert.Equal(70, counts.[[| 0; 0; 0 |]])
+        Assert.Equal(25, counts.[[| 1; 0; 0 |]])
+        Assert.Equal(5, counts.[[| 0; 1; 0 |]])
 
-        // Best solution (70% of samples): [0, 0, 0]
-        let count000 = Map.tryFind [| 0; 0; 0 |] counts |> Option.defaultValue 0
-
-        // Second best (25% of samples): [1, 0, 0]
-        let count100 = Map.tryFind [| 1; 0; 0 |] counts |> Option.defaultValue 0
-
-        // Third (5% of samples): [0, 1, 0]
-        let count010 = Map.tryFind [| 0; 1; 0 |] counts |> Option.defaultValue 0
-
-        // Should see roughly 70%, 25%, 5% distribution (with statistical variance)
-        Assert.True(count000 > count100, "Best solution should appear most frequently")
-        Assert.True(count100 > count010, "Second best should appear more than third")
-
-        // Rough bounds: 70% ± 10% = [600, 800], 25% ± 10% = [150, 350], 5% ± 5% = [0, 100]
-        Assert.InRange(count000, 600, 800)
-        Assert.InRange(count100, 150, 350)
-        Assert.InRange(count010, 0, 100)
+        // Asking for exactly the reads taken returns each once.
+        Assert.Equal(100, (QuantumState.measure state 100).Length)
 
     [<Fact>]
-    let ``IsingSamples - measure should handle empty solutions`` () =
+    let ``IsingSamples - measure draws fewer shots from the reads without replacement`` () =
+        let problem = createIsingProblem ()
+        let solutions = createDWaveSolutions ()
+        let state = QuantumState.IsingSamples(problem :> obj, solutions :> obj)
+
+        let measurements = QuantumState.measure state 40
+        Assert.Equal(40, measurements.Length)
+
+        // No outcome appears more often than the annealer read it.
+        let counts = measurements |> Array.countBy id |> Map.ofArray
+        Assert.True((counts |> Map.tryFind [| 0; 0; 0 |] |> Option.defaultValue 0) <= 70)
+        Assert.True((counts |> Map.tryFind [| 1; 0; 0 |] |> Option.defaultValue 0) <= 25)
+        Assert.True((counts |> Map.tryFind [| 0; 1; 0 |] |> Option.defaultValue 0) <= 5)
+        // A sample of the reads, not the lowest-energy prefix (the first 40 are all [0;0;0]).
+        Assert.True(counts.Count > 1, "40 of 100 shuffled reads should not all be the best solution")
+
+        // The reads are independent arrays: mutating one leaves the rest alone.
+        measurements.[0].[0] <- 7
+        Assert.True(measurements |> Array.skip 1 |> Array.forall (fun bits -> bits.[0] <> 7))
+
+    [<Fact>]
+    let ``IsingSamples - measure of a single read returns one sample`` () =
+        let problem = createIsingProblem ()
+
+        let oneRead: DWaveSolution list =
+            [
+                {
+                    Spins = Map.ofList [ (0, 1); (1, -1); (2, 1) ]
+                    Energy = -0.5
+                    NumOccurrences = 1
+                    ChainBreakFraction = 0.0
+                }
+            ]
+
+        let state = QuantumState.IsingSamples(problem :> obj, oneRead :> obj)
+
+        Assert.Equal<int[][]>([| [| 1; 0; 1 |] |], QuantumState.measure state 500)
+
+    [<Fact>]
+    let ``IsingSamples - measure of a state with no reads returns no samples`` () =
         let problem = createIsingProblem ()
         let emptySolutions: DWaveSolution list = []
         let state = QuantumState.IsingSamples(problem :> obj, emptySolutions :> obj)
 
-        let measurements = QuantumState.measure state 10
-
-        // Should return all zeros when no solutions available
-        Assert.All(measurements, fun bits -> Assert.All(bits, fun bit -> Assert.Equal(0, bit)))
+        Assert.Empty(QuantumState.measure state 10)
 
     [<Fact>]
     let ``IsingSamples - probability should calculate empirical probability`` () =

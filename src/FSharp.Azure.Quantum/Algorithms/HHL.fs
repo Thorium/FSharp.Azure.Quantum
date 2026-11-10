@@ -62,7 +62,7 @@ module HHL =
     // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
     // ========================================================================
 
-    [<RequireQualifiedAccess>]
+    [<Struct; RequireQualifiedAccess>]
     type Exactness =
         | Exact
         | Approximate of epsilon: float

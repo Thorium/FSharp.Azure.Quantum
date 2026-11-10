@@ -961,6 +961,31 @@ module CostEstimation =
             Warnings: string list
         }
 
+    /// True for an Azure Quantum target that names a provider's free simulator, or for a
+    /// backend name that carries such a target ("Rigetti Cloud (rigetti.sim.qvm)"): one of
+    /// its dot-separated parts is "simulator" or "sim" — ionq.simulator, rigetti.sim.qvm,
+    /// iqm.sim, atom-computing.sim, quantinuum.sim.h1-1sc.
+    ///
+    /// Quantinuum's emulators (quantinuum.sim.h1-1e, quantinuum.sim.h2-1e) are not free —
+    /// they are billed in emulator credits — and are priced like hardware. Every cost
+    /// estimate that treats simulators as free decides by this predicate (estimateCostSimple,
+    /// the cloud backends' cost guard, HybridSolver's budget check).
+    let isSimulatorTarget (target: string) : bool =
+        let isPart (name: string) (part: string) =
+            String.Equals(part, name, StringComparison.OrdinalIgnoreCase)
+
+        not (isNull target)
+        && target.Split([| ' '; '('; ')' |], StringSplitOptions.RemoveEmptyEntries)
+           |> Array.exists (fun word ->
+               let parts = word.Split '.'
+
+               let isQuantinuumEmulator =
+                   parts |> Array.exists (isPart "quantinuum")
+                   && (Array.last parts).EndsWith("e", StringComparison.OrdinalIgnoreCase)
+
+               parts |> Array.exists (fun part -> isPart "simulator" part || isPart "sim" part)
+               && not isQuantinuumEmulator)
+
     /// Simplified cost estimation based on target string and shot count
     /// This is a compatibility wrapper for Client.fs (legacy Cost.fs API)
     let estimateCostSimple (target: string) (shots: int) : Result<SimpleCostEstimate, QuantumError> =
@@ -970,7 +995,7 @@ module CostEstimation =
             Error(QuantumError.ValidationError("target", "Target backend cannot be empty"))
         else
             // Detect backend type from target string
-            let isSimulator = target.Contains("simulator", StringComparison.OrdinalIgnoreCase)
+            let isSimulator = isSimulatorTarget target
 
             if isSimulator then
                 // Simulators are free

@@ -736,7 +736,7 @@ module QuantumPortfolioSolver =
         Array2D.init variables.Length variables.Length (fun a b -> dense.[variables.[a], variables.[b]]), kept
 
     /// The (γ, β) pair whose samples have the lowest mean QUBO energy. A function of its own
-    /// rather than a lambda inside sampleWithAngleGridAsync: there the lambda keeps the task
+    /// rather than a lambda inside sampleAnglesOnGridAsync: there the lambda keeps the task
     /// from compiling to a static state machine (FS3511 in Release builds).
     let private lowestMeanEnergyAngles (qubo: float[,]) (sampled: ((float * float) * int[][])[]) : float * float =
         sampled
@@ -746,7 +746,7 @@ module QuantumPortfolioSolver =
     /// Samples p = 1 QAOA at `initial` and every (γ, β) of the angle grid with gridShots shots
     /// each, then finalShots at the pair with the lowest mean sampled QUBO energy. Returns every
     /// sample and the chosen pair.
-    let internal sampleWithAngleGridAsync
+    let private sampleAnglesOnGridAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
         (initial: float * float)
@@ -818,6 +818,45 @@ module QuantumPortfolioSolver =
                         let all = Array.append (sampled |> Array.collect snd) measurements
                         Ok(all, bestAngles)
         }
+
+    /// Circuits sampled to choose the angles: InitialParameters and every pair of the grid.
+    let private angleGridJobs = 1 + angleGridGammas.Length * angleGridBetas.Length
+
+    /// Shots of each angle-grid circuit: a tenth of the final shots, at least 50.
+    let private gridShotsOf (config: QuantumPortfolioConfig) : int = max 50 (config.NumShots / 10)
+
+    /// What solveAsync submits to `backend` with `config`, at most: one circuit per angle pair,
+    /// then the final sampling; on an annealer the one submission of NumShots reads.
+    let jobPlan
+        (backend: BackendAbstraction.IQuantumBackend)
+        (config: QuantumPortfolioConfig)
+        : QaoaExecutionHelpers.JobPlan =
+        QaoaExecutionHelpers.jobPlanOf backend angleGridJobs (gridShotsOf config) config.NumShots
+
+    /// sampleAnglesOnGridAsync on a gate backend. An annealer does not use the angles, so
+    /// every grid point would submit the same problem: it is submitted once, for finalShots
+    /// reads, and `initial` is returned as the pair.
+    let internal sampleWithAngleGridAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (qubo: float[,])
+        (initial: float * float)
+        (gridShots: int)
+        (finalShots: int)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[][] * (float * float), QuantumError>> =
+        match backend with
+        | :? BackendAbstraction.IAnnealingBackend ->
+            task {
+                let! reads =
+                    QaoaExecutionHelpers.executeFromQuboAsync backend qubo [| initial |] finalShots cancellationToken
+
+                return
+                    match reads with
+                    | Error err -> Error err
+                    | Ok [||] -> Error(QuantumError.OperationError("QAOA", "The backend returned no samples"))
+                    | Ok measurements -> Ok(measurements, initial)
+            }
+        | _ -> sampleAnglesOnGridAsync backend qubo initial gridShots finalShots cancellationToken
 
     /// QAOA pipeline shared by solveAsync and solveWithCovarianceAsync.
     let private solveCoreAsync
@@ -929,7 +968,7 @@ module QuantumPortfolioSolver =
                                     backend
                                     circuitMatrix
                                     config.InitialParameters
-                                    (max 50 (config.NumShots / 10))
+                                    (gridShotsOf config)
                                     config.NumShots
                                     cancellationToken
                             with

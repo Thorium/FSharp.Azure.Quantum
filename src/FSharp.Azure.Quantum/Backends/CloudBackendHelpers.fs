@@ -131,29 +131,57 @@ module CloudBackendHelpers =
     ///
     /// `mapping.[logical] = physical`, as returned by `QubitRouting.route`.
     /// Bitstring keys follow the same convention as `histogramToQuantumState`:
-    /// rightmost char = qubit 0. Physical qubits beyond the bitstring length are
-    /// read as '0' (devices may report fewer qubits than the coupling map has),
-    /// and distinct physical keys that collapse to the same logical key have
-    /// their counts merged.
-    let unrouteHistogram (mapping: int[]) (numLogical: int) (histogram: Map<string, int>) : Map<string, int> =
-        histogram
-        |> Map.fold
-            (fun acc (bitstring: string) count ->
-                let len = bitstring.Length
+    /// rightmost char = qubit 0. Distinct physical keys that collapse to the same
+    /// logical key have their counts merged.
+    ///
+    /// Every logical qubit's bit must be in the readout: a mapping shorter than
+    /// `numLogical`, or a bitstring that does not reach the physical qubit a logical
+    /// qubit sits on, is an Error. A missing bit is never read as '0' — that would
+    /// report a qubit nobody measured as a measured zero.
+    let unrouteHistogram
+        (mapping: int[])
+        (numLogical: int)
+        (histogram: Map<string, int>)
+        : Result<Map<string, int>, QuantumError> =
+        if numLogical < 0 || mapping.Length < numLogical then
+            Error(
+                QuantumError.ValidationError(
+                    "mapping",
+                    $"the routing has %d{mapping.Length} entries for %d{numLogical} logical qubits"
+                )
+            )
+        else
+            let highestPhysical =
+                if numLogical = 0 then
+                    -1
+                else
+                    mapping |> Seq.take numLogical |> Seq.max
 
-                let logicalBits =
-                    Array.init numLogical (fun q ->
-                        let physical = mapping.[q]
+            match histogram |> Map.tryFindKey (fun bitstring _ -> bitstring.Length <= highestPhysical) with
+            | Some short ->
+                let logical =
+                    Seq.init numLogical id |> Seq.find (fun q -> mapping.[q] >= short.Length)
 
-                        if physical < len then
-                            bitstring.[len - 1 - physical]
-                        else
-                            '0')
+                Error(
+                    QuantumError.OperationError(
+                        "Routed readout",
+                        $"the result '%s{short}' has %d{short.Length} bits, but logical qubit %d{logical} was routed to physical qubit %d{mapping.[logical]}, which is not in it. Its value cannot be reported."
+                    )
+                )
+            | None ->
+                histogram
+                |> Map.fold
+                    (fun acc (bitstring: string) count ->
+                        let len = bitstring.Length
 
-                let key = String(Array.rev logicalBits)
-                let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
-                acc |> Map.add key merged)
-            Map.empty
+                        let logicalBits =
+                            Array.init numLogical (fun q -> bitstring.[len - 1 - mapping.[q]])
+
+                        let key = String(Array.rev logicalBits)
+                        let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
+                        acc |> Map.add key merged)
+                    Map.empty
+                |> Ok
 
     /// Infer the number of qubits from histogram bitstring length.
     ///
@@ -315,6 +343,8 @@ module CloudBackendHelpers =
     ///   • costLimitUsd = None  → no-op (guard disabled — default for all backends)
     ///   • estimation fails     → fail-open (an estimator error never blocks a job)
     ///   • simulator targets    → estimated at $0, so are never blocked
+    ///                            (CostEstimation.isSimulatorTarget: ionq.simulator,
+    ///                            rigetti.sim.qvm, iqm.sim, …; not Quantinuum's emulators)
     ///
     /// Returns Ok () when the job may proceed, or a QuotaExceeded error otherwise.
     let checkCostGuard (target: string) (shots: int) (costLimitUsd: decimal option) : Result<unit, QuantumError> =

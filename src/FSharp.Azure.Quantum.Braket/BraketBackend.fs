@@ -37,8 +37,27 @@ module BraketExecution =
             return! reader.ReadToEndAsync ct
         }
 
+    /// Ask Braket to cancel a task that is no longer waited for, without the caller's token
+    /// (which may be the reason the wait ended). Best effort: the text says whether the
+    /// request was accepted, for the error that names the task.
+    let private requestCancellationAsync (braket: IAmazonBraket) (taskArn: string) : Task<string> =
+        task {
+            try
+                let request =
+                    CancelQuantumTaskRequest(QuantumTaskArn = taskArn, ClientToken = Guid.NewGuid().ToString())
+
+                let! _ = braket.CancelQuantumTaskAsync(request, CancellationToken.None)
+                return "the cancellation request was accepted"
+            with ex ->
+                return $"the cancellation request was not accepted (%s{ex.Message}), so the task may still run and bill"
+        }
+
     /// Submit a Braket action (OpenQASM or AHS JSON), poll until it completes, and parse the
     /// result JSON fetched from S3. Returns `Error` (not an exception) on any failure.
+    ///
+    /// Once the task exists, every Error names its ARN. A task that is no longer waited for
+    /// (timeout, caller cancellation, a failed status request) has its cancellation requested,
+    /// and the Error says whether Braket accepted the request.
     let submitActionAsync
         (braket: IAmazonBraket)
         (s3: IAmazonS3)
@@ -51,6 +70,24 @@ module BraketExecution =
         (timeout: TimeSpan)
         (ct: CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
+        let taskError (taskArn: string) (detail: string) : QuantumError =
+            QuantumError.OperationError("Braket", $"Braket task %s{taskArn} %s{detail}")
+
+        // A completed task is not cancelled: only reading or parsing its result can fail.
+        let readResultAsync (taskArn: string) (info: GetQuantumTaskResponse) =
+            task {
+                try
+                    let key = $"%s{info.OutputS3Directory}/results.json"
+                    let! json = readS3Async s3 info.OutputS3Bucket key ct
+
+                    try
+                        return Ok(parseResult json)
+                    with ex ->
+                        return Error(taskError taskArn $"completed, but its result could not be parsed: %s{ex.Message}")
+                with ex ->
+                    return Error(taskError taskArn $"completed, but its result could not be read from S3: %s{ex.Message}")
+            }
+
         // Defined outside the task so its recursion does not stop the state machine from
         // compiling statically (FS3511).
         let rec poll (taskArn: string) (deadline: DateTime) : Task<Result<Map<string, int>, QuantumError>> =
@@ -59,62 +96,69 @@ module BraketExecution =
                     braket.GetQuantumTaskAsync(GetQuantumTaskRequest(QuantumTaskArn = taskArn), ct)
 
                 match info.Status.Value with
-                | "COMPLETED" ->
-                    let key = $"%s{info.OutputS3Directory}/results.json"
-                    let! json = readS3Async s3 info.OutputS3Bucket key ct
-
-                    try
-                        return Ok(parseResult json)
-                    with ex ->
-                        return
-                            Error(
-                                QuantumError.OperationError("Braket", $"Failed to parse Braket result: %s{ex.Message}")
-                            )
+                | "COMPLETED" -> return! readResultAsync taskArn info
                 | "FAILED"
                 | "CANCELLED" ->
                     let reason = if isNull info.FailureReason then "" else info.FailureReason
+                    return Error(taskError taskArn $"%s{info.Status.Value}: %s{reason}")
+                | _ when DateTime.UtcNow > deadline ->
+                    let! cancellation = requestCancellationAsync braket taskArn
 
                     return
-                        Error(QuantumError.OperationError("Braket", $"Braket task %s{info.Status.Value}: %s{reason}"))
-                | _ when DateTime.UtcNow > deadline ->
-                    return
                         Error(
-                            QuantumError.OperationError(
-                                "Braket",
-                                $"Braket task did not complete within %g{timeout.TotalMinutes} minutes (last status %s{info.Status.Value}); the task %s{taskArn} may still be running."
-                            )
+                            taskError
+                                taskArn
+                                $"did not complete within %g{timeout.TotalMinutes} minutes (last status %s{info.Status.Value}); %s{cancellation}."
                         )
                 | _ ->
                     do! Task.Delay(pollInterval, ct)
                     return! poll taskArn deadline
             }
 
-        task {
-            try
-                let createRequest =
-                    CreateQuantumTaskRequest(
-                        Action = action,
-                        ClientToken = Guid.NewGuid().ToString(),
-                        DeviceArn = deviceArn,
-                        OutputS3Bucket = s3Config.Bucket,
-                        OutputS3KeyPrefix = s3Config.KeyPrefix,
-                        Shots = int64 shots
-                    )
-
-                let! createResponse = braket.CreateQuantumTaskAsync(createRequest, ct)
-                let taskArn = createResponse.QuantumTaskArn
-
-                // Wall-clock deadline so a task stuck in QUEUED/RUNNING never hangs the caller
-                // forever (the synchronous ExecuteToState path passes CancellationToken.None).
-                return! poll taskArn (DateTime.UtcNow + timeout)
-            with ex ->
-                return
-                    Error(
-                        QuantumError.OperationError(
-                            "Braket",
-                            $"Braket submission failed (check AWS credentials / device ARN): %s{ex.Message}"
+        let createAsync () : Task<Result<string, QuantumError>> =
+            task {
+                try
+                    let createRequest =
+                        CreateQuantumTaskRequest(
+                            Action = action,
+                            ClientToken = Guid.NewGuid().ToString(),
+                            DeviceArn = deviceArn,
+                            OutputS3Bucket = s3Config.Bucket,
+                            OutputS3KeyPrefix = s3Config.KeyPrefix,
+                            Shots = int64 shots
                         )
-                    )
+
+                    let! createResponse = braket.CreateQuantumTaskAsync(createRequest, ct)
+                    return Ok createResponse.QuantumTaskArn
+                with ex ->
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "Braket",
+                                $"Braket submission failed (check AWS credentials / device ARN): %s{ex.Message}"
+                            )
+                        )
+            }
+
+        task {
+            match! createAsync () with
+            | Error error -> return Error error
+            | Ok taskArn ->
+                try
+                    // Wall-clock deadline so a task stuck in QUEUED/RUNNING never hangs the caller
+                    // forever (the synchronous ExecuteToState path passes CancellationToken.None).
+                    return! poll taskArn (DateTime.UtcNow + timeout)
+                with ex ->
+                    // A status request failed or the caller cancelled: the task itself is
+                    // still queued or running.
+                    let! cancellation = requestCancellationAsync braket taskArn
+
+                    let cause =
+                        match ex with
+                        | :? OperationCanceledException -> "was abandoned: the operation was cancelled by the caller"
+                        | _ -> $"could not be followed to completion: %s{ex.Message}"
+
+                    return Error(taskError taskArn $"%s{cause}; %s{cancellation}.")
         }
 
     /// Largest circuit for which we materialise a DENSE state vector from the histogram.

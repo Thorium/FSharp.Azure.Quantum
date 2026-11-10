@@ -418,9 +418,9 @@ if runAll || exampleName = "manufacturing" then
 
         // Validate the precedence held in the produced schedule: painting must start strictly
         // after both predecessors finish.
-        let startOf id =
+        let startOf pid =
             ordered
-            |> List.tryPick (fun a -> if a.TaskId = id then Some a.StartTime else None)
+            |> List.tryPick (fun a -> if a.TaskId = pid then Some a.StartTime else None)
 
         match startOf "Welding_Job1", startOf "Assembly_Job1", startOf "Painting_Job1" with
         | Some w, Some asm, Some p ->

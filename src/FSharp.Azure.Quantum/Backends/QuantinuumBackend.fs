@@ -56,9 +56,11 @@ module QuantinuumBackend =
         {
             JobId = jobId
             Target = target
+            ProviderId = Some "quantinuum"
             Name = Some $"Quantinuum-%s{target}"
             InputData = qasmCode :> obj
             InputDataFormat = CircuitFormat.Custom "qasm.v2" // OpenQASM 2.0
+            OutputDataFormat = Some "honeywell.quantum-results.v1"
             InputParams = Map [ ("shots", shots :> obj) ]
             Tags = Map.empty
         }
@@ -199,7 +201,8 @@ module QuantinuumBackend =
                 | Ok(job: QuantumJob) ->
                     // Check job status
                     match job.Status with
-                    | JobStatus.Succeeded ->
+                    | JobStatus.Succeeded
+                    | JobStatus.Completed ->
                         // Step 4: Get results from blob storage
                         match job.OutputDataUri with
                         | None ->
@@ -248,7 +251,10 @@ module QuantinuumBackend =
                         return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
 
                     | JobStatus.Waiting
-                    | JobStatus.Executing ->
+                    | JobStatus.Executing
+                    | JobStatus.Finishing
+                    | JobStatus.Cancelling
+                    | JobStatus.Unknown _ ->
                         return
                             Error(
                                 QuantumError.AzureError(

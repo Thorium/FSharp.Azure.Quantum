@@ -44,9 +44,9 @@ open FSharp.Azure.Quantum.Quantum
 
 let routers =
     [ "R1"; "R2"; "R3"; "R4"; "R5"; "R6" ]
-    |> List.map (fun id ->
+    |> List.map (fun pid ->
         {
-            QuantumVertexCoverSolver.Id = id
+            QuantumVertexCoverSolver.Id = pid
             QuantumVertexCoverSolver.Weight = 1.0
         })
 

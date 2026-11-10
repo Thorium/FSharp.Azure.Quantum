@@ -87,12 +87,19 @@ type ScoredCandidate =
 /// Result of the screening pipeline
 type ScreeningResult =
     {
+        /// Summary of the run. For the classifier methods it states how many molecules the
+        /// model was trained on, how that subset was chosen, and how many were ranked
         Message: string
         Method: ScreeningMethod
+        /// Molecules scored and ranked (classifier methods), or considered for the
+        /// selection (QAOA): not the number the model was trained on, see MoleculesTrained
         MoleculesProcessed: int
+        /// Molecules the classifier was trained on: at most the batch size, a subset
+        /// stratified by label. 0 for QAOA diverse selection, which trains no model
+        MoleculesTrained: int
         /// Candidates scored by the trained quantum model, ranked best-first. For the
-        /// classifier methods this covers the whole candidate pool; for QAOA it is the
-        /// selected diverse set.
+        /// classifier methods this covers the whole candidate pool, the training molecules
+        /// included (their scores are in-sample); for QAOA it is the selected diverse set.
         RankedCandidates: ScoredCandidate array
         Configuration: DrugDiscoveryConfiguration
     }
@@ -241,17 +248,87 @@ module internal ScreeningScoring =
                 | None -> Ok(scored.ToArray())
         }
 
+/// Choosing the molecules a classifier is trained on.
+module internal ScreeningTraining =
+
+    /// Indices (ascending) of a training subset of at most `size` molecules that keeps the
+    /// label proportions: every label gets its proportional share (the largest remainders
+    /// rounded up, a label that would get none first), taken evenly spaced over the
+    /// molecules with that label. The first `size` rows are no such subset when the rows
+    /// are ordered or imbalanced by label: they can hold a single class.
+    let stratifiedSubset (labels: int[]) (size: int) : int[] =
+        let total = labels.Length
+
+        if size >= total then
+            Array.init total id
+        elif size <= 0 then
+            [||]
+        else
+            let classes =
+                labels
+                |> Array.indexed
+                |> Array.groupBy snd
+                |> Array.sortBy fst
+                |> Array.map (fun (_, members) -> members |> Array.map fst)
+
+            let shares =
+                classes
+                |> Array.map (fun members -> float size * float members.Length / float total)
+
+            let floors = shares |> Array.map (floor >> int)
+
+            // The shares add up to `size`, so fewer molecules than classes are left over
+            let roundedUp =
+                [| 0 .. classes.Length - 1 |]
+                |> Array.sortBy (fun c -> (if floors.[c] = 0 then 0 else 1), float floors.[c] - shares.[c])
+                |> Array.truncate (size - Array.sum floors)
+                |> Set.ofArray
+
+            classes
+            |> Array.mapi (fun c members ->
+                let quota = floors.[c] + (if roundedUp.Contains c then 1 else 0)
+                Array.init quota (fun k -> members.[k * members.Length / quota]))
+            |> Array.concat
+            |> Array.sort
+
+    /// The sentence of a result message that says what the model was trained on and what
+    /// was ranked.
+    let describe (labels: int[]) (trained: int[]) : string =
+        let total = labels.Length
+
+        if trained.Length >= total then
+            $"Trained on all {total} molecules; ranked the same {total} (in-sample scores)"
+        else
+            let perLabel =
+                labels
+                |> Array.countBy id
+                |> Array.sortBy fst
+                |> Array.map (fun (label, count) ->
+                    let taken = trained |> Array.filter (fun i -> labels.[i] = label) |> Array.length
+                    $"{taken} of {count} with label {label}")
+                |> String.concat ", "
+
+            $"Trained on {trained.Length} of {total} molecules, a subset stratified by label ({perLabel}); ranked all {total}, the training molecules included"
+
 /// Builder for the Quantum Drug Discovery DSL.
 ///
 /// Defaults: QuantumKernelSVM, ZZFeatureMap, batch size 10, fingerprint size 8, 100 shots
 /// for the classifier circuits and 1000 final shots for the QAOA selection.
 ///
+/// The classifier methods (QuantumKernelSVM, VQCClassifier) train on at most
+/// `set_batch_size` molecules: a kernel method runs a circuit per pair of training
+/// molecules, so the batch size is the cost control. The training molecules are a subset
+/// stratified by label (ScreeningTraining.stratifiedSubset), every candidate is then scored
+/// and ranked, and the result states both counts (MoleculesTrained, MoleculesProcessed).
+///
 /// QAOADiverseSelection (DrugDiscoverySolvers.DiverseSelection) takes the first
 /// `set_batch_size` molecules, each at cost 1, and selects among them under
 /// `selection_budget`: one qubit per molecule, plus ⌊log2 budget⌋ + 1 budget slack qubits
-/// when the budget is below the batch size. With the default budget (10.0) and batch size
+/// when the budget is below the batch size. The activity value of a molecule is its label;
+/// a dataset without labels is an Error (no activity is derived from the descriptors).
+/// With the default budget (10.0) and batch size
 /// (10) the budget does not bind: diversity is non-negative, so with non-negative activity
-/// values (0/1 labels, or no labels) the problem is "select every molecule". Set
+/// values (0/1 labels) the problem is "select every molecule". Set
 /// `selection_budget` below the batch size to select a subset. The result message reports
 /// whether the selection was repaired to fit the budget and how the final samples stood
 /// (see DiverseSelection.Solution.Sampling).
@@ -323,9 +400,12 @@ type QuantumDrugDiscoveryBuilder() =
         state
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<ScreeningResult>> =
-        let limit = min features.Length batchSize
-        let trainData = features.[0 .. limit - 1]
-        let trainLabels = labels.[0 .. limit - 1]
+        // The kernel matrix costs a circuit per pair of training molecules, so the model is
+        // trained on at most batchSize of them: a subset stratified by label, not the first
+        // rows (which hold one class when the file is ordered by label).
+        let trained = ScreeningTraining.stratifiedSubset labels batchSize
+        let trainData = trained |> Array.map (fun i -> features.[i])
+        let trainLabels = trained |> Array.map (fun i -> labels.[i])
 
         let config =
             { QuantumKernelSVM.defaultConfig with
@@ -338,8 +418,8 @@ type QuantumDrugDiscoveryBuilder() =
                 QuantumKernelSVM.trainAsync backend featureMap trainData trainLabels config shots cancellationToken
                 |> mapErrorAsync (fun e -> QuantumError.OperationError("Training", $"Training Failed: {e.Message}"))
 
-            // Genuinely score the whole candidate pool with the trained model: the SVM
-            // decision value is the screening score (signed distance from the hyperplane).
+            // Score the whole candidate pool with the trained model: the SVM decision value
+            // is the screening score (signed distance from the hyperplane).
             let! scored =
                 ScreeningScoring.scoreAllAsync identifiers features (fun feat ->
                     task {
@@ -355,9 +435,10 @@ type QuantumDrugDiscoveryBuilder() =
             return
                 {
                     Message =
-                        $"Quantum Kernel SVM screening complete.\nSupport Vectors: {model.SupportVectorIndices.Length}\nBias: {model.Bias:F4}\nCandidates scored: {ranked.Length}\nPredicted active hits: {hits}"
+                        $"Quantum Kernel SVM screening complete.\n{ScreeningTraining.describe labels trained}\nSupport Vectors: {model.SupportVectorIndices.Length}\nBias: {model.Bias:F4}\nCandidates scored: {ranked.Length}\nPredicted active hits: {hits}"
                     Method = QuantumKernelSVM
                     MoleculesProcessed = features.Length
+                    MoleculesTrained = trained.Length
                     RankedCandidates = ranked
                     Configuration = state
                 }
@@ -372,9 +453,11 @@ type QuantumDrugDiscoveryBuilder() =
         state
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<ScreeningResult>> =
-        let limit = min features.Length state.BatchSize
-        let trainData = features.[0 .. limit - 1]
-        let trainLabels = labels.[0 .. limit - 1]
+        // Trained on at most BatchSize molecules, a subset stratified by label (see
+        // TrainQuantumKernelSVMAsync)
+        let trained = ScreeningTraining.stratifiedSubset labels state.BatchSize
+        let trainData = trained |> Array.map (fun i -> features.[i])
+        let trainLabels = trained |> Array.map (fun i -> labels.[i])
 
         // Determine number of qubits from feature dimension
         let numQubits = if trainData.Length > 0 then trainData.[0].Length else 1
@@ -414,8 +497,8 @@ type QuantumDrugDiscoveryBuilder() =
                 |> mapErrorAsync (fun e ->
                     QuantumError.OperationError("VQCTraining", $"VQC Training Failed: {e.Message}"))
 
-            // Genuinely classify the whole candidate pool with the trained circuit: the
-            // active-class probability is the screening score.
+            // Classify the whole candidate pool with the trained circuit: the active-class
+            // probability is the screening score.
             let! scored =
                 ScreeningScoring.scoreAllAsync identifiers features (fun feat ->
                     task {
@@ -440,9 +523,10 @@ type QuantumDrugDiscoveryBuilder() =
             return
                 {
                     Message =
-                        $"VQC screening complete.\nEpochs: {result.Epochs}\nTrain Accuracy: {result.TrainAccuracy:P2}\nConverged: {result.Converged}\nCandidates scored: {ranked.Length}\nPredicted active hits: {hits}"
+                        $"VQC screening complete.\n{ScreeningTraining.describe labels trained}\nEpochs: {result.Epochs}\nTrain Accuracy: {result.TrainAccuracy:P2}\nConverged: {result.Converged}\nCandidates scored: {ranked.Length}\nPredicted active hits: {hits}"
                     Method = VQCClassifier
                     MoleculesProcessed = features.Length
+                    MoleculesTrained = trained.Length
                     RankedCandidates = ranked
                     Configuration = state
                 }
@@ -451,25 +535,19 @@ type QuantumDrugDiscoveryBuilder() =
     member private _.RunQAOADiverseSelectionAsync
         (backend: IQuantumBackend)
         (features: float[][])
-        (labelsOpt: int[] option)
+        (labels: int[])
         state
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<ScreeningResult>> =
         let limit = min features.Length state.BatchSize
 
-        // Create items from molecules with activity scores
-        // Use labels as activity scores if available, otherwise use feature-based heuristic
+        // One item per molecule; its value is the activity the caller supplied (the label)
         let items =
             features.[0 .. limit - 1]
-            |> Array.mapi (fun i feat ->
-                let activityScore =
-                    match labelsOpt with
-                    | Some labels when i < labels.Length -> float labels.[i]
-                    | _ -> feat |> Array.sum |> abs // Heuristic: sum of features
-
+            |> Array.mapi (fun i _ ->
                 {
                     DrugDiscoverySolvers.DiverseSelection.Item.Id = $"Mol_{i}"
-                    DrugDiscoverySolvers.DiverseSelection.Item.Value = activityScore
+                    DrugDiscoverySolvers.DiverseSelection.Item.Value = float labels.[i]
                     DrugDiscoverySolvers.DiverseSelection.Item.Cost = 1.0
                 }) // Equal cost per molecule
             |> Array.toList
@@ -541,9 +619,10 @@ type QuantumDrugDiscoveryBuilder() =
 
                     {
                         Message =
-                            $"QAOA Diverse Selection Complete!\nSelected: {solution.SelectedItems.Length} compounds\nTotal Value: {solution.TotalValue:F2}\nDiversity Bonus: {solution.DiversityBonus:F2}\nTotal Cost: {solution.TotalCost:F2}\nFeasible: {solution.IsFeasible}\nRepaired to fit the budget: {solution.WasRepaired}{samplingLine}\n\nSelected Compounds: {selectedIds}"
+                            $"QAOA Diverse Selection Complete!\nCandidates considered: the first {limit} of {features.Length} molecules\nSelected: {solution.SelectedItems.Length} compounds\nTotal Value: {solution.TotalValue:F2}\nDiversity Bonus: {solution.DiversityBonus:F2}\nTotal Cost: {solution.TotalCost:F2}\nFeasible: {solution.IsFeasible}\nRepaired to fit the budget: {solution.WasRepaired}{samplingLine}\n\nSelected Compounds: {selectedIds}"
                         Method = QAOADiverseSelection
                         MoleculesProcessed = limit
+                        MoleculesTrained = 0
                         RankedCandidates = ranked
                         Configuration = state
                     })
@@ -593,7 +672,7 @@ type QuantumDrugDiscoveryBuilder() =
                         Error(
                             QuantumError.ValidationError(
                                 "labels",
-                                "QuantumKernelSVM screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data or use QAOADiverseSelection for unlabeled candidates."
+                                "QuantumKernelSVM screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data."
                             )
                         )
                 | Some backend, Some labels ->
@@ -619,7 +698,7 @@ type QuantumDrugDiscoveryBuilder() =
                         Error(
                             QuantumError.ValidationError(
                                 "labels",
-                                "VQCClassifier screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data or use QAOADiverseSelection for unlabeled candidates."
+                                "VQCClassifier screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data."
                             )
                         )
                 | Some backend, Some labels ->
@@ -635,10 +714,21 @@ type QuantumDrugDiscoveryBuilder() =
                             state
                             cancellationToken
             | QAOADiverseSelection ->
-                match state.Backend with
-                | None -> return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
-                | Some backend ->
-                    return! this.RunQAOADiverseSelectionAsync backend features labelsOpt state cancellationToken
+                match state.Backend, labelsOpt with
+                | None, _ ->
+                    return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
+                | Some backend, Some labels when labels.Length >= features.Length ->
+                    return! this.RunQAOADiverseSelectionAsync backend features labels state cancellationToken
+                | _ ->
+                    // The selection maximises activity plus diversity. An activity made up
+                    // from the descriptors would rank molecules by their size.
+                    return!
+                        Error(
+                            QuantumError.ValidationError(
+                                "labels",
+                                "QAOADiverseSelection needs an activity score for every candidate (the activity/label column of the dataset); found none. Provide the scores; none is derived from the molecular descriptors."
+                            )
+                        )
         }
 
     /// The `drugDiscovery { ... }` expression yields a task: `let! result = drugDiscovery { ... }`
@@ -653,7 +743,8 @@ type QuantumDrugDiscoveryBuilder() =
     member _.TargetProteinFromPdb(state: DrugDiscoveryConfiguration, path: string) =
         { state with TargetPdbPath = Some path }
 
-    /// Load candidate molecules from a file (SMILES, SDF, etc.)
+    /// Load candidate molecules from a file. Screening needs activity labels, which only a
+    /// CSV with a label column carries; SDF, MOL, PDB and FCIDump files load without labels.
     [<CustomOperation("load_candidates_from_file")>]
     member _.LoadCandidatesFromFile(state: DrugDiscoveryConfiguration, path: string) =
         { state with
@@ -664,9 +755,9 @@ type QuantumDrugDiscoveryBuilder() =
     /// Load candidate molecules from a dataset provider (new architecture)
     ///
     /// Example:
-    ///   let sdfProvider = SdfFileDatasetProvider("molecules.sdf")
+    ///   let provider = CsvSmilesDatasetProvider("molecules.csv", "SMILES", "Activity")
     ///   drugDiscovery {
-    ///       load_candidates_from_provider sdfProvider
+    ///       load_candidates_from_provider provider
     ///       ...
     ///   }
     [<CustomOperation("load_candidates_from_provider")>]
@@ -693,7 +784,9 @@ type QuantumDrugDiscoveryBuilder() =
     member _.UseFeatureMap(state: DrugDiscoveryConfiguration, featureMap: FeatureMap) =
         { state with FeatureMap = featureMap }
 
-    /// Set the batch size for processing candidates
+    /// Set the batch size (default 10): the most molecules a classifier is trained on (a
+    /// subset stratified by label; every candidate is still scored), and the number of
+    /// leading molecules the QAOA selection chooses among
     [<CustomOperation("set_batch_size")>]
     member _.SetBatchSize(state: DrugDiscoveryConfiguration, size: int) = { state with BatchSize = size }
 

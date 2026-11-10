@@ -27,39 +27,41 @@ module Client =
 
         let private workspacePath subscriptionId resourceGroup workspaceName =
             sprintf
-                "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Quantum/Workspaces/%s"
+                "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Quantum/workspaces/%s"
                 subscriptionId
                 resourceGroup
                 workspaceName
 
+        // Every path carries JobLifecycle.ApiVersion: the service rejects a request without it.
         let jobsPath subscriptionId resourceGroup workspaceName =
-            sprintf "%s/jobs?api-version=2022-09-12-preview" (workspacePath subscriptionId resourceGroup workspaceName)
+            JobLifecycle.workspaceResourceUrl (workspacePath subscriptionId resourceGroup workspaceName) "jobs"
 
         let jobPath subscriptionId resourceGroup workspaceName jobId =
-            sprintf
-                "%s/jobs/%s?api-version=2022-09-12-preview"
+            JobLifecycle.workspaceResourceUrl
                 (workspacePath subscriptionId resourceGroup workspaceName)
-                jobId
+                $"jobs/%s{jobId}"
 
+        /// Jobs - Cancel: POST {workspace}/jobs/{jobId}:cancel
         let cancelJobPath subscriptionId resourceGroup workspaceName jobId =
-            sprintf
-                "%s/jobs/%s/cancel?api-version=2022-09-12-preview"
+            JobLifecycle.workspaceResourceUrl
                 (workspacePath subscriptionId resourceGroup workspaceName)
-                jobId
+                $"jobs/%s{jobId}:cancel"
 
         /// Workspace quotas (AzureQuantumWorkspace.ListQuotasAsync)
         let quotasPath subscriptionId resourceGroup workspaceName =
-            sprintf
-                "%s/quotas?api-version=2022-09-12-preview"
-                (workspacePath subscriptionId resourceGroup workspaceName)
+            JobLifecycle.workspaceResourceUrl (workspacePath subscriptionId resourceGroup workspaceName) "quotas"
 
         /// Provider and target availability (AzureQuantumWorkspace.ListProvidersAsync)
         let providerStatusPath subscriptionId resourceGroup workspaceName =
-            sprintf
-                "%s/providerStatus?api-version=2022-09-12-preview"
+            JobLifecycle.workspaceResourceUrl
                 (workspacePath subscriptionId resourceGroup workspaceName)
+                "providerStatus"
 
         let fullUrl location path = dataPlaneHost location + path
+
+        /// Workspace URL on the data plane, as the JobLifecycle functions take it.
+        let workspaceUrl location subscriptionId resourceGroup workspaceName =
+            fullUrl location (workspacePath subscriptionId resourceGroup workspaceName)
 
     /// Quantum client configuration
     type QuantumClientConfig =
@@ -106,9 +108,6 @@ module Client =
 
     /// Quantum client for Azure Quantum REST API
     type QuantumClient(config: QuantumClientConfig) =
-
-        let jsonOptions = JsonSerializerOptions()
-        do jsonOptions.PropertyNameCaseInsensitive <- true
 
         let retryConfig = config.RetryConfig |> Option.defaultValue Retry.defaultConfig
 
@@ -215,30 +214,28 @@ module Client =
 
                         let url = Endpoints.fullUrl config.Location endpoint
 
-                        // Create request
-                        use request = new HttpRequestMessage(HttpMethod.Put, url)
+                        let workspaceUrl =
+                            Endpoints.workspaceUrl
+                                config.Location
+                                config.SubscriptionId
+                                config.ResourceGroup
+                                config.WorkspaceName
 
-                        // Build request body
-                        let body =
-                            {|
-                                id = submission.JobId
-                                name = submission.Name |> Option.defaultValue submission.JobId
-                                target = submission.Target
-                                inputData = submission.InputData
-                                inputDataFormat = submission.InputDataFormat.ToFormatString()
-                                inputParams = submission.InputParams
-                                metadata = submission.Tags
-                            |}
+                        // The service takes no inline input: JobLifecycle uploads it to the
+                        // workspace's blob storage and creates the job that refers to it.
+                        let! created =
+                            JobLifecycle.createJobAsync
+                                (fun response body ->
+                                    Retry.categorizeHttpError response.StatusCode (JobLifecycle.withoutSasSignature body))
+                                config.HttpClient
+                                workspaceUrl
+                                { submission with
+                                    Name = Some(submission.Name |> Option.defaultValue submission.JobId)
+                                }
+                                ct
 
-                        let jsonContent = JsonSerializer.Serialize(body, jsonOptions)
-                        request.Content <- new StringContent(jsonContent, Encoding.UTF8, "application/json")
-
-                        // Send request
-                        use! response = config.HttpClient.SendAsync(request, ct)
-
-                        // Handle response
-                        if response.IsSuccessStatusCode then
-                            let! responseBody = response.Content.ReadAsStringAsync ct
+                        match created with
+                        | Ok responseBody ->
                             use jsonDoc = JsonDocument.Parse(responseBody)
                             let root = jsonDoc.RootElement
 
@@ -264,28 +261,19 @@ module Client =
                             )
 
                             return Ok submitResponse
-                        else
-                            let! errorBody = response.Content.ReadAsStringAsync ct
-                            let error = Retry.categorizeHttpError response.StatusCode errorBody
-
-                            this.Log(
-                                LogLevel.Error,
-                                "Failed to submit job {JobId}: {StatusCode} - {Error}",
-                                submission.JobId,
-                                response.StatusCode,
-                                error
-                            )
+                        | Error error ->
+                            this.Log(LogLevel.Error, "Failed to submit job {JobId}: {Error}", submission.JobId, error)
 
                             return Error error
                     with ex when not (ex :? OperationCanceledException) ->
-                        this.Log(
-                            LogLevel.Error,
-                            "Exception submitting job {JobId}: {Exception}",
-                            submission.JobId,
-                            ex.Message
-                        )
+                        // The job id stays in the error: the failure may have come after the
+                        // service created the job. SAS signatures never reach a log or an error.
+                        let message =
+                            $"Submitting job %s{submission.JobId} failed: %s{JobLifecycle.withoutSasSignature ex.Message}"
 
-                        return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
+                        this.Log(LogLevel.Error, "Exception submitting job {JobId}: {Exception}", submission.JobId, message)
+
+                        return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, message)))
             }
 
         /// Submit a quantum job with retry logic
@@ -432,9 +420,8 @@ module Client =
 
                     let url = Endpoints.fullUrl config.Location endpoint
 
-                    // Create request
+                    // Create request (Jobs - Cancel takes no body)
                     use request = new HttpRequestMessage(HttpMethod.Post, url)
-                    request.Content <- new StringContent("{}", Encoding.UTF8, "application/json")
 
                     // Send request
                     use! response = config.HttpClient.SendAsync(request, ct)
@@ -542,7 +529,10 @@ module Client =
                                     return
                                         Error(
                                             QuantumError.AzureError(
-                                                AzureQuantumError.UnknownError(int resultResponse.StatusCode, errorBody)
+                                                AzureQuantumError.UnknownError(
+                                                    int resultResponse.StatusCode,
+                                                    JobLifecycle.withoutSasSignature errorBody
+                                                )
                                             )
                                         )
                                 else
@@ -582,24 +572,16 @@ module Client =
                                 )
                             )
                 with ex when not (ex :? OperationCanceledException) ->
-                    this.Log(
-                        LogLevel.Error,
-                        "Exception retrieving results for job {JobId}: {Exception}",
-                        jobId,
-                        ex.Message
-                    )
+                    // The result blob is fetched from a SAS URL: its signature never reaches a log or an error.
+                    let message = JobLifecycle.withoutSasSignature ex.Message
 
-                    return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
+                    this.Log(LogLevel.Error, "Exception retrieving results for job {JobId}: {Exception}", jobId, message)
+
+                    return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, message)))
             }
 
         /// Check if job is in terminal state
-        static member private isTerminalState =
-            function
-            | JobStatus.Succeeded -> true
-            | JobStatus.Failed _ -> true
-            | JobStatus.Cancelled -> true
-            | JobStatus.Waiting
-            | JobStatus.Executing -> false
+        static member private isTerminalState(status: JobStatus) = status.IsTerminal
 
         /// Polling loop with exponential backoff (functional recursive approach)
         member private this.pollForCompletion

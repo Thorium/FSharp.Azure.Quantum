@@ -647,7 +647,7 @@ Virtual screening of molecular candidates using quantum machine learning and opt
 |--------|-------------|----------|
 | **QuantumKernelSVM** | Quantum kernel-based SVM classification (default) | Binary activity classification; needs activity labels |
 | **VQCClassifier** | Variational Quantum Classifier | Trainable classification; needs activity labels |
-| **QAOADiverseSelection** | QAOA-based diverse subset selection | Select diverse, high-value compounds within budget; labels optional |
+| **QAOADiverseSelection** | QAOA-based diverse subset selection | Select diverse, high-value compounds within budget; needs activity labels (the label is the value of a compound) |
 
 ### API Reference
 
@@ -681,7 +681,11 @@ task {
 }
 ```
 
-`ScreeningResult` holds `Message`, `Method`, `MoleculesProcessed`, `RankedCandidates` (each with `Index`, `Identifier`, `Score` and `PredictedActive`, best first) and the `Configuration` used.
+`ScreeningResult` holds `Message`, `Method`, `MoleculesProcessed`, `MoleculesTrained`, `RankedCandidates` (each with `Index`, `Identifier`, `Score` and `PredictedActive`, best first) and the `Configuration` used.
+
+The classifier methods train on at most `set_batch_size` molecules (a kernel method runs a circuit per pair of training molecules) and then score every candidate. The training molecules are a subset stratified by label: every label keeps its share, taken evenly over the molecules with that label, so a file ordered by label does not train on one class. `MoleculesTrained` is the size of that subset, `MoleculesProcessed` the number of molecules ranked, and `Message` states both (`Trained on 10 of 200 molecules, a subset stratified by label (…); ranked all 200, the training molecules included`). Scores of the training molecules are in-sample.
+
+Every method needs the activity/label column. Without it the result is an `Error`; `QAOADiverseSelection` derives no activity from the molecular descriptors.
 
 ### Configuration Options
 
@@ -689,8 +693,8 @@ task {
 // Full configuration example
 let fullConfigResult = drugDiscovery {
     // Data source (choose one)
-    load_candidates_from_file "molecules.sdf"
-    // OR: load_candidates_from_provider sdfProvider
+    load_candidates_from_file "molecules.csv"  // CSV with SMILES and Label columns
+    // OR: load_candidates_from_provider csvProvider
     // OR: load_candidates_from_provider_async asyncProvider
 
     // Optional target structure
@@ -703,7 +707,7 @@ let fullConfigResult = drugDiscovery {
     use_feature_map ZZFeatureMap  // or PauliFeatureMap, ZFeatureMap
 
     // General settings
-    set_batch_size 20         // Molecules per batch (default: 10)
+    set_batch_size 20         // Most molecules trained on, or chosen among by QAOA (default: 10)
     shots 1000                // Measurement shots (default: 100; QAOADiverseSelection: 1000 final shots)
     backend localBackend      // Quantum backend (required)
 
@@ -717,7 +721,7 @@ let fullConfigResult = drugDiscovery {
 }
 ```
 
-(`sdfProvider` and `asyncProvider` stand for dataset providers such as `SdfFileDatasetProvider`.)
+(`csvProvider` and `asyncProvider` stand for dataset providers that supply labels, such as `CsvSmilesDatasetProvider("molecules.csv", "SMILES", "Label")`.)
 
 ### Method 1: Quantum Kernel SVM
 
@@ -754,7 +758,7 @@ Train a Variational Quantum Classifier for molecular activity prediction.
 ```fsharp
 task {
     let! vqcResult = drugDiscovery {
-        load_candidates_from_file "compounds.sdf"
+        load_candidates_from_file "compounds.csv"  // CSV with SMILES and Label columns
         use_method VQCClassifier
         use_feature_map ZZFeatureMap
 
@@ -786,7 +790,7 @@ Select a diverse subset of high-value compounds within a budget using QAOA optim
 ```fsharp
 task {
     let! selectionResult = drugDiscovery {
-        load_candidates_from_file "compound_library.sdf"
+        load_candidates_from_file "compound_library.csv"  // CSV with SMILES and Label columns
         use_method QAOADiverseSelection
 
         // QAOA-specific configuration
@@ -806,12 +810,11 @@ task {
 }
 ```
 
-The selection runs on the first `set_batch_size` candidates, one qubit each, plus ⌊log2 budget⌋ + 1 slack qubits while the budget is below the batch size. A `selection_budget` at or above the batch size (the defaults are 10.0 and 10) does not bind: with non-negative activity values the best selection is then the whole batch, so set the budget below the batch size to select a subset. The message reports `Repaired to fit the budget` (the lowest-energy sample was over budget and compounds were dropped classically) and how many of the final samples were the returned selection and how many were within budget.
+The selection runs on the first `set_batch_size` candidates (the message says how many of the loaded molecules that is), one qubit each, plus ⌊log2 budget⌋ + 1 slack qubits while the budget is below the batch size. The value of a candidate is its activity label; a dataset without labels is an `Error`. A `selection_budget` at or above the batch size (the defaults are 10.0 and 10) does not bind: with non-negative activity values the best selection is then the whole batch, so set the budget below the batch size to select a subset. The message reports `Repaired to fit the budget` (the lowest-energy sample was over budget and compounds were dropped classically) and how many of the final samples were the returned selection and how many were within budget.
 
 **When to use:**
 - Building diverse screening libraries
 - Budget-constrained compound selection
-- Unlabeled candidate pools
 
 ### Example: Two-Stage Screening Pipeline
 
@@ -819,7 +822,7 @@ The selection runs on the first `set_batch_size` candidates, one qubit each, plu
 task {
     // Step 1: Initial classification with VQC
     let! classificationResult = drugDiscovery {
-        load_candidates_from_file "hit_compounds.sdf"
+        load_candidates_from_file "hit_compounds.csv"   // CSV with SMILES and Label columns
         use_method VQCClassifier
         vqc_layers 2
         vqc_max_epochs 50
@@ -829,7 +832,7 @@ task {
 
     // Step 2: Select diverse subset from classified hits
     let! diverseResult = drugDiscovery {
-        load_candidates_from_file "classified_hits.sdf"
+        load_candidates_from_file "classified_hits.csv" // Label column: the activity value of each hit
         use_method QAOADiverseSelection
         selection_budget 5.0        // At most 5 compounds (each costs 1)
         diversity_weight 0.5        // Equal weight to value and diversity
@@ -857,6 +860,8 @@ task {
 | FCIDump | .fcidump | `FciDumpFileDatasetProvider` |
 | CSV | .csv | `MolecularData.loadFromCsv` (columns `SMILES` and `Label`) |
 | SMILES | any other extension | `MolecularData.loadFromSmilesList` (one SMILES per line) |
+
+Only the CSV loader reads labels (the `Label` column). SDF/MOL, PDB, FCIDump and SMILES-list files load without labels, so screening them returns the missing-label `Error` for every method.
 
 ### Working Example
 
@@ -917,14 +922,14 @@ task {
 
 | Operation | Description | Default |
 |-----------|-------------|---------|
-| `person id` / `people ids` | Add people (at most 100) | required |
+| `person id` / `people ids` | Add people | required |
 | `connection p1 p2` / `connections pairs` | Add connections | none |
 | `findCommunities n`, `findLargestCommunity`, `findMonitorSet`, `findPairings` | Analysis mode | see below |
 | `useGrover` / `useQaoa` | Force an algorithm | automatic per mode |
 | `shots` | Measurement shots | 1000 |
 | `backend` | Quantum backend | `LocalBackend` |
 
-**Result — `SocialNetworkResult`:** `Communities` (each with `Members`, `Strength` - 1.0 for a clique - and `InternalConnections`), `MonitorSet`, `Pairings` (each with `Person1`, `Person2`, `Weight`), `TotalPeople`, `TotalConnections` and `Message`. Only the fields for the chosen mode are filled.
+**Result — `SocialNetworkResult`:** `Communities` (each with `Members`, `Strength` - 1.0 for a clique - and `InternalConnections`), `MonitorSet`, `Pairings` (each with `Person1`, `Person2`, `Weight`), `TotalPeople`, `TotalConnections` and `Message`. Only the fields for the chosen mode are filled. `IsValid`, `WasRepaired` and `Sampling` describe a QAOA answer: `WasRepaired = true` means the lowest-energy sample broke the rule of the analysis (not a clique, a connection uncovered, a person paired twice) and classical constraint repair changed it, and the message says so; `Sampling` counts the final samples that kept the rule (`Valid`) and those that are the returned answer (`Hits`). Grover's search returns `WasRepaired = false` and `Sampling = None`. A QAOA answer is the best sample, not a proven largest community, smallest monitor set or maximum matching.
 
 ### Example: Monitoring and Pairing
 
@@ -1036,7 +1041,7 @@ task {
 | `shots` | Measurement shots (default 1000) |
 | `backend` | Quantum backend (default `LocalBackend`) |
 
-**Result — `SchedulingResult`:** `BestSchedule: Schedule option` and `Message`. A `Schedule` has `Assignments` (each `Task`, `Resource`, `Cost`), `TotalCost`, hard/soft constraint counts (`HardConstraintsSatisfied`, `TotalHardConstraints`, `SoftConstraintsSatisfied`, `TotalSoftConstraints`) and `IsFeasible`.
+**Result — `SchedulingResult`:** `BestSchedule: Schedule option`, `Message`, `WasRepaired` and `Sampling`. `WasRepaired = true` (QAOA without capacities only) means the lowest-energy sample left constraints unsatisfied and classical constraint repair (greedy bit flips) produced the schedule; the message says so. `Sampling` counts the final QAOA samples that were feasible (`Valid`) and those that are the returned schedule (`Hits`); it is `None` for Grover's search. A `Schedule` has `Assignments` (each `Task`, `Resource`, `Cost`), `TotalCost`, hard/soft constraint counts (`HardConstraintsSatisfied`, `TotalHardConstraints`, `SoftConstraintsSatisfied`, `TotalSoftConstraints`) and `IsFeasible`.
 
 `IsFeasible` is true only when every task is on exactly one resource, no resource carries more tasks than its capacity, every hard constraint holds and the total cost is within `maxBudget` when one is set; otherwise `Message` names what is broken.
 
@@ -1117,7 +1122,9 @@ The `coverageOptimizer` computation expression builder is in `FSharp.Azure.Quant
 | `ElementsCovered` | `int` | Number of distinct elements covered |
 | `TotalElements` | `int` | Total elements that need coverage |
 | `IsComplete` | `bool` | Whether all elements are covered |
-| `Message` | `string` | Human-readable execution summary |
+| `Message` | `string` | Human-readable execution summary; says so when the cover was repaired |
+| `WasRepaired` | `bool` | `true` when the lowest-energy sample left elements uncovered and classical constraint repair completed the cover |
+| `Sampling` | `SampleStatistics option` | Standing of the selection among the final samples: `Valid` = samples that were complete covers, `Hits` = samples that are the returned selection (0 when only repair produced it) |
 
 **Minimal example:**
 
@@ -1180,7 +1187,11 @@ The `resourcePairing` computation expression builder is in `FSharp.Azure.Quantum
 | `ParticipantsPaired` | `int` | Number of participants that were paired |
 | `TotalParticipants` | `int` | Total number of participants |
 | `IsValid` | `bool` | Whether matching is valid (no participant in multiple pairs) |
-| `Message` | `string` | Human-readable execution summary |
+| `Message` | `string` | Human-readable execution summary; says so when the pairings were repaired |
+| `WasRepaired` | `bool` | `true` when the lowest-energy sample paired a participant more than once and classical constraint repair dropped the conflicting pairings |
+| `Sampling` | `SampleStatistics option` | Standing of the pairings among the final samples: `Valid` = samples that were matchings, `Hits` = samples that are the returned pairings (0 when only repair produced them) |
+
+The pairings are the best sampled matching, not a proven optimum.
 
 **Minimal example:**
 

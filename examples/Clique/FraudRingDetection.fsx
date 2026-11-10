@@ -45,9 +45,9 @@ open FSharp.Azure.Quantum.Quantum
 
 let accounts =
     [ "A"; "B"; "C"; "D"; "E"; "F"; "G" ]
-    |> List.map (fun id ->
+    |> List.map (fun pid ->
         {
-            QuantumCliqueSolver.Id = id
+            QuantumCliqueSolver.Id = pid
             QuantumCliqueSolver.Weight = 1.0
         })
 

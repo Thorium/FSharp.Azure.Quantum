@@ -155,8 +155,9 @@ let candidates, usingExternalInput =
 
         printfn "Loading candidates from: %s" resolved
 
-        // A CSV keeps its Label column (needed by the kernel SVM and VQC methods);
-        // a plain SMILES list has none, so only the QAOA selection can run on it.
+        // A CSV keeps its Label column: the kernel SVM and VQC methods train on it and the
+        // QAOA selection takes it as the activity score. A plain SMILES list has none, so
+        // every method returns an Error for it.
         let compounds =
             match Path.GetExtension(resolved).ToLowerInvariant() with
             | ".csv" ->
@@ -522,17 +523,17 @@ if not usingExternalInput && outputFile.IsNone && csvFile.IsNone then
     printfn " Try with your own data"
     printfn "============================================================"
     printfn ""
-    printfn "  # Screen a SMILES library with all methods:"
-    printfn "  dotnet fsi VirtualScreening.fsx -- --input library.smi --output results.json"
+    printfn "  # Screen a labelled library (CSV with SMILES and Label columns) with all methods:"
+    printfn "  dotnet fsi VirtualScreening.fsx -- --input compounds.csv --output results.json"
     printfn ""
     printfn "  # Run only QAOA diverse selection with custom budget:"
-    printfn "  dotnet fsi VirtualScreening.fsx -- --input library.smi --method qaoa --budget 8.0"
+    printfn "  dotnet fsi VirtualScreening.fsx -- --input compounds.csv --method qaoa --budget 8.0"
     printfn ""
     printfn "  # Quick kernel SVM screen, export CSV:"
     printfn "  dotnet fsi VirtualScreening.fsx -- --input compounds.csv --method kernel --csv hits.csv --quiet"
     printfn ""
     printfn "  # Pipeline: VirtualScreening -> ADMET filtering:"
-    printfn "  dotnet fsi VirtualScreening.fsx -- --input library.smi --output hits.json"
+    printfn "  dotnet fsi VirtualScreening.fsx -- --input compounds.csv --output hits.json"
     printfn "  dotnet fsi ADMETPrediction.fsx -- --input hits.json --csv final_candidates.csv"
     printfn ""
 
@@ -540,12 +541,8 @@ if not usingExternalInput && outputFile.IsNone && csvFile.IsNone then
 // ADVANCED: Using Different Data Providers
 // ==============================================================================
 (*
-// SDF file with 3D structures
-let sdfResult = drugDiscovery {
-    load_candidates_from_file "library.sdf"
-    use_method VQCClassifier
-    backend localBackend
-}
+// Every screening method needs activity labels. A CSV with a "Label" column has them; the
+// SDF, MOL and PDB loaders return unlabelled molecules, and screening those is an Error.
 
 // CSV with SMILES and labels
 let csvResult = drugDiscovery {
@@ -554,7 +551,14 @@ let csvResult = drugDiscovery {
     backend localBackend
 }
 
-// Using a provider directly
+// SDF file with 3D structures: loads, then returns the "labels" ValidationError
+let sdfResult = drugDiscovery {
+    load_candidates_from_file "library.sdf"
+    use_method VQCClassifier
+    backend localBackend
+}
+
+// Using a provider directly: same rule, the SDF provider's dataset has no labels
 open FSharp.Azure.Quantum.Data.ChemistryDataProviders
 
 let sdfProvider = SdfFileDatasetProvider("molecules.sdf")

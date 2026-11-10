@@ -956,9 +956,9 @@ module TaskSchedulingTests =
         {
             Tasks =
                 instance.Tasks
-                |> List.map (fun (id, slots, needs) ->
+                |> List.map (fun (pid, slots, needs) ->
                     ({
-                        Id = id
+                        Id = pid
                         Value = None
                         Duration = minutes (float slots * gridSlotMinutes)
                         EarliestStart = None
@@ -970,9 +970,9 @@ module TaskSchedulingTests =
                     : ScheduledTask<unit>))
             Resources =
                 instance.Capacities
-                |> List.map (fun (id, capacity) ->
+                |> List.map (fun (pid, capacity) ->
                     ({
-                        Id = id
+                        Id = pid
                         Value = None
                         Capacity = capacity
                         AvailableWindows = [ (0.0, 1e6) ]
@@ -1001,8 +1001,8 @@ module TaskSchedulingTests =
             None
 
     let private gridFeasible (instance: GridInstance) (starts: int[]) : bool =
-        let index id =
-            instance.Tasks |> List.findIndex (fun (taskId, _, _) -> taskId = id)
+        let index pid =
+            instance.Tasks |> List.findIndex (fun (taskId, _, _) -> taskId = pid)
 
         let slotsOf t =
             let (_, slots, _) = instance.Tasks.[t]
@@ -1024,7 +1024,7 @@ module TaskSchedulingTests =
                         |> List.mapi (fun t (_, slots, needs) ->
                             if starts.[t] <= slot && slot < starts.[t] + slots then
                                 needs
-                                |> List.sumBy (fun (id, amount) -> if id = resourceId then amount else 0.0)
+                                |> List.sumBy (fun (pid, amount) -> if pid = resourceId then amount else 0.0)
                             else
                                 0.0)
                         |> List.sum
@@ -1253,8 +1253,8 @@ module TaskSchedulingTests =
                 // Whatever was sampled, the schedule returned is feasible on the grid
                 let starts =
                     sharedResourceInstance.Tasks
-                    |> List.map (fun (id, _, _) ->
-                        let assignment = solution.Assignments |> List.find (fun a -> a.TaskId = id)
+                    |> List.map (fun (pid, _, _) ->
+                        let assignment = solution.Assignments |> List.find (fun a -> a.TaskId = pid)
                         int (System.Math.Round(assignment.StartTime.TotalMinutes / gridSlotMinutes)))
                     |> List.toArray
 

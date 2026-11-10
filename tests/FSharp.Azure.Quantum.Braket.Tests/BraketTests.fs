@@ -1,13 +1,22 @@
 namespace FSharp.Azure.Quantum.Braket.Tests
 
+open System
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
+open Amazon
+open Amazon.Braket
+open Amazon.Braket.Model
+open Amazon.Runtime
+open Amazon.S3
+open Amazon.S3.Model
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Braket
 open FSharp.Azure.Quantum.Core
 
-/// Tests for the pure AWS Braket helpers (action wrapping, result parsing, device ARNs).
-/// The submission flow (BraketExecution) needs AWS credentials and isn't CI-testable.
+/// Tests for the pure AWS Braket helpers (action wrapping, result parsing, device ARNs) and
+/// for the submission flow (BraketExecution) against stub clients: no test calls AWS.
 module BraketTests =
 
     [<Fact>]
@@ -156,7 +165,7 @@ module BraketTests =
             BackendAbstraction.UnifiedBackend.getMaxQubits (backendWith Braket.Devices.infleqtionSqale 24)
         )
 
-        Assert.Throws<System.ArgumentException>(fun () -> backendWith Braket.Devices.sv1 0 |> ignore)
+        Assert.Throws<ArgumentException>(fun () -> backendWith Braket.Devices.sv1 0 |> ignore)
         |> ignore
 
     [<Fact>]
@@ -188,3 +197,179 @@ module BraketTests =
                 null
             ] do
             Assert.Equal(ValueNone, Braket.Devices.qubitCountOfCapabilities document)
+
+    // ------------------------------------------------------------------------
+    // BraketExecution.submitActionAsync against stub clients (no AWS call is made)
+    // ------------------------------------------------------------------------
+
+    [<Literal>]
+    let private taskArn = "arn:aws:braket:us-east-1:000000000000:quantum-task/stub"
+
+    let private s3Config: BraketExecution.S3Config = { Bucket = "b"; KeyPrefix = "k" }
+
+    /// Braket client stub: creating a task returns taskArn, status requests go to `status`
+    /// and cancellation requests to `cancel`.
+    let private stubBraket
+        (status: unit -> GetQuantumTaskResponse)
+        (cancel: CancelQuantumTaskRequest -> CancelQuantumTaskResponse)
+        : AmazonBraketClient =
+        { new AmazonBraketClient(AnonymousAWSCredentials(), RegionEndpoint.USEast1) with
+            override _.CreateQuantumTaskAsync(_: CreateQuantumTaskRequest, _: CancellationToken) =
+                Task.FromResult(CreateQuantumTaskResponse(QuantumTaskArn = taskArn))
+
+            override _.GetQuantumTaskAsync(_: GetQuantumTaskRequest, _: CancellationToken) =
+                try
+                    Task.FromResult(status ())
+                with ex ->
+                    Task.FromException<GetQuantumTaskResponse> ex
+
+            override _.CancelQuantumTaskAsync(request: CancelQuantumTaskRequest, _: CancellationToken) =
+                try
+                    Task.FromResult(cancel request)
+                with ex ->
+                    Task.FromException<CancelQuantumTaskResponse> ex
+        }
+
+    /// S3 client stub that serves `json` for every object.
+    let private stubS3 (json: string) : AmazonS3Client =
+        { new AmazonS3Client(AnonymousAWSCredentials(), RegionEndpoint.USEast1) with
+            override _.GetObjectAsync(_: string, _: string, _: CancellationToken) =
+                Task.FromResult(
+                    new GetObjectResponse(
+                        ResponseStream = new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes json)
+                    )
+                )
+        }
+
+    let private taskIn (status: QuantumTaskStatus) =
+        GetQuantumTaskResponse(Status = status, OutputS3Bucket = "b", OutputS3Directory = "k/stub")
+
+    /// Counts the cancellation requests and accepts them.
+    let private acceptCancel (requests: int ref) (request: CancelQuantumTaskRequest) =
+        Assert.Equal(taskArn, request.QuantumTaskArn)
+        requests.Value <- requests.Value + 1
+        CancelQuantumTaskResponse(QuantumTaskArn = taskArn, CancellationStatus = CancellationStatus.CANCELLING)
+
+    let private submit
+        (braket: AmazonBraketClient)
+        (s3: AmazonS3Client)
+        (timeout: TimeSpan)
+        (ct: CancellationToken)
+        =
+        BraketExecution.submitActionAsync
+            braket
+            s3
+            s3Config
+            Braket.Devices.sv1
+            (Braket.openQasmAction "OPENQASM 3.0;")
+            10
+            Braket.parseGateResult
+            (TimeSpan.FromMilliseconds 1.0)
+            timeout
+            ct
+
+    let private expectTaskError (result: Result<Map<string, int>, QuantumError>) : string =
+        match result with
+        | Error(QuantumError.OperationError("Braket", message)) ->
+            Assert.Contains(taskArn, message)
+            message
+        | other -> failwith $"expected a Braket error naming the task, got %A{other}"
+
+    [<Fact>]
+    let ``A completed task returns its histogram and is not cancelled`` () : Task =
+        task {
+            let cancels = ref 0
+            use braket = stubBraket (fun () -> taskIn QuantumTaskStatus.COMPLETED) (acceptCancel cancels)
+            use s3 = stubS3 """{ "measurements": [ [0,0], [1,1], [1,1] ] }"""
+
+            let! result = submit braket s3 (TimeSpan.FromMinutes 1.0) CancellationToken.None
+
+            Assert.Equal(Ok(Map [ "00", 1; "11", 2 ]), result)
+            Assert.Equal(0, cancels.Value)
+        }
+
+    [<Fact>]
+    let ``A task that times out is cancelled and named in the Error`` () : Task =
+        task {
+            let cancels = ref 0
+            use braket = stubBraket (fun () -> taskIn QuantumTaskStatus.RUNNING) (acceptCancel cancels)
+            use s3 = stubS3 "{}"
+
+            let! result = submit braket s3 (TimeSpan.FromMilliseconds 20.0) CancellationToken.None
+
+            let message = expectTaskError result
+            Assert.Contains("did not complete", message)
+            Assert.Contains("cancellation request was accepted", message)
+            Assert.Equal(1, cancels.Value)
+        }
+
+    [<Fact>]
+    let ``A refused cancellation says the task may still run`` () : Task =
+        task {
+            use braket =
+                stubBraket (fun () -> taskIn QuantumTaskStatus.QUEUED) (fun _ -> failwith "cancel is not allowed")
+
+            use s3 = stubS3 "{}"
+
+            let! result = submit braket s3 (TimeSpan.FromMilliseconds 20.0) CancellationToken.None
+
+            let message = expectTaskError result
+            Assert.Contains("not accepted", message)
+            Assert.Contains("cancel is not allowed", message)
+            Assert.Contains("may still run and bill", message)
+        }
+
+    [<Fact>]
+    let ``A failed status request keeps the task ARN and cancels the task`` () : Task =
+        task {
+            let cancels = ref 0
+            use braket = stubBraket (fun () -> failwith "throttled") (acceptCancel cancels)
+            use s3 = stubS3 "{}"
+
+            let! result = submit braket s3 (TimeSpan.FromMinutes 1.0) CancellationToken.None
+
+            let message = expectTaskError result
+            Assert.Contains("throttled", message)
+            Assert.DoesNotContain("submission failed", message)
+            Assert.Equal(1, cancels.Value)
+        }
+
+    [<Fact>]
+    let ``A cancellation by the caller cancels the task and names it`` () : Task =
+        task {
+            let cancels = ref 0
+            use braket = stubBraket (fun () -> taskIn QuantumTaskStatus.RUNNING) (acceptCancel cancels)
+            use s3 = stubS3 "{}"
+            use cts = new CancellationTokenSource()
+            do! cts.CancelAsync()
+
+            let! result = submit braket s3 (TimeSpan.FromMinutes 1.0) cts.Token
+
+            let message = expectTaskError result
+            Assert.Contains("cancelled by the caller", message)
+            Assert.Contains("cancellation request was accepted", message)
+            Assert.Equal(1, cancels.Value)
+        }
+
+    [<Fact>]
+    let ``A result of an unrecognised shape is an Error, not an empty histogram`` () : Task =
+        task {
+            Assert.Throws<FormatException>(fun () ->
+                Braket.parseGateResult """{ "taskMetadata": {} }""" |> ignore)
+            |> ignore
+
+            Assert.Throws<FormatException>(fun () ->
+                Braket.parseGateResult """{ "measurementProbabilities": 3 }""" |> ignore)
+            |> ignore
+
+            let cancels = ref 0
+            use braket = stubBraket (fun () -> taskIn QuantumTaskStatus.COMPLETED) (acceptCancel cancels)
+            use s3 = stubS3 """{ "taskMetadata": {} }"""
+
+            let! result = submit braket s3 (TimeSpan.FromMinutes 1.0) CancellationToken.None
+
+            let message = expectTaskError result
+            Assert.Contains("could not be parsed", message)
+            // The task completed: there is nothing left to cancel.
+            Assert.Equal(0, cancels.Value)
+        }

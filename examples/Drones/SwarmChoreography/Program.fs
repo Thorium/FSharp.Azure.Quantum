@@ -3506,6 +3506,9 @@ module Program =
             printfn "║    --shots <n>       Number of measurements      ║"
             printfn "║    --export          Export Crazyflie Python     ║"
             printfn "║    --mavlink         Export MAVLink (ArduPilot)  ║"
+            printfn "║    --export-on-fail  Export although the         ║"
+            printfn "║                      evidence FAILed (marked);   ║"
+            printfn "║                      refused without it          ║"
             printfn "║    --scale <f>       Scale factor (default:      ║"
             printfn "║                      automatic, both exports)    ║"
             printfn "║    --duration <s>    Transition time (default 3) ║"
@@ -3958,8 +3961,9 @@ This example is **RULE 1 compliant**:
                              |}))
                         1.0 // already in metres
                         transitionDuration)
-            // Export to Crazyflie Python if requested
-            if Cli.hasFlag "export" args then
+            // The Crazyflie Python export. Called only once the indoor show's evidence
+            // pack lets it through (see the export gate at the end).
+            let writeCrazyflieExport () =
                 printfn ""
                 printfn "╔══════════════════════════════════════════════════╗"
                 printfn "║  CRAZYFLIE EXPORT                                ║"
@@ -3999,6 +4003,14 @@ This example is **RULE 1 compliant**:
                 printfn "  2. Set up Lighthouse/Loco positioning"
                 printfn "  3. Update DRONE_URIS in the Python script"
                 printfn "  4. Run: python %s" pythonPath
+                pythonPath
+
+            // Where the MAVLink export ends up, and where it is written first: the
+            // evidence reads the exported files back, so they are written to a staging
+            // folder, checked there, and moved to `mavlink` only when the gate lets them
+            // through. A plan that failed its checks leaves no mission behind.
+            let mavlinkFinalDir = Path.Combine(outDir, "mavlink")
+            let mavlinkStagingDir = Path.Combine(outDir, "mavlink.unchecked")
 
             // Export to MAVLink if requested (can be combined with Crazyflie export)
             let mavlinkSwarm =
@@ -4040,7 +4052,11 @@ This example is **RULE 1 compliant**:
                                 Altitude = homeAlt
                             }
 
-                        let mavlinkDir = Path.Combine(outDir, "mavlink")
+                        let mavlinkDir = mavlinkStagingDir
+
+                        if Directory.Exists mavlinkDir then
+                            Directory.Delete(mavlinkDir, true)
+
                         let transitionSpeed = mavlinkCruiseMs
                         let numDrones = formationsForExport.[0].Positions.Length
 
@@ -4084,6 +4100,61 @@ This example is **RULE 1 compliant**:
                                 (Safety.minSwarmSeparationMeters * outdoorScaleMargin)
                                 "Quantum (QAOA)"
 
+                        Some swarm
+
+            let buildEvidence (flown: Evidence.Flown) =
+                Evidence.build
+                    backend
+                    shots
+                    (max 1 (Cli.getIntOr "pilots" 1 args))
+                    (Cli.getFloatOr "endurance-min" (Evidence.defaultEnduranceMin flown) args)
+                    formations
+                    flown
+
+            // The Crazyflie show's own pack: the run's pack when no MAVLink mission is
+            // exported, and the pack that gates the Crazyflie export in every run.
+            let indoorEvidence =
+                lazy (buildEvidence (Evidence.Indoor(show.Value, indoorPlan.Value, roomX, roomY)))
+
+            // 1:N permission evidence, on exactly what is exported: the MAVLink
+            // missions (read back from the staging folder) when there are any,
+            // otherwise the Crazyflie show.
+            let evidence =
+                match mavlinkSwarm with
+                | Some swarm -> buildEvidence (Evidence.Outdoor(swarm, outdoorScale, mavlinkStagingDir))
+                | None -> indoorEvidence.Value
+
+            FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.print evidence
+            FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.write outDir evidence
+
+            // Export gate: a plan that failed its own evidence pack is not exported,
+            // unless --export-on-fail is given; the files are then marked as failed.
+            let overrideOnFail =
+                Cli.hasFlag FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.exportOnFailFlag args
+
+            let mavlinkRefused =
+                match mavlinkSwarm with
+                | None -> false
+                | Some _ ->
+                    let exportGate =
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.gate overrideOnFail evidence
+
+                    FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.printGate "MAVLink export" exportGate
+
+                    if FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.exports exportGate then
+                        if Directory.Exists mavlinkFinalDir then
+                            Directory.Delete(mavlinkFinalDir, true)
+
+                        Directory.Move(mavlinkStagingDir, mavlinkFinalDir)
+
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.markOverridden
+                            mavlinkFinalDir
+                            [ Path.Combine(mavlinkFinalDir, "mavlink_show.fsx") ]
+                            [ Path.Combine(mavlinkFinalDir, "README.md") ]
+                            exportGate
+
+                        printfn ""
+                        printfn "MAVLink export: %s" mavlinkFinalDir
                         printfn ""
                         printfn "To use with ArduPilot/PX4 drones:"
                         printfn "  Option 1 - QGroundControl:"
@@ -4097,27 +4168,42 @@ This example is **RULE 1 compliant**:
                         printfn ""
                         printfn "  Lights: not in the missions (an ArduPilot mission has no light command);"
                         printfn "  the formation colours are in the Crazyflie export (--export)."
-                        Some swarm
+                        false
+                    else
+                        Directory.Delete(mavlinkStagingDir, true)
+                        true
 
-            // 1:N permission evidence, on exactly what was exported: the MAVLink
-            // missions when there are any, otherwise the Crazyflie show.
-            let flown =
-                match mavlinkSwarm with
-                | Some swarm -> Evidence.Outdoor(swarm, outdoorScale, Path.Combine(outDir, "mavlink"))
-                | None -> Evidence.Indoor(show.Value, indoorPlan.Value, roomX, roomY)
+            let crazyflieRefused =
+                if not (Cli.hasFlag "export" args) then
+                    false
+                else
+                    // With MAVLink missions in the same run the pack written to disk is
+                    // theirs; the Crazyflie show is gated on its own pack, shown here.
+                    if mavlinkSwarm.IsSome then
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.print indoorEvidence.Value
 
-            let evidence =
-                Evidence.build
-                    backend
-                    shots
-                    (max 1 (Cli.getIntOr "pilots" 1 args))
-                    (Cli.getFloatOr "endurance-min" (Evidence.defaultEnduranceMin flown) args)
-                    formations
-                    flown
+                    let exportGate =
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.gate overrideOnFail indoorEvidence.Value
 
-            FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.print evidence
-            FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.write outDir evidence
+                    FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.printGate "Crazyflie export" exportGate
+
+                    if FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.exports exportGate then
+                        let pythonPath = writeCrazyflieExport ()
+
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.markOverridden
+                            outDir
+                            [ pythonPath ]
+                            []
+                            exportGate
+
+                        false
+                    else
+                        true
 
             printfn ""
             printfn "Results written to: %s" outDir
-            0
+
+            if mavlinkRefused || crazyflieRefused then
+                FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.refusedExitCode
+            else
+                0

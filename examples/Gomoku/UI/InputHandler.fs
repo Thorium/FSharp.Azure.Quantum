@@ -195,7 +195,7 @@ module InputHandler =
                     fun _ ->
                         let mutable escape = false
 
-                        while not search.IsCompleted && not escape do
+                        while not (search.IsCompleted || escape) do
                             if keyAvailable () then
                                 escape <- Console.ReadKey(true).Key = ConsoleKey.Escape
                             else

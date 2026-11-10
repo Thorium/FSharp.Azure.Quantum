@@ -28,6 +28,12 @@ namespace KasinoExample
     /// </summary>
     internal sealed class Program
     {
+        /// <summary>
+        /// Number of Knapsack solves that returned an Error (for example when no sampled
+        /// selection fits the capacity).
+        /// </summary>
+        private static int solverErrors;
+
         private Program()
         {
         }
@@ -53,7 +59,15 @@ namespace KasinoExample
             Example4_RealKasinoCapture();
             Console.WriteLine();
 
-            Console.WriteLine("✅ All examples completed successfully!");
+            if (solverErrors == 0)
+            {
+                Console.WriteLine("✅ All examples completed successfully!");
+            }
+            else
+            {
+                Console.WriteLine($"❌ {solverErrors} capture search(es) returned a solver error (printed above).");
+            }
+
             Console.WriteLine();
             Console.WriteLine("🎯 Key Takeaways:");
             Console.WriteLine("  • Clean C# API with GlobalUsings - no F# interop boilerplate!");
@@ -114,6 +128,7 @@ namespace KasinoExample
             {
                 var error = result.GetErrorValue();
                 Console.WriteLine($"❌ No valid capture: {error}");
+                solverErrors++;
             }
         }
 
@@ -171,6 +186,7 @@ namespace KasinoExample
             {
                 var error = result.GetErrorValue();
                 Console.WriteLine($"❌ No valid capture: {error}");
+                solverErrors++;
             }
         }
 
@@ -224,7 +240,8 @@ namespace KasinoExample
                 }
                 else
                 {
-                    Console.WriteLine($"   ❌ No valid capture");
+                    Console.WriteLine($"   ❌ No valid capture: {result.GetErrorValue()}");
+                    solverErrors++;
                 }
 
                 Console.WriteLine();
@@ -267,7 +284,8 @@ namespace KasinoExample
                 // Create problem
                 var problem = KnapsackProblem(tableCards, capacity: scenario.HandValue);
 
-                // Use NEW findAllValidCombinations to find ALL combinations
+                // Classical enumeration of every combination. FindAllValidCombinationsAsync(problem, backend)
+                // samples them with QAOA and can miss a combination that is never sampled.
                 var (combinations, allCapturedItems, combinationCount) = CSharpBuilders.FindAllValidCombinations(problem);
 
                 Console.WriteLine($"   🔍 Found {combinationCount} valid combination(s):");

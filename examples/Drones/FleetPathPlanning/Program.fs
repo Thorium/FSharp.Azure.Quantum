@@ -2870,6 +2870,9 @@ module Program =
             printfn "║    --rtl-base-m <m>    Fallback layer of 1st sortie (60)   ║"
             printfn "║    --rtl-step-m <m>    Layer step between sorties (10)     ║"
             printfn "║    --mavlink           Write ArduPilot missions + launcher ║"
+            printfn "║                        (refused when the evidence FAILs)   ║"
+            printfn "║    --export-on-fail    Write them although it FAILed,      ║"
+            printfn "║                        marked as failed                    ║"
             printfn "║    --home-alt <m>      Base ground above MSL (0)           ║"
             printfn "║    --help              Show this help                      ║"
             printfn "╚════════════════════════════════════════════════════════════╝"
@@ -3124,14 +3127,32 @@ module Program =
                     FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.print evidence
 
                     // The plan as ArduPilot missions, flying exactly the checked tracks.
+                    // A plan that failed its own evidence pack is not exported, unless
+                    // --export-on-fail is given; the files are then marked as failed.
+                    let exportGate =
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.gate
+                            (Cli.hasFlag FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.exportOnFailFlag args)
+                            evidence
+
+                    let exportRefused =
+                        Cli.hasFlag "mavlink" args
+                        && not (FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.exports exportGate)
+
                     if Cli.hasFlag "mavlink" args then
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.printGate "MAVLink export" exportGate
+
+                    if Cli.hasFlag "mavlink" args && not exportRefused then
                         let homeAltM = floatOpt "home-alt" 0.0
                         let n = Export.write outDir settings dronesArr sorties homeAltM
+                        let dir = Path.Combine(outDir, "mavlink")
 
-                        printfn
-                            "  %d ArduPilot mission(s) and the launcher written to %s"
-                            n
-                            (Path.Combine(outDir, "mavlink"))
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.markOverridden
+                            dir
+                            [ Path.Combine(dir, "mavlink_show.fsx") ]
+                            []
+                            exportGate
+
+                        printfn "  %d ArduPilot mission(s) and the launcher written to %s" n dir
 
                     // The plan's own figures: the longest sortie's flight
                     // (they fly in parallel) and the battery all of them use.
@@ -3281,7 +3302,11 @@ The **HybridSolver** automatically selects:
 
                     printfn ""
                     printfn "Results written to: %s" outDir
-                    0
+
+                    if exportRefused then
+                        FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.refusedExitCode
+                    else
+                        0
                 else
                     printfn "❌ Optimization failed"
                     1

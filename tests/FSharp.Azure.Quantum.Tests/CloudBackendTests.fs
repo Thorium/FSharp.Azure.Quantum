@@ -278,6 +278,9 @@ module CloudBackendTests =
     // UNROUTE HISTOGRAM TESTS
     // ============================================================================
 
+    let private expectUnrouted (result: Result<Map<string, int>, QuantumError>) : Map<string, int> =
+        result |> Result.defaultWith (fun e -> failwith $"expected Ok, got {e.Message}")
+
     [<Fact>]
     let ``unrouteHistogram permutes bits back to logical order`` () =
         // Routing left logical 0 on physical 2 and logical 2 on physical 0
@@ -286,7 +289,7 @@ module CloudBackendTests =
         let mapping = [| 2; 1; 0 |]
         let histogram = Map.ofList [ ("001", 700); ("100", 300) ]
 
-        let result = CloudBackendHelpers.unrouteHistogram mapping 3 histogram
+        let result = CloudBackendHelpers.unrouteHistogram mapping 3 histogram |> expectUnrouted
 
         Assert.Equal(700, result.["100"])
         Assert.Equal(300, result.["001"])
@@ -296,9 +299,42 @@ module CloudBackendTests =
         let mapping = [| 0; 1 |]
         let histogram = Map.ofList [ ("00", 480); ("11", 520) ]
 
-        let result = CloudBackendHelpers.unrouteHistogram mapping 2 histogram
+        let result = CloudBackendHelpers.unrouteHistogram mapping 2 histogram |> expectUnrouted
 
         Assert.Equal<Map<string, int>>(histogram, result)
+
+    [<Fact>]
+    let ``unrouteHistogram reads a logical qubit resting beyond the logical width`` () =
+        // 5 logical qubits on a 3x3 grid: logical 4 ended on physical 5, logical 2 on physical 4.
+        // The 6-bit physical key "100000" (physical 5 = 1) is logical "10000" (logical 4 = 1).
+        let mapping = [| 0; 1; 4; 3; 5; 2; 6; 7; 8 |]
+        let histogram = Map.ofList [ ("100000", 90); ("010000", 10) ]
+
+        let result = CloudBackendHelpers.unrouteHistogram mapping 5 histogram |> expectUnrouted
+
+        Assert.Equal(90, result.["10000"])
+        Assert.Equal(10, result.["00100"])
+        Assert.Equal(2, result.Count)
+
+    [<Fact>]
+    let ``unrouteHistogram is an Error when a logical qubit's bit is not in the result`` () =
+        // Logical 4 sits on physical 5, and the result carries bits for physical 0-4 only.
+        let mapping = [| 0; 1; 4; 3; 5; 2; 6; 7; 8 |]
+        let histogram = Map.ofList [ ("00000", 100) ]
+
+        match CloudBackendHelpers.unrouteHistogram mapping 5 histogram with
+        | Ok result -> Assert.Fail($"a missing bit must not be read as 0, got %A{result}")
+        | Error(QuantumError.OperationError(_, message)) ->
+            Assert.Contains("logical qubit 4", message)
+            Assert.Contains("physical qubit 5", message)
+        | Error e -> Assert.Fail($"expected OperationError, got {e.Message}")
+
+    [<Fact>]
+    let ``unrouteHistogram is an Error when the mapping is shorter than the logical width`` () =
+        match CloudBackendHelpers.unrouteHistogram [| 1; 0 |] 3 (Map.ofList [ ("000", 1) ]) with
+        | Ok result -> Assert.Fail($"expected an Error, got %A{result}")
+        | Error(QuantumError.ValidationError _) -> ()
+        | Error e -> Assert.Fail($"expected ValidationError, got {e.Message}")
 
     [<Fact>]
     let ``unrouteHistogram drops swapped-through device qubits and merges counts`` () =
@@ -308,7 +344,7 @@ module CloudBackendTests =
         let mapping = [| 0; 2; 1 |]
         let histogram = Map.ofList [ ("101", 400); ("111", 100); ("000", 500) ]
 
-        let result = CloudBackendHelpers.unrouteHistogram mapping 2 histogram
+        let result = CloudBackendHelpers.unrouteHistogram mapping 2 histogram |> expectUnrouted
 
         Assert.Equal(500, result.["11"])
         Assert.Equal(500, result.["00"])

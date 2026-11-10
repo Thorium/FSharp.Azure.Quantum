@@ -56,6 +56,12 @@ module DWaveTypes =
         | Advantage_System1_1 -> 5000
         | DW_2000Q_6 -> 2048
 
+    /// Most reads (anneals) one problem submission takes: the upper end of the
+    /// `num_reads_range` solver property D-Wave documents for its QPU solvers ([1, 10000]).
+    /// The real backend takes the range the solver itself reports and uses this figure when
+    /// the solver reports none; the mock always uses it.
+    let maxReadsPerExecution = 10000
+
     // ============================================================================
     // ANNEALING SCHEDULE TYPES
     // ============================================================================

@@ -540,9 +540,9 @@ module ConstraintSchedulerTests =
             Tasks = tasks
             Resources =
                 resources
-                |> List.map (fun (id, cost, capacity) ->
+                |> List.map (fun (pid, cost, capacity) ->
                     {
-                        Id = id
+                        Id = pid
                         Cost = cost
                         Capacity = capacity
                     })
@@ -795,3 +795,82 @@ module ConstraintSchedulerTests =
                         perTask |> List.forall (fun rs -> rs.Length = 1),
                         $"%A{problem.HardConstraints}: a ground state puts the tasks on %A{perTask}"
                     )
+
+    [<Fact>]
+    let ``QAOA SAT schedule says whether it was repaired and how it was sampled`` () =
+        task {
+            let problem =
+                { problemOf
+                      MaximizeSatisfaction
+                      [ "T1"; "T2" ]
+                      [ "R1", 1.0, None; "R2", 1.0, None ]
+                      [ Conflict("T1", "T2") ] with
+                    Backend = Some(LocalBackend.LocalBackend() :> IQuantumBackend)
+                    Strategy = Some QaoaOptimize
+                }
+
+            match! ConstraintScheduler.solveAsync problem CancellationToken.None with
+            | Error e -> Assert.Fail($"QAOA SAT scheduling failed: %A{e}")
+            | Ok r ->
+                match r.Sampling with
+                | None -> Assert.Fail("no sampling statistics")
+                | Some stats ->
+                    Assert.Equal(200, stats.Shots)
+                    Assert.Equal(4, stats.Qubits)
+
+                    // A repaired schedule is not claimed as found by sampling
+                    if r.WasRepaired then
+                        Assert.Contains("repair", r.Message)
+                        Assert.DoesNotContain("Found feasible", r.Message)
+                    else
+                        Assert.DoesNotContain("repair", r.Message)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``capacity QAOA schedule is a measured sample with its statistics`` () =
+        task {
+            let problem =
+                { problemOf MinimizeCost [ "T1"; "T2" ] [ "R1", 1.0, Some 1; "R2", 2.0, Some 1 ] [] with
+                    Backend = Some(LocalBackend.LocalBackend() :> IQuantumBackend)
+                }
+
+            match! ConstraintScheduler.solveAsync problem CancellationToken.None with
+            | Error e -> Assert.Fail($"capacity scheduling failed: %A{e}")
+            | Ok r ->
+                Assert.False(r.WasRepaired)
+
+                match r.Sampling, r.BestSchedule with
+                | Some stats, Some schedule ->
+                    Assert.Equal(200, stats.Shots)
+                    Assert.InRange(stats.Hits, 1, stats.Shots)
+
+                    // A feasible pick is one of the feasible samples
+                    if schedule.IsFeasible then
+                        Assert.InRange(stats.Valid, stats.Hits, stats.Shots)
+                    else
+                        Assert.Equal(0, stats.Valid)
+                | _ -> Assert.Fail("no sampling statistics or no schedule")
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Grover schedule reports no repair and no QAOA sample statistics`` () =
+        task {
+            let problem =
+                { problemOf
+                      MaximizeSatisfaction
+                      [ "T1"; "T2" ]
+                      [ "R1", 1.0, None; "R2", 1.0, None ]
+                      [ Conflict("T1", "T2") ] with
+                    Backend = Some(LocalBackend.LocalBackend() :> IQuantumBackend)
+                    Strategy = Some GroverSearch
+                }
+
+            match! ConstraintScheduler.solveAsync problem CancellationToken.None with
+            | Error e -> Assert.Fail($"Grover scheduling failed: %A{e}")
+            | Ok r ->
+                Assert.False(r.WasRepaired)
+                Assert.True(r.Sampling.IsNone)
+        }
+        :> Task
